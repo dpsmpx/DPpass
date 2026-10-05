@@ -10,6 +10,7 @@ import com.dpsmpx.dppass.engine.EngineState
 import com.dpsmpx.dppass.engine.ProxyEngine
 import com.dpsmpx.dppass.engine.TrafficStats
 import com.dpsmpx.dppass.engine.TunInput
+import com.dpsmpx.dppass.routing.DnsPolicy
 
 /**
  * [ProxyEngine] поверх моста Xray (D-25). Как и мост, держит одну сессию:
@@ -66,6 +67,20 @@ class XrayProxyEngine(private val runtime: Outcome<XrayRuntime>) : ProxyEngine {
             current = session
             return Outcome.Success(session)
         }
+    }
+
+    /**
+     * Проверка здоровья запущенной сессии (D-15, D-32): запрос DNS через
+     * сервер профиля к DNS-серверу [dns], идущему через туннель
+     * ([XrayHealth]). Блокирует поток не дольше [timeoutMillis].
+     */
+    fun probeHealth(dns: DnsPolicy, timeoutMillis: Int): Outcome<Unit> {
+        val rt = when (runtime) {
+            is Outcome.Failure -> return unavailable()
+            is Outcome.Success -> runtime.value
+        }
+        val (server, target) = XrayHealth.target(dns) ?: return XrayHealth.skipped()
+        return XrayHealth.outcome(server, rt.probeDns(target, timeoutMillis))
     }
 
     /** Отказ моста → диагностика с кодом по виду отказа и текстом ядра в причине. */

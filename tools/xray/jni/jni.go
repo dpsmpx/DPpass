@@ -13,7 +13,10 @@
 //     неполной проверки, иначе bridge.Kind), остальное — текст ошибки ядра
 //     (с возможными секретами; редактирует вызывающий);
 //   - защитник — объект com.dpsmpx.dppass.engine.SocketProtector: метод
-//     protect(int) зовётся из потоков Go, исключение в нём — отказ.
+//     protect(int) зовётся из потоков Go, исключение в нём — отказ;
+//   - проба DNS (D-32) отвечает своим форматом: исход (bridge.ProbeOutcome),
+//     время до ответа в мс и число пришедших байт — по 4 байта, старшим
+//     вперёд, — затем текст ошибки.
 package main
 
 /*
@@ -108,8 +111,10 @@ static int dppass_protect(jobject p, int fd) {
 import "C"
 
 import (
+	"encoding/binary"
 	"errors"
 	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/dpsmpx/dppass/tools/xray/bridge"
@@ -234,4 +239,16 @@ func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeTraffic(env *C.JNIEnv, _ C
 		return 0
 	}
 	return C.dppass_new_longs(env, C.jlong(up), C.jlong(down))
+}
+
+//export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeProbeDns
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeProbeDns(env *C.JNIEnv, _ C.jclass, target C.jbyteArray, timeoutMillis C.jint) C.jbyteArray {
+	r := bridge.ProbeDNS(string(bytesOf(env, target)), time.Duration(timeoutMillis)*time.Millisecond)
+	out := []byte{byte(r.Outcome)}
+	out = binary.BigEndian.AppendUint32(out, uint32(min(r.Elapsed.Milliseconds(), 1<<31-1)))
+	out = binary.BigEndian.AppendUint32(out, uint32(min(r.Received, 1<<31-1)))
+	if r.Err != nil {
+		out = append(out, r.Err.Error()...)
+	}
+	return newBytes(env, out)
 }

@@ -145,9 +145,12 @@ ConnectionOrchestrator.connect
 или дополнение маршрутов, DNS `172.19.0.2`, MTU, политика приложений,
 IPv6) → `TunnelProvider.establish` (Android: `AndroidTunnelProvider`,
 один к одному в `VpnService.Builder`) → `TunnelHandle(fd)` → `TunInput`
-→ `ProxyEngine.start`. Ядро Xray в приложении есть (D-25), но сервис
-туннеля к нему ещё не подключён (этап 2, работа 6): до этого TUN не
-поднимается.
+→ `ProxyEngine.start`. На Android это делает `DPpassVpnService`
+(этап 2, работа 6): TUN поднимается, затем `DPpassCore.connect` перебирает
+кандидатов плана. Каждый проверяется запросом DNS через сервер профиля к
+DNS-серверу конфигурации (`XrayProxyEngine.probeHealth`, D-32). Ни один
+не прошёл — TUN закрывается: без ядра он «съел» бы весь трафик
+устройства. Остановка — сначала ядро, потом fd TUN (D-25).
 
 ## 4. Конфигурация и IR
 
@@ -241,8 +244,8 @@ Xray так, чтобы смысл IR сохранился, а где Xray по�
 проверяет `XrayJniTest` в JVM хоста. Всё — в одном процессе
 приложения, мост fd → ядро — вход TUN Xray (D-30). Геоданные — свой
 набор из dlc и DB-IP в APK, переносится в `noBackupFilesDir/geodata`,
-обновляется с приложением (D-27). Что ещё не подключено (сервис туннеля,
-набор геоданных) — `TODO.md`, этап 2.
+обновляется с приложением (D-27). Что на устройстве ещё не проверено —
+`TODO.md`.
 
 Компилятор проверяется на хосте самим ядром (`docs/TESTING.md`,
 «Эталоны Xray»): `tools/xray` — модуль Go вне сборки Gradle, собирает
@@ -375,12 +378,13 @@ DEGRADED; `SKIPPED` или нет пробы → UNKNOWN; прочее → BLOCK
 
 `app/` (D-17, D-19): `AppGraph` — единственное место, где Android
 встречается с ядром (хранилище в `noBackupFilesDir`, Keystore, ядро Xray —
-`XrayCompiler` и `XrayProxyEngine` поверх `libdppassxray` из APK, каталог
-геоданных `noBackupFilesDir/geodata`, `PlatformTraits` по версии API).
+`XrayCompiler` и `XrayProxyEngine` поверх `libdppassxray` из APK, набор
+геоданных — перенос в `noBackupFilesDir/geodata`, `PlatformTraits` по версии API).
 Библиотека не загрузилась или не той версии — каждый вызов ядра отвечает
 `BACKEND_NOT_AVAILABLE` с причиной. `DPpassVpnService` — foreground
-`specialUse`, уведомление, `onRevoke`; пока сервис не подключён к ядру
-(работа 6), он честно останавливается. `AndroidTunnelProvider` — `TunnelSpec` → `Builder`;
+`specialUse`, уведомление; поднимает TUN и подключает ядро (§3.4),
+останавливается действием «Остановить», при `onRevoke` и в `onDestroy`
+(уборка — в области процесса `AppGraph.scope`). `AndroidTunnelProvider` — `TunnelSpec` → `Builder`;
 адреса — `InetAddress.getByAddress` (без DNS). `MainActivity` —
 оболочка разработки с `FLAG_SECURE`. `DPpassApplication` первым делом
 включает журнал устройства `DeviceLog` (D-26): файл в фоне, запись о

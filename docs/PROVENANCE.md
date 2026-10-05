@@ -141,8 +141,8 @@ sum.golang.org прошла, лицензии прочитаны в архива
 Источники набора геоданных — данные, а не код. Набор собирает свой
 сборщик `tools/xray/geodata` (Go, тот же `tools/xray/go.mod`); сборку
 запускает `tools/xray/geodata.py`, на хосте — шаг hostcheck «Xray:
-геоданные». В APK набор попадёт с задачей сборки `:app` (следующий шаг,
-`TODO.md`). Версии — в каталоге (`geodata-dlc`, `geodata-dbip`). Суммы
+геоданные», в APK — задача `:app` `xrayGeodata<Вариант>`; набор в APK
+сверяет `check_apk.py`. Версии — в каталоге (`geodata-dlc`, `geodata-dbip`). Суммы
 ниже сверяют `geodata.py` при сборке и `check_dependencies.py`.
 
 | Источник | Версия | Откуда и сумма |

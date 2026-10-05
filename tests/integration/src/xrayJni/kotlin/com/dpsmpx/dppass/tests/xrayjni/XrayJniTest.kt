@@ -8,6 +8,7 @@ import com.dpsmpx.dppass.engine.CompilePlan
 import com.dpsmpx.dppass.engine.CompiledConfig
 import com.dpsmpx.dppass.engine.EngineState
 import com.dpsmpx.dppass.engine.SocketProtector
+import com.dpsmpx.dppass.engine.xray.DnsProbeOutcome
 import com.dpsmpx.dppass.engine.xray.JniXrayRuntime
 import com.dpsmpx.dppass.engine.xray.XrayBackend
 import com.dpsmpx.dppass.engine.xray.XrayCompiler
@@ -21,6 +22,8 @@ import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.TestInstance
 import java.io.File
 import java.io.IOException
+import java.net.DatagramPacket
+import java.net.DatagramSocket
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -88,7 +91,7 @@ class XrayJniTest {
         assertEquals(XrayFailureKind.CONFIG, r.kind)
     }
 
-    /** Решения о геоданных на устройстве ещё нет: каталог пуст, и ядро отвергает geoip/geosite. */
+    /** Каталог геоданных пуст (на устройстве — перенос набора не удался, D-27): ядро отвергает geoip/geosite. */
     @Test
     fun geodataWithoutAssetsIsRejected() {
         val multi = compiled("valid-multi.json", withTun = true)
@@ -183,6 +186,30 @@ class XrayJniTest {
         assertTrue(calls.isNotEmpty(), "защитник не был спрошен")
         assertNull(echo.accepted.poll(300, TimeUnit.MILLISECONDS), "незащищённый сокет ядра соединился с сервером")
         echo.close()
+    }
+
+    // ---- проба здоровья (D-32) ----
+
+    @Test
+    fun dnsProbeGoesThroughProxyAndProtector() {
+        assertEquals(DnsProbeOutcome.NOT_RUNNING, runtime.probeDns("udp://127.0.0.1:53", 1000).outcome)
+        val dns = DatagramSocket(0, LOOPBACK)
+        val server = thread(isDaemon = true) {
+            val buf = ByteArray(512)
+            val p = DatagramPacket(buf, buf.size)
+            dns.receive(p)
+            buf[2] = (buf[2].toInt() or 0x80).toByte() // ответ: флаг QR, тот же id и вопрос
+            dns.send(DatagramPacket(buf, p.length, p.socketAddress))
+        }
+        val seen = ConcurrentLinkedQueue<Int>()
+        assertEquals(XrayResult.Ok, runtime.start(config(), NO_TUN, 0, SocketProtector { fd -> seen += fd; true }))
+        val r = runtime.probeDns("udp://127.0.0.1:${dns.localPort}", 3000)
+        assertEquals(DnsProbeOutcome.OK, r.outcome, "проба: $r ${r.text}")
+        assertTrue(r.receivedBytes > 0, "ответ пришёл через ядро: $r")
+        assertTrue(seen.isNotEmpty(), "сокет пробы прошёл мимо защитника")
+        server.join(1000)
+        dns.close()
+        assertEquals(DnsProbeOutcome.CONTRACT, runtime.probeDns("dns://127.0.0.1", 1000).outcome)
     }
 
     // ---- ProxyEngine поверх JNI ----

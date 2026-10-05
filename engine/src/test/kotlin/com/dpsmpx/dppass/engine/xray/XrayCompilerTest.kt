@@ -411,6 +411,38 @@ class XrayCompilerTest {
     }
 
     @Test
+    fun geoCodesAreCheckedAgainstTheInstalledSet() {
+        // D-27: кода или атрибута нет в наборе геоданных ядра — отказ с путём правила,
+        // а не условие, которое молча никогда не сработает (D-05).
+        val set = GeodataManifest("v0.0.0-20260101000000-0123456789ab", "0123456789ab", "2026-01", emptyList(), setOf("aa", "private"), mapOf("example-a" to setOf("ads")))
+        val routing = """{"rules": [
+            {"id": "known", "action": "direct", "geoip": ["aa", "private"], "geosite": ["example-a", "example-a@ads"]},
+            {"id": "unknown-ip", "action": "direct", "geoip": ["zz"]},
+            {"id": "unknown-site", "action": "block", "geosite": ["example-b"]},
+            {"id": "unknown-attr", "action": "block", "geosite": ["example-a@cn"]}]}"""
+        val dns = """{"servers": [{"id": "remote", "type": "https", "url": "https://dns.example.net/dns-query", "route": "tunnel"}],
+            "default": "remote", "rules": [{"geosite": ["example-z"], "server": "remote"}]}"""
+        val geo = ir(routing = routing, dns = dns)
+        fun compileWith(codes: GeodataCodes) = XrayCompiler(geodata = codes).compile(geo, CompilePlan(geo.profiles[0].id, withTun = true))
+
+        assertEquals(
+            setOf(
+                DiagCode.GEO_CODE_UNKNOWN to "$.routing.rules[1].geoip",
+                DiagCode.GEO_CODE_UNKNOWN to "$.routing.rules[2].geosite",
+                DiagCode.GEO_CODE_UNKNOWN to "$.routing.rules[3].geosite",
+                DiagCode.GEO_CODE_UNKNOWN to "$.dns.rules[0].geosite",
+            ),
+            errors(compileWith(GeodataCodes.Installed(set))).toSet(),
+        )
+        val missing = errors(compileWith(GeodataCodes.Missing("в приложении нет набора")))
+        assertTrue(missing.all { it.first == DiagCode.GEODATA_UNAVAILABLE }, "$missing")
+        assertEquals(6, missing.size, "каждое условие geoip/geosite — с путём: $missing")
+        assertTrue(compileWith(GeodataCodes.Unchecked).isSuccess, "без набора коды проверяет само ядро")
+        val known = ir(routing = """{"rules": [{"id": "known", "action": "direct", "geoip": ["aa"], "geosite": ["example-a@ads"]}]}""")
+        assertTrue(XrayCompiler(geodata = GeodataCodes.Installed(set)).compile(known, CompilePlan(known.profiles[0].id, true)).isSuccess)
+    }
+
+    @Test
     fun serverNameIsLeftToTheSystemResolver() {
         // D-29: имя сервера ядро отдаёт системному dialer — система резолвит его вне
         // туннеля (пакет DPpass вне туннеля), а не DNS ядра, чьи серверы сами могут идти

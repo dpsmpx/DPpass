@@ -179,9 +179,9 @@ Xray (`infra/conf`), а не DPpass, и отсечь их без правки up
 ### 1.8. Геоданные (D-27, D-31)
 
 Данные, а не код. Набор (`geoip.dat`, `geosite.dat`) собирает свой
-сборщик `tools/xray/geodata` из этих источников (`tools/xray/geodata.py`);
-в APK (`assets/geodata/`) он попадёт с задачей сборки `:app` — следующий
-шаг (`TODO.md`). Рядом с набором лежит `NOTICE.txt`: атрибуция DB-IP и
+сборщик `tools/xray/geodata` из этих источников (`tools/xray/geodata.py`),
+в APK его кладёт задача `:app` `xrayGeodata<Вариант>` (`assets/geodata/`,
+сжатыми файлами). Рядом с набором лежит `NOTICE.txt`: атрибуция DB-IP и
 уведомление MIT dlc (его текст — из `LICENSE` архива модуля). На экране
 лицензий — этап 5. Лицензии проверены 4 октября 2026
 по `LICENSE` репозитория (dlc) и странице загрузки базы (DB-IP), сверены
@@ -190,8 +190,8 @@ Xray (`infra/conf`), а не DPpass, и отсечь их без правки up
 
 | Компонент | Версия | Лицензия | Куда | Статус | Условия |
 |---|---|---|---|---|---|
-| `github.com/v2fly/domain-list-community` (dlc) | `v0.0.0-20261004053103-63777333b7dd` | MIT | `geosite.dat` (в APK — следующий шаг): все списки, в том числе `category-ru` и `category-gov-ru` | разрешён | уведомление MIT — `NOTICE.txt` рядом с набором и экран лицензий (этап 5) |
-| DB-IP «IP to Country Lite» | `2026-10` | CC BY 4.0 | `geoip.dat` (в APK — следующий шаг): все страны; исходный CSV — в репозитории (D-31) | разрешён | атрибуция «IP Geolocation by DB-IP» со ссылкой на https://db-ip.com и указание изменений — `NOTICE.txt` рядом с набором и экран лицензий (этап 5); распространять можно, устаревшие версии удалять не требуется |
+| `github.com/v2fly/domain-list-community` (dlc) | `v0.0.0-20261004053103-63777333b7dd` | MIT | APK — `assets/geodata/geosite.dat`: все списки, в том числе `category-ru` и `category-gov-ru` | разрешён | уведомление MIT — `NOTICE.txt` рядом с набором и экран лицензий (этап 5) |
+| DB-IP «IP to Country Lite» | `2026-10` | CC BY 4.0 | APK — `assets/geodata/geoip.dat`: все страны; исходный CSV — в репозитории (D-31) | разрешён | атрибуция «IP Geolocation by DB-IP» со ссылкой на https://db-ip.com и указание изменений — `NOTICE.txt` рядом с набором и экран лицензий (этап 5); распространять можно, устаревшие версии удалять не требуется |
 
 ## 2. Запланированные
 

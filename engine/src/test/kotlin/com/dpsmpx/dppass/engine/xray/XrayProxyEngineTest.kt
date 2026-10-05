@@ -7,6 +7,7 @@ import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Severity
 import com.dpsmpx.dppass.engine.CompilePlan
 import com.dpsmpx.dppass.engine.CompiledConfig
+import com.dpsmpx.dppass.engine.EngineSession
 import com.dpsmpx.dppass.engine.EngineState
 import com.dpsmpx.dppass.engine.SocketProtector
 import com.dpsmpx.dppass.engine.TrafficStats
@@ -50,6 +51,14 @@ private class FakeRuntime : XrayRuntime {
     }
 
     override fun traffic(): TrafficStats? = traffic.takeIf { running }
+
+    val probes = mutableListOf<String>()
+    var probeAnswer = DnsProbeResult(DnsProbeOutcome.OK, 40, 512, "")
+
+    override fun probeDns(target: String, timeoutMillis: Int): DnsProbeResult {
+        probes += target
+        return if (running) probeAnswer else DnsProbeResult(DnsProbeOutcome.NOT_RUNNING, 0, 0, "ядро не запущено")
+    }
 }
 
 private const val UUID = "00000000-0000-4000-8000-000000000001"
@@ -202,5 +211,29 @@ class XrayProxyEngineTest {
         assertEquals(listOf(1, 2, 3, 4), XrayFailureKind.entries.map { it.code }, "коды — договор с bridge.Kind")
         assertNull(XrayFailureKind.of(0))
         assertFalse("сбой" in failed.toString(), "toString не печатает текст ядра")
+    }
+
+    @Test
+    fun healthProbeGoesToTunnelDnsServerAndMapsOutcomes() = runBlocking {
+        // D-32: проба — к DNS-серверу конфигурации через туннель; исход — код здоровья.
+        val rt = FakeRuntime()
+        val engine = XrayProxyEngine(Outcome.Success(rt))
+        assertIs<Outcome.Success<EngineSession>>(engine.start(compiled, null))
+        assertIs<Outcome.Success<Unit>>(engine.probeHealth(ir.dns, 1000))
+        assertEquals(listOf("https://dns.example.net/dns-query"), rt.probes)
+
+        val cases = mapOf(
+            DnsProbeOutcome.UNREACHABLE to DiagCode.ENDPOINT_UNREACHABLE,
+            DnsProbeOutcome.TLS to DiagCode.TLS_HANDSHAKE_FAILED,
+            DnsProbeOutcome.STALLED to DiagCode.PAYLOAD_STALLED,
+            DnsProbeOutcome.BAD_ANSWER to DiagCode.HEALTH_CHECK_FAILED,
+        )
+        for ((outcome, code) in cases) {
+            rt.probeAnswer = DnsProbeResult(outcome, 900, 10, "Post \"https://dns.example.net/abc123secret456\": EOF")
+            val r = assertIs<Outcome.Failure>(engine.probeHealth(ir.dns, 1000), "$outcome")
+            assertEquals(code, r.errors.single().code)
+            val text = r.errors.single().renderWithCauses()
+            assertFalse("abc123secret456" in text, "личный путь DoH попал в диагностику: $text")
+        }
     }
 }

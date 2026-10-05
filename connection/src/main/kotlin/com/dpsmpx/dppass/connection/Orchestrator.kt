@@ -107,7 +107,11 @@ class ConnectionOrchestrator(
             log.diagnostic(failure)
             records += AttemptRecord(p.id, attempt.reasons, false, failure)
         }
-        val d = Diagnostic.error(DiagCode.ATTEMPTS_EXHAUSTED, "ни один из ${plan.attempts.size} кандидатов не передал данных")
+        val n = plan.attempts.size
+        val d = Diagnostic.error(
+            DiagCode.ATTEMPTS_EXHAUSTED,
+            if (n == 1) "единственный кандидат не передал данных" else "ни один из $n кандидатов не передал данных",
+        )
             .copy(causes = records.mapNotNull { it.failure })
         return ConnectionReport.Failed(d, records, plan)
     }
@@ -133,6 +137,8 @@ class ConnectionOrchestrator(
             session.stop()
             return Try.Fail(result.errors.first())
         }
+        // Успех с оговоркой (например, здоровье не проверено, D-32) — в журнал, а не мимо.
+        result.diagnostics.forEach(log::diagnostic)
         return Try.Ok(session)
     }
 }

@@ -2,10 +2,14 @@
 <resources>
     <string name="app_name">DPpass</string>
     <string name="shell_title">DPpass — оболочка разработки</string>
-    <string name="shell_note">Ядро Xray встроено, но сервис туннеля к нему ещё не подключён: туннель не поднимается и трафик не передаётся.</string>
-    <string name="start_vpn">Проверить VPN-сервис</string>
+    <string name="shell_note">Оболочка разработки, не продукт. Конфигурацию можно импортировать из буфера обмена (документ DPpass); без своей активна синтетическая из примера — с ней туннель не подключится. Туннель проверяет каждый сервер запросом DNS через него (D-32).</string>
+    <string name="start_vpn">Поднять туннель</string>
+    <string name="stop_vpn">Остановить туннель</string>
+    <string name="import_clipboard">Импорт из буфера обмена</string>
+    <string name="clipboard_empty">В буфере обмена нет текста</string>
     <string name="notification_channel">Туннель</string>
-    <string name="notification_text">DPpass: проверка сервиса туннеля</string>
+    <string name="notification_connecting">DPpass: подключение…</string>
+    <string name="notification_connected">DPpass: туннель поднят</string>
     <string name="copy_log">Копировать журнал</string>
     <string name="log_on">Журнал ведётся — выключить</string>
     <string name="log_off">Журнал выключен — включить</string>

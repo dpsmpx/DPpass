@@ -89,6 +89,8 @@ class LoggerTest {
         assertEquals(listOf(null, "1", "2"), events.map { it.fields["depth"] })
         assertEquals("xray", events[2].fields["error_type"])
         val text = events.joinToString("\n") { it.render() }
+        // Найдено на устройстве 5 октября 2026: у диагностик без пути было «path=null».
+        assertFalse("path=" in text, text)
         assertTrue("invalid id" in text, text)
         assertFalse("00000000-0000-4000-8000-000000000009" in text, text)
         val lines = top.renderWithCauses()

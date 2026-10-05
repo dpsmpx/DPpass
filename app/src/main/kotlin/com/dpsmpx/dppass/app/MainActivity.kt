@@ -1,6 +1,7 @@
 package com.dpsmpx.dppass.app
 
 import android.app.Activity
+import android.content.ClipboardManager
 import android.content.Intent
 import android.net.VpnService
 import android.os.Bundle
@@ -12,6 +13,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.connection.ActivationResult
+import com.dpsmpx.dppass.connection.DPpassCore
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.routing.RouteQuery
 import kotlinx.coroutines.CoroutineScope
@@ -22,9 +24,12 @@ import kotlinx.coroutines.launch
 
 /**
  * Оболочка разработки: показывает, что конвейер DPpass работает на
- * Android — разбор примера, активация на ядре Xray (проверка без запуска), TunnelSpec,
- * решение маршрутизации, локальный отчёт. Интерфейс продукта — этап 4
- * `ROADMAP` (фреймворк UI — отложенное решение).
+ * Android — активация на ядре Xray (проверка без запуска), TunnelSpec,
+ * решение маршрутизации, локальный отчёт; поднимает и останавливает
+ * туннель. Своя конфигурация — документ DPpass из буфера обмена; пример
+ * (синтетический) импортируется, только когда активной конфигурации нет,
+ * — иначе он затирал бы свою при каждом открытии. Интерфейс продукта —
+ * этап 4 `ROADMAP` (фреймворк UI — отложенное решение).
  */
 class MainActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -38,6 +43,14 @@ class MainActivity : Activity() {
         val start = Button(this).apply {
             setText(R.string.start_vpn)
             setOnClickListener { requestVpn() }
+        }
+        val stop = Button(this).apply {
+            setText(R.string.stop_vpn)
+            setOnClickListener { DPpassVpnService.stop(this@MainActivity) }
+        }
+        val paste = Button(this).apply {
+            setText(R.string.import_clipboard)
+            setOnClickListener { importClipboard() }
         }
         val copyLog = Button(this).apply {
             setText(R.string.copy_log)
@@ -57,7 +70,9 @@ class MainActivity : Activity() {
             setPadding(pad, pad, pad, pad)
             addView(title)
             addView(note)
+            addView(paste)
             addView(start)
+            addView(stop)
             addView(copyLog)
             addView(logToggle)
             addView(output)
@@ -90,23 +105,45 @@ class MainActivity : Activity() {
     private suspend fun runShell() {
         val core = AppGraph.core(this)
         val restored = core.restore()
-        val sample = assets.open("sample/config.json").bufferedReader().use { it.readText() }
         val lines = mutableListOf<String>()
         lines += "restore: ${if (restored.isEmpty()) "ok" else restored.joinToString { it.code.name }}"
-        when (val r = core.importAndActivate(sample)) {
-            is Outcome.Failure -> {
-                lines += "sample rejected:"
-                r.errors.forEach { lines += it.renderWithCauses() }
-            }
-            is Outcome.Success -> when (val a = r.value) {
-                is ActivationResult.Activated -> lines += "activated revision ${a.record.revision}, profile ${a.record.profileId}"
-                is ActivationResult.Rejected -> {
-                    // Причина целиком, с текстом ядра: на устройстве её больше негде увидеть (D-22).
-                    lines += "rejected at ${a.record.failedStep}:"
-                    a.diagnostics.filter { it.isError }.forEach { lines += it.renderWithCauses() }
-                }
-            }
+        val active = core.activation.state.active
+        if (active == null) {
+            lines += "no active config — sample:"
+            val sample = assets.open("sample/config.json").bufferedReader().use { it.readText() }
+            lines += activationLines(core.importAndActivate(sample))
+        } else {
+            lines += "active revision ${active.revision}, profile ${active.profileId} (sample not imported)"
         }
+        show(core, lines)
+    }
+
+    /** Документ DPpass из буфера обмена → активация; исходник остаётся у пользователя. */
+    private fun importClipboard() {
+        val clip = getSystemService(ClipboardManager::class.java).primaryClip
+        val text = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
+        if (text.isNullOrBlank()) {
+            Toast.makeText(this, R.string.clipboard_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        scope.launch {
+            val core = AppGraph.core(this@MainActivity)
+            show(core, listOf("clipboard import:") + activationLines(core.importAndActivate(text)))
+        }
+    }
+
+    private fun activationLines(r: Outcome<ActivationResult>): List<String> = when (r) {
+        is Outcome.Failure -> listOf("rejected:") + r.errors.flatMap { it.renderWithCauses() }
+        is Outcome.Success -> when (val a = r.value) {
+            is ActivationResult.Activated -> listOf("activated revision ${a.record.revision}, profile ${a.record.profileId}")
+            // Причина целиком, с текстом ядра: на устройстве её больше негде увидеть (D-22).
+            is ActivationResult.Rejected -> listOf("rejected at ${a.record.failedStep}:") +
+                a.diagnostics.filter { it.isError }.flatMap { it.renderWithCauses() }
+        }
+    }
+
+    private fun show(core: DPpassCore, head: List<String>) {
+        val lines = head.toMutableList()
         core.tunnelSpec()?.valueOrNull()?.let { lines += "tunnel spec: ${it.routes.size} routes, ${it.excludedRoutes.size} excluded, mtu ${it.mtu}" }
         core.explain(RouteQuery(domain = "ads.example.com"))?.let { lines += "route ads.example.com → ${it.action} (${it.reason})" }
         lines += ""

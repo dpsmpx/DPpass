@@ -154,9 +154,12 @@ DNS-over-TLS, без него — открыто в DNS сети. Это сво�
 (`check_forbidden_apis.py`). Компилятор Xray не пишет полей, которые
 ослабляют проверку (`pinnedPeerCertSha256`, `verifyPeerCertByName`,
 `disableSystemRoot`); `allowInsecure` в Xray 26.9.30 и сам — ошибка
-сборки конфигурации. **Проверка:** корпус
+сборки конфигурации. Проба здоровья через сервер DoH (D-32) проверяет
+его сертификат системными корнями; настройки, которая бы это выключила,
+нет. **Проверка:** корпус
 `invalid-allow-insecure`, `ShareLinkParserTest.insecureIsRejected`,
-`XrayCompilerTest.certificateCheckCannotBeDisabled`.
+`XrayCompilerTest.certificateCheckCannotBeDisabled`, `go test` моста
+(`TestProbeVerifiesDoHCertificate`).
 
 ### T6 — Вредоносный вход
 
@@ -277,5 +280,5 @@ HWID в запросах подписки, отчёт — только лока�
 | `check_dependencies.py` | зависимости без лицензии и происхождения, подмена Gradle, модули Go ядра мимо записей и `replace` (T10) |
 | `XrayCompilerTest`, `XrayTunnelContractTest` | DNS мимо туннеля, ослабленная проверка сертификата и журнал ядра в конфигурации Xray (T3, T4, T5) |
 | `check_xray.py` (шаг «Xray») | эталоны, которые ядро не принимает, и расхождение маршрутизации Xray с `RouteEvaluator`; сборка ядра без сверки модулей (T4, T10) |
-| `go test` моста, `XrayJniTest` (шаг «Xray: мост и JNI») | вход ядра, кроме TUN; сокет ядра мимо защитника; путь, открытый при отказе защитника; второе ядро в процессе; код геоданных, которого нет в наборе, принятый молча (T4, T11; D-27) |
+| `go test` моста, `XrayJniTest` (шаг «Xray: мост и JNI») | вход ядра, кроме TUN; сокет ядра мимо защитника; путь, открытый при отказе защитника; второе ядро в процессе; код геоданных, которого нет в наборе, принятый молча; проба здоровья мимо сервера профиля или без проверки сертификата DoH (T4, T5, T11; D-27, D-32) |
 | `check_apk.py` (нативный код), `native.py` | чужая `.so` в APK, библиотека не той машины, без выравнивания 16 КБ или с экспортом JNI не по договору (T10) |

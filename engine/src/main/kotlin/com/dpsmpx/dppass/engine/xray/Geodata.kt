@@ -104,6 +104,22 @@ data class GeodataManifest(
     }
 }
 
+/**
+ * Сверка кодов geoip/geosite конфигурации с набором геоданных ядра (D-27):
+ * код, которого нет в наборе, — отказ компиляции с путём правила, а не
+ * условие, которое молча не выполняется (D-05).
+ */
+sealed interface GeodataCodes {
+    /** Не сверять: набор задаёт тот, кто проверяет конфигурацию ядром (хост, `cli`, эталоны). */
+    data object Unchecked : GeodataCodes
+
+    /** Набор установлен: коды и атрибуты — из его оглавления. */
+    data class Installed(val manifest: GeodataManifest) : GeodataCodes
+
+    /** Набора нет: любое правило с geoip/geosite — отказ с этой причиной. */
+    data class Missing(val reason: String) : GeodataCodes
+}
+
 /** Откуда берётся набор: на Android — assets APK (`geodata/…`). */
 fun interface GeodataSource {
     /** Поток файла набора по имени; нет файла — [IOException]. */

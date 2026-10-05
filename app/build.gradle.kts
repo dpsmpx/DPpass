@@ -1,5 +1,6 @@
 // Android-приложение DPpass: оболочка над DPpassCore (D-02, D-17).
 // Подключается, только если найден Android SDK (settings.gradle.kts).
+import com.dpsmpx.dppass.build.XrayGeodataTask
 import com.dpsmpx.dppass.build.XrayNativeTask
 
 plugins {
@@ -76,6 +77,20 @@ androidComponents {
             sdkDirectory.set(androidComponents.sdkComponents.sdkDirectory)
         }
         variant.sources.jniLibs?.addGeneratedSourceDirectory(task, XrayNativeTask::outputDir)
+
+        // Набор геоданных (D-27): своим сборщиком из источников каталога, в
+        // assets/geodata/ — сжатыми; на устройстве — перенос со сверкой SHA-256.
+        val geodata = tasks.register<XrayGeodataTask>("xrayGeodata" + variant.name.replaceFirstChar { it.uppercase() }) {
+            description = "набор геоданных для ${variant.name}: tools/xray/geodata.py"
+            val xray = rootProject.layout.projectDirectory.dir("tools/xray")
+            sources.from(
+                xray.asFileTree.matching { include("geodata/**", "go.mod", "go.sum", "*.py") },
+                rootProject.layout.projectDirectory.file("gradle/libs.versions.toml"),
+                rootProject.layout.projectDirectory.file("docs/PROVENANCE.md"),
+            )
+            script.set(xray.file("geodata.py"))
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(geodata, XrayGeodataTask::outputDir)
     }
 }
 

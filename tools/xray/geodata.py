@@ -16,8 +16,9 @@
 Сборщик — `tools/xray/geodata` (Go, тот же `go.mod`, что у ядра). Набор —
 `DIR/geodata/` (geoip.dat, geosite.dat, NOTICE.txt, manifest.json); DIR по
 умолчанию — `build/xray/geodata-set`. Раскладка — как в assets APK
-(`geodata/…`): её читает `engine.xray.GeodataInstaller`. Задача сборки
-APK и сверка набора в APK (`check_apk.py`) — следующий шаг (`TODO.md`).
+(`geodata/…`): так его кладёт задача :app `xrayGeodata<Вариант>` и читает
+`engine.xray.GeodataInstaller`; `check_apk.py` сверяет набор в APK с
+набором этого шага.
 
 --test: сначала go vet и go test сборщика, а собранный набор целиком
 загружает ядро Xray закреплённой версии (каждый код; шаг hostcheck

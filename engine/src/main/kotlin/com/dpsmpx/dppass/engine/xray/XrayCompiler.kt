@@ -56,16 +56,25 @@ import java.util.Base64
  *   редактированием (D-11), а журнал доступа Xray пишет адреса назначения;
  * - счётчики трафика исходящих включены — из них `TrafficStats` (D-25).
  *
+ * Коды geoip/geosite и атрибуты списков сверяются с набором геоданных
+ * ядра ([geodata], D-27): кода нет — отказ с путём правила
+ * (`GEO_CODE_UNKNOWN`), набора нет — отказ `GEODATA_UNAVAILABLE`. Без
+ * набора ([GeodataCodes.Unchecked]: хост, `cli`, эталоны) коды проверяет
+ * само ядро.
+ *
  * Конфигурация содержит секреты: наружу — только через
  * [CompiledConfig.payloadForEngine].
  */
-class XrayCompiler(override val capabilities: EngineCapabilities = XrayBackend.CAPABILITIES) : BackendCompiler {
+class XrayCompiler(
+    override val capabilities: EngineCapabilities = XrayBackend.CAPABILITIES,
+    private val geodata: GeodataCodes = GeodataCodes.Unchecked,
+) : BackendCompiler {
     override fun compile(ir: ConfigIr, plan: CompilePlan): Outcome<CompiledConfig> {
         val problems = CapabilityChecker.check(ir, capabilities, plan).toMutableList()
         if (problems.any { it.isError }) return Outcome.Failure(problems)
         val index = ir.profiles.indexOfFirst { it.id == plan.profileId }
         val profile = ir.profiles[index]
-        val build = Build(problems)
+        val build = Build(problems, geodata)
 
         val proxy = build.proxyOutbound(profile, "$.profiles[$index]")
         val dns = build.dns(ir.dns)
@@ -102,9 +111,40 @@ class XrayCompiler(override val capabilities: EngineCapabilities = XrayBackend.C
     }
 
     /** Одна компиляция: находки копятся в [problems] — отказ виден весь, а не первой ошибкой. */
-    private class Build(private val problems: MutableList<Diagnostic>) {
+    private class Build(private val problems: MutableList<Diagnostic>, private val geodata: GeodataCodes) {
         fun reject(code: DiagCode, message: String, path: String) {
             problems += Diagnostic.error(code, "${XrayBackend.ID} ${XrayBackend.VERSION}: $message", path)
+        }
+
+        /** Коды geoip/geosite условия — против набора геоданных ядра (D-27). */
+        private fun checkGeo(geoSites: List<String>, geoIps: List<String>, path: String) {
+            when (val g = geodata) {
+                GeodataCodes.Unchecked -> Unit
+                is GeodataCodes.Missing -> for ((field, codes) in listOf("geosite" to geoSites, "geoip" to geoIps)) {
+                    if (codes.isEmpty()) continue
+                    reject(DiagCode.GEODATA_UNAVAILABLE, "набора геоданных нет (${g.reason}) — условие $field не выполнить", "$path.$field")
+                }
+                is GeodataCodes.Installed -> {
+                    val m = g.manifest
+                    for (code in geoIps.filter { it !in m.geoIp }) {
+                        reject(DiagCode.GEO_CODE_UNKNOWN, "geoip:$code — такого кода нет в наборе геоданных (${m.summary})", "$path.geoip")
+                    }
+                    for (entry in geoSites) {
+                        val code = entry.substringBefore('@')
+                        val attrs = entry.split('@').drop(1)
+                        val known = m.geoSite[code]
+                        if (known == null) {
+                            reject(DiagCode.GEO_CODE_UNKNOWN, "geosite:$code — такого списка нет в наборе геоданных (${m.summary})", "$path.geosite")
+                            continue
+                        }
+                        // Xray выбирает правила списка по атрибутам; атрибута, которого в списке
+                        // нет, не найдёт ни одно правило — условие молча пустое.
+                        for (a in attrs.filter { it !in known }) {
+                            reject(DiagCode.GEO_CODE_UNKNOWN, "geosite:$entry — у списка $code нет атрибута @$a (${m.summary})", "$path.geosite")
+                        }
+                    }
+                }
+            }
         }
 
         // ---- исходящий профиля ----
@@ -314,6 +354,7 @@ class XrayCompiler(override val capabilities: EngineCapabilities = XrayBackend.C
             if (c.networks.isNotEmpty()) {
                 reject(DiagCode.CAPABILITY_FEATURE_UNSUPPORTED, "условие network", "$path.network")
             }
+            checkGeo(c.geoSites, c.geoIps, path)
             val names = c.domains.map(::domainRule) + c.geoSites.map { "geosite:$it" }
             val ips = c.ipCidrs.map { it.toString() } + c.geoIps.map { "geoip:$it" }
             val network = when (c.protocols) {
@@ -345,7 +386,8 @@ class XrayCompiler(override val capabilities: EngineCapabilities = XrayBackend.C
          */
         fun dns(policy: DnsPolicy): JsonObject {
             val servers = mutableListOf<JsonValue>()
-            for (rule in policy.rules) {
+            for ((i, rule) in policy.rules.withIndex()) {
+                checkGeo(rule.geoSites, emptyList(), "$.dns.rules[$i]")
                 val s = policy.server(rule.serverId) ?: continue
                 val names = rule.domains.map(::domainRule) + rule.geoSites.map { "geosite:$it" }
                 val base = dnsServer(s, "$.dns.servers[${policy.servers.indexOf(s)}]") ?: continue

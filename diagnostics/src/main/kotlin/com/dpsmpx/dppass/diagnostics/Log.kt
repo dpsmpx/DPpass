@@ -96,7 +96,8 @@ class Logger(
     private fun fieldsOf(d: Diagnostic, depth: Int?): Array<Pair<String, Any?>> = listOfNotNull(
         depth?.let { "depth" to it },
         "code" to Safe(d.code.name),
-        "path" to d.path,
+        // Без пути — без поля: «path=null» в журнале устройства читается как ошибка.
+        d.path?.let { "path" to it },
         "message" to d.message,
         d.error?.let { "error_type" to it.type },
         d.error?.message?.let { "error" to it },

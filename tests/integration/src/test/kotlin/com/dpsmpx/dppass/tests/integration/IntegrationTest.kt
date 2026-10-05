@@ -267,3 +267,17 @@ class StorageKeyLossTest {
         assertEquals(DiagCode.INTERNAL_ERROR, Env().core.resetStorage().errors.single().code)
     }
 }
+
+class EngineReportTest {
+    @Test
+    fun reportShowsWhatTheShellKnowsAboutTheEngine() {
+        // D-27: из чего собран набор геоданных — в локальном отчёте, рядом с версией ядра.
+        val engine = MockProxyEngine()
+        val core = DPpassCore(
+            MockBackendCompiler(engine.capabilities), engine, InMemoryBlobStore(), ManualClock(0), "com.dpsmpx.dppass",
+            PlatformTraits(true), engineDetails = listOf("geodata" to "dlc 0123456789ab, DB-IP 2026-01"),
+        )
+        val text = core.report().render()
+        assertTrue("geodata: dlc 0123456789ab, DB-IP 2026-01" in text, text)
+    }
+}

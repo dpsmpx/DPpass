@@ -80,6 +80,11 @@ class DPpassCore(
     val policy: ConnectionPolicy = ConnectionPolicy(),
     /** Сброс хранилища, которое не читается (на Android — `StorageReset`); null — оболочка его не даёт. */
     private val storageRecovery: StorageRecovery? = null,
+    /**
+     * Что ещё оболочка знает о ядре — строки раздела «Engine» отчёта: на
+     * Android — из чего собран набор геоданных (D-27).
+     */
+    private val engineDetails: List<Pair<String, String>> = emptyList(),
 ) {
     val log: Logger = Logger("core", logSink, clock::nowMillis)
     private val quarantine = Quarantine(store, clock)
@@ -179,6 +184,7 @@ class DPpassCore(
                 "Engine",
                 "backend" to compiler.capabilities.backendId,
                 "version" to compiler.capabilities.backendVersion,
+                *engineDetails.toTypedArray(),
             )
             .section(
                 "Activation",
