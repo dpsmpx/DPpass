@@ -35,8 +35,9 @@ Xray, проверки `check_apk.py` (16 КБ), `check_forbidden_apis.py`
       - состав набора в отчёте (`Core.report`: коммит dlc, месяц DB-IP);
       - сверка кодов конфигурации с оглавлением в компиляторе (новый код
         диагностики с путём правила; атрибут, которого нет в списке, —
-        тоже отказ); `GeoResolver` по тем же файлам;
-      - смысл `geoip:private` (D-31) — в `docs/CONFIG_FORMAT.md`.
+        тоже отказ: ядро его не проверяет, и условие молча не
+        срабатывает — `docs/CONFIG_FORMAT.md`, §4); `GeoResolver` по тем
+        же файлам.
       Пока набора в APK нет, ядро на устройстве отвергает конфигурации с
       `geoip`/`geosite` (`XrayJniTest.geodataWithoutAssetsIsRejected`).
 - [ ] `-checklinkname=0` в сборке для Android (`wlynxg/anet` →
