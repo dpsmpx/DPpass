@@ -16,6 +16,13 @@ DPpass — клиент прокси/VPN для Android с собственно�
 тестах. Сервис туннеля подключает ядро; на устройстве подключение
 ещё проверяется — этап 2 (`docs/direction/ROADMAP/README.md`).
 
+С 16 октября 2026 DPpass — подсистема DPmetaApp, каталог `dppass/`
+(D-52, `DPmetaApp:D-30`): репозиторий DPpass заморожен, работа идёт только
+здесь. Все пути ниже — от `dppass/`, команды — из этого каталога. Правила
+DPmetaApp (`DPmetaApp:CLAUDE.md`) действуют для всего репозитория, этот
+файл — для подсистемы. APK DPpass пока отдельный, с прежней личностью
+пакета; ядро — своё (D-52).
+
 ## Где что
 
 | Что | Где |
@@ -56,6 +63,11 @@ tools/hostcheck/run.sh            # dpv run full — всё, что есть н�
 tools/hostcheck/run.sh --full     # dpv run full --ci — перед слиянием: без Android SDK, NDK, Go — ошибка
 tools/dpv/dpv report --md         # итог последнего прогона — в описание PR
 ```
+
+Внутри DPmetaApp — те же ключи `tools/hostcheck/run.sh` из `dppass/`
+(и `run.sh report` вместо `dpv report --md`): DP Verify идёт в
+представлении поддерева, `--full` — только на закоммиченном `dppass/`
+(D-52).
 
 Подробно — `docs/PROCESS.md`, «Проверки»; что ловит проверка и как
 чинить — `tools/dpv/dpv explain ID`. Изменение готово, когда проверки

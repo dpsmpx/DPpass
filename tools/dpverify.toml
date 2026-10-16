@@ -23,7 +23,7 @@ decision_heading = '^### D-(\d{2})\b'
 decision_ref = '\bD-(\d{2})\b'
 decision_required_fields = ["**Проверка.**"]
 provenance = "docs/PROVENANCE.md"
-foreign_projects = ["VoxelRPG", "Galdhold", "DPlang"]
+foreign_projects = ["VoxelRPG", "Galdhold", "DPlang", "DPmetaApp"]
 
 [budget]
 static = "10s"
