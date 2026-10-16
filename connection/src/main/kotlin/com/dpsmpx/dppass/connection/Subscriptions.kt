@@ -120,9 +120,9 @@ class SubscriptionService(
         if (!isSubscriptionUrl(trimmed)) {
             return Outcome.failure(DiagCode.SUBSCRIPTION_FETCH_FAILED, URL_RULE)
         }
-        val given = name?.let(::cleanName)
+        val given = name?.let(::cleanName)?.takeIf { it.isNotEmpty() }
         if (given != null && !isValidName(given)) return invalidName()
-        return insert(given?.takeIf { it.isNotEmpty() } ?: hostOf(trimmed), SubscriptionSource.Url(Secret(trimmed)))
+        return insert(given ?: hostOf(trimmed), SubscriptionSource.Url(Secret(trimmed)), byUser = given != null)
     }
 
     /**
@@ -136,13 +136,14 @@ class SubscriptionService(
         if (text.toByteArray(Charsets.UTF_8).size > FetchPolicy().maxBytes) {
             return Outcome.failure(DiagCode.SUBSCRIPTION_TOO_LARGE, "больше ${FetchPolicy().maxBytes} байт")
         }
-        val n = cleanName(name).ifEmpty { "DPpass" }
+        val given = cleanName(name)
+        val n = given.ifEmpty { "DPpass" }
         if (!isValidName(n)) return invalidName()
         // Без сети обновлять нечего: автообновление своим серверам не нужно.
-        return insert(n, SubscriptionSource.Inline(Secret(text)), autoUpdate = false)
+        return insert(n, SubscriptionSource.Inline(Secret(text)), autoUpdate = false, byUser = given.isNotEmpty())
     }
 
-    private fun insert(name: String, source: SubscriptionSource, autoUpdate: Boolean = true): Outcome<Subscription> {
+    private fun insert(name: String, source: SubscriptionSource, autoUpdate: Boolean = true, byUser: Boolean): Outcome<Subscription> {
         val current = when (val s = state()) {
             is Outcome.Failure -> return s
             is Outcome.Success -> s.value
@@ -152,7 +153,7 @@ class SubscriptionService(
         }
         val n = (current.items.mapNotNull { it.id.value.removePrefix("s").toIntOrNull() }.maxOrNull() ?: 0) + 1
         val id = SubscriptionId("s$n").also { require(Ids.isValid(it.value)) }
-        val base = Subscription(id, name, source)
+        val base = Subscription(id, name, source, nameByUser = byUser)
         val sub = if (autoUpdate) base else base.copy(updatePolicy = base.updatePolicy.copy(intervalMinutes = null))
         return commit(current.copy(items = current.items + sub)).map { sub }
     }
@@ -160,7 +161,8 @@ class SubscriptionService(
     fun rename(id: SubscriptionId, name: String): Outcome<SubscriptionsState> {
         val n = cleanName(name)
         if (n.isEmpty() || !isValidName(n)) return invalidName()
-        return edit { st -> st.copy(items = st.items.map { if (it.id == id) it.copy(name = n) else it }) }
+        // Переименование — выбор пользователя: с ним название поставщика больше не показывается (D-53).
+        return edit { st -> st.copy(items = st.items.map { if (it.id == id) it.copy(name = n, nameByUser = true) else it }) }
     }
 
     /** Срок автообновления (D-39): null — только вручную. */

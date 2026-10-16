@@ -126,6 +126,16 @@ class PresentationTest {
     }
 
     @Test
+    fun subscriptionRowShowsUsersNameOverProviderTitle() {
+        // D-53: имя, данное пользователем, поставщик не перебивает; окно переименования подставляет его же.
+        val s = Subscription(
+            SubscriptionId("s1"), "Мой VPN", SubscriptionSource.Url(Secret("https://provider.example.net/sub/token")),
+            metadata = SubscriptionMetadata(title = "Мой поставщик"), nameByUser = true,
+        )
+        assertEquals("Мой VPN", SubscriptionList.rows(SubscriptionsState(listOf(s), null), ConfigSource.None, 0).single().name)
+    }
+
+    @Test
     fun subscriptionIsNotActiveWhenOwnConfigReplacedIt() {
         val s = Subscription(SubscriptionId("s1"), "a", SubscriptionSource.Url(Secret("https://a.example.net/s")))
         val rows = SubscriptionList.rows(SubscriptionsState(listOf(s), SubscriptionId("s1")), ConfigSource.Own, 0)

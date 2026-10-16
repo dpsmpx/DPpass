@@ -474,9 +474,30 @@ class SubscriptionCodecTest {
             Subscription(SubscriptionId("s1"), "Url", SubscriptionSource.Url(Secret("https://sub.example.com/t")), lastCheckedMillis = 42),
             Subscription(SubscriptionId("s2"), "Мои", SubscriptionSource.Inline(Secret("trojan://p@198.51.100.1:443#A")), updatePolicy = UpdatePolicy(null)),
             Subscription(SubscriptionId("s3"), "Daily", SubscriptionSource.Url(Secret("https://sub.example.com/u")), updatePolicy = UpdatePolicy(24 * 60)),
+            Subscription(SubscriptionId("s4"), "Дом", SubscriptionSource.Url(Secret("https://sub.example.com/v")), nameByUser = true),
         )
         val state = SubscriptionsState(items, SubscriptionId("s2"))
         assertEquals(state, SubscriptionCodec.read(SubscriptionCodec.write(state)).valueOrNull())
+    }
+
+    @Test
+    fun version2ReadsAsNameNotChosenByUser() {
+        // До версии 3 признака не было: имя показывается, как показывалось, — название поставщика (D-53).
+        val v2 = """{"format":"dppass.subscriptions","format_version":2,"items":[{"id":"s1","name":"Дом","url":"https://sub.example.com/t","binding":"user","revision_counter":0,"metadata":{"title":"Поставщик"}}]}"""
+        val s = SubscriptionCodec.read(v2).valueOrNull()!!.items.single()
+        assertFalse(s.nameByUser)
+        assertEquals("Поставщик", s.displayName)
+        assertIs<Outcome.Failure>(SubscriptionCodec.read(v2.replace("\"format_version\":2", "\"format_version\":4")), "версия новее — отказ")
+    }
+
+    @Test
+    fun displayNameIsUsersChoiceOverProviderTitle() {
+        val base = Subscription(SubscriptionId("s1"), "sub.example.com", SubscriptionSource.Url(Secret("https://sub.example.com/t")))
+        assertEquals("sub.example.com", base.displayName, "ни имени пользователя, ни названия — имя по адресу")
+        val titled = base.copy(metadata = SubscriptionMetadata(title = "Поставщик"))
+        assertEquals("Поставщик", titled.displayName, "имя по умолчанию уступает названию поставщика")
+        assertEquals("sub.example.com", titled.copy(metadata = SubscriptionMetadata(title = "  ")).displayName, "пустое название — не название")
+        assertEquals("Мой", titled.copy(name = "Мой", nameByUser = true).displayName, "выбор пользователя поставщик не перебивает (D-11)")
     }
 
     @Test

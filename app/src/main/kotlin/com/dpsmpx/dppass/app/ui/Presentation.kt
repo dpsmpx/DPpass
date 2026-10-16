@@ -236,7 +236,7 @@ object SubscriptionList {
         val total = traffic?.totalBytes?.takeIf { it > 0 }
         SubscriptionRow(
             id = s.id,
-            name = s.metadata.title?.takeIf { it.isNotBlank() } ?: s.name,
+            name = s.displayName,
             inline = s.source is SubscriptionSource.Inline,
             autoUpdateMinutes = s.updatePolicy.intervalMinutes,
             usedPercent = if (used != null && total != null) ((used * 100) / total).coerceIn(0, 100).toInt() else null,

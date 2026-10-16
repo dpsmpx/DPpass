@@ -26,8 +26,11 @@ data class SubscriptionsState(val items: List<Subscription>, val activeId: Subsc
 /**
  * Документ хранения подписок `dppass.subscriptions` (D-36). Версия 2
  * (D-39, D-42) добавляет свои серверы (`inline` вместо `url`), срок
- * автообновления и время последней проверки; версия 1 читается с
- * значениями по умолчанию — её записал телефон до версии 2.
+ * автообновления и время последней проверки; версия 3 (D-53) — признак
+ * «имя задал пользователь» (`name_by_user`). Версии 1 и 2 читаются с
+ * значениями по умолчанию — их записал телефон раньше; без признака имя
+ * показывается, как показывалось до версии 3 (название поставщика, если
+ * оно есть).
  *
  * В нём секреты — адрес подписки и идентификатор устройства (D-33):
  * документ пишется только в зашифрованное хранилище (D-19) и наружу не
@@ -40,8 +43,8 @@ data class SubscriptionsState(val items: List<Subscription>, val activeId: Subsc
  */
 object SubscriptionCodec {
     const val FORMAT: String = "dppass.subscriptions"
-    const val VERSION: Int = 2
-    private val READABLE = setOf(1, 2)
+    const val VERSION: Int = 3
+    private val READABLE = setOf(1, 2, 3)
 
     fun write(state: SubscriptionsState): String = Json.write(
         Json.obj(
@@ -58,6 +61,7 @@ object SubscriptionCodec {
         return Json.obj(
             "id" to Json.str(s.id.value),
             "name" to Json.str(s.name),
+            "name_by_user" to Json.bool(s.nameByUser),
             "url" to (s.source as? SubscriptionSource.Url)?.let { Json.str(it.url.reveal()) },
             "inline" to (s.source as? SubscriptionSource.Inline)?.let { Json.str(it.body.reveal()) },
             // 0 — автообновление выключено; поля нет (версия 1) — по умолчанию.
@@ -142,6 +146,7 @@ object SubscriptionCodec {
         return Subscription(
             id = id(o.str("id") ?: bad("id")),
             name = o.str("name") ?: bad("name"),
+            nameByUser = o.bool("name_by_user") ?: false,
             source = if (url != null) SubscriptionSource.Url(Secret(url)) else SubscriptionSource.Inline(Secret(inline!!)),
             updatePolicy = UpdatePolicy(
                 intervalMinutes = when (interval) {

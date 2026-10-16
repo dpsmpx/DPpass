@@ -37,7 +37,21 @@ data class Subscription(
      * тело не двигает удачную ревизию, но проверкой считается.
      */
     val lastCheckedMillis: Long? = null,
+    /**
+     * Имя задал пользователь — при добавлении или переименованием (D-53).
+     * Тогда оно и показывается; иначе — название поставщика
+     * (`profile-title`), если оно есть.
+     */
+    val nameByUser: Boolean = false,
 ) {
+    /**
+     * Имя на экранах — одно для списка, экрана подключения и окна
+     * переименования (D-53): выбор пользователя поставщик не перебивает
+     * (D-11), а имя по умолчанию (хост адреса) уступает его названию.
+     */
+    val displayName: String
+        get() = if (nameByUser) name else metadata.title?.takeIf { it.isNotBlank() } ?: name
+
     fun recordSuccess(revision: SubscriptionRevision, metadata: SubscriptionMetadata): Subscription =
         copy(lastSuccessful = revision, metadata = metadata, revisionCounter = revision.number)
 

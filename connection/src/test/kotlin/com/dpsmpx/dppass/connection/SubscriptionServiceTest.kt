@@ -250,6 +250,23 @@ class SubscriptionFlowTest {
     }
 
     @Test
+    fun nameChosenByUserIsRememberedOnAddAndRename() {
+        // D-53: имя от пользователя — признак хранения; имя по умолчанию — нет.
+        val subs = core().subscriptions
+        assertTrue(subs.add(URL, "Дом").valueOrNull()!!.nameByUser)
+        assertFalse(subs.add(URL, null).valueOrNull()!!.nameByUser, "имя по хосту — не выбор пользователя")
+        assertFalse(subs.add(URL, "   ").valueOrNull()!!.nameByUser, "пустое имя — тоже по хосту")
+        assertTrue(subs.addInline("свои серверы", "Мои").valueOrNull()!!.nameByUser)
+        val inline = subs.addInline("свои серверы", "").valueOrNull()!!
+        assertEquals("DPpass" to false, inline.name to inline.nameByUser)
+        val id = subs.add(URL, null).valueOrNull()!!.id
+        subs.rename(id, "Работа")
+        val renamed = subs.state().valueOrNull()!!.find(id)!!
+        assertEquals("Работа" to true, renamed.name to renamed.nameByUser)
+        assertEquals("Работа", renamed.displayName)
+    }
+
+    @Test
     fun onlyHttpsAddressesAreAccepted() {
         val core = core()
         for (bad in listOf("http://sub.example.com/x", "ftp://sub.example.com", "https://sub.example.com/ x", "https://sub\u0001.example.com/s", "")) {

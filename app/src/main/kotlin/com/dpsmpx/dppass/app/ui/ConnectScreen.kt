@@ -154,7 +154,7 @@ class ConnectScreen(host: Host) : Screen(host) {
             ConfigSource.Own -> context.getString(R.string.source_own)
             is ConfigSource.FromSubscription -> {
                 val sub = (core?.subscriptions?.state() as? Outcome.Success)?.value?.find(s.id)
-                val name = sub?.let { it.metadata.title ?: it.name } ?: s.id.value
+                val name = sub?.displayName ?: s.id.value
                 context.getString(R.string.source_subscription, name)
             }
         }
