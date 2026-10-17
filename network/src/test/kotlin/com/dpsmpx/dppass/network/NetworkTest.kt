@@ -6,6 +6,7 @@ import com.dpsmpx.dppass.network.simulation.SimulatedNetwork
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -137,6 +138,55 @@ class CooldownTest {
         assertEquals(0, c.remainingMillis(), "пауза прошла — не уходит в минус")
         c.restart(15_000)
         assertEquals(15_000, c.remainingMillis(), "новый замер — новая пауза, своя длина")
+    }
+}
+
+/** Окно тишины наблюдателя (D-44, D-61): пока идёт свой замер и после него проба сессии не в счёт. */
+class QuietWindowTest {
+    @Test
+    fun coversRunningMeasurementsAndTheGraceAfter() {
+        val clock = ManualClock(1_000)
+        val q = QuietWindow(clock, 15_000)
+        assertFalse(q.active(), "до первого замера пробе ничто не мешает")
+        q.begin()
+        q.begin()
+        q.end()
+        clock.advance(60_000)
+        assertTrue(q.active(), "один из двух замеров ещё идёт — сколько бы ни прошло")
+        q.end()
+        clock.advance(14_999)
+        assertTrue(q.active(), "после замера — ещё окно")
+        clock.advance(1)
+        assertFalse(q.active(), "окно прошло")
+        assertFailsWith<IllegalStateException> { q.end() }
+    }
+
+    /**
+     * Ход 17 октября 2026 (0.7.2-dev, 14:30): замер скорости кончился в
+     * 14:30:17.2, следом в 14:30:21.6 началась проверка сети, проба
+     * наблюдателя шла 14:30:19.6–14:30:27.6 и провалилась по сроку 8 с.
+     * Теперь она не начинается; а начатая до замера — не учитывается.
+     */
+    @Test
+    fun probeOnTheDeviceTimelineIsNotCounted() {
+        val clock = ManualClock(0)
+        val q = QuietWindow(clock, 15_000)
+        q.begin() // замер скорости, ~10 с
+        clock.advance(10_000)
+        q.end()
+        clock.advance(2_400)
+        assertTrue(q.active(), "проба через 2,4 с после замера не начинается")
+        clock.advance(2_000)
+        q.begin() // проверка сети, ~13 с
+        clock.advance(13_000)
+        q.end()
+        clock.advance(15_000)
+        assertFalse(q.active(), "через окно после проверки пробы снова идут")
+
+        // Проба началась в тишине, а замер пришёл, пока она шла: исход — не про сервер.
+        q.begin()
+        clock.advance(8_000)
+        assertTrue(q.active())
     }
 }
 

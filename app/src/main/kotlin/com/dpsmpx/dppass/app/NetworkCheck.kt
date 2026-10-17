@@ -21,6 +21,7 @@ import com.dpsmpx.dppass.network.ProbeOutcome
 import com.dpsmpx.dppass.network.ProbePlan
 import com.dpsmpx.dppass.network.ProbeResult
 import com.dpsmpx.dppass.network.Prober
+import com.dpsmpx.dppass.network.QuietWindow
 import com.dpsmpx.dppass.network.SocketProber
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -46,13 +47,26 @@ object NetworkCheck {
      */
     fun readyInMillis(): Long = budget.waitForMillis(ProbePlan.STANDARD.size)
 
-    /**
-     * Идёт замер через туннель (D-61): наблюдатель сессии (D-44) пропускает
-     * пробы — нагрузка замера не должна выглядеть деградацией сервера (T14).
-     */
+    /** Идёт замер через туннель (D-61): один за раз. */
     private val measuring = AtomicBoolean(false)
 
-    val speedTestRunning: Boolean get() = measuring.get()
+    /**
+     * Замер скорости и проверка сети — и [QUIET_AFTER_MILLIS] после них:
+     * наблюдатель сессии (D-44) пробы не начинает, а начатую — не учитывает.
+     * Нагрузка замера не должна выглядеть деградацией сервера (T14).
+     */
+    private val quiet = QuietWindow(Clock.MONOTONIC, QUIET_AFTER_MILLIS)
+
+    /** Проба наблюдателя сейчас мерила бы свой замер, а не сервер. */
+    fun probesQuiet(): Boolean = quiet.active()
+
+    /**
+     * Окно после замера: очередь в канале после загрузки и свои пробы
+     * проверки — секунды. 17 октября 2026 проба, начатая через 0,4 и 2,4 с
+     * после замера, во время проверки, проваливалась; между замерами —
+     * проходила.
+     */
+    const val QUIET_AFTER_MILLIS: Long = 15_000
 
     /**
      * Пауза после замера (D-61): одна на процесс — уход с экрана её не
@@ -72,6 +86,7 @@ object NetworkCheck {
      */
     suspend fun speed(engine: XrayProxyEngine, log: Logger, profile: ProfileId?): Outcome<SpeedReport>? {
         if (speedCooldown.remainingMillis() > 0 || !measuring.compareAndSet(false, true)) return null
+        quiet.begin()
         var r: Outcome<SpeedReport>? = null
         return try {
             r = withContext(Dispatchers.IO) { engine.speedTest() }
@@ -95,6 +110,7 @@ object NetworkCheck {
         } finally {
             // Прерванный замер (ушли с экрана) — тоже трафик: пауза как после удачного.
             speedCooldown.restart(if (r is Outcome.Failure) SPEED_RETRY_MILLIS else SPEED_COOLDOWN_MILLIS)
+            quiet.end()
             measuring.set(false)
         }
     }
@@ -106,6 +122,15 @@ object NetworkCheck {
     private class Underlying(val network: Network?, val type: NetworkType, val caps: NetworkCapabilities?)
 
     suspend fun run(context: Context, log: Logger, onResult: (ProbeResult) -> Unit): NetworkAssessment = withContext(Dispatchers.IO) {
+        quiet.begin()
+        try {
+            assess(context, log, onResult)
+        } finally {
+            quiet.end()
+        }
+    }
+
+    private suspend fun assess(context: Context, log: Logger, onResult: (ProbeResult) -> Unit): NetworkAssessment {
         val u = underlying(context)
         val network = u.network
         val prober = if (network == null) {
@@ -121,7 +146,7 @@ object NetworkCheck {
         log.info("network_assessed", "type" to assessment.type, "class" to assessment.restriction, "confidence" to assessment.confidence)
         // Доводы классификатора — шаблоны без адресов и имён (NetworkClassifier).
         assessment.evidence.forEach { log.info("network_evidence", "text" to Safe(it)) }
-        assessment
+        return assessment
     }
 
     private fun underlying(context: Context): Underlying {

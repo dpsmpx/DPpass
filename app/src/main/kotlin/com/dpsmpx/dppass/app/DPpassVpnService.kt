@@ -344,12 +344,20 @@ class DPpassVpnService : VpnService() {
                 delay(SUPERVISION_INTERVAL_MILLIS)
                 // Наша ли ещё сессия: остановка или переподключение могли её сменить.
                 if (state.withLock { session } == null) return@launch
-                // Идёт замер скорости (D-61): канал занят им — проба сейчас мерила бы замер, а не сервер.
-                if (NetworkCheck.speedTestRunning) continue
+                // Идёт свой замер (D-60, D-61) или он только что кончился: проба мерила бы его, а не сервер.
+                if (NetworkCheck.probesQuiet()) {
+                    core.log.info("adaptive_probe_skipped", "profile" to Safe(profileId.value), "reason" to Safe("measurement"))
+                    continue
+                }
                 val started = Clock.MONOTONIC.nowMillis()
                 val result = withContext(Dispatchers.IO) { engine.probeHealth(ir.dns, probeTimeout) }
                 val elapsed = (Clock.MONOTONIC.nowMillis() - started).coerceAtLeast(1)
                 val failed = result is Outcome.Failure
+                // Замер начался, пока шла проба: её исход — не про сервер, в модель не идёт (T14).
+                if (NetworkCheck.probesQuiet()) {
+                    core.log.info("adaptive_probe_discarded", "profile" to Safe(profileId.value), "ok" to !failed, "elapsed_ms" to elapsed)
+                    continue
+                }
                 val stalled = failed && (result as Outcome.Failure).errors.any { it.code == DiagCode.PAYLOAD_STALLED }
                 val decision = sup.onObservation(
                     StabilityObservation(success = !failed, rttMillis = elapsed, stalled = stalled, timestampMillis = core.clock.nowMillis()),
