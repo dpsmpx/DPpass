@@ -69,6 +69,11 @@ private class FakeRuntime : XrayRuntime {
         return if (running) probeAnswer else DnsProbeResult(DnsProbeOutcome.NOT_RUNNING, 0, 0, "ядро не запущено")
     }
 
+    var speedAnswer = SpeedProbeResult(DnsProbeOutcome.OK, listOf(40_000, 50_000, 44_000), 1_000_000, 500_000, "")
+
+    override fun speedTest(target: String, pings: Int, maxBytes: Long, maxTimeMillis: Int, timeoutMillis: Int): SpeedProbeResult =
+        if (running) speedAnswer else SpeedProbeResult(DnsProbeOutcome.NOT_RUNNING, emptyList(), 0, 0, "ядро не запущено")
+
     /** Набор геоданных моста: вид и код → значения, которые в него попадают. */
     var geodata: Map<Pair<GeoKind, String>, Set<String>> = emptyMap()
     var geoFailure: XrayResult.Failed? = null

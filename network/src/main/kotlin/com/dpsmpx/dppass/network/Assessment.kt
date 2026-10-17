@@ -32,6 +32,21 @@ class ProbeBudget(
         return true
     }
 
+    /**
+     * Сколько ждать, пока в окне освободится место под [count] проб подряд
+     * (0 — можно сейчас): проверка по кнопке не начинается, если её пробы
+     * упрутся в предел и будут пропущены (D-60).
+     */
+    @Synchronized
+    fun waitForMillis(count: Int): Long {
+        val now = clock.nowMillis()
+        while (history.isNotEmpty() && now - history.first() >= windowMillis) history.removeFirst()
+        val excess = history.size + count - maxPerWindow
+        if (excess <= 0) return 0
+        if (count > maxPerWindow) return Long.MAX_VALUE
+        return (history.elementAt(excess - 1) + windowMillis - now).coerceAtLeast(0)
+    }
+
     /** Сколько ждать до следующей пробы к [target] (0 — можно сейчас). */
     @Synchronized
     fun waitMillis(target: ProbeTarget): Long {
@@ -142,6 +157,11 @@ object NetworkClassifier {
             evidence += "проведено проб: $known — мало для вывода"
             return result(RestrictionClass.UNKNOWN, Confidence.LOW)
         }
+        // Без зарубежных TCP и TLS «ограничений не видно» не вывод, а пропуск (D-60, 17.10.2026).
+        if (tcp == Reachability.UNKNOWN && tls == Reachability.UNKNOWN) {
+            evidence += "зарубежные TCP и TLS не проверены — мало для вывода"
+            return result(RestrictionClass.UNKNOWN, Confidence.LOW)
+        }
         val degraded = mutableListOf<String>()
         if (dns != Reachability.OK && dns != Reachability.UNKNOWN) degraded += "DNS к зарубежному имени: $dns"
         if (tcp == Reachability.OK && tls != Reachability.OK && tls != Reachability.UNKNOWN) degraded += "TCP проходит, TLS — $tls"
@@ -156,8 +176,14 @@ object NetworkClassifier {
             evidence += degraded
             return result(RestrictionClass.DEGRADED, if (degraded.size >= 2) Confidence.HIGH else Confidence.MEDIUM)
         }
-        evidence += if (udp == Reachability.BLOCKED) "остальные пробы прошли" else "все пробы прошли"
-        return result(RestrictionClass.NORMAL, if (udp == Reachability.UNKNOWN) Confidence.MEDIUM else Confidence.HIGH)
+        // «Все» — только если ни одна зарубежная проба не пропущена и не осталась без вывода.
+        val untested = listOf(dns, tcp, tls, udp, bulk).any { it == Reachability.UNKNOWN }
+        evidence += when {
+            udp == Reachability.BLOCKED -> "остальные пробы прошли"
+            untested -> "проведённые пробы прошли, часть не проверена"
+            else -> "все пробы прошли"
+        }
+        return result(RestrictionClass.NORMAL, if (untested) Confidence.MEDIUM else Confidence.HIGH)
     }
 
     const val HIGH_LATENCY_MILLIS: Long = 1_500

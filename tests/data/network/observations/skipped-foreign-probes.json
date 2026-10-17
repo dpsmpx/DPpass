@@ -1,0 +1,51 @@
+{
+  "note": "Повторная проверка через 18 с после первой (телефон, мобильная сеть, 17.10.2026, 0.7.0-dev): зарубежные TCP, TLS, UDP и BULK пропущены бюджетом D-14, а итог был «ограничений не видно — все пробы прошли». Пропуск — не вывод: мало данных.",
+  "type": "MOBILE",
+  "probes": [
+    {
+      "kind": "CAPTIVE",
+      "target": "DOMESTIC",
+      "outcome": "SUCCESS",
+      "ms": 1
+    },
+    {
+      "kind": "DNS",
+      "target": "DOMESTIC",
+      "outcome": "SUCCESS",
+      "ms": 8
+    },
+    {
+      "kind": "TCP",
+      "target": "DOMESTIC",
+      "outcome": "SUCCESS",
+      "ms": 77
+    },
+    {
+      "kind": "DNS",
+      "target": "FOREIGN",
+      "outcome": "SUCCESS",
+      "ms": 6
+    },
+    {
+      "kind": "TCP",
+      "target": "FOREIGN",
+      "outcome": "SKIPPED"
+    },
+    {
+      "kind": "TLS",
+      "target": "FOREIGN",
+      "outcome": "SKIPPED"
+    },
+    {
+      "kind": "UDP",
+      "target": "FOREIGN",
+      "outcome": "SKIPPED"
+    },
+    {
+      "kind": "BULK",
+      "target": "FOREIGN",
+      "outcome": "SKIPPED"
+    }
+  ],
+  "restriction": "UNKNOWN"
+}

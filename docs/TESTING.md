@@ -292,6 +292,16 @@ RFC 3849, RFC 2544) и частных сетей, домены `example.com/.net
 `h3`, параметры транспорта, ответ ServerHello. Совпадение классификации на
 телефоне с моделью — критерий выхода этапа 3 (`TODO.md`).
 
+Наблюдения с телефона, на которых классификатор ошибся, — файлы
+`tests/data/network/observations/*.json` (исходы проб без адресов, тип сети
+и ожидаемый класс); их сверяет `CorpusTest.networkObservations`, формат —
+`check_fixtures.py`. Первый — `skipped-foreign-probes.json` (17 октября 2026:
+пропуски бюджета давали «все пробы прошли»).
+
+Замер через туннель (D-61) — Go-тесты моста через proxy ядра к локальному
+HTTPS-серверу с заданным объёмом ответа (`TestSpeedTest*`), `XraySpeedTest`
+(расчёт и договор ответа) и `XrayJniTest.speedTestGoesThroughProxyAndKeepsTheContract`.
+
 ## 4. Fuzz
 
 `tests/fuzz/FuzzTest` — мутационный fuzz с фиксированным зерном:

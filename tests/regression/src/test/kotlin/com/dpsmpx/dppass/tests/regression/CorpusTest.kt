@@ -35,8 +35,14 @@ import com.dpsmpx.dppass.engine.xray.GeodataManifest
 import com.dpsmpx.dppass.engine.xray.XrayBackend
 import com.dpsmpx.dppass.engine.xray.XrayCompiler
 import com.dpsmpx.dppass.network.NetworkAssessor
+import com.dpsmpx.dppass.network.NetworkClassifier
 import com.dpsmpx.dppass.network.NetworkType
 import com.dpsmpx.dppass.network.ProbeBudget
+import com.dpsmpx.dppass.network.ProbeKind
+import com.dpsmpx.dppass.network.ProbeOutcome
+import com.dpsmpx.dppass.network.ProbeRequest
+import com.dpsmpx.dppass.network.ProbeResult
+import com.dpsmpx.dppass.network.ProbeTarget
 import com.dpsmpx.dppass.network.simulation.NetworkCondition
 import com.dpsmpx.dppass.network.simulation.SimulatedNetwork
 import com.dpsmpx.dppass.routing.AppLowering
@@ -270,6 +276,29 @@ class CorpusTest {
         )
         golden(File(goldens, "routing/$base.config.json"), config.payloadForEngine())
         golden(File(goldens, "routing/$base.probe.json"), Json.write(probe, pretty = true) + "\n")
+    }
+
+    /** Наблюдения проб с устройства (D-60): исходы без адресов → класс, как у классификатора на телефоне. */
+    @TestFactory
+    fun networkObservations(): List<DynamicTest> {
+        val dir = File(data, "network/observations")
+        return dir.listFiles { f -> f.name.endsWith(".json") }.orEmpty().sortedBy { it.name }.map { f ->
+            DynamicTest.dynamicTest("network/observations/${f.name}") {
+                val o = json(f)
+                val probes = (o["probes"] as JsonArray).items.map { item ->
+                    val pr = item as JsonObject
+                    ProbeResult(
+                        ProbeRequest(ProbeKind.valueOf(str(pr, "kind")!!), ProbeTarget.valueOf(str(pr, "target")!!)),
+                        ProbeOutcome.valueOf(str(pr, "outcome")!!),
+                        (pr["ms"] as? JsonNumber)?.toLongOrNull(),
+                    )
+                }
+                val x = NetworkClassifier.classify(NetworkType.valueOf(str(o, "type")!!), probes)
+                assertEquals(str(o, "restriction"), x.restriction.name, "${f.name}: ${x.evidence}")
+                str(o, "confidence")?.let { assertEquals(it, x.confidence.name, "${f.name}: уверенность") }
+                assertTrue(x.evidence.isNotEmpty(), "${f.name}: вывод без доводов")
+            }
+        }
     }
 
     @TestFactory

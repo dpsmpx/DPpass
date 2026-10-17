@@ -342,6 +342,8 @@ class DPpassVpnService : VpnService() {
                 delay(SUPERVISION_INTERVAL_MILLIS)
                 // Наша ли ещё сессия: остановка или переподключение могли её сменить.
                 if (state.withLock { session } == null) return@launch
+                // Идёт замер скорости (D-61): канал занят им — проба сейчас мерила бы замер, а не сервер.
+                if (NetworkCheck.speedTestRunning) continue
                 val started = Clock.MONOTONIC.nowMillis()
                 val result = withContext(Dispatchers.IO) { engine.probeHealth(ir.dns, probeTimeout) }
                 val elapsed = (Clock.MONOTONIC.nowMillis() - started).coerceAtLeast(1)

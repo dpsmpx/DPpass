@@ -255,6 +255,7 @@
     <string name="netcheck_note">Только для сведения: на выбор сервера итог пока не влияет. Повторные проверки идут с паузой — пропущенные шаги не значат отказ сети.</string>
     <string name="netcheck_run">Проверить сеть</string>
     <string name="netcheck_running">Проверяю…</string>
+    <string name="netcheck_wait">Проверки идут с паузой: частые пробы сами могут вызвать блокировку. Повторить можно через %1$d с.</string>
     <string name="netcheck_probe">%1$s · %2$s</string>
     <string name="netcheck_probe_ms">%1$s · %2$d мс</string>
     <string name="netcheck_network">Сеть: %1$s</string>
@@ -291,6 +292,15 @@
     <string name="netconf_low">низкая</string>
     <string name="netconf_medium">средняя</string>
     <string name="netconf_high">высокая</string>
+    <string name="speed_section">Скорость через туннель</string>
+    <string name="speed_note">Пинг, jitter и скорость загрузки через сервер, к которому подключён DPpass: 10 малых запросов и загрузка до 25 МБ (не дольше 8 с) с speed.cloudflare.com через сервер. На мобильной сети это трафик тарифа.</string>
+    <string name="speed_run">Измерить скорость</string>
+    <string name="speed_running">Измеряю…</string>
+    <string name="speed_needs_tunnel">Подключите DPpass: скорость меряется через сервер.</string>
+    <string name="speed_via">Через «%1$s»</string>
+    <string name="speed_ping">Пинг %1$s мс (лучший %2$s) · jitter %3$s мс</string>
+    <string name="speed_download">Загрузка %1$s Мбит/с — %2$s за %3$s с</string>
+    <string name="speed_failed">Скорость не измерена</string>
 
     <plurals name="servers_count">
         <item quantity="one">%d сервер</item>

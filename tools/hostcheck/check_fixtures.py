@@ -69,6 +69,11 @@ CONDITIONS = enum_entries(os.path.join(SRC.format(m="network"), "simulation", "S
 RESTRICTIONS = enum_entries(src("network", "Model.kt"), "RestrictionClass")
 REACH = enum_entries(src("network", "Model.kt"), "Reachability")
 CLASSES = enum_entries(src("config", "Ir.kt"), "TransportClass")
+PROBE_KINDS = enum_entries(src("network", "Model.kt"), "ProbeKind")
+PROBE_TARGETS = enum_entries(src("network", "Model.kt"), "ProbeTarget")
+PROBE_OUTCOMES = enum_entries(src("network", "Model.kt"), "ProbeOutcome")
+NETWORK_TYPES = enum_entries(src("network", "Model.kt"), "NetworkType")
+CONFIDENCES = enum_entries(src("network", "Model.kt"), "Confidence")
 KINDS = enum_entries(src("diagnostics", "Codes.kt"), "FailureKind")
 REGISTRY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "diag_codes.txt")
 
@@ -322,6 +327,37 @@ def check_network():
             bad(path, f"{name}.connects — true или false")
     for name in sorted(CONDITIONS - seen):
         bad(path, f"условия модели {name} нет в таблице — класс сети без регрессии")
+    check_observations()
+
+
+def check_observations():
+    """Наблюдения проб (D-60): исходы проб без адресов и ожидаемый класс — их сверяет CorpusTest."""
+    root = os.path.join(DATA, "network", "observations")
+    if not os.path.isdir(root):
+        return
+    for n in sorted(os.listdir(root)):
+        path = os.path.join(root, n)
+        if not n.endswith(".json"):
+            bad(path, "в network/observations/ — только *.json")
+            continue
+        o = load(path)
+        if o is None or not keys(path, o, {"note", "type", "probes", "restriction", "confidence"}, ("note", "type", "probes", "restriction")):
+            continue
+        one_of(path, "type", o["type"], NETWORK_TYPES)
+        one_of(path, "restriction", o["restriction"], RESTRICTIONS)
+        if "confidence" in o:
+            one_of(path, "confidence", o["confidence"], CONFIDENCES)
+        if not isinstance(o["probes"], list) or not o["probes"]:
+            bad(path, "probes — непустой список проб")
+            continue
+        for i, pr in enumerate(o["probes"]):
+            if not keys(path, pr, {"kind", "target", "outcome", "ms"}, ("kind", "target", "outcome")):
+                continue
+            one_of(path, f"probes[{i}].kind", pr["kind"], PROBE_KINDS)
+            one_of(path, f"probes[{i}].target", pr["target"], PROBE_TARGETS)
+            one_of(path, f"probes[{i}].outcome", pr["outcome"], PROBE_OUTCOMES)
+            if "ms" in pr and (not isinstance(pr["ms"], int) or pr["ms"] < 0):
+                bad(path, f"probes[{i}].ms — целое ≥ 0")
 
 
 def check_registry():

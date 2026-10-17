@@ -88,6 +88,19 @@ class XrayProxyEngine(private val runtime: Outcome<XrayRuntime>) : ProxyEngine {
     }
 
     /**
+     * Замер через туннель запущенной сессии (D-61): пинг, jitter и скорость
+     * загрузки через сервер профиля ([XraySpeed]). Блокирует поток до
+     * [XraySpeed.TIMEOUT_MILLIS].
+     */
+    fun speedTest(): Outcome<SpeedReport> {
+        val rt = when (runtime) {
+            is Outcome.Failure -> return unavailable()
+            is Outcome.Success -> runtime.value
+        }
+        return XraySpeed.report(rt.speedTest(XraySpeed.TARGET, XraySpeed.PINGS, XraySpeed.MAX_BYTES, XraySpeed.MAX_TIME_MILLIS, XraySpeed.TIMEOUT_MILLIS))
+    }
+
+    /**
      * Объяснение решения (D-09) на наборе геоданных ядра ([XrayGeoResolver],
      * D-27). Ядро не запускается и не трогается; запущенному не мешает.
      */

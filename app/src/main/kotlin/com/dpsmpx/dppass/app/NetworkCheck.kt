@@ -5,14 +5,19 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import com.dpsmpx.dppass.core.Clock
+import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.diagnostics.Logger
+import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Safe
+import com.dpsmpx.dppass.engine.xray.SpeedReport
+import com.dpsmpx.dppass.engine.xray.XrayProxyEngine
 import com.dpsmpx.dppass.network.NetworkAssessment
 import com.dpsmpx.dppass.network.NetworkAssessor
 import com.dpsmpx.dppass.network.NetworkType
 import com.dpsmpx.dppass.network.ProbeBudget
 import com.dpsmpx.dppass.network.ProbeNetwork
 import com.dpsmpx.dppass.network.ProbeOutcome
+import com.dpsmpx.dppass.network.ProbePlan
 import com.dpsmpx.dppass.network.ProbeResult
 import com.dpsmpx.dppass.network.Prober
 import com.dpsmpx.dppass.network.SocketProber
@@ -23,6 +28,7 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.Socket
 import java.security.SecureRandom
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Проверка сети по кнопке (D-60): пробы [SocketProber] в сети под
@@ -32,6 +38,48 @@ import java.security.SecureRandom
 object NetworkCheck {
     /** Один на процесс: две проверки подряд упираются в предел, а не дают залп (D-14). */
     private val budget = ProbeBudget(Clock.MONOTONIC)
+
+    /**
+     * Через сколько мс полная проверка уложится в бюджет (0 — сейчас):
+     * повтор раньше дал бы пропуски, а не вывод (D-60, 17.10.2026).
+     */
+    fun readyInMillis(): Long = budget.waitForMillis(ProbePlan.STANDARD.size)
+
+    /**
+     * Идёт замер через туннель (D-61): наблюдатель сессии (D-44) пропускает
+     * пробы — нагрузка замера не должна выглядеть деградацией сервера (T14).
+     */
+    private val measuring = AtomicBoolean(false)
+
+    val speedTestRunning: Boolean get() = measuring.get()
+
+    /**
+     * Пинг, jitter и скорость через туннель (D-61) — через сервер [profile]
+     * поднятой сессии. Один замер за раз; null — замер уже идёт.
+     */
+    suspend fun speed(engine: XrayProxyEngine, log: Logger, profile: ProfileId?): Outcome<SpeedReport>? {
+        if (!measuring.compareAndSet(false, true)) return null
+        return try {
+            val r = withContext(Dispatchers.IO) { engine.speedTest() }
+            when (r) {
+                is Outcome.Success -> with(r.value) {
+                    log.info(
+                        "speed_test",
+                        "profile" to Safe(profile?.value ?: "?"),
+                        "ping_ms" to Math.round(pingMillis),
+                        "jitter_ms" to Math.round(jitterMillis),
+                        "kbps" to downloadBitsPerSecond / 1000,
+                        "bytes" to receivedBytes,
+                        "ms" to transferMillis,
+                    )
+                }
+                is Outcome.Failure -> r.errors.forEach(log::diagnostic)
+            }
+            r
+        } finally {
+            measuring.set(false)
+        }
+    }
 
     /** Сеть, которую меряет проверка: не VPN, с доступом в интернет. */
     private class Underlying(val network: Network?, val type: NetworkType, val caps: NetworkCapabilities?)

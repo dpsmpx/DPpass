@@ -89,3 +89,34 @@ class NetworkClassifierTest {
         assertEquals(Confidence.LOW, x.confidence)
     }
 }
+
+/** Бюджет и пропуски (D-60, телефон, 17.10.2026): пропуск — не вывод, повтор — после паузы. */
+class ProbeSkipTest {
+    @Test
+    fun skippedForeignProbesAreNotNormal() {
+        val probes = ProbePlan.STANDARD.map { r ->
+            ProbeResult(r, if (r.target == ProbeTarget.FOREIGN && r.kind != ProbeKind.DNS) ProbeOutcome.SKIPPED else ProbeOutcome.SUCCESS, 5)
+        }
+        val x = NetworkClassifier.classify(NetworkType.MOBILE, probes)
+        assertEquals(RestrictionClass.UNKNOWN, x.restriction, x.evidence.toString())
+        val udpOnly = ProbePlan.STANDARD.map { r -> ProbeResult(r, if (r.kind == ProbeKind.UDP) ProbeOutcome.SKIPPED else ProbeOutcome.SUCCESS, 5) }
+        val y = NetworkClassifier.classify(NetworkType.WIFI, udpOnly)
+        assertEquals(RestrictionClass.NORMAL, y.restriction)
+        assertEquals(Confidence.MEDIUM, y.confidence)
+        assertTrue(y.evidence.none { it == "все пробы прошли" }, y.evidence.toString())
+    }
+
+    @Test
+    fun budgetSaysWhenAFullCheckFits() {
+        val clock = ManualClock(0)
+        val b = ProbeBudget(clock, minIntervalMillis = 0, maxPerWindow = 12, windowMillis = 60_000)
+        assertEquals(0, b.waitForMillis(8))
+        repeat(8) { clock.advance(1_000); assertTrue(b.tryAcquire(ProbeTarget.FOREIGN)) }
+        // Занято 8 из 12: ещё 8 влезут, когда истечёт 4-я проба (t = 4 с + 60 с).
+        assertEquals(64_000 - clock.nowMillis(), b.waitForMillis(8))
+        assertEquals(0, b.waitForMillis(4))
+        assertEquals(Long.MAX_VALUE, b.waitForMillis(13))
+        clock.advance(60_000)
+        assertEquals(0, b.waitForMillis(8))
+    }
+}

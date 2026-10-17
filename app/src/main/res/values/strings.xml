@@ -256,6 +256,7 @@
     <string name="netcheck_note">For your information only: the result doesn’t change how a server is chosen yet. Repeated checks are paced — skipped steps are not network failures.</string>
     <string name="netcheck_run">Check network</string>
     <string name="netcheck_running">Checking…</string>
+    <string name="netcheck_wait">Checks are paced: frequent probes can themselves trigger blocking. Try again in %1$d s.</string>
     <string name="netcheck_probe">%1$s · %2$s</string>
     <string name="netcheck_probe_ms">%1$s · %2$d ms</string>
     <string name="netcheck_network">Network: %1$s</string>
@@ -292,6 +293,15 @@
     <string name="netconf_low">low</string>
     <string name="netconf_medium">medium</string>
     <string name="netconf_high">high</string>
+    <string name="speed_section">Speed through the tunnel</string>
+    <string name="speed_note">Ping, jitter and download speed through the server DPpass is connected to: 10 small requests and a download of up to 25 MB (no longer than 8 s) from speed.cloudflare.com through the server. On a mobile network this counts against your plan.</string>
+    <string name="speed_run">Measure speed</string>
+    <string name="speed_running">Measuring…</string>
+    <string name="speed_needs_tunnel">Connect DPpass: speed is measured through the server.</string>
+    <string name="speed_via">Through “%1$s”</string>
+    <string name="speed_ping">Ping %1$s ms (best %2$s) · jitter %3$s ms</string>
+    <string name="speed_download">Download %1$s Mbit/s — %2$s in %3$s s</string>
+    <string name="speed_failed">Speed not measured</string>
 
     <plurals name="servers_count">
         <item quantity="one">%d server</item>

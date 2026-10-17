@@ -4,7 +4,10 @@ import android.view.View
 import android.widget.Button
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.NetworkCheck
+import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.TunnelStatus
+import com.dpsmpx.dppass.diagnostics.Outcome
+import com.dpsmpx.dppass.engine.xray.SpeedReport
 import com.dpsmpx.dppass.network.Confidence
 import com.dpsmpx.dppass.network.NetworkAssessment
 import com.dpsmpx.dppass.network.NetworkType
@@ -19,7 +22,8 @@ import kotlinx.coroutines.launch
 /**
  * «Проверка сети» (D-60): по кнопке — пробы D-14 мимо туннеля, исход
  * каждой и класс сети с доводами. Итог только для сведения: в план
- * подключения он пока не идёт.
+ * подключения он пока не идёт. Ниже — замер через туннель (D-61): пинг,
+ * jitter и скорость загрузки через сервер, к которому подключён DPpass.
  */
 class NetworkCheckScreen(host: Host) : SubScreen(host, R.string.netcheck_title) {
     private val run: Button = Ui.button(context, R.string.netcheck_run, Ui.Style.PRIMARY, R.drawable.ic_speed)
@@ -33,27 +37,96 @@ class NetworkCheckScreen(host: Host) : SubScreen(host, R.string.netcheck_title) 
     private val probes = Ui.listCard(context).apply { visibility = View.GONE }
     private var job: Job? = null
 
+    private val speedRun: Button = Ui.button(context, R.string.speed_run, Ui.Style.OUTLINE, R.drawable.ic_speed)
+    private val speedHint = Ui.text(context, R.style.Text_DPpass_Caption)
+    private val speedResult = Ui.text(context, R.style.Text_DPpass_Body).apply {
+        setTextIsSelectable(true)
+        visibility = View.GONE
+    }
+    private var speedJob: Job? = null
+
     override fun content(): View = Ui.column(context, 12).apply {
         addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.netcheck_intro)).apply { setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0) })
         addView(run.apply { setOnClickListener { start() } }, Ui.matchWidth())
         addView(verdict, Ui.matchWidth())
         addView(probes, Ui.matchWidth())
         addView(Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.netcheck_note)).apply { setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0) })
+        addView(Ui.section(context, context.getString(R.string.speed_section)))
+        addView(
+            Ui.card(context).apply {
+                addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.speed_note)))
+                addView(speedRun.apply { setOnClickListener { measureSpeed() } }, Ui.matchWidth())
+                addView(speedHint)
+                addView(speedResult)
+            },
+            Ui.matchWidth(),
+        )
     }
 
-    override fun render(status: TunnelStatus) = Unit
+    override fun render(status: TunnelStatus) {
+        // Замер — только через поднятый туннель: иначе мерить нечего (D-61).
+        val connected = status is TunnelStatus.Connected
+        if (speedJob?.isActive != true) speedRun.isEnabled = connected
+        speedHint.text = if (connected) context.getString(R.string.speed_via, Avatar.stripFlag((status as TunnelStatus.Connected).profileName)) else context.getString(R.string.speed_needs_tunnel)
+    }
+
+    override fun onShown() {
+        render(TunnelState.status.value)
+    }
 
     override fun onHidden() {
-        // Ушли с экрана — проверка останавливается: её никто не ждёт.
+        // Ушли с экрана — проверка и замер останавливаются: их никто не ждёт.
         job?.cancel()
         job = null
         run.isEnabled = true
         run.setText(R.string.netcheck_run)
+        speedJob?.cancel()
+        speedJob = null
+        speedRun.setText(R.string.speed_run)
+    }
+
+    private fun measureSpeed() {
+        val graph = host.graph ?: return
+        val connected = TunnelState.status.value as? TunnelStatus.Connected ?: return
+        if (speedJob?.isActive == true) return
+        speedRun.isEnabled = false
+        speedRun.setText(R.string.speed_running)
+        speedResult.visibility = View.GONE
+        speedJob = host.scope.launch {
+            try {
+                when (val r = NetworkCheck.speed(graph.engine, graph.core.log, connected.profileId)) {
+                    null -> Unit
+                    is Outcome.Success -> showSpeed(r.value)
+                    is Outcome.Failure -> host.problem(context.getString(R.string.speed_failed), r.errors.first())
+                }
+            } finally {
+                speedRun.setText(R.string.speed_run)
+                render(TunnelState.status.value)
+            }
+        }
+    }
+
+    private fun showSpeed(s: SpeedReport) {
+        val locale = context.resources.configuration.locales[0]
+        fun ms(v: Double) = String.format(locale, "%.0f", v)
+        val mbps = String.format(locale, "%.1f", s.downloadBitsPerSecond / 1_000_000.0)
+        val seconds = String.format(locale, "%.1f", s.transferMillis / 1000.0)
+        speedResult.text = listOf(
+            context.getString(R.string.speed_ping, ms(s.pingMillis), ms(s.minPingMillis), ms(s.jitterMillis)),
+            context.getString(R.string.speed_download, mbps, bytes(s.receivedBytes), seconds),
+        ).joinToString("\n")
+        speedResult.visibility = View.VISIBLE
     }
 
     private fun start() {
         val core = host.graph?.core ?: return
         if (job?.isActive == true) return
+        // Повтор раньше бюджета дал бы пропуски вместо вывода: подождать (D-14, D-60).
+        val wait = NetworkCheck.readyInMillis()
+        if (wait > 0) {
+            host.toast(context.getString(R.string.netcheck_wait, ((wait + 999) / 1000).toInt()))
+            return
+        }
         run.isEnabled = false
         run.setText(R.string.netcheck_running)
         verdict.visibility = View.GONE

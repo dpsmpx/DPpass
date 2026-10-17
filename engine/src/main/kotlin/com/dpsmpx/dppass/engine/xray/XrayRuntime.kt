@@ -43,6 +43,14 @@ interface XrayRuntime {
     fun probeDns(target: String, timeoutMillis: Int): DnsProbeResult
 
     /**
+     * Замер через туннель (D-61): [pings] малых запросов к [target]
+     * (`https://…`, путь с заданным объёмом ответа) и одна загрузка не
+     * больше [maxBytes] и не дольше [maxTimeMillis] — по одному TLS-соединению
+     * через исходящий `proxy`. Блокирует поток не дольше [timeoutMillis].
+     */
+    fun speedTest(target: String, pings: Int, maxBytes: Long, maxTimeMillis: Int, timeoutMillis: Int): SpeedProbeResult
+
+    /**
      * Попадает ли [value] в `geosite:`[code] (имя байтами UTF-8) или в
      * `geoip:`[code] (адрес, 4 или 16 байт) набора геоданных (D-27) —
      * сопоставителем маршрутизатора ядра, по файлам каталога геоданных.
@@ -61,6 +69,21 @@ enum class GeoKind(val code: Int) {
 /** Ответ сопоставления с геоданными: [Answer] или отказ моста [XrayResult.Failed]. */
 sealed interface GeoMatchResult {
     data class Answer(val matches: Boolean) : GeoMatchResult
+}
+
+/**
+ * Ответ замера через туннель (D-61): исход — как у пробы DNS (тот же
+ * `bridge.ProbeOutcome`), время каждого малого запроса, пришедшие байты
+ * загрузки и её время; [text] — текст ядра без редактирования.
+ */
+class SpeedProbeResult(
+    val outcome: DnsProbeOutcome,
+    val pingMicros: List<Long>,
+    val receivedBytes: Long,
+    val transferMicros: Long,
+    val text: String,
+) {
+    override fun toString(): String = "SpeedProbeResult($outcome, пингов ${pingMicros.size}, $receivedBytes байт за $transferMicros мкс)"
 }
 
 /** Исход пробы DNS; [code] — договор с `bridge.ProbeOutcome` (Go). */
@@ -152,6 +175,8 @@ internal object XrayJni {
 
     @JvmStatic external fun nativeProbeDns(target: ByteArray, timeoutMillis: Int): ByteArray
 
+    @JvmStatic external fun nativeSpeedTest(target: ByteArray, pings: Int, maxBytes: Long, maxTimeMillis: Int, timeoutMillis: Int): ByteArray
+
     @JvmStatic external fun nativeGeoMatch(kind: Int, code: ByteArray, value: ByteArray): ByteArray
 
     /** Ответ сопоставления: статус 0 и байт 1 (попадает) или 0 (нет); отказ — как у [decode]. */
@@ -171,6 +196,22 @@ internal object XrayJni {
         val buf = java.nio.ByteBuffer.wrap(answer)
         val outcome = DnsProbeOutcome.of(buf.get().toInt())
         return DnsProbeResult(outcome, buf.getInt(), buf.getInt(), answer.decodeToString(PROBE_HEADER, answer.size))
+    }
+
+    /** Ответ замера: исход, число пингов, по 4 байта их мкс, 8 байт пришедшего, 4 байта мкс загрузки, текст. */
+    fun decodeSpeed(answer: ByteArray): SpeedProbeResult {
+        val bad = SpeedProbeResult(DnsProbeOutcome.CONTRACT, emptyList(), 0, 0, "ответ замера не по договору: ${answer.size} байт")
+        if (answer.size < 2) return bad
+        val count = answer[1].toInt() and 0xff
+        val header = 2 + count * 4 + 8 + 4
+        if (answer.size < header) return bad
+        val buf = java.nio.ByteBuffer.wrap(answer)
+        val outcome = DnsProbeOutcome.of(buf.get().toInt())
+        buf.get()
+        val pings = List(count) { buf.getInt().toLong() and 0xffff_ffffL }
+        val received = buf.getLong()
+        val transfer = buf.getInt().toLong() and 0xffff_ffffL
+        return SpeedProbeResult(outcome, pings, received, transfer, answer.decodeToString(header, answer.size))
     }
 
     fun decode(answer: ByteArray): XrayResult {
@@ -205,6 +246,9 @@ class JniXrayRuntime private constructor() : XrayRuntime {
 
     override fun probeDns(target: String, timeoutMillis: Int): DnsProbeResult =
         XrayJni.decodeProbe(XrayJni.nativeProbeDns(target.encodeToByteArray(), timeoutMillis))
+
+    override fun speedTest(target: String, pings: Int, maxBytes: Long, maxTimeMillis: Int, timeoutMillis: Int): SpeedProbeResult =
+        XrayJni.decodeSpeed(XrayJni.nativeSpeedTest(target.encodeToByteArray(), pings, maxBytes, maxTimeMillis, timeoutMillis))
 
     override fun geoMatch(kind: GeoKind, code: String, value: ByteArray): GeoMatchResult =
         XrayJni.decodeGeo(XrayJni.nativeGeoMatch(kind.code, code.encodeToByteArray(), value))

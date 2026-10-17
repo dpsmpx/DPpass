@@ -17,6 +17,10 @@
 //   - проба DNS (D-32) отвечает своим форматом: исход (bridge.ProbeOutcome),
 //     время до ответа в мс и число пришедших байт — по 4 байта, старшим
 //     вперёд, — затем текст ошибки;
+//   - замер через туннель (D-61): исход (bridge.ProbeOutcome), число пингов
+//     (1 байт), время каждого в мкс (по 4 байта), пришедшие байты загрузки
+//     (8 байт) и её время в мкс (4 байта) — старшим вперёд, — затем текст
+//     ошибки;
 //   - сопоставление с геоданными (D-27): вид (bridge.GeoKind), код и
 //     значение — имя байтами UTF-8 или адрес 4 или 16 байт; ответ успеха —
 //     статус 0 и байт 1 (попадает) или 0 (нет), отказа — как у остальных.
@@ -250,6 +254,23 @@ func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeProbeDns(env *C.JNIEnv, _ 
 	out := []byte{byte(r.Outcome)}
 	out = binary.BigEndian.AppendUint32(out, uint32(min(r.Elapsed.Milliseconds(), 1<<31-1)))
 	out = binary.BigEndian.AppendUint32(out, uint32(min(r.Received, 1<<31-1)))
+	if r.Err != nil {
+		out = append(out, r.Err.Error()...)
+	}
+	return newBytes(env, out)
+}
+
+//export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSpeedTest
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSpeedTest(env *C.JNIEnv, _ C.jclass, target C.jbyteArray, pings C.jint, maxBytes C.jlong, maxTimeMillis C.jint, timeoutMillis C.jint) C.jbyteArray {
+	r := bridge.SpeedTest(string(bytesOf(env, target)), int(pings), int64(maxBytes),
+		time.Duration(maxTimeMillis)*time.Millisecond, time.Duration(timeoutMillis)*time.Millisecond)
+	micros := func(d time.Duration) uint32 { return uint32(min(d.Microseconds(), 1<<32-1)) }
+	out := []byte{byte(r.Outcome), byte(min(len(r.Pings), 255))}
+	for _, p := range r.Pings[:min(len(r.Pings), 255)] {
+		out = binary.BigEndian.AppendUint32(out, micros(p))
+	}
+	out = binary.BigEndian.AppendUint64(out, uint64(max(r.Received, 0)))
+	out = binary.BigEndian.AppendUint32(out, micros(r.Transfer))
 	if r.Err != nil {
 		out = append(out, r.Err.Error()...)
 	}

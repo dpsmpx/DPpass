@@ -260,6 +260,31 @@ class XrayJniTest {
         assertEquals(DnsProbeOutcome.CONTRACT, runtime.probeDns("dns://127.0.0.1", 1000).outcome)
     }
 
+    // ---- замер через туннель (D-61) ----
+
+    /**
+     * Договор JNI замера: исход, пинги, байты и текст доходят до Kotlin. Через
+     * ядро до локального сервера без доверенного сертификата — отказ TLS после
+     * соединения через защитника (сертификат проверяется всегда, T5).
+     */
+    @Test
+    fun speedTestGoesThroughProxyAndKeepsTheContract() {
+        assertEquals(DnsProbeOutcome.NOT_RUNNING, runtime.speedTest("https://127.0.0.1/__down", 2, 1024, 1000, 3000).outcome)
+        val server = ServerSocket(0, 4, LOOPBACK)
+        val accept = thread(isDaemon = true) {
+            runCatching { server.accept().use { it.getOutputStream().write("not tls\r\n".toByteArray()) } }
+        }
+        val seen = ConcurrentLinkedQueue<Int>()
+        assertEquals(XrayResult.Ok, runtime.start(config(), NO_TUN, 0, SocketProtector { fd -> seen += fd; true }))
+        val r = runtime.speedTest("https://127.0.0.1:${server.localPort}/__down", 2, 1024, 1000, 3000)
+        assertEquals(DnsProbeOutcome.TLS, r.outcome, "замер: $r ${r.text}")
+        assertTrue(r.pingMicros.isEmpty(), "до пингов дело не дошло: $r")
+        assertTrue(seen.isNotEmpty(), "сокет замера прошёл мимо защитника")
+        accept.join(1000)
+        server.close()
+        assertEquals(DnsProbeOutcome.CONTRACT, runtime.speedTest("http://127.0.0.1/__down", 2, 1024, 1000, 3000).outcome)
+    }
+
     // ---- геоданные для объяснения решений (D-27) ----
 
     /**
