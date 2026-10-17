@@ -31,6 +31,7 @@ import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Safe
 import com.dpsmpx.dppass.engine.EngineSession
 import com.dpsmpx.dppass.engine.ShareSpec
+import com.dpsmpx.dppass.engine.SocketProtector
 import com.dpsmpx.dppass.tunnel.TunnelHandle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -141,8 +142,19 @@ class DPpassVpnService : VpnService() {
         val graph = AppGraph.graph(this)
         val core = graph.core
         if (core.activation.state.activeConfig == null) core.restore()
-        val ir = core.activation.state.activeConfig
-        val spec = core.tunnelSpec()
+        // Устройство раздачи (D-55): выбрано — подключение только через него, по сети, где оно ответило.
+        val relay = AppPrefs(this).selectedRelay?.let(core.relays::find)
+        val target = relay?.let { d ->
+            when (val t = withContext(Dispatchers.IO) { RelayNetworks.locate(this@DPpassVpnService, d) }) {
+                is Outcome.Failure -> {
+                    fail(t.errors.first())
+                    return
+                }
+                is Outcome.Success -> t.value.also { core.log.info("relay_found", "medium" to Safe(it.medium.name), "auto" to (d.address == null)) }
+            }
+        }
+        val ir = if (relay != null && target != null) core.relayConfig(relay, target.address) else core.activation.state.activeConfig
+        val spec = ir?.let(core::tunnelSpecFor)
         if (ir == null || spec == null) {
             fail(Diagnostic.error(DiagCode.PROFILES_EMPTY, "нет активной конфигурации — туннель не поднимается"))
             return
@@ -175,7 +187,15 @@ class DPpassVpnService : VpnService() {
         val share = if (shareSettings?.enabled == true) shareSettings.spec(tetherForConnect()) else null
         val job = currentCoroutineContext().job
         val report = try {
-            core.connect(null, checker, handle.toTunInput(), preferred, share) { delay(it) }
+            val tun = handle.toTunInput().let { base ->
+                // Сокеты ядра — в сеть устройства раздачи: с Bluetooth- и USB-модема путь к нему не по умолчанию.
+                if (target == null) base else base.copy(protector = SocketProtector { fd -> base.protector.protect(fd) && RelayNetworks.bind(target.network, fd) })
+            }
+            if (relay != null && target != null) {
+                core.connectVia(relay, target.address, checker, tun, share) { delay(it) }
+            } else {
+                core.connect(null, checker, tun, preferred, share) { delay(it) }
+            }
         } catch (e: CancellationException) {
             // Остановка во время подключения: сеанс, запущенный посреди проверки
             // здоровья, оркестратор уже остановил (ConnectionOrchestrator.tryOne);
@@ -200,7 +220,7 @@ class DPpassVpnService : VpnService() {
                     core.log.info("connected", "profile" to Safe(report.profileId.value), "attempts" to report.attempts.size)
                     val name = ir.profiles.firstOrNull { it.id == report.profileId }?.name ?: report.profileId.value
                     progress(TunnelStatus.Connected(report.profileId, name, core.clock.nowMillis(), Clock.MONOTONIC.nowMillis()))
-                    watchNetwork()
+                    watchNetwork(target?.network)
                     startTicker(report.session)
                     startSupervisor(core, graph.engine, ir, report.profileId)
                     if (shareSettings?.enabled == true) {
@@ -336,8 +356,17 @@ class DPpassVpnService : VpnService() {
         return TetherInterfaces.confirmed(first, TetherInterfaces.find(this))
     }
 
-    /** Сеть под туннелем — сеть по умолчанию (D-40): её тип и тарификацию видят система и приложения. */
-    private fun watchNetwork() {
+    /**
+     * Сеть под туннелем — сеть по умолчанию (D-40): её тип и тарификацию видят
+     * система и приложения. Через устройство раздачи (D-55) — его сеть
+     * [fixed]: туннель идёт по ней, какая бы ни была сеть по умолчанию.
+     */
+    private fun watchNetwork(fixed: Network? = null) {
+        if (fixed != null) {
+            setUnderlyingNetworks(arrayOf(fixed))
+            DeviceLog.log.info("underlying_network", "state" to Safe("relay"))
+            return
+        }
         val cm = getSystemService(ConnectivityManager::class.java) ?: return
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {

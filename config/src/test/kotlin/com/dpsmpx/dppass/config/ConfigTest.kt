@@ -1,5 +1,8 @@
 package com.dpsmpx.dppass.config
 
+import com.dpsmpx.dppass.core.Endpoint
+import com.dpsmpx.dppass.core.Host
+import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.core.Json
 import com.dpsmpx.dppass.core.JsonNumber
 import com.dpsmpx.dppass.core.JsonObject
@@ -138,6 +141,41 @@ class ProfileValidationTest {
         }
         assertEquals(emptyList(), codesAt(trojan.copy(transport = TransportSpec.Grpc("dppass.Tunnel"))))
         assertEquals(emptyList(), codesAt(trojan.copy(transport = TransportSpec.XHttp("/x?ed=2048", null, XHttpMode.AUTO))))
+    }
+
+    // D-55: устройство раздачи — SOCKS с паролем, только на частный IPv4 своей сети:
+    // логин, пароль и трафик идут открыто, в интернет такой профиль не пускается.
+    @Test
+    fun relayDeviceIsOnlyPrivateIpv4WithPasswordOverPlainTcp() {
+        val relay = reality.copy(
+            endpoint = Endpoint(Host.Ip(IpAddress.parse("192.168.43.1")!!), 41234),
+            protocol = ProtocolSpec.Socks(Secret("u-test"), Secret("p-test")),
+            transport = TransportSpec.Tcp,
+            security = SecuritySpec.None,
+        )
+        assertEquals(emptyList(), codesAt(relay))
+        assertEquals(TransportClass.LOCAL_RELAY, relay.transportClass)
+        for (host in listOf(Host.Ip(IpAddress.parse("203.0.113.10")!!), Host.Ip(IpAddress.parse("fd00::1")!!), Host.Domain("relay.example.org"))) {
+            assertEquals(listOf(DiagCode.RELAY_ADDRESS_NOT_LOCAL to "profiles[0].server"), codesAt(relay.copy(endpoint = Endpoint(host, 41234))), host.toString())
+        }
+        assertEquals(
+            listOf(DiagCode.TRANSPORT_PROTOCOL_MISMATCH to "profiles[0].security"),
+            codesAt(relay.copy(security = SecuritySpec.Tls("t.example.org", emptyList(), null))),
+        )
+        assertEquals(listOf(DiagCode.TRANSPORT_PROTOCOL_MISMATCH to "profiles[0].transport"), codesAt(relay.copy(transport = TransportSpec.WebSocket("/ws", null))))
+        assertEquals(
+            listOf(DiagCode.PASSWORD_EMPTY to "profiles[0].protocol.password"),
+            codesAt(relay.copy(protocol = ProtocolSpec.Socks(Secret("u-test"), Secret("")))),
+        )
+    }
+
+    // Документ устройство раздачи не несёт (D-55): протокола socks в формате нет.
+    @Test
+    fun documentCannotCarryRelayDevice() {
+        val text = Fixtures.text("configs/valid-minimal.json")
+            .replace(Regex("""\"protocol\"\s*:\s*\{[^}]*}"""), """"protocol": {"type": "socks", "user": "u", "password": "p"}""")
+        val r = ConfigLoader().load(text)
+        assertTrue(r is Outcome.Failure && r.errors.any { it.code == DiagCode.VALUE_UNKNOWN }, r.diagnostics.map { it.render() }.toString())
     }
 }
 

@@ -2,6 +2,11 @@ package com.dpsmpx.dppass.tests.xrayjni
 
 import com.dpsmpx.dppass.config.ConfigLoader
 import com.dpsmpx.dppass.config.ConfigIr
+import com.dpsmpx.dppass.config.ProtocolSpec
+import com.dpsmpx.dppass.config.SecuritySpec
+import com.dpsmpx.dppass.config.TransportSpec
+import com.dpsmpx.dppass.core.Endpoint
+import com.dpsmpx.dppass.core.Host
 import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Outcome
@@ -131,6 +136,22 @@ class XrayJniTest {
             Secret("p-test-0123456789"),
         )
         val compiled = XrayCompiler().compile(ir, CompilePlan(ir.profiles.first().id, true, share)).valueOrNull() ?: fail("раздача не скомпилирована")
+        val r = runtime.validate(compiled.bytes())
+        assertEquals(XrayResult.Ok, r, (r as? XrayResult.Failed)?.text)
+    }
+
+    /** D-55: исходящий к устройству раздачи (socks с паролем на частный IPv4) ядро принимает целиком. */
+    @Test
+    fun relayDeviceOutboundPassesFullValidation() {
+        val base = ir("valid-minimal.json")
+        val relay = base.profiles.first().copy(
+            endpoint = Endpoint(Host.Ip(IpAddress.parse("192.168.43.1")!!), 41234),
+            protocol = ProtocolSpec.Socks(Secret("u-test"), Secret("p-test-0123456789")),
+            transport = TransportSpec.Tcp,
+            security = SecuritySpec.None,
+        )
+        val ir = base.copy(profiles = listOf(relay))
+        val compiled = XrayCompiler().compile(ir, CompilePlan(relay.id, true)).valueOrNull() ?: fail("устройство раздачи не скомпилировано")
         val r = runtime.validate(compiled.bytes())
         assertEquals(XrayResult.Ok, r, (r as? XrayResult.Failed)?.text)
     }

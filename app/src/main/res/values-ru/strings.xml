@@ -286,4 +286,43 @@
         <item>ГБ</item>
         <item>ТБ</item>
     </string-array>
+    <!-- Устройства раздачи (D-55) -->
+    <string name="relays_title">Устройства раздачи</string>
+    <string name="relays_entry">Через другое устройство</string>
+    <string name="relays_entry_note">Телефон с DPpass, который раздаёт свой туннель</string>
+    <string name="relays_intro">Подключение через другой телефон с DPpass, который раздаёт свой туннель: подключитесь к его точке доступа, Bluetooth- или USB-модему в настройках Android и выберите его здесь.</string>
+    <string name="relays_devices">Доверенные устройства</string>
+    <string name="relays_off">Не через устройство</string>
+    <string name="relays_off_note">Серверы подписки, как обычно</string>
+    <string name="relays_checking">Ищу…</string>
+    <string name="relays_near">Рядом: %1$s</string>
+    <string name="relays_absent">Не найдено в сетях телефона</string>
+    <string name="relays_actions">Действия с устройством</string>
+    <string name="relays_add">Добавить вручную</string>
+    <string name="relays_networks">Сети рядом</string>
+    <string name="relays_no_networks">Телефон не подключён к точке доступа, Bluetooth- или USB-модему другого устройства.</string>
+    <string name="relays_gateway">Шлюз %1$s %2$s</string>
+    <string name="relays_gateway_note">Добавить как устройство раздачи</string>
+    <string name="relays_rescan">Искать снова</string>
+    <string name="relays_limits_text">• На том телефоне DPpass должен быть подключён, а «Раздача туннеля» — включена.
+• Логин, пароль и трафик до него идут по каналу раздачи без шифрования прокси — только в своей сети: точка доступа с паролем, Bluetooth, USB.
+• Подключение идёт только через выбранное устройство: если его нет рядом, DPpass скажет почему, а не подключится к другим серверам.</string>
+    <string name="relays_medium_wifi">Wi-Fi</string>
+    <string name="relays_medium_bluetooth">Bluetooth</string>
+    <string name="relays_medium_usb">USB</string>
+    <string name="relays_add_title">Устройство раздачи</string>
+    <string name="relays_name_hint">Имя</string>
+    <string name="relays_address_hint">Адрес (пусто — шлюз сети)</string>
+    <string name="relays_add_note">Порт, логин и пароль — на том телефоне: «Настройки» → «Раздача туннеля». Проще — нажать там «Поделиться входом» и вставить ссылку здесь.</string>
+    <string name="relays_added">Устройство добавлено</string>
+    <string name="relays_default_name">Устройство раздачи</string>
+    <string name="relays_name_on">Устройство по %1$s</string>
+    <string name="relays_delete">Удалить</string>
+    <string name="relays_delete_confirm">Убрать «%1$s» из доверенных устройств?</string>
+    <string name="relays_link_text">Добавить раздачу туннеля другого телефона (порт %1$d)? Адрес берётся из сети, через которую этот телефон к нему подключён.</string>
+    <string name="relays_summary">Устройство раздачи · SOCKS5</string>
+    <string name="servers_via_relay">Подключение — через «%1$s». Выберите сервер, чтобы снова подключаться к серверам.</string>
+    <string name="share_link">Поделиться входом</string>
+    <string name="share_link_note">Ссылка для DPpass на другом телефоне — с логином и паролем</string>
+    <string name="share_link_unavailable">Ссылка появится, когда в Android включена раздача и DPpass подключён</string>
 </resources>

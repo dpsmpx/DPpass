@@ -24,6 +24,13 @@ sealed interface ImportKind {
      */
     data class Links(val usable: Int, val total: Int, val problems: List<Diagnostic>) : ImportKind
 
+    /**
+     * Вход раздачи другого DPpass (`socks5://…`, D-55): не сервер подписки, а
+     * устройство — добавляется в список устройств раздачи, если пользователь
+     * согласится.
+     */
+    data class Relay(val link: RelayLink) : ImportKind
+
     /** Не распознано: ни документ, ни адрес, ни ссылки. */
     data class Unrecognized(val reason: Diagnostic?) : ImportKind
 }
@@ -54,6 +61,12 @@ object ImportClassifier {
             return ImportKind.Unrecognized(Diagnostic.error(DiagCode.SUBSCRIPTION_FETCH_FAILED, SubscriptionService.URL_RULE))
         }
         if (t.startsWith("{")) return ImportKind.Unrecognized(null)
+        if (RelayLink.looksLike(t)) {
+            return when (val r = RelayLink.parse(t)) {
+                is Outcome.Failure -> ImportKind.Unrecognized(r.errors.firstOrNull())
+                is Outcome.Success -> ImportKind.Relay(r.value)
+            }
+        }
         return when (val d = PayloadDecoder.decode(t.toByteArray(Charsets.UTF_8), "import", MAX_ENTRIES)) {
             is Outcome.Failure -> ImportKind.Unrecognized(d.errors.firstOrNull())
             is Outcome.Success -> {

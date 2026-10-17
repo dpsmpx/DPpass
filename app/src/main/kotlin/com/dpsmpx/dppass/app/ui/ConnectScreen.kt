@@ -65,7 +65,8 @@ class ConnectScreen(host: Host) : Screen(host) {
             isFocusable = true
             minimumHeight = Ui.dp(context, 64)
             setPadding(Ui.dp(context, 16), Ui.dp(context, 8), Ui.dp(context, 12), Ui.dp(context, 8))
-            setOnClickListener { host.showTab(Host.TAB_SERVERS) }
+            // Через устройство раздачи (D-55) — его экран, иначе — серверы.
+            setOnClickListener { if (host.prefs.selectedRelay != null) host.push(RelaysScreen(host)) else host.showTab(Host.TAB_SERVERS) }
             addView(serverAvatar)
             addView(autoAvatar)
             val texts = Ui.column(context, 2)
@@ -113,6 +114,10 @@ class ConnectScreen(host: Host) : Screen(host) {
             Ui.button(context, R.string.import_clipboard, Ui.Style.OUTLINE, R.drawable.ic_paste).apply { setOnClickListener { ImportFlow.fromClipboard(host) } },
             Ui.matchWidth(),
         )
+        addView(
+            Ui.button(context, R.string.relays_entry, Ui.Style.TEXT, R.drawable.ic_lan).apply { setOnClickListener { host.push(RelaysScreen(host)) } },
+            Ui.matchWidth(),
+        )
     }
 
     override val view: View = scroll(
@@ -147,7 +152,9 @@ class ConnectScreen(host: Host) : Screen(host) {
         val graph = host.graph
         val core = graph?.core
         val ir = core?.activation?.state?.activeConfig
-        val hasServers = ir != null && ir.profiles.isNotEmpty()
+        // Выбрано устройство раздачи (D-55) — подключаться есть к чему и без подписки.
+        val relay = host.prefs.selectedRelay?.let { id -> core?.relays?.find(id) }
+        val hasServers = relay != null || (ir != null && ir.profiles.isNotEmpty())
 
         source.text = when (val s = ConfigSource.of(core?.activation?.state?.active?.source)) {
             ConfigSource.None -> context.getString(R.string.source_none)
@@ -187,12 +194,12 @@ class ConnectScreen(host: Host) : Screen(host) {
 
         val chosen = ir?.let { c -> ServerList.effectiveSelection(c.profiles, host.prefs.selectedServer)?.let { id -> c.profiles.first { it.id == id } } }
         val connected = (status as? TunnelStatus.Connected)?.let { c -> ir?.profiles?.firstOrNull { it.id == c.profileId } }
-        val shown = connected ?: chosen
-        serverName.text = shown?.name?.let(Avatar::stripFlag) ?: context.getString(R.string.server_auto)
-        serverHint.text = shown?.let(ServerList::summary) ?: context.getString(R.string.server_auto_hint)
-        shown?.let { serverAvatar.text = Avatar.of(it.name) }
-        serverAvatar.visibility = if (shown != null) View.VISIBLE else View.GONE
-        autoAvatar.visibility = if (shown == null) View.VISIBLE else View.GONE
+        val shown = if (relay != null) null else connected ?: chosen
+        serverName.text = relay?.name ?: shown?.name?.let(Avatar::stripFlag) ?: context.getString(R.string.server_auto)
+        serverHint.text = if (relay != null) context.getString(R.string.relays_summary) else shown?.let(ServerList::summary) ?: context.getString(R.string.server_auto_hint)
+        (relay?.name ?: shown?.name)?.let { serverAvatar.text = Avatar.of(it) }
+        serverAvatar.visibility = if (relay != null || shown != null) View.VISIBLE else View.GONE
+        autoAvatar.visibility = if (relay == null && shown == null) View.VISIBLE else View.GONE
         serverLatency.removeAllViews()
         shown?.let { p -> Ui.latencyChip(context, LatencyLabel.of(core?.latency?.of(p.id)))?.let(serverLatency::addView) }
         serverCard.visibility = if (hasServers) View.VISIBLE else View.GONE

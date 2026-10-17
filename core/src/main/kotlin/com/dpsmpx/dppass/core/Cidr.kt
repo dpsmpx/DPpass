@@ -27,6 +27,14 @@ class Cidr private constructor(val network: IpAddress, val prefix: Int) {
         val ALL_V4: Cidr = of(IpAddress.parse("0.0.0.0")!!, 0)
         val ALL_V6: Cidr = of(IpAddress.parse("::")!!, 0)
 
+        /**
+         * RFC 1918: 10/8, 172.16/12, 192.168/16 — адреса, которые не видны из
+         * интернета: раздача туннеля (D-51) и устройство раздачи (D-55).
+         */
+        val PRIVATE_V4: List<Cidr> = listOf("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16").map { parse(it)!!.cidr }
+
+        fun isPrivateV4(ip: IpAddress): Boolean = PRIVATE_V4.any { ip in it }
+
         fun of(address: IpAddress, prefix: Int): Cidr {
             require(prefix in 0..address.bitLength) { "длина префикса вне диапазона" }
             return Cidr(mask(address, prefix), prefix)

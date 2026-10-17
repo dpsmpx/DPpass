@@ -273,4 +273,43 @@
         <item>GB</item>
         <item>TB</item>
     </string-array>
+    <!-- Устройства раздачи (D-55) -->
+    <string name="relays_title">Sharing devices</string>
+    <string name="relays_entry">Through another device</string>
+    <string name="relays_entry_note">A phone with DPpass that shares its tunnel</string>
+    <string name="relays_intro">Connect through another phone with DPpass that shares its tunnel: join its hotspot, Bluetooth or USB tethering in Android settings, then pick it here.</string>
+    <string name="relays_devices">Trusted devices</string>
+    <string name="relays_off">Not through a device</string>
+    <string name="relays_off_note">Subscription servers, as usual</string>
+    <string name="relays_checking">Looking…</string>
+    <string name="relays_near">Nearby: %1$s</string>
+    <string name="relays_absent">Not found on this phone’s networks</string>
+    <string name="relays_actions">Device actions</string>
+    <string name="relays_add">Add manually</string>
+    <string name="relays_networks">Networks nearby</string>
+    <string name="relays_no_networks">This phone isn’t on another device’s hotspot, Bluetooth or USB tethering.</string>
+    <string name="relays_gateway">%1$s gateway %2$s</string>
+    <string name="relays_gateway_note">Add as a sharing device</string>
+    <string name="relays_rescan">Look again</string>
+    <string name="relays_limits_text">• On that phone, DPpass must be connected with “Share tunnel” on.
+• The login, password and traffic to it go over the tethering link without proxy encryption — use your own network only: a password-protected hotspot, Bluetooth or USB.
+• DPpass connects only through the chosen device: if it isn’t nearby, you’ll see why — other servers aren’t used instead.</string>
+    <string name="relays_medium_wifi">Wi-Fi</string>
+    <string name="relays_medium_bluetooth">Bluetooth</string>
+    <string name="relays_medium_usb">USB</string>
+    <string name="relays_add_title">Sharing device</string>
+    <string name="relays_name_hint">Name</string>
+    <string name="relays_address_hint">Address (empty — network gateway)</string>
+    <string name="relays_add_note">Port, login and password are on that phone: Settings → Tunnel sharing. Easier: tap “Share sign-in” there and paste the link here.</string>
+    <string name="relays_added">Device added</string>
+    <string name="relays_default_name">Sharing device</string>
+    <string name="relays_name_on">Device on %1$s</string>
+    <string name="relays_delete">Remove</string>
+    <string name="relays_delete_confirm">Remove “%1$s” from trusted devices?</string>
+    <string name="relays_link_text">Add another phone’s tunnel sharing (port %1$d)? Its address is taken from the network this phone uses to reach it.</string>
+    <string name="relays_summary">Sharing device · SOCKS5</string>
+    <string name="servers_via_relay">Connecting through “%1$s”. Pick a server to use servers again.</string>
+    <string name="share_link">Share sign-in</string>
+    <string name="share_link_note">A link for DPpass on another phone — includes the login and password</string>
+    <string name="share_link_unavailable">The link appears once tethering is on and DPpass is connected</string>
 </resources>

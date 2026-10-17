@@ -229,6 +229,8 @@ class TransportAdvisor(weights: DoubleArray? = null) {
             TransportClass.TCP_STREAM -> x[1] = 1.0
             TransportClass.HTTP_CDN -> x[2] = 1.0
             TransportClass.UDP_QUIC -> x[3] = 1.0
+            // Не обучается на нём вовсе (StabilityModel.observe); признака класса нет.
+            TransportClass.LOCAL_RELAY -> Unit
         }
         x[4] = if (a?.restriction == RestrictionClass.DEGRADED) 1.0 else 0.0
         x[5] = if (a?.restriction == RestrictionClass.ALLOWLIST_LIKE) 1.0 else 0.0
@@ -264,7 +266,9 @@ class StabilityModel internal constructor(
     fun observe(profileId: ProfileId, context: NetworkContext, sample: StabilityObservation, profile: ServerProfile? = null, assessment: NetworkAssessment? = null) {
         val key = key(profileId, context)
         records[key] = (records[key] ?: StabilityStats()).fold(sample)
-        if (profile != null) advisor.learn(profile, assessment, sample.success)
+        // Исход устройства раздачи (D-55) говорит о своей сети, а не о сети оператора:
+        // обобщение по классам на нём не учится — ни в его пользу, ни во вред другим.
+        if (profile != null && profile.transportClass != TransportClass.LOCAL_RELAY) advisor.learn(profile, assessment, sample.success)
         trim()
     }
 

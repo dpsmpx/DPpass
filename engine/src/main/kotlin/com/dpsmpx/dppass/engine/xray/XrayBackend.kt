@@ -30,7 +30,7 @@ object XrayBackend {
     val CAPABILITIES: EngineCapabilities = EngineCapabilities(
         backendId = ID,
         backendVersion = VERSION,
-        protocols = setOf(ProtocolKind.VLESS, ProtocolKind.TROJAN, ProtocolKind.SHADOWSOCKS, ProtocolKind.HYSTERIA2),
+        protocols = setOf(ProtocolKind.VLESS, ProtocolKind.TROJAN, ProtocolKind.SHADOWSOCKS, ProtocolKind.HYSTERIA2, ProtocolKind.SOCKS),
         transports = setOf(
             TransportKind.TCP, TransportKind.WEBSOCKET, TransportKind.GRPC, TransportKind.XHTTP,
             TransportKind.HTTPUPGRADE, TransportKind.NATIVE,

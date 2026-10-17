@@ -2,9 +2,11 @@ package com.dpsmpx.dppass.engine.xray
 
 import com.dpsmpx.dppass.config.ConfigIr
 import com.dpsmpx.dppass.config.ConfigLoader
+import com.dpsmpx.dppass.config.ProtocolSpec
 import com.dpsmpx.dppass.config.SecuritySpec
 import com.dpsmpx.dppass.config.TransportSpec
 import com.dpsmpx.dppass.core.Cidr
+import com.dpsmpx.dppass.core.Endpoint
 import com.dpsmpx.dppass.core.Host
 import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.core.Json
@@ -13,6 +15,7 @@ import com.dpsmpx.dppass.core.JsonNumber
 import com.dpsmpx.dppass.core.JsonObject
 import com.dpsmpx.dppass.core.JsonString
 import com.dpsmpx.dppass.core.JsonValue
+import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Secret
@@ -324,6 +327,29 @@ class XrayCompilerTest {
         assertEquals("hysteria", stream["network"].text)
         assertEquals("test-password-2", stream["hysteriaSettings"]["auth"].text)
         assertEquals("salamander", stream["finalmask"]["udp"].items.single()["type"].text)
+    }
+
+    // D-55: устройство раздачи — исходящий socks с паролем ко входу раздачи другого DPpass,
+    // без надстроек транспорта (вход раздачи их не принимает, D-51).
+    @Test
+    fun relayDeviceCompilesToSocksWithPassword() {
+        val base = ir()
+        val relay = base.profiles.single().copy(
+            id = ProfileId("relay.test"),
+            name = "Устройство",
+            endpoint = Endpoint(Host.Ip(IpAddress.parse("192.168.43.1")!!), 41234),
+            protocol = ProtocolSpec.Socks(Secret("u-test"), Secret("p-test-0123456789")),
+            transport = TransportSpec.Tcp,
+            security = SecuritySpec.None,
+        )
+        val proxy = outbound(payload(base.copy(profiles = listOf(relay))), "proxy")
+        assertEquals("socks", proxy["protocol"].text)
+        assertEquals("192.168.43.1", proxy["settings"]["address"].text)
+        assertEquals(41234, proxy["settings"]["port"].int)
+        assertEquals("u-test", proxy["settings"]["user"].text)
+        assertEquals("p-test-0123456789", proxy["settings"]["pass"].text)
+        assertEquals("raw", proxy["streamSettings"]["network"].text)
+        assertEquals("none", proxy["streamSettings"]["security"].text)
     }
 
     @Test

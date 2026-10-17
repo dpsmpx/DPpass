@@ -148,6 +148,7 @@ object ServerList {
                 ProtocolKind.TROJAN -> "Trojan"
                 ProtocolKind.SHADOWSOCKS -> "Shadowsocks 2022"
                 ProtocolKind.HYSTERIA2 -> "Hysteria2"
+                ProtocolKind.SOCKS -> "SOCKS5"
             },
         )
         // У Hysteria2 TLS — часть протокола, а транспорт — QUIC.

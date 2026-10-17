@@ -45,7 +45,7 @@ data class CandidateHints(
     val reachableUnderAllowlist: Boolean = false,
 )
 
-enum class ProtocolKind { VLESS, TROJAN, SHADOWSOCKS, HYSTERIA2 }
+enum class ProtocolKind { VLESS, TROJAN, SHADOWSOCKS, HYSTERIA2, SOCKS }
 
 sealed interface ProtocolSpec {
     val kind: ProtocolKind
@@ -65,6 +65,17 @@ sealed interface ProtocolSpec {
     /** [congestion] — управление перегрузкой QUIC (формат 2, D-37); null — по умолчанию ядра. */
     data class Hysteria2(val password: Secret, val obfsPassword: Secret? = null, val congestion: Hysteria2Congestion? = null) : ProtocolSpec {
         override val kind: ProtocolKind get() = ProtocolKind.HYSTERIA2
+    }
+
+    /**
+     * SOCKS5 с логином и паролем — только к устройству раздачи в своей сети
+     * (D-55): ко входу раздачи другого DPpass (D-51). Логин, пароль и трафик
+     * идут открыто по каналу раздачи, поэтому адрес — только частный IPv4.
+     * В документе и подписке такого протокола нет: устройство добавляет
+     * только сам пользователь (D-11).
+     */
+    data class Socks(val user: Secret, val password: Secret) : ProtocolSpec {
+        override val kind: ProtocolKind get() = ProtocolKind.SOCKS
     }
 }
 
@@ -88,9 +99,12 @@ enum class TransportKind { TCP, WEBSOCKET, GRPC, XHTTP, HTTPUPGRADE, NATIVE }
 /**
  * Класс транспорта — то, по чему политика подключения подбирает кандидата
  * под сеть: TCP-поток (TLS, REALITY, Shadowsocks поверх TCP), HTTP/CDN
- * (WebSocket, gRPC, XHTTP, HTTPUpgrade), UDP/QUIC (Hysteria2).
+ * (WebSocket, gRPC, XHTTP, HTTPUpgrade), UDP/QUIC (Hysteria2). Устройство
+ * раздачи (D-55) — свой класс: до него — своя сеть, ограничения сети
+ * оператора к нему не относятся, и опыт других классов на него не
+ * переносится (и обратно).
  */
-enum class TransportClass { TCP_STREAM, HTTP_CDN, UDP_QUIC }
+enum class TransportClass { TCP_STREAM, HTTP_CDN, UDP_QUIC, LOCAL_RELAY }
 
 sealed interface TransportSpec {
     val kind: TransportKind
@@ -232,6 +246,7 @@ sealed interface SecuritySpec {
 /** Класс транспорта профиля: от него зависит, в какой сети кандидат осмыслен. */
 val ServerProfile.transportClass: TransportClass
     get() = when {
+        protocol.kind == ProtocolKind.SOCKS -> TransportClass.LOCAL_RELAY
         protocol.kind == ProtocolKind.HYSTERIA2 -> TransportClass.UDP_QUIC
         transport.kind == TransportKind.TCP -> TransportClass.TCP_STREAM
         else -> TransportClass.HTTP_CDN

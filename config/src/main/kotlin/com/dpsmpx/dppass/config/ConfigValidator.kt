@@ -1,5 +1,6 @@
 package com.dpsmpx.dppass.config
 
+import com.dpsmpx.dppass.core.Cidr
 import com.dpsmpx.dppass.core.Host
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
@@ -150,6 +151,22 @@ object ConfigValidator {
                     err(DiagCode.TRANSPORT_PROTOCOL_MISMATCH, "Hysteria2 работает поверх своего QUIC: transport должен быть native", "$path.transport")
                 }
                 if (p.security !is SecuritySpec.Tls) err(DiagCode.SECURITY_REQUIRED, "Hysteria2 требует TLS", "$path.security")
+            }
+            is ProtocolSpec.Socks -> {
+                secretPresent(proto.user, "$path.protocol.user")
+                secretPresent(proto.password, "$path.protocol.password")
+                val ip = (p.endpoint.host as? Host.Ip)?.address
+                if (ip == null || !Cidr.isPrivateV4(ip)) {
+                    err(
+                        DiagCode.RELAY_ADDRESS_NOT_LOCAL,
+                        "устройство раздачи — только частный IPv4-адрес своей сети (RFC 1918): SOCKS передаёт логин, пароль и трафик открыто",
+                        "$path.server",
+                    )
+                }
+                if (p.transport !is TransportSpec.Tcp) err(DiagCode.TRANSPORT_PROTOCOL_MISMATCH, "SOCKS — только поверх tcp", "$path.transport")
+                if (p.security !is SecuritySpec.None) {
+                    err(DiagCode.TRANSPORT_PROTOCOL_MISMATCH, "вход раздачи — без TLS: security должно быть none", "$path.security")
+                }
             }
         }
         if (p.transport is TransportSpec.Native && p.protocol !is ProtocolSpec.Hysteria2) {

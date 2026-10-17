@@ -13,10 +13,12 @@ import android.view.View
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.TunnelStatus
+import com.dpsmpx.dppass.connection.RelayLink
 import com.dpsmpx.dppass.connection.ShareService
 import com.dpsmpx.dppass.connection.ShareSettings
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
+import com.dpsmpx.dppass.engine.ShareSpec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.combine
@@ -84,6 +86,13 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
                     )
                     addView(Ui.divider(context))
                 }
+                addView(
+                    Ui.ListRow(context, R.drawable.ic_link, context.getString(R.string.share_link))
+                        .subtitle(context.getString(R.string.share_link_note))
+                        .onClick { shareLink(s, endpoints) },
+                    Ui.matchWidth(),
+                )
+                addView(Ui.divider(context))
                 addView(
                     Ui.ListRow(context, R.drawable.ic_open, context.getString(R.string.share_system))
                         .subtitle(context.getString(R.string.share_system_note))
@@ -201,6 +210,23 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
             }
             render(TunnelState.status.value)
         }
+    }
+
+    /**
+     * «Поделиться входом» (D-55): ссылка `socks5://` для DPpass на другом
+     * телефоне — он добавит этот телефон в устройства раздачи. В ссылке —
+     * логин и пароль: уходит только в приложение, которое выбрал пользователь.
+     */
+    private fun shareLink(s: ShareSettings, endpoints: List<ShareSpec.Endpoint>) {
+        val at = endpoints.firstOrNull()?.address
+        if (at == null) {
+            host.toast(context.getString(R.string.share_link_unavailable))
+            return
+        }
+        val label = context.applicationInfo.loadLabel(context.packageManager).toString()
+        val link = RelayLink(at, s.port, s.user.reveal(), s.password.reveal(), label).format()
+        val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, link)
+        openSystem(Intent.createChooser(send, context.getString(R.string.share_link)))
     }
 
     private fun note(text: Int): View =

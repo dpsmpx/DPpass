@@ -41,6 +41,9 @@ object ConfigWriter {
                     "obfs_password" to secret(pr.obfsPassword),
                     "congestion" to Json.str(pr.congestion?.wire),
                 )
+                // Устройство раздачи (D-55) живёт только в списке устройств, в IR активации
+                // его не бывает; в формате документа такого протокола нет.
+                is ProtocolSpec.Socks -> throw IllegalArgumentException("устройство раздачи не записывается в документ (D-55)")
             }
             val transport = when (val t = p.transport) {
                 TransportSpec.Tcp -> Json.obj("type" to Json.str("tcp"))

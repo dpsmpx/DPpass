@@ -99,6 +99,12 @@ enum class DiagCode(val kind: FailureKind, val defaultSeverity: Severity) {
      */
     TRANSPORT_SETTING_INVALID(FailureKind.CONFIG_VALIDATION_FAILED, Severity.ERROR),
 
+    /**
+     * Адрес устройства раздачи (D-55) — не частный IPv4 своей сети:
+     * SOCKS передаёт логин, пароль и трафик открыто, в интернет так нельзя.
+     */
+    RELAY_ADDRESS_NOT_LOCAL(FailureKind.CONFIG_VALIDATION_FAILED, Severity.ERROR),
+
     // --- возможности ядра и компиляция ---
     CAPABILITY_PROTOCOL_UNSUPPORTED(FailureKind.CAPABILITY_UNSUPPORTED, Severity.ERROR),
     CAPABILITY_TRANSPORT_UNSUPPORTED(FailureKind.CAPABILITY_UNSUPPORTED, Severity.ERROR),
@@ -149,6 +155,12 @@ enum class DiagCode(val kind: FailureKind, val defaultSeverity: Severity) {
      * но и не считается проверенным.
      */
     HEALTH_CHECK_SKIPPED(FailureKind.HEALTH_CHECK_FAILED, Severity.WARNING),
+
+    /**
+     * Устройство раздачи (D-55) не найдено: ни в одной сети телефона (Wi-Fi,
+     * Bluetooth, USB) по его адресу не ответил вход раздачи с этим логином.
+     */
+    RELAY_NOT_FOUND(FailureKind.ENDPOINT_UNREACHABLE, Severity.ERROR),
 
     // --- активация ---
     ACTIVATION_REJECTED(FailureKind.CONFIG_VALIDATION_FAILED, Severity.ERROR),

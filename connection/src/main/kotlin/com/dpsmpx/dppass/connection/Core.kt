@@ -5,6 +5,7 @@ import com.dpsmpx.dppass.config.ConfigLoader
 import com.dpsmpx.dppass.config.LoadedConfig
 import com.dpsmpx.dppass.config.ServerProfile
 import com.dpsmpx.dppass.core.Clock
+import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
@@ -111,6 +112,9 @@ class DPpassCore(
     /** Раздача туннеля другим устройствам (D-51): включена ли, порт, логин и пароль. */
     val share: ShareService = ShareService(ShareStore(store, quarantine))
 
+    /** Доверенные устройства раздачи — подключение через другой DPpass (D-55). */
+    val relays: RelayService = RelayService(RelayStore(store, quarantine), clock)
+
     fun restore(): List<Diagnostic> = activation.restore().also { it.forEach(log::diagnostic) }
 
     /**
@@ -206,7 +210,42 @@ class DPpassCore(
     /** Сохранить адаптивную модель (D-44): вызывает сервис при остановке и периодически. */
     fun persistStability(): Outcome<Unit> = stabilityStore.save(stability)
 
-    fun tunnelSpec(): Outcome<TunnelSpec>? = activation.state.activeConfig?.let { TunnelSpecBuilder.build(it, selfPackage, platform) }
+    fun tunnelSpec(): Outcome<TunnelSpec>? = activation.state.activeConfig?.let(::tunnelSpecFor)
+
+    fun tunnelSpecFor(ir: ConfigIr): Outcome<TunnelSpec> = TunnelSpecBuilder.build(ir, selfPackage, platform)
+
+    /**
+     * Конфигурация подключения через устройство раздачи (D-55): единственный
+     * сервер — само устройство по найденному адресу [at]; маршрутизация и DNS
+     * — те же, что у подписки (свой документ, если он действует, иначе
+     * политика пользователя). Активация не меняется: устройство живёт в своём
+     * списке, а подписки и свой документ — в своих.
+     */
+    fun relayConfig(device: RelayDevice, at: IpAddress): ConfigIr = userPolicy.baseFor(activation.state).copy(profiles = listOf(device.profile(at)))
+
+    /**
+     * Подключение через устройство раздачи (D-55): план из одного кандидата —
+     * его выбрал пользователь, поэтому пауза после прошлого отказа его не
+     * откладывает. Отказ устройства — отказ подключения: другие серверы
+     * молча не подставляются (D-05) — пользователь просил именно это
+     * устройство.
+     */
+    suspend fun connectVia(
+        device: RelayDevice,
+        at: IpAddress,
+        checker: HealthChecker,
+        tun: TunInput?,
+        share: ShareSpec? = null,
+        pause: suspend (Long) -> Unit,
+    ): ConnectionReport {
+        val ir = relayConfig(device, at)
+        val plan = CandidatePlanner.plan(
+            ir, compiler.capabilities, null, health, health.lastGood(), clock.nowMillis(), policy, device.profileId, latency::millis, stability,
+        )
+        log.info("relay_connect", "device" to Safe(device.id), "port" to device.port)
+        val orchestrator = ConnectionOrchestrator(compiler, engine, checker, health, clock, log, policy, stability, null, pause)
+        return orchestrator.connect(ir, plan, tun, share)
+    }
 
     /**
      * Почему соединение пошло бы так (D-09): решение по активной

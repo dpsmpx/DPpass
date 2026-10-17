@@ -41,7 +41,8 @@ class SubscriptionJobService : JobService() {
                         val run = r.value
                         core.log.info("subscription_auto_update", "applied" to run.applied, "update" to Safe(run.update::class.simpleName ?: "?"))
                         val connected = (TunnelState.status.value as? TunnelStatus.Connected)?.profileId
-                        if (run.needsReconnect(connected)) {
+                        // Через устройство раздачи (D-55) туннель от серверов подписки не зависит.
+                        if (AppPrefs(this@SubscriptionJobService).selectedRelay == null && run.needsReconnect(connected)) {
                             // Сервис туннеля уже в foreground: обычный запуск из фона ему разрешён.
                             startService(Intent(this@SubscriptionJobService, DPpassVpnService::class.java).setAction(DPpassVpnService.ACTION_RECONNECT))
                         }

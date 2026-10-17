@@ -206,6 +206,19 @@ class XrayCompiler(
                     "streamSettings" to stream(p, path),
                 )
                 is ProtocolSpec.Hysteria2 -> hysteria(p, proto, address, port, path)
+                // Устройство раздачи (D-55): вход раздачи другого DPpass — SOCKS5 с паролем
+                // (`infra/conf/socks.go`: адрес, порт, user и pass прямо в settings).
+                is ProtocolSpec.Socks -> Json.obj(
+                    "tag" to Json.str(XrayBackend.TAG_PROXY),
+                    "protocol" to Json.str("socks"),
+                    "settings" to Json.obj(
+                        "address" to address,
+                        "port" to port,
+                        "user" to Json.str(proto.user.reveal()),
+                        "pass" to Json.str(proto.password.reveal()),
+                    ),
+                    "streamSettings" to stream(p, path),
+                )
             }
         }
 

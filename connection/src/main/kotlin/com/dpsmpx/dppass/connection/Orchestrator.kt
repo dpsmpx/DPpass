@@ -40,6 +40,8 @@ class SimulatedHealthChecker(private val network: SimulatedNetwork) : HealthChec
             TransportClass.TCP_STREAM -> PathClass.TCP_STREAM
             TransportClass.HTTP_CDN -> PathClass.HTTP_CDN
             TransportClass.UDP_QUIC -> PathClass.UDP_QUIC
+            // Модель описывает сеть оператора; до устройства раздачи — своя сеть (D-55).
+            TransportClass.LOCAL_RELAY -> return Outcome.Success(Unit)
         }
         return when (network.candidatePath(path, profile.endpoint.toString(), profile.hints.reachableUnderAllowlist)) {
             ProbeOutcome.SUCCESS -> Outcome.Success(Unit)

@@ -84,7 +84,9 @@ class DPpassTileService : TileService() {
             val hasServers = withContext(Dispatchers.IO) {
                 val core = AppGraph.core(this@DPpassTileService)
                 if (core.activation.state.activeConfig == null) core.restore()
-                core.activation.state.activeConfig?.profiles?.isNotEmpty() == true
+                // Устройство раздачи (D-55) — подключаться есть к чему и без подписки.
+                core.activation.state.activeConfig?.profiles?.isNotEmpty() == true ||
+                    AppPrefs(this@DPpassTileService).selectedRelay?.let(core.relays::find) != null
             }
             if (hasServers) DPpassVpnService.start(this@DPpassTileService) else openApp()
         }

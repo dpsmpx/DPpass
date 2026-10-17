@@ -22,6 +22,7 @@ import kotlinx.coroutines.withContext
  */
 class ServersScreen(host: Host) : Screen(host) {
     private val count = Ui.text(context, R.style.Text_DPpass_Secondary)
+    private val relayNote = Ui.text(context, R.style.Text_DPpass_Secondary)
     private val list = Ui.listCard(context)
     private val empty = Ui.card(context, 12).apply {
         addView(Ui.text(context, R.style.Text_DPpass_Body, context.getString(R.string.servers_empty)))
@@ -47,10 +48,12 @@ class ServersScreen(host: Host) : Screen(host) {
                 header(
                     context.getString(R.string.tab_servers),
                     measureButton,
+                    Ui.iconButton(context, R.drawable.ic_lan, context.getString(R.string.relays_entry)) { host.push(RelaysScreen(host)) },
                     Ui.iconButton(context, R.drawable.ic_add, context.getString(R.string.add_title)) { ImportFlow.menu(host) },
                 ),
             )
             addView(count)
+            addView(relayNote, Ui.matchWidth())
             addView(search, Ui.matchWidth())
             addView(sortRow, Ui.matchWidth())
             addView(list, Ui.matchWidth())
@@ -85,6 +88,10 @@ class ServersScreen(host: Host) : Screen(host) {
         measureButton.alpha = if (measureButton.isEnabled) 1f else 0.5f
         val servers = context.resources.getQuantityString(R.plurals.servers_count, profiles.size, profiles.size)
         count.text = if (busy) context.getString(R.string.latency_progress, servers, measured, total) else servers
+        // Выбрано устройство раздачи (D-55): выбор сервера здесь вернёт подключение к серверам.
+        val relay = host.prefs.selectedRelay?.let { id -> core?.relays?.find(id) }
+        relayNote.text = relay?.let { context.getString(R.string.servers_via_relay, it.name) }.orEmpty()
+        relayNote.visibility = if (relay != null) View.VISIBLE else View.GONE
         if (core == null || profiles.isEmpty()) return
         val connected = (status as? TunnelStatus.Connected)?.profileId
         val all = ServerList.rows(profiles, core.health::of, host.prefs.selectedServer, connected, Clock.SYSTEM.nowMillis(), core.latency::of)
@@ -154,10 +161,14 @@ class ServersScreen(host: Host) : Screen(host) {
         setOnClickListener { choose(id) }
     }
 
-    /** Выбор сохраняется; если туннель есть или поднимается — переподключение к выбранному. */
+    /**
+     * Выбор сохраняется; если туннель есть или поднимается — переподключение к
+     * выбранному. Выбор сервера — это и отказ от устройства раздачи (D-55).
+     */
     private fun choose(id: ProfileId?) {
-        if (id == host.prefs.selectedServer) return
+        if (id == host.prefs.selectedServer && host.prefs.selectedRelay == null) return
         host.prefs.selectedServer = id
+        host.prefs.selectedRelay = null
         host.reconnectIfBusy()
         host.changed()
     }

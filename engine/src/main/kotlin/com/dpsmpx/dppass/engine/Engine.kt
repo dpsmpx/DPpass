@@ -132,9 +132,9 @@ data class ShareSpec(val endpoints: List<Endpoint>, val port: Int, val user: Sec
         const val MAX_PREFIX: Int = 30
 
         /** RFC 1918: 10/8, 172.16/12, 192.168/16 — адреса, которые не видны из интернета. */
-        val PRIVATE_V4: List<Cidr> = listOf("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16").map { Cidr.parse(it)!!.cidr }
+        val PRIVATE_V4: List<Cidr> = Cidr.PRIVATE_V4
 
-        fun isPrivateV4(ip: IpAddress): Boolean = PRIVATE_V4.any { ip in it }
+        fun isPrivateV4(ip: IpAddress): Boolean = Cidr.isPrivateV4(ip)
     }
 }
 

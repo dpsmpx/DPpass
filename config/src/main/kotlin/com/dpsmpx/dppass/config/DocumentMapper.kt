@@ -94,6 +94,8 @@ internal class DocumentMapper(private val diags: DiagnosticCollector, private va
                 val congestion = r.enum("congestion", CONGESTIONS, required = false)
                 password?.let { ProtocolSpec.Hysteria2(it, obfs, congestion) }
             }
+            // В PROTOCOLS его нет: устройство раздачи в документе не бывает (D-55).
+            ProtocolKind.SOCKS -> null
         }
         r.finish()
         return spec

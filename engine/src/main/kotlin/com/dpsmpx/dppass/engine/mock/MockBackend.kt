@@ -74,6 +74,7 @@ class MockBackendCompiler(override val capabilities: EngineCapabilities = MockBa
             is ProtocolSpec.Trojan -> p.password.reveal()
             is ProtocolSpec.Shadowsocks -> p.password.reveal()
             is ProtocolSpec.Hysteria2 -> p.password.reveal()
+            is ProtocolSpec.Socks -> p.password.reveal()
         }
         val outbound = Json.obj(
             "protocol" to Json.str(profile.protocol.kind.name.lowercase()),
