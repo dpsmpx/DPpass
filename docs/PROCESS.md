@@ -51,6 +51,8 @@ tools/dpv/dpv doctor              # окружение: Python, git, JDK, Go, An
 пропусков); 1 — есть ✗; 2 — неверный вызов или профиль; 3 — сбой DP
 Verify. Журнал каждой проверки — `build/dpv/last/<проверка>.log`; отчёт —
 `build/dpv/last/report.json` и `report.md`; на экран — итог и находки.
+Итог `tools/hostcheck/run.sh --full` ещё и копируется в `build/dpv/full`:
+`run.sh report` берёт его, а не последний прогон (D-52).
 
 ### Проверки
 

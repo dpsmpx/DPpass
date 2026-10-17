@@ -119,7 +119,8 @@ class SettingsScreen(host: Host) : Screen(host) {
             Ui.listCard(context).apply {
                 addView(
                     Ui.ListRow(context, R.drawable.ic_shield, context.getString(R.string.settings_always_on))
-                        .subtitle(context.getString(R.string.settings_always_on_note))
+                        // В списке VPN Android приложение — под ярлыком установки: у личной сборки он случаен (D-47, D-49).
+                        .subtitle(context.getString(R.string.settings_always_on_note, context.applicationInfo.loadLabel(context.packageManager)))
                         .trailing(Ui.icon(context, R.drawable.ic_open, R.color.text_secondary))
                         .onClick { openSystem(Intent(Settings.ACTION_VPN_SETTINGS)) },
                     Ui.matchWidth(),

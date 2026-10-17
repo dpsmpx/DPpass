@@ -8,7 +8,8 @@
 #   tools/hostcheck/run.sh static     то же построчно — для проверки subsystem.dppass DPmetaApp (D-52)
 #   tools/hostcheck/run.sh --full     dpv run full --ci — перед слиянием (CI нет, D-23): на закоммиченном
 #                                     дереве, каждый пропуск (нет Android SDK, NDK, Go) — ошибка
-#   tools/hostcheck/run.sh report     dpv report --md — итог последнего прогона для описания PR
+#   tools/hostcheck/run.sh report     dpv report --md — итог последнего --full для описания PR
+#                                     (копия в build/dpv/full; без неё — итог последнего прогона)
 #
 # Код возврата — как у dpv: 0 — пройдено; 1 — есть ✗; 2 — неверный вызов
 # или профиль; 3 — сбой DP Verify.
@@ -63,12 +64,35 @@ note() { # что именно проверено, если проверки ш�
   echo "dppass/ в DPmetaApp $(git -C "$VIEW_OUTER" --git-dir="$VIEW_OUTER/.git" --work-tree="$VIEW_OUTER" rev-parse --short=12 HEAD), дерево dppass/ $(git rev-parse --short=12 'HEAD^{tree}')"
 }
 
+# Итог --full — своей копией: корневой прогон DPmetaApp запускает здесь static
+# (subsystem.dppass), и build/dpv/last после него — уже не --full, а в описание
+# PR идёт итог --full (D-52). Копируется каталог именно этого прогона: если DP
+# Verify прогона не записал, старая копия не подменяется чужой.
+RUNS="build/dpv/runs"
+FULL_COPY="build/dpv/full"
+newest_run() { ls -1 "$RUNS" 2>/dev/null | tail -n 1; }
+full_ci() {
+  local before after rc
+  before="$(newest_run)"
+  "$PY" tools/dpv/dpv run full --ci
+  rc=$?
+  after="$(newest_run)"
+  if [ -n "$after" ] && [ "$after" != "$before" ] && [ -f "$RUNS/$after/report.json" ]; then
+    rm -rf "$FULL_COPY" && cp -R "$RUNS/$after" "$FULL_COPY"
+  fi
+  return "$rc"
+}
+
 case "${1:-}" in
   "") view; note; exec "$PY" tools/dpv/dpv run full ;;
   --quick) view; note; exec "$PY" tools/dpv/dpv run static ;;
   static) view; note; exec "$PY" tools/dpv/dpv run static --verbose ;;
-  --full) committed_or_exit; view; note; exec "$PY" tools/dpv/dpv run full --ci ;;
-  report) view env; exec "$PY" tools/dpv/dpv report --md ;;
+  --full) committed_or_exit; view; note; full_ci; exit $? ;;
+  report)
+    view env
+    [ -f "$FULL_COPY/report.json" ] && exec "$PY" tools/dpv/dpv report --md --run "$FULL_COPY"
+    echo "(прогона --full здесь ещё не было — итог последнего прогона)" >&2
+    exec "$PY" tools/dpv/dpv report --md ;;
   -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
   *) echo "неизвестный параметр: $1 (есть --quick, static, --full, report)"; exit 2 ;;
 esac

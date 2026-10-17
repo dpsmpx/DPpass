@@ -162,7 +162,7 @@
     <string name="settings_dns_note">DNS over HTTPS through the server: your network doesn’t see which names you look up.</string>
     <string name="settings_connection">Connection</string>
     <string name="settings_always_on">Always-on VPN</string>
-    <string name="settings_always_on_note">In Android settings: VPN → DPpass → Always-on. It also starts DPpass after a reboot.</string>
+    <string name="settings_always_on_note">In Android settings: VPN → %1$s → Always-on. It also starts the app after a reboot.</string>
     <string name="settings_notifications">Notifications</string>
     <string name="settings_notifications_note">Tunnel state and speed in the shade</string>
     <string name="settings_share_note">Other devices over Wi-Fi, USB or Bluetooth, through the tunnel</string>

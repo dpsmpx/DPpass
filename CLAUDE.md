@@ -65,7 +65,7 @@ tools/dpv/dpv report --md         # итог последнего прогона
 ```
 
 Внутри DPmetaApp — те же ключи `tools/hostcheck/run.sh` из `dppass/`
-(и `run.sh report` вместо `dpv report --md`): DP Verify идёт в
+(и `run.sh report` — итог последнего `--full` — вместо `dpv report --md`): DP Verify идёт в
 представлении поддерева, `--full` — только на закоммиченном `dppass/`
 (D-52).
 

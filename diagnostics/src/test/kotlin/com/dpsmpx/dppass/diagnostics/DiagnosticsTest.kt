@@ -52,6 +52,24 @@ class RedactorTest {
         assertFalse("2001:db8::1" in out)
         assertFalse("cdn.example.net" in out)
     }
+
+    // Журнал устройства 17 октября 2026: в ошибке ядра «dial tcp <ip><ip> connect» —
+    // порт с двоеточиями по краям принят за IPv6. Адрес скрыт, порт — нет.
+    @Test
+    fun strictLevelKeepsPortAfterAddress() {
+        val strict = Redactor(Redactor.Level.STRICT)
+        assertEquals(
+            "dial tcp <ip>:443: connect: connection refused",
+            strict.redact("dial tcp 203.0.113.7:443: connect: connection refused"),
+        )
+        assertEquals("dial tcp [<ip>]:443: connect", strict.redact("dial tcp [2001:db8::1]:443: connect"))
+        assertEquals("dest :<ip> and <ip>: done", strict.redact("dest :2001:db8::1 and 2001:db8::2: done"))
+        for (address in listOf("::1", "fe80::", "2001:db8:0:0:0:0:0:1", "::ffff:198.51.100.1", "aa:bb:cc:dd:ee:ff")) {
+            val out = strict.redact("at $address.")
+            assertFalse(address in out, out)
+            assertTrue("<ip>" in out, out)
+        }
+    }
 }
 
 class LoggerTest {

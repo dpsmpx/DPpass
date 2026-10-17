@@ -161,7 +161,7 @@
     <string name="settings_dns_note">DNS через HTTPS через сервер: сеть не видит, какие имена вы спрашиваете.</string>
     <string name="settings_connection">Подключение</string>
     <string name="settings_always_on">Постоянный VPN</string>
-    <string name="settings_always_on_note">В настройках Android: VPN → DPpass → Постоянный VPN. Он же запускает DPpass после перезагрузки.</string>
+    <string name="settings_always_on_note">В настройках Android: VPN → %1$s → Постоянный VPN. Он же запускает приложение после перезагрузки.</string>
     <string name="settings_notifications">Уведомления</string>
     <string name="settings_notifications_note">Состояние туннеля и скорость в шторке</string>
     <string name="settings_share_note">Другие устройства по Wi-Fi, USB или Bluetooth — через туннель</string>

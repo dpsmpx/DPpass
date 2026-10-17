@@ -28,9 +28,23 @@ class Redactor(private val level: Level = Level.STANDARD) {
         }
         if (level == Level.STRICT) {
             out = IPV4.replace(out, IP_MARK)
-            out = IPV6.replace(out) { m -> if (m.value.count { it == ':' } >= 2) IP_MARK else m.value }
+            out = IPV6.replace(out) { m -> redactIpv6(m.value) }
         }
         return out
+    }
+
+    /**
+     * Кандидат в IPv6. Одиночное двоеточие с края — не часть адреса:
+     * адрес IPv6 начинается и кончается группой или `::`. Без этого порт
+     * в ошибке Go `dial tcp <ip>:443: connect` уходил под метку целиком
+     * (`<ip><ip>`). Остаток с двумя двоеточиями и больше — по-прежнему
+     * адрес: адрес не пропускается, теряется только лишняя метка.
+     */
+    private fun redactIpv6(value: String): String {
+        val start = if (value.startsWith(":") && !value.startsWith("::")) 1 else 0
+        val end = if (value.length > start && value.endsWith(":") && !value.endsWith("::")) value.length - 1 else value.length
+        if (end <= start || value.substring(start, end).count { it == ':' } < 2) return value
+        return value.substring(0, start) + IP_MARK + value.substring(end)
     }
 
     private fun redactUrl(m: MatchResult): String {
