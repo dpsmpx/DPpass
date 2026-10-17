@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import com.dpsmpx.dppass.connection.RegimeMemory
 import com.dpsmpx.dppass.core.Clock
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.diagnostics.Logger
@@ -118,6 +119,21 @@ object NetworkCheck {
     const val SPEED_COOLDOWN_MILLIS: Long = 60_000
     const val SPEED_RETRY_MILLIS: Long = 15_000
 
+    /**
+     * Режим сети по свежей проверке (D-64): одна память на процесс. В план
+     * идёт только белый список — мягко, порядком, без исключений.
+     */
+    private val regime = RegimeMemory(Clock.MONOTONIC)
+
+    /** Белый список по свежей проверке в нынешней сети под туннелем; null — режим неизвестен. */
+    fun regime(context: Context): NetworkAssessment? = regime.allowlist(underlying(context).network?.networkHandle)
+
+    /** Сколько мс назад была проверка, итог которой помнится; null — не помнится. */
+    fun regimeAgeMillis(): Long? = regime.ageMillis()
+
+    /** Опровергнут (подключился сервер, который под списком отказывал): режим снова неизвестен. */
+    fun forgetRegime() = regime.forget()
+
     /** Сеть, которую меряет проверка: не VPN, с доступом в интернет. */
     private class Underlying(val network: Network?, val type: NetworkType, val caps: NetworkCapabilities?)
 
@@ -144,6 +160,8 @@ object NetworkCheck {
             onResult(r)
         }
         log.info("network_assessed", "type" to assessment.type, "class" to assessment.restriction, "confidence" to assessment.confidence)
+        // Итог — в память режима этой сети (D-64), любой: «не белый список» тоже сведение. Сеть в журнал не идёт.
+        network?.let { regime.remember(assessment, it.networkHandle) }
         // Доводы классификатора — шаблоны без адресов и имён (NetworkClassifier).
         assessment.evidence.forEach { log.info("network_evidence", "text" to Safe(it)) }
         return assessment

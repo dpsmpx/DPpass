@@ -180,13 +180,24 @@ class DPpassCore(
 
     fun profileFilter(): ProfileFilter = EngineProfileFilter(compiler.capabilities)
 
-    /** План подключения; [preferred] — сервер, выбранный пользователем: первым в плане (D-34). */
-    fun plan(assessment: NetworkAssessment?, preferred: ProfileId? = null): ConnectionPlan? {
+    /**
+     * План подключения; [preferred] — сервер, выбранный пользователем: первым
+     * в плане (D-34). [regime] — режим сети по свежей проверке (D-64): только
+     * порядок, без исключений.
+     */
+    fun plan(assessment: NetworkAssessment?, preferred: ProfileId? = null, regime: NetworkAssessment? = null): ConnectionPlan? {
         val ir = activation.state.activeConfig ?: return null
         return CandidatePlanner.plan(
-            ir, compiler.capabilities, assessment, health, health.lastGood(), clock.nowMillis(), policy, preferred, latency::millis, stability,
+            ir, compiler.capabilities, assessment, health, health.lastGood(), clock.nowMillis(), policy, preferred, latency::millis, stability, regime,
         )
     }
+
+    /**
+     * Серверы, которые под режимом [regime] чаще отказывали, чем работали
+     * (D-64). Подключение к одному из них опровергает режим: белый список,
+     * скорее всего, выключили.
+     */
+    fun failingUnder(regime: NetworkAssessment): Set<ProfileId> = stability.failingIn(NetworkContext.of(regime))
 
     suspend fun connect(
         assessment: NetworkAssessment?,
@@ -195,11 +206,13 @@ class DPpassCore(
         preferred: ProfileId? = null,
         /** Раздача туннеля другим устройствам (D-51); null — без раздачи. */
         share: ShareSpec? = null,
+        /** Режим сети по свежей проверке (D-64): порядок плана и контекст опыта попыток. */
+        regime: NetworkAssessment? = null,
         pause: suspend (Long) -> Unit,
     ): ConnectionReport? {
         val ir = activation.state.activeConfig ?: return null
-        val plan = plan(assessment, preferred) ?: return null
-        val orchestrator = ConnectionOrchestrator(compiler, engine, checker, health, clock, log, policy, stability, assessment, pause)
+        val plan = plan(assessment, preferred, regime) ?: return null
+        val orchestrator = ConnectionOrchestrator(compiler, engine, checker, health, clock, log, policy, stability, assessment ?: regime, pause)
         return orchestrator.connect(ir, plan, tun, share)
     }
 
@@ -217,12 +230,20 @@ class DPpassCore(
      * переход — с согласия пользователя; [autoSwitch] — согласие заранее.
      * [declined] — серверы, о которых пользователь ответил «Остаться».
      */
-    fun degraded(profileId: ProfileId, reason: Diagnostic, preferred: ProfileId?, autoSwitch: Boolean, declined: Set<ProfileId> = emptySet()): Degradation {
+    fun degraded(
+        profileId: ProfileId,
+        reason: Diagnostic,
+        preferred: ProfileId?,
+        autoSwitch: Boolean,
+        declined: Set<ProfileId> = emptySet(),
+        /** Режим сети (D-64): замена — первая в плане по тому же режиму. */
+        regime: NetworkAssessment? = null,
+    ): Degradation {
         health.recordFailure(profileId, reason.code, clock.nowMillis())
         // Устройство раздачи (D-55) в активной конфигурации не значится — его не заменяют.
         val from = activation.state.activeConfig?.profiles?.firstOrNull { it.id == profileId }
         if (from == null || profileId != preferred || profileId in declined) return Degradation.Reconnect(reason)
-        val to = plan(null)?.attempts?.firstOrNull { it.profile.id != profileId }?.profile ?: return Degradation.Reconnect(reason)
+        val to = plan(null, regime = regime)?.attempts?.firstOrNull { it.profile.id != profileId }?.profile ?: return Degradation.Reconnect(reason)
         return if (autoSwitch) Degradation.Switch(from, to, reason) else Degradation.Ask(from, to, reason)
     }
 

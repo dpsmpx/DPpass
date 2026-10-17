@@ -6,6 +6,7 @@ import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.NetworkCheck
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.TunnelStatus
+import com.dpsmpx.dppass.connection.RegimeMemory
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.engine.xray.SpeedReport
 import com.dpsmpx.dppass.network.Confidence
@@ -213,7 +214,15 @@ class NetworkCheckScreen(host: Host) : SubScreen(host, R.string.netcheck_title) 
         val lines = listOf(
             context.getString(R.string.netcheck_network, context.getString(type(a.type))),
             context.getString(R.string.netcheck_confidence, context.getString(confidence(a.confidence))),
-        ) + a.evidence.map { "• $it" }
+        ) + a.evidence.map { "• $it" } + listOfNotNull(
+            // Итог запомнен для плана (D-64): под белым списком — первыми те, что под ним работали.
+            if (a.restriction == RestrictionClass.ALLOWLIST_LIKE) {
+                val minutes = (RegimeMemory.TTL_MILLIS / 60_000).toInt()
+                context.resources.getQuantityString(R.plurals.netcheck_regime_saved, minutes, minutes)
+            } else {
+                null
+            },
+        )
         verdictText.text = lines.joinToString("\n")
         verdict.visibility = View.VISIBLE
         if (probes.childCount == 0) probes.visibility = View.GONE

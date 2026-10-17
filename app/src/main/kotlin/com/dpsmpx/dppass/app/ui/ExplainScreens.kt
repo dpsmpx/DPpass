@@ -5,6 +5,7 @@ import android.text.InputType
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import com.dpsmpx.dppass.R
+import com.dpsmpx.dppass.app.NetworkCheck
 import com.dpsmpx.dppass.app.PlanSnapshot
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.TunnelStatus
@@ -51,9 +52,13 @@ class PlanScreen(host: Host) : SubScreen(host, R.string.plan_title) {
             return
         }
         // План читает журнал здоровья и задержки — не на главном потоке.
+        // Режим сети (D-64) — тот же, что возьмёт подключение: белый список по свежей проверке.
         job = host.scope.launch {
-            val plan = withContext(Dispatchers.IO) { core.plan(null, host.prefs.selectedServer) }
-            showNextPlan(core, plan)
+            val (regime, plan) = withContext(Dispatchers.IO) {
+                val r = NetworkCheck.regime(context)
+                r to core.plan(null, host.prefs.selectedServer, r)
+            }
+            showNextPlan(core, plan, regime != null)
             job = null
         }
     }
@@ -78,8 +83,12 @@ class PlanScreen(host: Host) : SubScreen(host, R.string.plan_title) {
         exclusionsCard(PlanView.excluded(snapshot.excluded, name))?.let { last.addView(it, Ui.matchWidth()) }
     }
 
-    private fun showNextPlan(core: DPpassCore, plan: ConnectionPlan?) {
+    private fun showNextPlan(core: DPpassCore, plan: ConnectionPlan?, underAllowlist: Boolean) {
         next.removeAllViews()
+        if (underAllowlist) {
+            val minutes = ((NetworkCheck.regimeAgeMillis() ?: 0) / 60_000).toInt()
+            next.addView(note(context.resources.getQuantityString(R.plurals.plan_regime_allowlist, minutes, minutes)))
+        }
         if (plan == null) {
             next.addView(note(context.getString(R.string.plan_next_none)))
             return

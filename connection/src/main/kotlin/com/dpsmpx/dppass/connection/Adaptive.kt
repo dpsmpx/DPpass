@@ -317,9 +317,28 @@ class StabilityModel internal constructor(
     @Synchronized
     internal fun snapshot(): Pair<Map<String, StabilityStats>, DoubleArray> = LinkedHashMap(records) to advisor.weights()
 
-    /** Опыт профиля в этом контексте, иначе самый свежий по этому профилю в любой сети. */
+    /**
+     * Серверы, которые в контексте [context] чаще отказывали, чем работали
+     * (D-64): удача такого сервера под белым списком опровергает сам список.
+     */
+    @Synchronized
+    fun failingIn(context: NetworkContext): Set<ProfileId> {
+        val prefix = context.token() + SEP
+        return records.entries
+            .filter { it.key.startsWith(prefix) && it.value.hasObservation && it.value.reliabilityMean < StabilityStats.NEUTRAL }
+            .map { ProfileId(it.key.removePrefix(prefix)) }
+            .toSet()
+    }
+
+    /**
+     * Опыт профиля в этом контексте, иначе самый свежий по этому профилю в
+     * любой сети. Под белым списком чужой опыт не переносится (D-64): там
+     * закрыто то, что в обычной сети работает, — сервер без опыта под
+     * списком судится по обобщению [TransportAdvisor].
+     */
     private fun recordFor(profileId: ProfileId, context: NetworkContext): StabilityStats {
         records[key(profileId, context)]?.let { return it }
+        if (context.restriction == RestrictionClass.ALLOWLIST_LIKE) return StabilityStats()
         val suffix = SEP + profileId.value
         return records.entries.asSequence()
             .filter { it.key.endsWith(suffix) }

@@ -455,4 +455,13 @@
     <string name="route_why_default">No rule matched — the default action.</string>
     <string name="route_why_rule">Rule “%1$s” of your configuration.</string>
     <string name="route_note">The check is by name: rules by address (geoip) apply after the name is resolved and may answer differently. The answer is for the active configuration; a changed one applies on reconnect.</string>
+    <!-- Режим сети (D-64) -->
+    <plurals name="plan_regime_allowlist">
+        <item quantity="one">%d minute ago the check in this network showed an allowlist: servers that worked under it go first, the others stay in the plan.</item>
+        <item quantity="other">%d minutes ago the check in this network showed an allowlist: servers that worked under it go first, the others stay in the plan.</item>
+    </plurals>
+    <plurals name="netcheck_regime_saved">
+        <item quantity="one">DPpass remembers this for %d minute in this network: on connect, servers that worked under an allowlist go first; none are excluded.</item>
+        <item quantity="other">DPpass remembers this for %d minutes in this network: on connect, servers that worked under an allowlist go first; none are excluded.</item>
+    </plurals>
 </resources>

@@ -147,6 +147,11 @@ data class ConnectionPlan(
  * (выбор пользователя, last-known-good, здоровье, класс транспорта,
  * приоритет, задержка (D-41), id) → разнообразие классов → предел попыток. Выбор
  * пользователя (D-34) — первая попытка; остальные — запасные по D-15.
+ *
+ * Режим сети по свежей проверке (D-64) — мягкий: никого не исключает, а
+ * под белым списком ставит опыт под ним ([StabilityModel] в контексте
+ * белого списка) выше «последнего удачного» и здоровья — они общие для
+ * всех режимов, а под списком закрыто то, что в обычной сети работает.
  */
 object CandidatePlanner {
     fun plan(
@@ -163,6 +168,8 @@ object CandidatePlanner {
         latency: (ProfileId) -> Long? = { null },
         /** Выученная устойчивость (D-44): порядок среди годных; жёсткие исключения не трогает. */
         stability: StabilityModel? = null,
+        /** Режим сети по свежей проверке (D-64): только порядок и контекст опыта, без исключений. */
+        regime: NetworkAssessment? = null,
     ): ConnectionPlan {
         when (assessment?.restriction) {
             RestrictionClass.OFFLINE -> return ConnectionPlan(emptyList(), emptyList(), DiagCode.NETWORK_OFFLINE, "нет сети — попытки не делаются")
@@ -209,14 +216,22 @@ object CandidatePlanner {
         }
         fun classPenalty(p: ServerProfile) = if (tcpPenalized && p.transportClass == TransportClass.TCP_STREAM) 1 else 0
 
+        // Контекст опыта: оценка, если она есть, иначе мягкий режим (D-64).
+        val soft = assessment ?: regime
+        val underAllowlist = soft?.restriction == RestrictionClass.ALLOWLIST_LIKE
+
         // Выученная устойчивость (D-44): выше — раньше. Квантуется до сотых,
         // чтобы порядок был детерминирован и мелкий шум не правил план.
         // Нет модели — ноль у всех: порядок как прежде (существующие тесты).
-        fun stabilityRank(p: ServerProfile) = if (stability == null) 0 else -(stability.score(p, assessment) * 100).toInt()
+        fun stabilityRank(p: ServerProfile) = if (stability == null) 0 else -(stability.score(p, soft) * 100).toInt()
+
+        // Под белым списком опыт под ним — выше «последнего удачного» и здоровья (D-64).
+        fun allowlistRank(p: ServerProfile) = if (underAllowlist) stabilityRank(p) else 0
 
         val sorted = viable.sortedWith(
             compareBy<ServerProfile>(
                 { if (it.id == preferred) 0 else 1 },
+                { allowlistRank(it) },
                 { if (it.id == lastKnownGood) 0 else 1 },
                 { healthRank(it) },
                 { stabilityRank(it) },
@@ -252,12 +267,20 @@ object CandidatePlanner {
             if (pick !== head) reasons += "другой класс транспорта, чем у предыдущей попытки"
             if (pick.hints.priority != 0) reasons += "приоритет ${pick.hints.priority}"
             latency(pick.id)?.let { reasons += "задержка $it мс" }
-            stability?.let { reasons += "устойчивость ${(it.score(pick, assessment) * 100).toInt()}%" }
+            if (underAllowlist && stability != null) reasons += allowlistReason(stability.stats(pick.id, NetworkContext.of(soft)))
+            stability?.let { reasons += "устойчивость ${(it.score(pick, soft) * 100).toInt()}%" }
             reasons += "класс ${pick.transportClass}"
             ordered += PlannedAttempt(pick, reasons)
         }
         val attempts = ordered.take(policy.maxAttempts)
         excluded += ordered.drop(policy.maxAttempts).map { Exclusion(it.profile.id, "за пределом ${policy.maxAttempts} попыток на подключение") }
         return ConnectionPlan(attempts, excluded, null, null)
+    }
+
+    /** Что известно о кандидате под белым списком (D-64) — причина в плане. */
+    private fun allowlistReason(s: StabilityStats): String = when {
+        !s.hasObservation -> "под белым списком ещё не пробовался"
+        s.reliabilityMean >= StabilityStats.NEUTRAL -> "под белым списком работал"
+        else -> "под белым списком отказывал"
     }
 }

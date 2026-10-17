@@ -35,6 +35,7 @@ import com.dpsmpx.dppass.diagnostics.Safe
 import com.dpsmpx.dppass.engine.EngineSession
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.SocketProtector
+import com.dpsmpx.dppass.network.NetworkAssessment
 import com.dpsmpx.dppass.tunnel.TunnelHandle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -224,6 +225,11 @@ class DPpassVpnService : VpnService() {
             withContext(Dispatchers.IO) { graph.engine.probeHealth(ir.dns, probeTimeout) }
         }
         val preferred = AppPrefs(this).selectedServer
+        // Белый список по свежей проверке в этой сети (D-64): порядок плана и опыт попыток — его.
+        // Через устройство раздачи (D-55) путь идёт по своей сети — режим оператора ни при чём.
+        val regime = if (relay == null) NetworkCheck.regime(this) else null
+        regime?.let { core.log.info("network_regime", "class" to it.restriction, "age_s" to (NetworkCheck.regimeAgeMillis() ?: 0) / 1000) }
+        val failingUnderRegime = regime?.let(core::failingUnder).orEmpty()
         // Раздача (D-51): входы — на адресах интерфейсов раздачи, если пользователь её включил.
         val shareSettings = core.share.current().also { r -> r.diagnostics.forEach(core.log::diagnostic) }.valueOrNull()
         val share = if (shareSettings?.enabled == true) shareSettings.spec(tetherForConnect()) else null
@@ -240,7 +246,7 @@ class DPpassVpnService : VpnService() {
             if (relay != null && target != null) {
                 core.connectVia(relay, target.address, checker, tun, share) { delay(it) }
             } else {
-                core.connect(null, checker, tun, preferred, share) { delay(it) }
+                core.connect(null, checker, tun, preferred, share, regime) { delay(it) }
             }
         } catch (e: CancellationException) {
             // Остановка во время подключения: сеанс, запущенный посреди проверки
@@ -266,13 +272,20 @@ class DPpassVpnService : VpnService() {
                 }
                 if (accepted) {
                     core.log.info("connected", "profile" to Safe(report.profileId.value), "attempts" to report.attempts.size)
+                    // Подключился сервер, который под белым списком только отказывал: список, скорее всего,
+                    // выключили — режим снова неизвестен, порядок и опыт — общие (D-64).
+                    val contradicted = regime != null && report.profileId in failingUnderRegime
+                    if (contradicted) {
+                        NetworkCheck.forgetRegime()
+                        core.log.info("network_regime_dropped", "reason" to Safe("contradicted"), "profile" to Safe(report.profileId.value))
+                    }
                     // Вопрос был о другом сервере (пользователь выбрал сам, подключение через устройство) — снят.
                     TunnelState.offer.value?.takeIf { it.fromId != report.profileId }?.let { ServerSwitch.clear(this@DPpassVpnService) }
                     val name = ir.profiles.firstOrNull { it.id == report.profileId }?.name ?: report.profileId.value
                     progress(TunnelStatus.Connected(report.profileId, name, core.clock.nowMillis(), Clock.MONOTONIC.nowMillis()))
                     watchNetwork(target?.network)
                     startTicker(report.session)
-                    startSupervisor(core, graph.engine, ir, report.profileId)
+                    startSupervisor(core, graph.engine, ir, report.profileId, if (contradicted) null else regime)
                     if (shareSettings?.enabled == true) {
                         // Ядро с входами раздачи не запустилось — туннель без неё (D-51).
                         // Опрос сравнивает с предложенными адресами: тот же набор — без
@@ -341,10 +354,12 @@ class DPpassVpnService : VpnService() {
         engine: com.dpsmpx.dppass.engine.xray.XrayProxyEngine,
         ir: com.dpsmpx.dppass.config.ConfigIr,
         profileId: com.dpsmpx.dppass.core.ProfileId,
+        /** Режим сети на момент подключения (D-64): опыт сессии — в его контексте. */
+        regime: NetworkAssessment?,
     ) {
         supervisor?.cancel()
         supervisor = scope.launch {
-            val sup = core.supervisor(profileId, null)
+            val sup = core.supervisor(profileId, regime)
             val profile = ir.profiles.firstOrNull { it.id == profileId }
             val probeTimeout = (core.policy.healthTimeoutMillis - PROBE_MARGIN_MILLIS).toInt()
             var samples = 0
@@ -371,7 +386,7 @@ class DPpassVpnService : VpnService() {
                 val decision = sup.onObservation(
                     StabilityObservation(success = !failed, rttMillis = elapsed, stalled = stalled, timestampMillis = core.clock.nowMillis()),
                     profile,
-                    null,
+                    regime,
                 )
                 if (failed) {
                     lastFailure = (result as Outcome.Failure).errors.first()
@@ -384,7 +399,7 @@ class DPpassVpnService : VpnService() {
                     core.log.warning("adaptive_reconnect", "profile" to Safe(profileId.value))
                     // Деградация подтверждена и скачком задержки, без проваленной пробы — общая причина.
                     val reason = lastFailure ?: Diagnostic.error(DiagCode.HEALTH_CHECK_FAILED, "пробы через сервер раз за разом отвечают с перебоями")
-                    onDegraded(core, profileId, reason)
+                    onDegraded(core, profileId, reason, regime)
                     reconnect(this@DPpassVpnService)
                     return@launch
                 }
@@ -396,9 +411,9 @@ class DPpassVpnService : VpnService() {
      * Сбой сервера сессии (D-58): спросить о замене выбранного, заменить его
      * с согласием заранее или просто переподключиться по плану.
      */
-    private fun onDegraded(core: DPpassCore, profileId: ProfileId, reason: Diagnostic) {
+    private fun onDegraded(core: DPpassCore, profileId: ProfileId, reason: Diagnostic, regime: NetworkAssessment?) {
         val prefs = AppPrefs(this)
-        when (val d = core.degraded(profileId, reason, prefs.selectedServer, prefs.autoSwitch, synchronized(declined) { declined.toSet() })) {
+        when (val d = core.degraded(profileId, reason, prefs.selectedServer, prefs.autoSwitch, synchronized(declined) { declined.toSet() }, regime)) {
             is Degradation.Reconnect -> Unit
             is Degradation.Ask -> {
                 val shown = ServerSwitch.ask(this, d)
