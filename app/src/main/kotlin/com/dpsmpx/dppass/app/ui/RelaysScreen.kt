@@ -5,16 +5,23 @@ import android.app.Dialog
 import android.text.InputType
 import android.view.View
 import com.dpsmpx.dppass.R
+import com.dpsmpx.dppass.app.PairingLink
 import com.dpsmpx.dppass.app.RelayNetworks
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.TunnelStatus
 import com.dpsmpx.dppass.connection.RelayDevice
+import com.dpsmpx.dppass.connection.Pairing
 import com.dpsmpx.dppass.connection.RelayDraft
+import com.dpsmpx.dppass.connection.RelayService
+import com.dpsmpx.dppass.diagnostics.DiagCode
+import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.IOException
+import java.security.SecureRandom
 
 /**
  * «Устройства раздачи» (D-55): подключение через другой телефон с DPpass,
@@ -30,6 +37,7 @@ class RelaysScreen(host: Host) : SubScreen(host, R.string.relays_title) {
     private var gateways: List<RelayNetworks.Gateway> = emptyList()
     private var checking = false
     private var scan: Job? = null
+    private var pairing: Job? = null
 
     override fun content(): View = body
 
@@ -75,6 +83,7 @@ class RelaysScreen(host: Host) : SubScreen(host, R.string.relays_title) {
             },
             Ui.matchWidth(),
         )
+        body.addView(Ui.button(context, R.string.relays_pair, Ui.Style.PRIMARY, R.drawable.ic_link).apply { setOnClickListener { pairWithHost() } }, Ui.matchWidth())
         body.addView(Ui.button(context, R.string.relays_add, Ui.Style.TONAL, R.drawable.ic_add).apply { setOnClickListener { add(host, null) { rescan() } } }, Ui.matchWidth())
         body.addView(Ui.button(context, R.string.import_clipboard, Ui.Style.OUTLINE, R.drawable.ic_paste).apply { setOnClickListener { ImportFlow.fromClipboard(host) } }, Ui.matchWidth())
 
@@ -104,6 +113,56 @@ class RelaysScreen(host: Host) : SubScreen(host, R.string.relays_title) {
         // ---- честные пределы (D-13) ----
         body.addView(Ui.section(context, context.getString(R.string.share_limits)))
         body.addView(Ui.card(context).apply { addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.relays_limits_text))) }, Ui.matchWidth())
+    }
+
+    /**
+     * Сопряжение (D-56): раздающий телефон ждёт на шлюзе одной из сетей этого
+     * телефона. Код — окном; подтвердили оба — устройство в списке и выбрано.
+     */
+    private fun pairWithHost() {
+        val core = host.graph?.core ?: return
+        if (pairing?.isActive == true) return
+        host.toast(context.getString(R.string.relays_pair_searching))
+        pairing = host.scope.launch {
+            val socket = withContext(Dispatchers.IO) { PairingLink.connectToHost(context) }
+            if (socket == null) {
+                host.problem(
+                    context.getString(R.string.relays_pair),
+                    Diagnostic.error(
+                        DiagCode.PAIRING_NOT_FOUND,
+                        "раздающий телефон не ждёт сопряжения: на нём «Раздача туннеля» → «Сопряжение с устройством», а этот телефон — в его точке доступа, Bluetooth- или USB-модеме",
+                    ),
+                )
+                return@launch
+            }
+            val r = try {
+                socket.use { so ->
+                    withContext(Dispatchers.IO) {
+                        Pairing.guest(so.getInputStream(), so.getOutputStream(), SecureRandom()) { code -> withContext(MainThread) { PairingDialog.ask(context, code) } }
+                    }
+                }
+            } catch (e: IOException) {
+                Outcome.failure(Diagnostic.fromThrowable(DiagCode.PAIRING_BROKEN, "соединение сопряжения прервано", e))
+            }
+            val offer = when (r) {
+                is Outcome.Failure -> {
+                    r.errors.forEach(core.log::diagnostic)
+                    host.problem(context.getString(R.string.relays_pair), r.errors.first())
+                    return@launch
+                }
+                is Outcome.Success -> r.value
+            }
+            val name = offer.name.takeIf { RelayService.nameProblem(it) == null } ?: context.getString(R.string.relays_default_name)
+            when (val a = core.relays.add(RelayDraft(name, "", offer.port, offer.user, offer.password))) {
+                is Outcome.Failure -> host.problem(context.getString(R.string.relays_pair), a.errors.first())
+                is Outcome.Success -> {
+                    core.log.info("relay_paired")
+                    host.toast(context.getString(R.string.relays_paired))
+                    choose(a.value.id)
+                    rescan()
+                }
+            }
+        }
     }
 
     /** Выбор сохраняется; туннель есть — переподключение через выбранное, нет — подключение сразу. */

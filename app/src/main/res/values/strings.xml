@@ -312,4 +312,22 @@
     <string name="share_link">Share sign-in</string>
     <string name="share_link_note">A link for DPpass on another phone — includes the login and password</string>
     <string name="share_link_unavailable">The link appears once tethering is on and DPpass is connected</string>
+    <string name="share_paired">Paired devices</string>
+    <string name="share_paired_note">Paired %1$s · own login</string>
+    <string name="share_paired_default">Device %1$d</string>
+    <string name="share_pair">Pair a device</string>
+    <string name="share_pair_note">A code on both screens — no typing passwords</string>
+    <string name="share_pair_waiting">Waiting for the other phone: on it, open Sharing devices → Pair with a device. Up to two minutes; it must be on this phone’s hotspot, Bluetooth or USB tethering.</string>
+    <string name="share_pair_no_tether">Turn on the hotspot, USB or Bluetooth tethering first</string>
+    <string name="share_pair_timeout">The other phone didn’t connect within two minutes</string>
+    <string name="share_pair_done">Device paired</string>
+    <string name="share_unpair">Unpair</string>
+    <string name="share_unpair_confirm">Unpair “%1$s”? Its login stops working.</string>
+    <string name="pairing_code_title">Pairing code</string>
+    <string name="pairing_code_text">%1$s\n\nDoes the other phone show the same code?</string>
+    <string name="pairing_code_match">Same code</string>
+    <string name="pairing_code_mismatch">Different</string>
+    <string name="relays_pair">Pair with a device</string>
+    <string name="relays_pair_searching">Looking for a phone that waits for pairing…</string>
+    <string name="relays_paired">Device paired and chosen</string>
 </resources>

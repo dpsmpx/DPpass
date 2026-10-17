@@ -507,6 +507,10 @@ class XrayCompilerTest {
             assertEquals("u-test", inb["settings"]["accounts"].items.single()["user"].text)
             assertEquals("p-test-0123456789", inb["settings"]["accounts"].items.single()["pass"].text)
         }
+        // D-56: у сопряжённых устройств — свои входы рядом с основным.
+        val paired = share.copy(guests = listOf(ShareSpec.Account(Secret("d-guest01"), Secret("p-guest-0123456789"))))
+        val pp = Json.parse(XrayCompiler().compile(gi, CompilePlan(gi.profiles[0].id, true, paired)).valueOrNull()!!.payloadForEngine()) as JsonObject
+        assertEquals(listOf("u-test", "d-guest01"), pp["inbounds"].items[1]["settings"]["accounts"].items.map { it["user"].text })
         // Первое правило: на вход раздачи — только клиенты из подсетей раздачи, не сам телефон.
         val first = rules(p).first()
         assertEquals("dppass:share-guard", first["ruleTag"].text)
@@ -536,6 +540,8 @@ class XrayCompilerTest {
         assertFailsWith<IllegalArgumentException> { ShareSpec.Endpoint(IpAddress.parse("192.168.43.1")!!, 32) }
         assertFailsWith<IllegalArgumentException> { ShareSpec(listOf(hotspot), 80, Secret("u"), Secret("p")) }
         assertFailsWith<IllegalArgumentException> { ShareSpec(listOf(hotspot, hotspot), 41234, Secret("u"), Secret("p")) }
+        // D-56: логин сопряжённого не повторяет другой — ядро держит входы по логину.
+        assertFailsWith<IllegalArgumentException> { ShareSpec(listOf(hotspot), 41234, Secret("u"), Secret("p"), listOf(ShareSpec.Account(Secret("u"), Secret("q")))) }
     }
 
     /**

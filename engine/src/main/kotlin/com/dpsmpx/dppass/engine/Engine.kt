@@ -91,13 +91,30 @@ data class CompilePlan(val profileId: ProfileId, val withTun: Boolean, val share
  * раздачи: точка доступа, USB- и Bluetooth-модем), на порту [port].
  * Пускать — только клиентов из подсетей раздачи и не с адресов самого
  * телефона: так прокси не достаётся приложениям телефона.
+ *
+ * [guests] — свои входы сопряжённых устройств (D-56): у каждого — свой
+ * логин, чтобы доверие можно было отозвать у одного. Логины не
+ * повторяются: ядро держит входы по логину, и повтор молча заменил бы
+ * один пароль другим (D-05).
  */
-data class ShareSpec(val endpoints: List<Endpoint>, val port: Int, val user: Secret, val password: Secret) {
+data class ShareSpec(
+    val endpoints: List<Endpoint>,
+    val port: Int,
+    val user: Secret,
+    val password: Secret,
+    val guests: List<Account> = emptyList(),
+) {
     init {
         require(endpoints.isNotEmpty()) { "раздача без адресов" }
         require(endpoints.map { it.address }.distinct().size == endpoints.size) { "адрес раздачи повторяется" }
         require(port in MIN_PORT..MAX_PORT) { "порт раздачи вне $MIN_PORT..$MAX_PORT" }
+        require((listOf(user) + guests.map { it.user }).distinct().size == guests.size + 1) { "логин входа раздачи повторяется" }
     }
+
+    /** Все входы: основной и сопряжённых устройств. */
+    val accounts: List<Account> get() = listOf(Account(user, password)) + guests
+
+    data class Account(val user: Secret, val password: Secret)
 
     /**
      * Адрес телефона на интерфейсе раздачи и длина префикса его подсети:

@@ -3,6 +3,7 @@ package com.dpsmpx.dppass.connection
 import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.core.ManualClock
 import com.dpsmpx.dppass.diagnostics.DiagCode
+import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Secret
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.storage.InMemoryBlobStore
@@ -59,6 +60,50 @@ class ShareSettingsTest {
         assertNotEquals(on.password.reveal(), renewed.password.reveal())
         // Строковое представление — без секретов.
         assertFalse(renewed.password.reveal() in renewed.toString())
+    }
+
+    // D-56: у сопряжённого устройства — свой вход; отзыв убирает только его, смена пароля — всех.
+    @Test
+    fun pairedDevicesHaveOwnLoginAndCanBeRevoked() {
+        val blobs = InMemoryBlobStore()
+        val service = ShareService(ShareStore(blobs, Quarantine(blobs, clock)))
+        val main = service.setEnabled(true).valueOrNull()!!
+        val a = service.pair("realme", 5_000).valueOrNull()!!
+        val b = service.pair("Планшет", 6_000).valueOrNull()!!
+        assertEquals(setOf(main.user.reveal(), a.user.reveal(), b.user.reveal()).size, 3, "логины не повторяются")
+        assertNotEquals(a.password.reveal(), b.password.reveal())
+        val hotspot = ShareSpec.Endpoint(IpAddress.parse("192.168.43.1")!!, 24)
+        val spec = service.current().valueOrNull()!!.spec(listOf(hotspot))!!
+        assertEquals(listOf(main.user, a.user, b.user), spec.accounts.map { it.user })
+
+        val again = ShareService(ShareStore(blobs, Quarantine(blobs, clock))).current().valueOrNull()!!
+        assertEquals(listOf("realme", "Планшет"), again.paired.map { it.name }, "переживает перезапуск")
+        assertEquals(a.password.reveal(), again.paired.first().password.reveal())
+
+        val revoked = service.unpair(a.id).valueOrNull()!!
+        assertEquals(listOf(b.id), revoked.paired.map { it.id })
+        assertEquals(main.password.reveal(), revoked.password.reveal(), "отзыв одного не трогает основной вход")
+        assertTrue(service.regenerate().valueOrNull()!!.paired.isEmpty(), "новые логин и пароль — сопряжённых больше нет")
+
+        repeat(ShareSettings.MAX_PAIRED) { assertTrue(service.pair("d$it", 0) is Outcome.Success) }
+        assertEquals(DiagCode.LIMIT_EXCEEDED, service.pair("лишнее", 0).errors.single().code)
+        assertEquals(DiagCode.NAME_INVALID, ShareService(ShareStore(InMemoryBlobStore(), Quarantine(blobs, clock))).pair(" ", 0).errors.single().code)
+    }
+
+    // Версия 1 (до D-56) читается как раздача без сопряжённых; записывается версия 2.
+    @Test
+    fun version1ReadsWithoutPairedAndWritesVersion2() {
+        val v1 = """{"format":"dppass.share","format_version":1,"enabled":true,"port":41234,"user":"u-test","password":"p-test"}"""
+        val s = ShareCodec.read(v1).valueOrNull()!!
+        assertTrue(s.enabled && s.paired.isEmpty())
+        assertTrue("\"format_version\":2" in ShareCodec.write(s))
+        assertEquals(s, ShareCodec.read(ShareCodec.write(s)).valueOrNull())
+        // В версии 1 поля devices нет — его появление там нечитаемо, а не «как-нибудь».
+        assertTrue(ShareCodec.read(v1.replace("}", ",\"devices\":[]}")) is Outcome.Failure)
+        // Логин сопряжённого совпал с основным — ядро заменило бы один пароль другим молча: нечитаемо.
+        val dup = """{"format":"dppass.share","format_version":2,"enabled":true,"port":41234,"user":"u-test","password":"p-test",""" +
+            """"devices":[{"id":"0123456789ab","name":"x","user":"u-test","password":"p2","paired_at":0}]}"""
+        assertTrue(ShareCodec.read(dup) is Outcome.Failure)
     }
 
     @Test

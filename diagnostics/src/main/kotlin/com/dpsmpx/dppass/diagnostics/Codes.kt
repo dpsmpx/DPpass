@@ -162,6 +162,18 @@ enum class DiagCode(val kind: FailureKind, val defaultSeverity: Severity) {
      */
     RELAY_NOT_FOUND(FailureKind.ENDPOINT_UNREACHABLE, Severity.ERROR),
 
+    /** Сопряжение (D-56): ни в одной сети телефона раздающий телефон не ждёт сопряжения. */
+    PAIRING_NOT_FOUND(FailureKind.ENDPOINT_UNREACHABLE, Severity.ERROR),
+
+    /** Сопряжение (D-56): код не подтверждён на одном из телефонов — входа нет. */
+    PAIRING_REFUSED(FailureKind.AUTHENTICATION_FAILED, Severity.ERROR),
+
+    /**
+     * Сопряжение (D-56) нарушено: не тот протокол, чужая кривая, не сошлось
+     * обязательство или не расшифровался вход — возможна подмена.
+     */
+    PAIRING_BROKEN(FailureKind.AUTHENTICATION_FAILED, Severity.ERROR),
+
     // --- активация ---
     ACTIVATION_REJECTED(FailureKind.CONFIG_VALIDATION_FAILED, Severity.ERROR),
     ROLLED_BACK_TO_LAST_KNOWN_GOOD(FailureKind.HEALTH_CHECK_FAILED, Severity.WARNING),

@@ -375,6 +375,21 @@ APK — только код из утверждённых корней паке�
 `ProfileValidationTest.relayDeviceIsOnlyPrivateIpv4WithPasswordOverPlainTcp`,
 `ProfileValidationTest.documentCannotCarryRelayDevice`.
 
+### T16 — Сопряжение устройства раздачи
+
+Сопряжение (D-56) выдаёт вход раздачи по сети: тот, кто вклинится между
+телефонами или постучится на порт сопряжения, мог бы получить вход, а
+открытый порт — выдать телефон. **Меры:** ключи P-256 с обязательством
+хозяина и 6-значным кодом, который пользователь сравнивает на обоих
+экранах (подмена даёт разные коды; угадать — 1 из 10⁶ за попытку); вход
+создаётся и отправляется, только когда подтвердили оба, — зашифрованным
+AES-256-GCM ключом из ECDH; порт открыт только по нажатию, не дольше
+двух минут, только на адресах раздачи и для одного соединения; у
+каждого сопряжённого — свой вход, который отзывается отдельно; без
+своих TrustManager (T5). **Ограничение:** защита держится на том, что
+человек сравнил код. **Проверка:** `PairingTest`,
+`ShareSettingsTest.pairedDevicesHaveOwnLoginAndCanBeRevoked`.
+
 ## 5. Чего DPpass не обещает
 
 - «Работает гарантированно», «незаметен», «обходит белые списки» —
@@ -408,4 +423,5 @@ APK — только код из утверждённых корней паке�
 | `StabilityModelTest`, `StabilityBookTest`, `SessionSupervisorTest` | одиночный сбой как постоянный выбор, секреты или идентификаторы в модели, переключение чаще предела (T14; D-44) |
 | `IdentityTest` | случайная личность личной сборки — валидный пакет, ярлык без «VPN» (D-47) |
 | `RelayTest`, `ProfileValidationTest.relayDeviceIsOnlyPrivateIpv4WithPasswordOverPlainTcp`, `XrayJniTest.relayDeviceOutboundPassesFullValidation` | устройство раздачи на публичном адресе или из документа и подписки; список, принятый без проверки; подстановка других серверов при отказе устройства (T15; D-55) |
+| `PairingTest`, `ShareSettingsTest.pairedDevicesHaveOwnLoginAndCanBeRevoked` | вход, выданный без подтверждения кода на обоих экранах; подмена ключей, не видная по коду; обязательство, которое не проверяется; испорченный вход, принятый гостем; отзыв, задевший другие устройства (T16; D-56) |
 | `XrayCompilerTest.shareInboundsListenOnlyOnTetherAddressesWithAuth`, `XrayCompilerTest.shareDirectIsClosedToPhoneLoopback`, `TetherInterfacesTest`, `ShareSettingsTest`, `OrchestratorTest.cancelDuringHealthCheckStopsTheStartedCore` | вход раздачи без пароля, на `0.0.0.0`, Wi-Fi-клиенте или мобильной сети; прокси раздачи, доступный приложениям телефона; «напрямую» клиента раздачи на loopback телефона; ядро с входом раздачи, оставшееся после остановки; раздача, включённая по умолчанию или после порчи настроек (T11; D-51) |

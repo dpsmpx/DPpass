@@ -1,6 +1,7 @@
 package com.dpsmpx.dppass.app.ui
 
 import android.app.AlertDialog
+import android.app.Dialog
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipDescription
@@ -9,21 +10,31 @@ import android.content.Intent
 import android.os.Build
 import android.os.PersistableBundle
 import android.provider.Settings
+import android.text.format.DateFormat
 import android.view.View
 import com.dpsmpx.dppass.R
+import com.dpsmpx.dppass.app.PairingLink
+import com.dpsmpx.dppass.app.TetherInterfaces
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.TunnelStatus
+import com.dpsmpx.dppass.connection.PairedDevice
+import com.dpsmpx.dppass.connection.Pairing
 import com.dpsmpx.dppass.connection.RelayLink
 import com.dpsmpx.dppass.connection.ShareService
 import com.dpsmpx.dppass.connection.ShareSettings
+import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
+import com.dpsmpx.dppass.diagnostics.map
 import com.dpsmpx.dppass.engine.ShareSpec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.IOException
+import java.security.SecureRandom
+import java.util.Date
 
 /**
  * «Раздача» (D-51): пустить через туннель другие свои устройства — по
@@ -42,6 +53,7 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
     private var failure: Diagnostic? = null
     private var busy = false
     private var watch: Job? = null
+    private var pairing: Job? = null
 
     override fun content(): View = body
 
@@ -134,9 +146,105 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
             Ui.matchWidth(),
         )
 
+        // ---- сопряжённые устройства (D-56) ----
+        body.addView(Ui.section(context, context.getString(R.string.share_paired)))
+        body.addView(
+            Ui.listCard(context).apply {
+                val dates = DateFormat.getMediumDateFormat(context)
+                for (d in s.paired) {
+                    addView(
+                        Ui.ListRow(context, R.drawable.ic_lan, d.name)
+                            .subtitle(context.getString(R.string.share_paired_note, dates.format(Date(d.pairedAtMillis))))
+                            .trailing(Ui.iconButton(context, R.drawable.ic_delete, context.getString(R.string.share_unpair)) { confirmUnpair(d) }),
+                        Ui.matchWidth(),
+                    )
+                    addView(Ui.divider(context))
+                }
+                addView(
+                    Ui.ListRow(context, R.drawable.ic_add, context.getString(R.string.share_pair))
+                        .subtitle(context.getString(R.string.share_pair_note))
+                        .onClick { startPairing() },
+                    Ui.matchWidth(),
+                )
+            },
+            Ui.matchWidth(),
+        )
+
         // ---- честные пределы (D-13) ----
         body.addView(Ui.section(context, context.getString(R.string.share_limits)))
         body.addView(Ui.card(context).apply { addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.share_limits_text))) }, Ui.matchWidth())
+    }
+
+    /**
+     * Сопряжение (D-56): порт сопряжения — на адресах раздачи, на две минуты,
+     * одно соединение. Код — окном; вход только для этого устройства
+     * выдаётся, когда код подтвердили на обоих телефонах.
+     */
+    private fun startPairing() {
+        val core = host.graph?.core ?: return
+        if (pairing?.isActive == true) return
+        val endpoints = TetherInterfaces.find(context)
+        if (endpoints.isEmpty()) {
+            host.toast(context.getString(R.string.share_pair_no_tether))
+            return
+        }
+        var waiting = true
+        lateinit var sheet: Dialog
+        val content = Ui.column(context, 12).apply {
+            addView(Ui.text(context, R.style.Text_DPpass_Body, context.getString(R.string.share_pair_waiting)))
+            addView(Ui.button(context, android.R.string.cancel, Ui.Style.OUTLINE).apply { setOnClickListener { sheet.dismiss() } }, Ui.matchWidth())
+        }
+        sheet = Ui.sheet(context, context.getString(R.string.share_pair), content)
+        sheet.setOnDismissListener { if (waiting) pairing?.cancel() }
+        sheet.show()
+        val label = context.applicationInfo.loadLabel(context.packageManager).toString()
+        pairing = host.scope.launch {
+            val socket = withContext(Dispatchers.IO) { PairingLink.acceptOne(endpoints) }
+            waiting = false
+            sheet.dismiss()
+            if (socket == null) {
+                host.toast(context.getString(R.string.share_pair_timeout))
+                return@launch
+            }
+            val r = try {
+                socket.use { so ->
+                    withContext(Dispatchers.IO) {
+                        Pairing.host(so.getInputStream(), so.getOutputStream(), SecureRandom(), { code -> withContext(MainThread) { PairingDialog.ask(context, code) } }) {
+                            val now = core.share.current().valueOrNull()
+                            val name = context.getString(R.string.share_paired_default, (now?.paired?.size ?: 0) + 1)
+                            core.share.pair(name, core.clock.nowMillis()).map { d -> Pairing.Offer(now?.port ?: 0, d.user.reveal(), d.password.reveal(), label) }
+                        }
+                    }
+                }
+            } catch (e: IOException) {
+                Outcome.failure(Diagnostic.fromThrowable(DiagCode.PAIRING_BROKEN, "соединение сопряжения прервано", e))
+            }
+            when (r) {
+                is Outcome.Failure -> {
+                    r.errors.forEach(core.log::diagnostic)
+                    host.problem(context.getString(R.string.share_pair), r.errors.first())
+                }
+                is Outcome.Success -> {
+                    core.log.info("share_paired")
+                    settings = core.share.current().valueOrNull() ?: settings
+                    host.toast(context.getString(R.string.share_pair_done))
+                    // Новый вход — во вход ядра: только новым запуском (D-51).
+                    host.reconnectIfBusy()
+                }
+            }
+            render(TunnelState.status.value)
+        }
+    }
+
+    /** Отозвать доверие (D-56): вход этого устройства пропадает из ядра при переподключении. */
+    private fun confirmUnpair(d: PairedDevice) {
+        Ui.secure(
+            AlertDialog.Builder(context)
+                .setMessage(context.getString(R.string.share_unpair_confirm, d.name))
+                .setPositiveButton(R.string.share_unpair) { _, _ -> change("share_unpaired") { it.unpair(d.id) } }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show(),
+        )
     }
 
     override fun onShown() {
@@ -152,6 +260,7 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
         watch?.cancel()
         watch = null
     }
+
 
     private suspend fun load() {
         val core = host.graph?.core ?: return

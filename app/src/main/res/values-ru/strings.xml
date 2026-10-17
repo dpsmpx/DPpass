@@ -325,4 +325,22 @@
     <string name="share_link">Поделиться входом</string>
     <string name="share_link_note">Ссылка для DPpass на другом телефоне — с логином и паролем</string>
     <string name="share_link_unavailable">Ссылка появится, когда в Android включена раздача и DPpass подключён</string>
+    <string name="share_paired">Сопряжённые устройства</string>
+    <string name="share_paired_note">Сопряжено %1$s · свой вход</string>
+    <string name="share_paired_default">Устройство %1$d</string>
+    <string name="share_pair">Сопряжение с устройством</string>
+    <string name="share_pair_note">Код на обоих экранах — без ввода пароля</string>
+    <string name="share_pair_waiting">Ждём другой телефон: на нём «Устройства раздачи» → «Сопряжение с устройством». До двух минут; он должен быть в точке доступа, Bluetooth- или USB-модеме этого телефона.</string>
+    <string name="share_pair_no_tether">Сначала включите точку доступа, USB- или Bluetooth-модем</string>
+    <string name="share_pair_timeout">Другой телефон не подключился за две минуты</string>
+    <string name="share_pair_done">Устройство сопряжено</string>
+    <string name="share_unpair">Убрать</string>
+    <string name="share_unpair_confirm">Убрать «%1$s»? Его вход перестанет действовать.</string>
+    <string name="pairing_code_title">Код сопряжения</string>
+    <string name="pairing_code_text">%1$s\n\nНа другом телефоне тот же код?</string>
+    <string name="pairing_code_match">Совпадает</string>
+    <string name="pairing_code_mismatch">Не совпадает</string>
+    <string name="relays_pair">Сопряжение с устройством</string>
+    <string name="relays_pair_searching">Ищу телефон, который ждёт сопряжения…</string>
+    <string name="relays_paired">Устройство сопряжено и выбрано</string>
 </resources>

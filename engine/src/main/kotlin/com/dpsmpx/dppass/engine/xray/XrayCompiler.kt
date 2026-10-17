@@ -664,7 +664,7 @@ class XrayCompiler(
                 "port" to Json.num(share.port),
                 "settings" to Json.obj(
                     "auth" to Json.str("password"),
-                    "accounts" to Json.arr(listOf(Json.obj("user" to Json.str(share.user.reveal()), "pass" to Json.str(share.password.reveal())))),
+                    "accounts" to Json.arr(share.accounts.map { Json.obj("user" to Json.str(it.user.reveal()), "pass" to Json.str(it.password.reveal())) }),
                     "udp" to Json.bool(true),
                     "ip" to Json.str(addr.toString()),
                 ),
