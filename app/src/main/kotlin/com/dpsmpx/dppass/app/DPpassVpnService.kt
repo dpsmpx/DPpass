@@ -351,7 +351,11 @@ class DPpassVpnService : VpnService() {
      */
     private suspend fun tetherForConnect(): List<ShareSpec.Endpoint> {
         val first = TetherInterfaces.find(this)
-        if (first.isEmpty()) return first
+        if (first.isEmpty()) {
+            // Раздача включена, а интерфейсов нет: что видно — в журнал, без адресов (D-57).
+            DeviceLog.log.info("share_no_tether", "seen" to Safe(TetherInterfaces.snapshot(this)))
+            return first
+        }
         delay(SHARE_CONFIRM_MILLIS)
         return TetherInterfaces.confirmed(first, TetherInterfaces.find(this))
     }

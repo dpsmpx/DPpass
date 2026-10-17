@@ -37,6 +37,23 @@ class TetherInterfacesTest {
         assertEquals(listOf(ep("192.168.42.129"), ep("192.168.43.1"), ep("192.168.44.1")), chosen)
     }
 
+    // D-57: Redmi 13, Android 15 — раздача не нашлась по признакам. Названное системой
+    // берётся и когда значится сетью, и без широковещания; не названное — нет.
+    @Test
+    fun systemNamedInterfacesWinOverHeuristics() {
+        val all = listOf(
+            iface("wlan0", "192.168.1.5"), // Wi-Fi-клиент
+            iface("wlan1", "192.168.120.1", broadcast = false), // точка доступа: значится сетью, без широковещания
+            iface("rmnet_data1", "10.120.4.7", prefix = 24), // IMS: частный адрес, но не раздача
+            iface("ap1", "192.168.45.1", up = false), // названа, но выключена
+            iface("lo", "127.0.0.1", prefix = 8, loopback = true),
+        )
+        val named = TetherInterfaces.selectNamed(all, setOf("wlan1", "ap1", "lo"))
+        assertEquals(listOf(ep("192.168.120.1")), named)
+        assertEquals(emptyList(), TetherInterfaces.select(all, upstream = setOf("wlan0", "wlan1", "rmnet_data1")), "по признакам — не нашлась бы")
+        assertEquals(emptyList(), TetherInterfaces.selectNamed(listOf(iface("wlan1", "203.0.113.1")), setOf("wlan1")), "только частный IPv4")
+    }
+
     @Test
     fun wlanClientIsExcludedOnlyAsDeviceNetwork() {
         // Wi-Fi-клиент отсеивается только как сеть устройства: поэтому без сведений

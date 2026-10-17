@@ -153,6 +153,19 @@ hev-socks5-tunnel по стабильности, памяти, батарее и
   интерфейсы раздачи — «вниз по течению» и сетями не являются). Имена
   у производителей разные (`ap0`, `swlan0`, `wlan1`, `rndis0`, `ncm0`,
   `bt-pan`), поэтому по имени не узнаётся.
+- Дополнено **17 октября 2026** (D-57): список раздающих интерфейсов
+  приложению всё же доступен — система шлёт липкую рассылку
+  `android.net.conn.TETHER_STATE_CHANGED` со списками имён `tetherArray`
+  (раздают сейчас), `availableArray`, `android.net.extra.ACTIVE_LOCAL_ONLY`
+  и других; отправка — `sendStickyBroadcastAsUser(…, UserHandle.ALL)`
+  без разрешения (AOSP, ветка `android15-release`:
+  `packages/modules/Connectivity/Tethering/src/com/android/networkstack/tethering/Tethering.java`,
+  `sendTetherStateChangedBroadcast`; константы — `TetheringManager.java`
+  там же, действие помечено `@Deprecated` в пользу
+  `TetheringEventCallback`). Публичным `TetheringManager.registerTetheringEventCallback`
+  стал в SDK 36 (Android 16, `android.jar` платформы 36). На Redmi 13
+  (Android 15) признаки «не сеть и широковещательный» точку доступа не
+  нашли (`TODO.md`, «На устройстве»).
 - Порт, открытый на адресе интерфейса раздачи, видят и приложения на
   самом телефоне: адреса устройства для них — локальные. Это новая
   примета прокси на устройстве (§6, `RUSSIA_NETWORK_RESTRICTIONS.md`,
