@@ -298,8 +298,9 @@ RFC 3849, RFC 2544) и частных сетей, домены `example.com/.net
 и ожидаемый класс); их сверяет `CorpusTest.networkObservations`, формат —
 `check_fixtures.py`. Первый — `skipped-foreign-probes.json` (17 октября 2026:
 пропуски бюджета давали «все пробы прошли»); второй —
-`cdn-landmark-refused-mobile.json` (сбрасывается только ориентир сети
-доставки — не белый список, D-62).
+`cdn-landmark-refused-mobile.json` (с одним ориентиром — только «что-то
+ограничивается», D-62); третий — `allowlist-mobile-confirmed.json` (белый
+список, подтверждённый автором: оба ориентира — сброс, имена резолвятся).
 
 Замер через туннель (D-61) — Go-тесты моста через proxy ядра к локальному
 HTTPS-серверу с заданным объёмом ответа (`TestSpeedTest*`), `XraySpeedTest`

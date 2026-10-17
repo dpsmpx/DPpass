@@ -1,0 +1,67 @@
+{
+  "note": "Телефон, мобильная сеть, 17.10.2026, 0.7.4-dev: белые списки действовали (подтвердил автор: без VPN зарубежные сайты не открывались). Оба зарубежных ориентира сбрасывают соединения, QUIC к ним молчит, а зарубежное имя резолвится оператором — белый список с резолвом имён (D-62).",
+  "type": "MOBILE",
+  "probes": [
+    {
+      "kind": "CAPTIVE",
+      "target": "DOMESTIC",
+      "outcome": "SUCCESS",
+      "ms": 1
+    },
+    {
+      "kind": "DNS",
+      "target": "DOMESTIC",
+      "outcome": "SUCCESS",
+      "ms": 38
+    },
+    {
+      "kind": "TCP",
+      "target": "DOMESTIC",
+      "outcome": "SUCCESS",
+      "ms": 81
+    },
+    {
+      "kind": "DNS",
+      "target": "FOREIGN",
+      "outcome": "SUCCESS",
+      "ms": 31
+    },
+    {
+      "kind": "TCP",
+      "target": "FOREIGN",
+      "outcome": "REFUSED"
+    },
+    {
+      "kind": "TCP",
+      "target": "FOREIGN_ALT",
+      "outcome": "REFUSED"
+    },
+    {
+      "kind": "TLS",
+      "target": "FOREIGN",
+      "outcome": "REFUSED"
+    },
+    {
+      "kind": "TLS",
+      "target": "FOREIGN_ALT",
+      "outcome": "REFUSED"
+    },
+    {
+      "kind": "UDP",
+      "target": "FOREIGN",
+      "outcome": "TIMEOUT"
+    },
+    {
+      "kind": "UDP",
+      "target": "FOREIGN_ALT",
+      "outcome": "TIMEOUT"
+    },
+    {
+      "kind": "BULK",
+      "target": "FOREIGN",
+      "outcome": "REFUSED"
+    }
+  ],
+  "restriction": "ALLOWLIST_LIKE",
+  "confidence": "MEDIUM"
+}
