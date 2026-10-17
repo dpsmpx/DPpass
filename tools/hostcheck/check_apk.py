@@ -14,7 +14,8 @@ Android SDK: aapt2 и dexdump):
     `android:process` нет ни у чего (один процесс, D-30);
   * код (dex): классы только из утверждённых корней пакетов — свой код
     и компоненты из матрицы лицензий; SDK аналитики, отчётов о падениях
-    и прочий чужой код не попадут незамеченными (D-12, D-20). Классы
+    и прочий чужой код не попадут незамеченными (D-12, D-20); своих
+    тестовых фикстур (модель сети, фиктивное ядро) в APK нет. Классы
     `android.*`/`dalvik.*` допустимы только синтетические — это заглушки,
     которые D8 создаёт для классов платформы новее minSdk;
   * нативный код — ровно библиотека ядра `lib/<ABI>/libdppassxray.so`
@@ -87,6 +88,13 @@ CODE_ROOTS = {
     "org/jetbrains/annotations/": "org.jetbrains:annotations (матрица, §1.1)",
     "org/intellij/lang/annotations/": "org.jetbrains:annotations (матрица, §1.1)",
     "com/android/tools/r8/": "поддержка desugaring, которую D8 (AGP) добавляет в APK (матрица, §1.3)",
+}
+# Свой код, которому в APK не место: тестовые фикстуры (модель сети, здоровье по
+# ней, фиктивное ядро) — только для тестов и cli (docs/ARCHITECTURE.md, §2).
+TEST_ONLY_CODE = {
+    "com/dpsmpx/dppass/network/simulation/": "модель сети",
+    "com/dpsmpx/dppass/engine/mock/": "фиктивное ядро",
+    "com/dpsmpx/dppass/connection/SimulatedHealthChecker": "здоровье по модели сети",
 }
 # Только синтетические: заглушки D8 для классов платформы, которых нет на minSdk.
 SYNTHETIC_ONLY_ROOTS = ("android/", "dalvik/")
@@ -402,6 +410,10 @@ def main():
     classes = dex_classes(os.path.join(tools, "dexdump"), apk)
     by_root = {}
     for desc, synthetic in classes:
+        test_only = next((what for prefix, what in TEST_ONLY_CODE.items() if desc.startswith(prefix)), None)
+        if test_only:
+            problems.append(f"dex: класс {desc.replace('/', '.')} — {test_only}, тестовая фикстура; в APK ей не место")
+            continue
         root_ok = next((r for r in CODE_ROOTS if desc.startswith(r)), None)
         if root_ok:
             by_root[root_ok] = by_root.get(root_ok, 0) + 1

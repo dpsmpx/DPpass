@@ -57,8 +57,8 @@
 | `core` | IP, CIDR и дополнение маршрутов, хосты и порты, идентификаторы, строгий JSON, `Clock`, SHA-256 | `diagnostics` |
 | `routing` | модель маршрутизации и DNS, эталонный вычислитель, перенос правил приложений на уровень VpnService, проверки смысла правил | `core` |
 | `config` | формат документа, миграции, IR, нормализация, проверка, запись (полная и отредактированная) | `routing` |
-| `engine` | граница ядра: `ProxyEngine`, `BackendCompiler`, матрица возможностей и сверка с ней; фиктивное ядро; Xray — матрица, компилятор, `XrayRuntime` (объявления JNI моста), `XrayProxyEngine`, оглавление набора геоданных и его перенос (`GeodataManifest`, `GeodataInstaller`, D-27) | `config` |
-| `network` | пробы сети, бюджет проб, классификация ограничений; пробы на сокетах (`SocketProber`, QUICv1 Initial — `QuicInitial`, ориентиры — `Landmarks`, D-60); задержка TCP до серверов по действию пользователя (D-41); синтетическая модель сети для тестов | `core` |
+| `engine` | граница ядра: `ProxyEngine`, `BackendCompiler`, матрица возможностей и сверка с ней; фиктивное ядро (тестовая фикстура); Xray — матрица, компилятор, `XrayRuntime` (объявления JNI моста), `XrayProxyEngine`, оглавление набора геоданных и его перенос (`GeodataManifest`, `GeodataInstaller`, D-27) | `config` |
+| `network` | пробы сети, бюджет проб, классификация ограничений; пробы на сокетах (`SocketProber`, QUICv1 Initial — `QuicInitial`, ориентиры — `Landmarks`, D-60); задержка TCP до серверов по действию пользователя (D-41); синтетическая модель сети для тестов (тестовая фикстура) | `core` |
 | `storage` | атомарное хранилище «ключ → байты», шифрование, карантин | `core` |
 | `subscriptions` | подписка как версионированный объект, источник (адрес или встроенный список, D-42), тело (документ, ссылки, base64), метаданные, конвейер обновления, расписание (D-39) | `config` |
 | `tunnel` | `TunnelSpec` из IR, черты платформы, интерфейс платформы TUN | `config` |
@@ -75,11 +75,13 @@
 `tools/dpverify.toml`, D-50):
 
 - `android.*` — только в `app/`.
-- Синтетическая модель сети (`network.simulation`) — инструмент тестов и
-  `cli`; в основном коде `connection/` — только `SimulatedHealthChecker`
-  (`Orchestrator.kt`); в `app/` — нельзя.
-- Фиктивное ядро (`engine.mock`) — второй бэкенд тестов и `cli`; в
-  `app/` — нельзя: приложение работает на Xray (D-25).
+- Синтетическая модель сети (`network.simulation`), здоровье по ней
+  (`connection.SimulatedHealthChecker`) и фиктивное ядро (`engine.mock`) —
+  тестовые фикстуры Gradle (`src/testFixtures` модулей `network`,
+  `connection`, `engine`): их берут тесты и `cli`
+  (`testFixtures(project(":connection"))`), в основной код модулей и в APK
+  они не попадают — импорт в `src/main` разрешён только `cli`, в APK их
+  классы ловит `check_apk.py`. Приложение работает на Xray (D-25).
 - Нативный код (`external fun`, `System.load*`) — только мост ядра:
   объявления JNI — `engine.xray.XrayRuntime`, загрузка — `AppGraph` и тест
   JNI на хосте.
@@ -438,9 +440,9 @@ BLOCKED. `SKIPPED` и `INCONCLUSIVE` в число проведённых про
 Проверяется `NetworkClassifierTest` (`network/`) и корпусом условий
 сети; изменение правил — изменение таблицы, тестов и корпуса вместе.
 
-**Модель сети для тестов** (`network.simulation.SimulatedNetwork`) —
-синтетические условия (`docs/TESTING.md`, «Модель сети»), не снимки
-операторов.
+**Модель сети для тестов** (`network.simulation.SimulatedNetwork`,
+тестовая фикстура `network`) — синтетические условия (`docs/TESTING.md`,
+«Модель сети»), не снимки операторов.
 
 ## 8. Подключение
 

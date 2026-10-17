@@ -5,6 +5,8 @@ plugins {
 
 dependencies {
     implementation(project(":connection"))
+    // Модель сети и фиктивное ядро — фикстуры тестов: cli ими демонстрирует план и замеры.
+    implementation(testFixtures(project(":connection")))
     implementation(libs.kotlinx.coroutines.core)
 }
 

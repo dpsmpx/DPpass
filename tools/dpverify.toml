@@ -60,7 +60,7 @@ probe = ["bash", "tools/hostcheck/steps.sh", "android-ndk"]
 # ---- обязательный набор ----
 
 [checks."repo.layout"]
-root_allow = [".gitignore", "CLAUDE.md", "LICENSE", "README.md", "TODO.md",
+root_allow = [".editorconfig", ".gitignore", "CLAUDE.md", "LICENSE", "README.md", "TODO.md",
               "build.gradle.kts", "gradle.properties", "gradlew", "gradlew.bat", "settings.gradle.kts"]
 required = ["docs/ARCHITECTURE.md", "docs/CONFIG_FORMAT.md", "docs/SECURITY_MODEL.md", "docs/TESTING.md"]
 # выпуск DB-IP — источник набора геоданных в репозитории (D-31)
@@ -106,7 +106,7 @@ definition = '^class\s+(\w+Test)\b'
 enabled = true
 rule = [
   { id = "dns-resolve", regex = '\b(getByName|getAllByName|getLocalHost)\s*\(', files = ["**/*.kt", "**/*.kts"], allow = ["network/src/main/kotlin/com/dpsmpx/dppass/network/Latency.kt", "network/src/main/kotlin/com/dpsmpx/dppass/network/SocketProber.kt", "app/src/main/kotlin/com/dpsmpx/dppass/app/NetworkCheck.kt"], reason = "резолв имени мимо туннеля (T4); IP — core.IpAddress, байты — InetAddress.getByAddress; имя сервера — только TcpLatencyProbe, системой, как ядро (D-41, D-29); имена ориентиров — только пробы сети, резолвером сети под туннелем (D-60)" },
-  { id = "secret-reveal", regex = '\.reveal\s*\(\s*\)', files = ["**/*.kt", "**/*.kts"], allow = ["**/src/test/**", "**/src/xrayJni/**", "diagnostics/src/main/kotlin/com/dpsmpx/dppass/diagnostics/Secret.kt", "config/src/main/kotlin/com/dpsmpx/dppass/config/ConfigValidator.kt", "config/src/main/kotlin/com/dpsmpx/dppass/config/ConfigWriter.kt", "engine/src/main/**", "storage/src/main/**", "subscriptions/src/main/kotlin/com/dpsmpx/dppass/subscriptions/Codec.kt", "subscriptions/src/main/kotlin/com/dpsmpx/dppass/subscriptions/Https.kt", "subscriptions/src/main/kotlin/com/dpsmpx/dppass/subscriptions/Inline.kt", "connection/src/main/kotlin/com/dpsmpx/dppass/connection/Share.kt", "connection/src/main/kotlin/com/dpsmpx/dppass/connection/Relay.kt", "app/src/main/kotlin/com/dpsmpx/dppass/app/ui/ShareScreen.kt"], reason = "значение секрета — только разбор и запись конфигурации, компиляторы ядер, хранилище, запись и загрузка подписки, свои серверы, логин и пароль раздачи — в хранилище и на её экране, вход устройства раздачи — в хранилище и в проверке SOCKS5 (D-11, D-36, D-42, D-51, D-55)" },
+  { id = "secret-reveal", regex = '\.reveal\s*\(\s*\)', files = ["**/*.kt", "**/*.kts"], allow = ["**/src/test/**", "**/src/xrayJni/**", "diagnostics/src/main/kotlin/com/dpsmpx/dppass/diagnostics/Secret.kt", "config/src/main/kotlin/com/dpsmpx/dppass/config/ConfigValidator.kt", "config/src/main/kotlin/com/dpsmpx/dppass/config/ConfigWriter.kt", "engine/src/main/**", "engine/src/testFixtures/kotlin/com/dpsmpx/dppass/engine/mock/MockBackend.kt", "storage/src/main/**", "subscriptions/src/main/kotlin/com/dpsmpx/dppass/subscriptions/Codec.kt", "subscriptions/src/main/kotlin/com/dpsmpx/dppass/subscriptions/Https.kt", "subscriptions/src/main/kotlin/com/dpsmpx/dppass/subscriptions/Inline.kt", "connection/src/main/kotlin/com/dpsmpx/dppass/connection/Share.kt", "connection/src/main/kotlin/com/dpsmpx/dppass/connection/Relay.kt", "app/src/main/kotlin/com/dpsmpx/dppass/app/ui/ShareScreen.kt"], reason = "значение секрета — только разбор и запись конфигурации, компиляторы ядер, хранилище, запись и загрузка подписки, свои серверы, логин и пароль раздачи — в хранилище и на её экране, вход устройства раздачи — в хранилище и в проверке SOCKS5 (D-11, D-36, D-42, D-51, D-55)" },
   { id = "stack-trace", regex = '\bprintStackTrace\s*\(', files = ["**/*.kt", "**/*.kts"], reason = "стек может нести секреты; причина — Diagnostic.fromThrowable (D-22)" },
   { id = "console", regex = '(?<![\w.])(println|print)\s*\(|\bSystem\.(out|err)\b', files = ["**/src/main/**/*.{kt,kts}"], allow = ["module:cli"], reason = "вывод в консоль — только cli/; остальное — Logger" },
   { id = "wall-clock", regex = '\bSystem\.(currentTimeMillis|nanoTime)\s*\(|\b(Instant|LocalDateTime|LocalDate|ZonedDateTime|OffsetDateTime)\.now\s*\(|\bDate\s*\(\s*\)', files = ["**/src/main/**/*.{kt,kts}"], allow = ["core/src/main/kotlin/com/dpsmpx/dppass/core/Support.kt", "cli/src/main/kotlin/com/dpsmpx/dppass/cli/Bench.kt"], reason = "время — только через core.Clock (D-21)" },
@@ -117,8 +117,8 @@ rule = [
   { id = "blocking", regex = '\bThread\.sleep\s*\(|\bGlobalScope\b|\brunBlocking\b', files = ["**/src/main/**/*.{kt,kts}"], allow = ["module:cli"], reason = "ожидание — через pause и Clock; корутины — в своём scope" },
   { id = "native-load", regex = '\bSystem\.load(Library)?\s*\(|\bRuntime\.getRuntime\(\)\.load|\bexternal\s+fun\b', files = ["**/*.kt", "**/*.kts"], allow = ["app/src/main/kotlin/com/dpsmpx/dppass/app/AppGraph.kt", "engine/src/main/kotlin/com/dpsmpx/dppass/engine/xray/XrayRuntime.kt", "tests/integration/src/xrayJni/**"], reason = "нативный код — только мост ядра (D-25): JNI — XrayRuntime, загрузка — AppGraph и тест JNI" },
   { id = "android-import", regex = '^\s*import\s+android\.', files = ["**/src/main/**/*.kt"], allow = ["module:app"], reason = "Android только в app/: ядро собирается и проверяется на JVM (D-02, D-21)" },
-  { id = "simulation-import", regex = '^\s*import\s+com\.dpsmpx\.dppass\.network\.simulation\.', files = ["**/src/main/**/*.kt"], allow = ["network/**", "module:cli", "connection/src/main/kotlin/com/dpsmpx/dppass/connection/Orchestrator.kt"], reason = "модель сети — инструмент тестов и cli; в connection — только SimulatedHealthChecker" },
-  { id = "mock-engine-import", regex = '^\s*import\s+com\.dpsmpx\.dppass\.engine\.mock\.', files = ["**/src/main/**/*.kt"], allow = ["engine/**", "module:cli"], reason = "фиктивное ядро — второй бэкенд тестов и cli (D-25)" },
+  { id = "simulation-import", regex = '^\s*import\s+com\.dpsmpx\.dppass\.network\.simulation\.', files = ["**/src/main/**/*.kt"], allow = ["module:cli"], reason = "модель сети — тестовая фикстура network: тесты и cli, в основном коде модулей и в app её нет" },
+  { id = "mock-engine-import", regex = '^\s*import\s+com\.dpsmpx\.dppass\.engine\.mock\.', files = ["**/src/main/**/*.kt"], allow = ["module:cli"], reason = "фиктивное ядро — тестовая фикстура engine: второй бэкенд тестов и cli, в APK его нет (D-25)" },
   { id = "inline-coordinates", regex = '"[\w.-]+:[\w.-]+:[\w.${}-]+"|\bid\s*\(\s*"[^"]+"\s*\)\s*version\b', files = ["**/*.gradle.kts"], reason = "зависимости и плагины — только через gradle/libs.versions.toml (D-18)" },
   { id = "repositories", regex = '\b(maven|ivy|jcenter|mavenLocal|flatDir)\s*[({]', files = ["**/*.gradle.kts"], reason = "репозитории — только google(), mavenCentral(), gradlePluginPortal() (D-18)" },
 ]
@@ -192,6 +192,11 @@ level = "static"
 [[command]]
 id = "project.format"
 run = ["python3", "tools/hostcheck/check_format.py"]
+level = "static"
+
+[[command]]
+id = "project.telemetry"
+run = ["python3", "tools/hostcheck/check_build_telemetry.py"]
 level = "static"
 
 [[command]]

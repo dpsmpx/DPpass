@@ -65,7 +65,9 @@ def src(module, file):
 
 
 CODES = enum_entries(src("diagnostics", "Codes.kt"), "DiagCode")
-CONDITIONS = enum_entries(os.path.join(SRC.format(m="network"), "simulation", "SimulatedNetwork.kt"), "NetworkCondition")
+# Модель сети — тестовая фикстура network (src/testFixtures): в APK её нет.
+SIMULATION = os.path.join(PROJ, "network", "src", "testFixtures", "kotlin", "com", "dpsmpx", "dppass", "network", "simulation", "SimulatedNetwork.kt")
+CONDITIONS = enum_entries(SIMULATION, "NetworkCondition")
 RESTRICTIONS = enum_entries(src("network", "Model.kt"), "RestrictionClass")
 REACH = enum_entries(src("network", "Model.kt"), "Reachability")
 CLASSES = enum_entries(src("config", "Ir.kt"), "TransportClass")

@@ -52,6 +52,7 @@
 | `com.android.tools.build:gradle` | 9.4.1 | Google Maven | POM: Apache-2.0 |
 | `org.jetbrains.kotlin.jvm` | 2.4.20 | Maven Central (маркер плагина) | POM маркера: Apache-2.0, ведёт на `kotlin-gradle-plugin` 2.4.20 |
 | `com.android.application` | 9.4.1 | Google Maven (маркер плагина) | POM маркера: Apache-2.0, ведёт на `com.android.tools.build:gradle` 9.4.1 |
+| `com.pinterest.ktlint:ktlint-cli` | 1.8.0 | Maven Central | 17 октября 2026: POM — MIT; берётся `ktlint-cli-1.8.0-all.jar` (вариант `shadowRuntimeElements`, без зависимостей); SHA-256 jar `369ad2b789f95a011f807e1fcb690ccef80bd7cd014fd139e73ae82dcc0baeab` и `.module` совпали с опубликованными `.sha256` (D-63) |
 | `org.jetbrains.kotlin:kotlin-test` | 2.4.20 | Maven Central | POM: Apache-2.0; подключается как `kotlin("test")` |
 | `org.jetbrains.kotlin:kotlin-stdlib` | 2.4.20 | Maven Central | POM: Apache-2.0; версию задаёт плагин Kotlin |
 | `org.jetbrains:annotations` | 23.0.0 | Maven Central | POM: Apache-2.0; транзитивно (`./gradlew :cli:dependencies`) |

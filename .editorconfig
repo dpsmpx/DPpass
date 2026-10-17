@@ -1,0 +1,21 @@
+# Стиль Kotlin — ktlint (D-63): стиль IntelliJ IDEA, строка не длиннее 160
+# символов. Проверка — задача Gradle ktlintCheck (шаг project.build),
+# исправление — ktlintFormat.
+root = true
+
+[*.{kt,kts}]
+ktlint_code_style = intellij_idea
+max_line_length = 160
+# Переносы — по смыслу, а не по правилу: вызов, сигнатура, короткая лямбда
+# и ветка `when` остаются одной строкой, пока она не длиннее 160 символов.
+ktlint_standard_argument-list-wrapping = disabled
+ktlint_standard_parameter-list-wrapping = disabled
+ktlint_standard_function-signature = disabled
+ktlint_standard_class-signature = disabled
+ktlint_standard_function-literal = disabled
+ktlint_standard_statement-wrapping = disabled
+ktlint_standard_binary-expression-wrapping = disabled
+ktlint_standard_property-wrapping = disabled
+ktlint_standard_blank-line-between-when-conditions = disabled
+# Файл называется по теме (Explain.kt, Health.kt), а не по единственному классу в нём.
+ktlint_standard_filename = disabled

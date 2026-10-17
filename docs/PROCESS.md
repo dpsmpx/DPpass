@@ -84,8 +84,9 @@ Verify. Журнал каждой проверки — `build/dpv/last/<пров
 | `project.deps` — `tools/provenance/check_dependencies.py` | модуль Go ядра (`tools/xray/go.mod`) без строки или с другой суммой `go.sum`, Xray не той версии, что в каталоге, `replace`; toolchain Go; проверка сумм артефактов Gradle выключена или неполна (`gradle/verification-metadata.xml`); `kotlin("test")`; источники геоданных | D-18, D-24, D-27, D-31; T10 |
 | `project.manifest` — `tools/hostcheck/check_manifest.py` | неутверждённые разрешения, резервные копии, открытый HTTP, лишний экспорт компонентов, экспортированный сервис без своего разрешения, фильтры Activity сверх запуска и «Поделиться» текстом, схемы и адреса в фильтрах, видимость пакетов сверх приложений с ярлыком | D-17, D-19, D-40, D-42 |
 | `project.format` — `tools/hostcheck/check_format.py` | невидимые и двунаправленные символы (Trojan Source), табуляции в отступе, одиночный CR | — |
+| `project.telemetry` — `tools/hostcheck/check_build_telemetry.py` | сборка может отправлять или копить данные о себе: нет `org.gradle.welcome=never` или `kotlin.internal.collectFUSMetrics=false` (и в `build-logic`), плагин сканов сборки, статистика AGP включена на этой машине (`analytics.settings`) | D-12 |
 | `project.readme` — `tools/hostcheck/readme_progress.py --check` | раздел «Прогресс» в `README.md` отстал от плана, критериев выхода, решений, `TODO.md`, аудитов; противоречия между ними (этап «выполнен» при открытых критериях, разное состояние в плане и в файле этапа) | — |
-| `project.build` — `tools/hostcheck/steps.sh build` (`./gradlew build :cli:installDist :build-logic:test`, с Android SDK — `-x :app:build`: APK собирается шагом Android) | ошибки и **предупреждения** компилятора (они — ошибки), модульные и межмодульные тесты, тесты `build-logic` (личность пакета, D-47, D-49), корпус, fuzz | D-05 … D-22 |
+| `project.build` — `tools/hostcheck/steps.sh build` (`./gradlew build :cli:installDist :build-logic:test ktlintCheck`, с Android SDK — `-x :app:build`: APK собирается шагом Android) | ошибки и **предупреждения** компилятора (они — ошибки), модульные и межмодульные тесты, тесты `build-logic` (личность пакета, D-47, D-49), корпус, fuzz; стиль Kotlin по `.editorconfig` — `ktlintCheck`, исправление — `./gradlew ktlintFormat` (D-63) | D-05 … D-22, D-63 |
 | `project.xray` — `tools/xray/check_xray.py` | эталон компилятора, который Xray закреплённой версии не принимает (`xray run -test`); решение маршрутизации Xray, не совпавшее с `RouteEvaluator`; собранное ядро не той версии, что в каталоге (`docs/TESTING.md`, «Эталоны Xray») | D-05, D-09, D-24 |
 | `project.xray-bridge` — `tools/hostcheck/steps.sh xray-bridge` (`tools/xray/native.py host` и `:tests:integration:xrayJniTest`) | `go vet` и `go test` моста ядра в обеих сборках (с тестовым входом и без); библиотека для JVM хоста, экспорт JNI которой не совпал с `external` объекта `XrayJni`; нарушение договора JNI в JVM хоста — версия, проверка, один экземпляр, защитник сокетов, счётчики (`docs/TESTING.md`, «Мост Xray и JNI») | D-25 |
 | `project.geodata` — `tools/xray/geodata.py --test` | `go vet` и `go test` сборщика набора геоданных; источник, чья сумма не совпала с PROVENANCE (DB-IP — файл в репозитории, dlc — Go-модуль со сверкой sum.golang.org); строка источника, которую сборщик не понял; код собранного набора, который ядро Xray не загрузило (`docs/TESTING.md`, «Набор геоданных»); нет кодов, которые компилятор подставляет сам | D-27, D-31, D-38 |
@@ -234,7 +235,15 @@ CI нет: GitHub Actions в DPpass не используется и не зап
   дистрибутива; `gradle-wrapper.jar` сверяет с PROVENANCE
   `provenance.binaries`.
 - **Сборка ничего не отправляет:** без сканов сборки и сервисов
-  аналитики (D-12; `org.gradle.welcome=never` в `gradle.properties`).
+  аналитики (D-12; `org.gradle.welcome=never` и
+  `kotlin.internal.collectFUSMetrics=false` в `gradle.properties`, условия
+  держит `project.telemetry`). Проверено 17 октября 2026: полная
+  пересборка модулей JVM, `:app` и Lint (112 задач, `--no-daemon
+  --offline --rerun-tasks`) под
+  `strace -f -e trace=connect,sendto,sendmsg` соединялась только с
+  127.0.0.1 — процессы Gradle и Kotlin между собой; ни внешних адресов,
+  ни DNS. Повторять тем же способом при обновлении Gradle, AGP или
+  Kotlin (D-18).
 - **Красный прогон — работа этого изменения**, а не повод повторить
   его «на удачу»: повтор — только если шаг умер до тестов (загрузка,
   нехватка места).

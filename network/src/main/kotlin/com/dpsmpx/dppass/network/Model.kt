@@ -71,7 +71,7 @@ data class ProbeResult(
     val ok: Boolean get() = outcome == ProbeOutcome.SUCCESS
 }
 
-/** Исполнитель проб: на сокетах — [SocketProber] (D-60); в тестах — [com.dpsmpx.dppass.network.simulation.SimulatedNetwork]. */
+/** Исполнитель проб: на сокетах — [SocketProber] (D-60); в тестах — `SimulatedNetwork` (тестовая фикстура). */
 fun interface Prober {
     suspend fun probe(request: ProbeRequest): ProbeResult
 }
