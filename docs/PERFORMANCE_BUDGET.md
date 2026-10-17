@@ -37,7 +37,8 @@
 | Обновление уведомления туннеля | раз в 2 с и только при включённом экране | `DPpassVpnService` (D-40) | нет (на устройстве) |
 | Опрос интерфейсов раздачи | раз в 5 с, только пока раздача включена и туннель поднят; новый интерфейс — после двух опросов подряд | `DPpassVpnService.SHARE_POLL_MILLIS`, `TetherInterfaces.shouldReconnect` (D-51) | `TetherInterfacesTest.goneInterfaceReconnectsAtOnceNewOneAfterTwoPolls` (решение; период — на устройстве) |
 | История активаций | 32 записи | `ActivationStore` | `LimitsTest.activationHistoryKeepsLast32` |
-| Пробы сети | 1 на ориентир за 1,5 с; не больше 12 за 60 с | `ProbeBudget` | `ProbeBudgetTest` (механизм — на своих параметрах) |
+| Пробы сети | 1 на ориентир за 1,5 с; не больше 12 за 60 с; бюджет один на процесс (две проверки подряд — пропуски, а не залп) | `ProbeBudget`, `NetworkCheck` (D-60) | `ProbeBudgetTest` (механизм — на своих параметрах) |
+| Одна проба на сокетах | соединение и чтение — 5 с; крупная передача — 64 КБ, прошло при 32 КБ, не дольше 10 с; QUIC — одна датаграмма 1200 байт | `SocketProber`, `QuicInitial` (D-60) | `SocketProberTest` (механизм — на сроках 0,7 и 1,5 с) |
 | Кандидаты за подключение | 4, пауза 2 с между попытками | `ConnectionPolicy` | `CandidatePlannerTest`, `OrchestratorTest` |
 | Проверка здоровья | 10 с | `ConnectionPolicy.healthTimeoutMillis` | `LimitsTest.healthCheckThatNeverAnswersFailsTheAttemptAtTimeout` (значение; механизм — на сроке 50 мс) |
 | Пауза кандидата после отказа | 30 с × 2ⁿ⁻¹, не больше 30 мин | `ConnectionPolicy` | `CandidatePlannerTest.backoffExcludesUntilItExpires` |

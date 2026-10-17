@@ -67,7 +67,12 @@ class NetworkAssessor(
     private val budget: ProbeBudget,
     private val pause: suspend (Long) -> Unit,
 ) {
-    suspend fun assess(type: NetworkType, plan: List<ProbeRequest> = ProbePlan.STANDARD): NetworkAssessment {
+    /** [onResult] — после каждой пробы: экран показывает исходы по мере появления. */
+    suspend fun assess(
+        type: NetworkType,
+        plan: List<ProbeRequest> = ProbePlan.STANDARD,
+        onResult: (ProbeResult) -> Unit = {},
+    ): NetworkAssessment {
         val results = mutableListOf<ProbeResult>()
         if (type == NetworkType.NONE) return NetworkClassifier.classify(type, results)
         for (request in plan) {
@@ -75,6 +80,7 @@ class NetworkAssessor(
             if (wait > 0) pause(wait)
             val result = if (budget.tryAcquire(request.target)) prober.probe(request) else ProbeResult(request, ProbeOutcome.SKIPPED)
             results += result
+            onResult(result)
             // Перехват страницей входа: дальше мерить бессмысленно.
             if (request.kind == ProbeKind.CAPTIVE && result.outcome == ProbeOutcome.REDIRECTED) break
         }
@@ -92,7 +98,7 @@ object NetworkClassifier {
         val evidence = mutableListOf<String>()
         fun of(kind: ProbeKind, target: ProbeTarget) = results.firstOrNull { it.request.kind == kind && it.request.target == target }
         fun reach(r: ProbeResult?): Reachability = when (r?.outcome) {
-            null, ProbeOutcome.SKIPPED -> Reachability.UNKNOWN
+            null, ProbeOutcome.SKIPPED, ProbeOutcome.INCONCLUSIVE -> Reachability.UNKNOWN
             ProbeOutcome.SUCCESS -> Reachability.OK
             ProbeOutcome.STALLED, ProbeOutcome.DNS_TAMPERED -> Reachability.DEGRADED
             else -> Reachability.BLOCKED
@@ -111,7 +117,7 @@ object NetworkClassifier {
         val tls = reach(of(ProbeKind.TLS, ProbeTarget.FOREIGN))
         val udp = reach(of(ProbeKind.UDP, ProbeTarget.FOREIGN))
         val bulk = reach(of(ProbeKind.BULK, ProbeTarget.FOREIGN))
-        val known = results.count { it.outcome != ProbeOutcome.SKIPPED }
+        val known = results.count { it.outcome != ProbeOutcome.SKIPPED && it.outcome != ProbeOutcome.INCONCLUSIVE }
 
         fun result(cls: RestrictionClass, conf: Confidence) =
             NetworkAssessment(type, dns, tcp, tls, udp, bulk, captive, cls, conf, evidence.toList())

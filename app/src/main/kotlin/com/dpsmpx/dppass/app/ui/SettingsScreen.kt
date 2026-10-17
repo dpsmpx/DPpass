@@ -22,7 +22,7 @@ import kotlinx.coroutines.withContext
 /**
  * «Настройки» (D-38, D-40): политика пользователя — маршрутизация, DNS,
  * приложения; постоянный VPN и уведомления — в настройках Android;
- * автопереключение сервера (D-58);
+ * автопереключение сервера (D-58); проверка сети (D-60);
  * раздача другим устройствам (D-51); тема; журнал (D-26) и «О программе»
  * (D-43).
  *
@@ -193,6 +193,14 @@ class SettingsScreen(host: Host) : Screen(host) {
                         .subtitle(context.getString(R.string.settings_log_note))
                         .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
                         .onClick { host.push(LogScreen(host)) },
+                    Ui.matchWidth(),
+                )
+                addView(Ui.divider(context))
+                addView(
+                    Ui.ListRow(context, R.drawable.ic_speed, context.getString(R.string.netcheck_title))
+                        .subtitle(context.getString(R.string.netcheck_settings_note))
+                        .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                        .onClick { host.push(NetworkCheckScreen(host)) },
                     Ui.matchWidth(),
                 )
                 addView(Ui.divider(context))

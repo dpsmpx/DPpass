@@ -42,6 +42,12 @@ enum class ProbeOutcome {
     UNREACHABLE,
     /** Пробу не дал провести бюджет — это не наблюдение о сети. */
     SKIPPED,
+
+    /**
+     * Проба прошла, но о сети ничего не сказала: ориентир ответил не тем
+     * (не 2xx), или о странице входа система не знает (D-60).
+     */
+    INCONCLUSIVE,
 }
 
 data class ProbeRequest(val kind: ProbeKind, val target: ProbeTarget)
@@ -54,7 +60,7 @@ data class ProbeResult(
     val ok: Boolean get() = outcome == ProbeOutcome.SUCCESS
 }
 
-/** Исполнитель проб. Настоящий (Android) — позже; в тестах — [com.dpsmpx.dppass.network.simulation.SimulatedNetwork]. */
+/** Исполнитель проб: на сокетах — [SocketProber] (D-60); в тестах — [com.dpsmpx.dppass.network.simulation.SimulatedNetwork]. */
 fun interface Prober {
     suspend fun probe(request: ProbeRequest): ProbeResult
 }
