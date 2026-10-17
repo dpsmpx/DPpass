@@ -74,6 +74,11 @@ ENV_KEY_PASS = "DPPASS_SIGNING_KEY_PASSWORD"
 RECORDED = re.compile(r"^\|\s*`([^`]+)`\s*\|\s*([0-9a-f]{64})\s*\|\s*$", re.M)
 DEFAULT_ALIAS = "dppass-dev"
 TERMUX_SIGNER = os.path.join(PROJ, "tools", "release", "dppass-sign-termux.sh")
+# Сертификат подписанта в выводе `apksigner verify --print-certs`: до build-tools 36 —
+# «Signer #1 certificate SHA-256 digest: …», в 37.0.0 — «V3.0 Signer: certificate SHA-256
+# digest: …» (сборка в Termux, 17 октября 2026). Читаются оба вида.
+CERT_LINE = re.compile(r"^(?:Signer #\d+|V\d+(?:\.\d+)* Signer):? certificate SHA-256 digest:\s*([0-9a-f]{64})\s*$", re.M)
+SIGNER_COUNT = re.compile(r"^Number of signers:\s*(\d+)\s*$", re.M)
 
 
 class Refusal(Exception):
@@ -234,6 +239,23 @@ def align_only(tools, unsigned, out):
     return []
 
 
+def signer_certs(verify):
+    """Отпечатки сертификатов подписантов из вывода apksigner — без повторов, по порядку."""
+    return list(dict.fromkeys(CERT_LINE.findall(verify)))
+
+
+def certificate_problem(verify, expected):
+    """Ровно один подписант с сертификатом [expected]; иначе — что показал apksigner."""
+    certs = signer_certs(verify)
+    count = SIGNER_COUNT.search(verify)
+    if certs == [expected] and (count is None or int(count.group(1)) == 1):
+        return None
+    shown = [line.strip() for line in verify.splitlines() if CERT_LINE.match(line.strip())]
+    signers = f", подписантов — {count.group(1)}" if count else ""
+    return (f"сертификат подписи ≠ записанному в docs/PROVENANCE.md, §7 ({expected}); "
+            f"apksigner: {shown or 'строки сертификата нет'}{signers}")
+
+
 def sign_one(tools, ks, unsigned, out, expected):
     """Выровнять, подписать, проверить подпись и сертификат; problems — список нарушений."""
     problems = []
@@ -250,9 +272,9 @@ def sign_one(tools, ks, unsigned, out, expected):
     verify = run([os.path.join(tools, "apksigner"), "verify", "--verbose", "--print-certs", out], "apksigner verify")
     if not re.search(r"Verified using v[23] scheme \(APK Signature Scheme v[23]\): true", verify):
         problems.append("подпись не схемы v2/v3")
-    certs = re.findall(r"Signer #\d+ certificate SHA-256 digest:\s*([0-9a-f]{64})", verify)
-    if certs != [expected]:
-        problems.append(f"сертификат подписи {certs} ≠ записанному в docs/PROVENANCE.md, §7 ({expected})")
+    cert = certificate_problem(verify, expected)
+    if cert:
+        problems.append(cert)
     run([os.path.join(tools, "zipalign"), "-c", "-P", "16", "4", out], "zipalign -c после подписи")
     return problems
 

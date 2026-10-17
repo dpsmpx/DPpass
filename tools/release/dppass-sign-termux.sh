@@ -78,7 +78,10 @@ for u in "${APKS[@]}"; do
     status=1
     continue
   fi
-  got="$(apksigner verify --print-certs "$out" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
+  # Строка сертификата: «Signer #1 certificate SHA-256 digest: …» (apksigner до 36) или
+  # «V3.0 Signer: certificate SHA-256 digest: …» (37.0.0). Ровно один сертификат — ключа автора.
+  got="$(apksigner verify --print-certs "$out" \
+    | sed -n -E 's/^(Signer #[0-9]+|V[0-9.]+ Signer):? certificate SHA-256 digest: ([0-9a-f]{64})$/\2/p' | sort -u)"
   if [ "$got" != "$FP" ]; then
     echo "✗ $out: сертификат $got ≠ $FP — файл удалён"
     rm -f "$out"
