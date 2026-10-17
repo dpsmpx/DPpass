@@ -199,7 +199,7 @@ class SubscriptionsScreen(host: Host) : Screen(host) {
         val items = Ui.listCard(context)
         report.entries.forEachIndexed { i, d ->
             if (i > 0) items.addView(Ui.divider(context))
-            val place = SubscriptionList.entryNumber(d.path)?.let { context.getString(R.string.subs_skipped_entry, it) }
+            val place = SubscriptionList.entryNumber(d)?.let { context.getString(R.string.subs_skipped_entry, it) }
             val why = d.causes.flatMap { listOf(it) + it.causes }.map { it.message }
             items.addView(Ui.ListRow(context, R.drawable.ic_block, d.message).subtitle((listOfNotNull(place) + why).joinToString("\n")), Ui.matchWidth())
         }

@@ -8,6 +8,7 @@ import com.dpsmpx.dppass.connection.CandidateHealth
 import com.dpsmpx.dppass.connection.HealthState
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.core.SubscriptionId
+import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.FailureKind
 import com.dpsmpx.dppass.network.LatencyResult
@@ -268,8 +269,15 @@ object SubscriptionList {
         )
     }
 
-    /** Номер записи ответа поставщика с единицы из пути находки `entry[i]`; null — путь не о записи. */
-    fun entryNumber(path: String?): Int? = path?.let { ENTRY.matchEntire(it) }?.groupValues?.get(1)?.toIntOrNull()?.plus(1)
+    /**
+     * Номер записи ответа поставщика с единицы; null — номера нет. `entry[i]`
+     * — номер записи только у той, что не разобрал разбор ссылок
+     * (`SUBSCRIPTION_ENTRY_SKIPPED`). У фильтра ядра (`EngineProfileFilter`)
+     * `entry[i]` считается среди уже разобранных серверов и после пропусков
+     * указал бы не на ту запись; имя сервера там — в сообщении.
+     */
+    fun entryNumber(d: Diagnostic): Int? =
+        d.path?.takeIf { d.code == DiagCode.SUBSCRIPTION_ENTRY_SKIPPED }?.let { ENTRY.matchEntire(it) }?.groupValues?.get(1)?.toIntOrNull()?.plus(1)
 
     private val ENTRY = Regex("""entry\[(\d+)]""")
 
