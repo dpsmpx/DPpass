@@ -65,7 +65,13 @@ object QuicInitial {
         return Keys(expandLabel(secret, "quic key", 16), expandLabel(secret, "quic iv", 12), expandLabel(secret, "quic hp", 16))
     }
 
-    /** Маска защиты заголовка (RFC 9001, §5.4.3): один блок AES-128 от 16 байт образца шифртекста. */
+    /**
+     * Маска защиты заголовка (RFC 9001, §5.4.3): один блок AES-128 от 16
+     * байт образца шифртекста. ECB здесь — не шифрование данных, а ровно
+     * одно применение блочного шифра, которое требует протокол; поэтому
+     * Lint `GetInstance` и правило `weak-crypto` разрешены только в этом файле.
+     */
+    @Suppress("GetInstance")
     internal fun mask(hp: ByteArray, sample: ByteArray): ByteArray =
         Cipher.getInstance("AES/ECB/NoPadding").apply { init(Cipher.ENCRYPT_MODE, SecretKeySpec(hp, "AES")) }.doFinal(sample, 0, 16)
 
