@@ -20,11 +20,14 @@ import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.ui.Formats
 import com.dpsmpx.dppass.connection.ConnectionReport
 import com.dpsmpx.dppass.connection.DPpassCore
+import com.dpsmpx.dppass.connection.Degradation
 import com.dpsmpx.dppass.connection.HealthChecker
 import com.dpsmpx.dppass.connection.SessionSupervisor
 import com.dpsmpx.dppass.connection.StabilityObservation
 import com.dpsmpx.dppass.connection.toTunInput
 import com.dpsmpx.dppass.core.Clock
+import com.dpsmpx.dppass.core.Ids
+import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
@@ -48,6 +51,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.Collections
 
 /**
  * Сервис туннеля в процессе приложения (D-17, D-30): foreground с типом
@@ -81,6 +85,10 @@ import kotlinx.coroutines.withContext
  * действием [ACTION_STOP], при `onRevoke` (пользователь отозвал VPN или
  * включил другой) и в `onDestroy`. [ACTION_RECONNECT] — остановка и новый
  * запуск: другой выбранный сервер, новая конфигурация.
+ *
+ * Сбой выбранного сервера (D-58): ответы на вопрос [ServerSwitch] —
+ * [ACTION_SWITCH] (замена становится выбранной, переподключение) и
+ * [ACTION_KEEP] («Остаться»: не спрашивать о нём до остановки туннеля).
  */
 class DPpassVpnService : VpnService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -95,8 +103,42 @@ class DPpassVpnService : VpnService() {
     private var shareWatch: Job? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
+    /** Серверы, о которых пользователь ответил «Остаться» (D-58): до остановки туннеля, то есть этого сервиса. */
+    private val declined: MutableSet<ProfileId> = Collections.synchronizedSet(HashSet())
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            ACTION_SWITCH -> {
+                ServerSwitch.clear(this)
+                val to = intent.getStringExtra(EXTRA_PROFILE)?.takeIf(Ids::isValid)?.let(::ProfileId)
+                if (!startInForeground(TunnelStatus.Connecting(null))) return START_NOT_STICKY
+                scope.launch {
+                    val core = AppGraph.core(this@DPpassVpnService)
+                    if (core.activation.state.activeConfig == null) core.restore()
+                    // Конфигурация могла смениться, пока вопрос висел: замена — только из действующей,
+                    // иначе — переподключение с прежним выбором (пользователь просил рабочее соединение).
+                    if (to != null && core.activation.state.activeConfig?.profiles?.any { it.id == to } == true) {
+                        AppPrefs(this@DPpassVpnService).selectedServer = to
+                        core.log.info("server_switched", "to" to Safe(to.value), "by" to Safe("user"))
+                    } else {
+                        core.log.info("server_switch_stale")
+                    }
+                    shutdown()
+                    start()
+                }
+                return START_STICKY
+            }
+            ACTION_KEEP -> {
+                ServerSwitch.clear(this)
+                intent.getStringExtra(EXTRA_PROFILE)?.takeIf(Ids::isValid)?.let { id ->
+                    declined += ProfileId(id)
+                    DeviceLog.log.info("server_switch_declined", "profile" to Safe(id))
+                }
+                if (TunnelState.status.value.busy) return START_STICKY
+                // Ответ пришёл, когда туннеля уже нет: сервису нечего делать.
+                stopSelf()
+                return START_NOT_STICKY
+            }
             ACTION_STOP -> {
                 DeviceLog.log.info("service_stop_requested")
                 TunnelState.set(TunnelStatus.Stopping)
@@ -218,6 +260,8 @@ class DPpassVpnService : VpnService() {
                 }
                 if (accepted) {
                     core.log.info("connected", "profile" to Safe(report.profileId.value), "attempts" to report.attempts.size)
+                    // Вопрос был о другом сервере (пользователь выбрал сам, подключение через устройство) — снят.
+                    TunnelState.offer.value?.takeIf { it.fromId != report.profileId }?.let { ServerSwitch.clear(this@DPpassVpnService) }
                     val name = ir.profiles.firstOrNull { it.id == report.profileId }?.name ?: report.profileId.value
                     progress(TunnelStatus.Connected(report.profileId, name, core.clock.nowMillis(), Clock.MONOTONIC.nowMillis()))
                     watchNetwork(target?.network)
@@ -281,8 +325,10 @@ class DPpassVpnService : VpnService() {
      * периодически сохраняется, чтобы опыт пережил перезапуск процесса.
      *
      * Переподключение идёт через [ACTION_RECONNECT] — проверенный путь
-     * жизненного цикла; модель к этому моменту уже понизила отказавший
-     * сервер, поэтому новый план возьмёт другого кандидата (D-15, D-44).
+     * жизненного цикла. Сбоивший сервер к этому моменту получил отказ в
+     * журнале здоровья (D-58), и план без выбора пользователя начнёт с
+     * другого кандидата; выбранный пользователем заменяется только с его
+     * согласия — вопросом [ServerSwitch] или тумблером «Автопереключение».
      */
     private fun startSupervisor(core: com.dpsmpx.dppass.connection.DPpassCore, engine: com.dpsmpx.dppass.engine.xray.XrayProxyEngine, ir: com.dpsmpx.dppass.config.ConfigIr, profileId: com.dpsmpx.dppass.core.ProfileId) {
         supervisor?.cancel()
@@ -291,6 +337,7 @@ class DPpassVpnService : VpnService() {
             val profile = ir.profiles.firstOrNull { it.id == profileId }
             val probeTimeout = (core.policy.healthTimeoutMillis - PROBE_MARGIN_MILLIS).toInt()
             var samples = 0
+            var lastFailure: Diagnostic? = null
             while (isActive) {
                 delay(SUPERVISION_INTERVAL_MILLIS)
                 // Наша ли ещё сессия: остановка или переподключение могли её сменить.
@@ -305,15 +352,41 @@ class DPpassVpnService : VpnService() {
                     profile,
                     null,
                 )
-                if (failed) core.log.warning("adaptive_probe_failed", "profile" to Safe(profileId.value), "elapsed_ms" to elapsed)
+                if (failed) {
+                    lastFailure = (result as Outcome.Failure).errors.first()
+                    core.log.warning("adaptive_probe_failed", "profile" to Safe(profileId.value), "elapsed_ms" to elapsed)
+                }
                 if (++samples % PERSIST_EVERY_SAMPLES == 0 || decision == SessionSupervisor.Decision.RECONNECT) {
                     withContext(NonCancellable) { core.persistStability() }
                 }
                 if (decision == SessionSupervisor.Decision.RECONNECT) {
                     core.log.warning("adaptive_reconnect", "profile" to Safe(profileId.value))
+                    // Деградация подтверждена и скачком задержки, без проваленной пробы — общая причина.
+                    val reason = lastFailure ?: Diagnostic.error(DiagCode.HEALTH_CHECK_FAILED, "пробы через сервер раз за разом отвечают с перебоями")
+                    onDegraded(core, profileId, reason)
                     reconnect(this@DPpassVpnService)
                     return@launch
                 }
+            }
+        }
+    }
+
+    /**
+     * Сбой сервера сессии (D-58): спросить о замене выбранного, заменить его
+     * с согласием заранее или просто переподключиться по плану.
+     */
+    private fun onDegraded(core: DPpassCore, profileId: ProfileId, reason: Diagnostic) {
+        val prefs = AppPrefs(this)
+        when (val d = core.degraded(profileId, reason, prefs.selectedServer, prefs.autoSwitch, synchronized(declined) { declined.toSet() })) {
+            is Degradation.Reconnect -> Unit
+            is Degradation.Ask -> {
+                val shown = ServerSwitch.ask(this, d)
+                core.log.info("server_switch_offered", "from" to Safe(d.from.id.value), "to" to Safe(d.to.id.value), "notification" to shown)
+            }
+            is Degradation.Switch -> {
+                prefs.selectedServer = d.to.id
+                val shown = ServerSwitch.switched(this, d)
+                core.log.info("server_switched", "from" to Safe(d.from.id.value), "to" to Safe(d.to.id.value), "by" to Safe("auto"), "notification" to shown)
             }
         }
     }
@@ -453,6 +526,8 @@ class DPpassVpnService : VpnService() {
     override fun onDestroy() {
         // Сервис уходит: уборка — в области процесса, она переживёт этот объект.
         AppGraph.scope.launch { shutdown() }
+        // Без туннеля вопрос о сбое сервера (D-58) ни к чему.
+        ServerSwitch.clear(this)
         // Отказ остаётся на экране; всё остальное без сервиса — «не подключено».
         if (TunnelState.status.value !is TunnelStatus.Failed) TunnelState.set(TunnelStatus.Idle)
         announce()
@@ -557,6 +632,9 @@ class DPpassVpnService : VpnService() {
     companion object {
         const val ACTION_STOP: String = "com.dpsmpx.dppass.action.STOP"
         const val ACTION_RECONNECT: String = "com.dpsmpx.dppass.action.RECONNECT"
+        const val ACTION_SWITCH: String = "com.dpsmpx.dppass.action.SWITCH_SERVER"
+        const val ACTION_KEEP: String = "com.dpsmpx.dppass.action.KEEP_SERVER"
+        private const val EXTRA_PROFILE = "profile"
         private const val CHANNEL = "tunnel"
         private const val NOTIFICATION_ID = 1
         private const val PROBE_MARGIN_MILLIS = 2_000L
@@ -585,5 +663,13 @@ class DPpassVpnService : VpnService() {
         fun reconnect(context: Context) {
             context.startForegroundService(Intent(context, DPpassVpnService::class.java).setAction(ACTION_RECONNECT))
         }
+
+        /** Ответ «Перейти» (D-58): [to] становится выбранным сервером. */
+        fun switchIntent(context: Context, to: ProfileId): Intent =
+            Intent(context, DPpassVpnService::class.java).setAction(ACTION_SWITCH).putExtra(EXTRA_PROFILE, to.value)
+
+        /** Ответ «Остаться» (D-58) о сервере [from]. */
+        fun keepIntent(context: Context, from: ProfileId): Intent =
+            Intent(context, DPpassVpnService::class.java).setAction(ACTION_KEEP).putExtra(EXTRA_PROFILE, from.value)
     }
 }

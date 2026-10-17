@@ -207,6 +207,25 @@ class DPpassCore(
     fun supervisor(profileId: ProfileId, assessment: NetworkAssessment?): SessionSupervisor =
         SessionSupervisor(stability, profileId, NetworkContext.of(assessment))
 
+    /**
+     * Подтверждённая деградация сессии на [profileId] (D-44, D-58). Отказ —
+     * в журнал здоровья: сервер перестаёт быть «последним удачным» и уходит
+     * на паузу, и план без выбора пользователя начнёт с другого кандидата.
+     *
+     * Выбранный пользователем сервер ([preferred], D-34) молча не
+     * заменяется (D-05): замена — первый кандидат плана без выбора, а
+     * переход — с согласия пользователя; [autoSwitch] — согласие заранее.
+     * [declined] — серверы, о которых пользователь ответил «Остаться».
+     */
+    fun degraded(profileId: ProfileId, reason: Diagnostic, preferred: ProfileId?, autoSwitch: Boolean, declined: Set<ProfileId> = emptySet()): Degradation {
+        health.recordFailure(profileId, reason.code, clock.nowMillis())
+        // Устройство раздачи (D-55) в активной конфигурации не значится — его не заменяют.
+        val from = activation.state.activeConfig?.profiles?.firstOrNull { it.id == profileId }
+        if (from == null || profileId != preferred || profileId in declined) return Degradation.Reconnect(reason)
+        val to = plan(null)?.attempts?.firstOrNull { it.profile.id != profileId }?.profile ?: return Degradation.Reconnect(reason)
+        return if (autoSwitch) Degradation.Switch(from, to, reason) else Degradation.Ask(from, to, reason)
+    }
+
     /** Сохранить адаптивную модель (D-44): вызывает сервис при остановке и периодически. */
     fun persistStability(): Outcome<Unit> = stabilityStore.save(stability)
 
@@ -244,7 +263,16 @@ class DPpassCore(
         )
         log.info("relay_connect", "device" to Safe(device.id), "port" to device.port)
         val orchestrator = ConnectionOrchestrator(compiler, engine, checker, health, clock, log, policy, stability, null, pause)
-        return orchestrator.connect(ir, plan, tun, share)
+        val report = orchestrator.connect(ir, plan, tun, share)
+        // Вход раздачи ответил, а данные не пошли (D-59): сбоит туннель того телефона, а не сервер.
+        val failure = (report as? ConnectionReport.Failed)?.attempts?.singleOrNull()?.failure
+        if (report !is ConnectionReport.Failed || failure == null || failure.code !in RELAY_HEALTH_CODES) return report
+        val d = Diagnostic.error(
+            DiagCode.RELAY_UPSTREAM_FAILED,
+            "устройство раздачи приняло логин и пароль, но данные через него не идут: у DPpass на раздающем телефоне нет связи со своим сервером — проверьте подключение там",
+        ).withCause(failure)
+        log.diagnostic(d)
+        return report.copy(reason = d)
     }
 
     /**
@@ -278,6 +306,11 @@ class DPpassCore(
             .diagnostics(extra)
             .log(logEvents)
             .build()
+    }
+
+    private companion object {
+        /** Отказы проверки здоровья (D-32): данные не пришли, «замерзли», проба не уложилась в срок. */
+        val RELAY_HEALTH_CODES = setOf(DiagCode.ENDPOINT_UNREACHABLE, DiagCode.PAYLOAD_STALLED, DiagCode.HEALTH_CHECK_FAILED, DiagCode.TLS_HANDSHAKE_FAILED)
     }
 
     internal fun logActivation(r: ActivationResult) {

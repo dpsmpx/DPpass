@@ -163,6 +163,8 @@
     <string name="settings_connection">Connection</string>
     <string name="settings_always_on">Always-on VPN</string>
     <string name="settings_always_on_note">In Android settings: VPN → %1$s → Always-on. It also starts the app after a reboot.</string>
+    <string name="settings_auto_switch">Auto-switch server</string>
+    <string name="settings_auto_switch_note">If the chosen server stops responding, DPpass switches to another one and tells you. Off — it asks in a notification.</string>
     <string name="settings_notifications">Notifications</string>
     <string name="settings_notifications_note">Tunnel state and speed in the shade</string>
     <string name="settings_share_note">Other devices over Wi-Fi, USB or Bluetooth, through the tunnel</string>
@@ -237,6 +239,16 @@
     <string name="notification_connected_traffic">%1$s · ↓ %2$s ↑ %3$s</string>
     <string name="notification_title_connected">DPpass · connected</string>
     <string name="notification_public_connected">Connected</string>
+
+    <string name="switch_channel">Server change</string>
+    <string name="switch_title">Server stopped responding</string>
+    <string name="switch_ask_text">“%1$s”: %2$s. Switch to “%3$s”?</string>
+    <string name="switch_done_title">Server changed</string>
+    <string name="switch_done_text">“%1$s”: %2$s. Now “%3$s”.</string>
+    <string name="switch_public">Unlock the phone to choose</string>
+    <string name="action_switch">Switch</string>
+    <string name="action_switch_to">Switch to “%1$s”</string>
+    <string name="action_keep">Stay</string>
 
     <plurals name="servers_count">
         <item quantity="one">%d server</item>

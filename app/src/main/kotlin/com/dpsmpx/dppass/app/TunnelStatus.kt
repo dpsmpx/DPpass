@@ -71,12 +71,19 @@ class TrafficMeter {
     }
 }
 
+/**
+ * Вопрос о сбое выбранного сервера (D-58): «[fromName]» перестал отвечать
+ * по [reason] — перейти ли на «[toName]». Пока туннель поднят и ответа нет.
+ */
+data class ServerOffer(val fromId: ProfileId, val fromName: String, val toId: ProfileId, val toName: String, val reason: Diagnostic)
+
 /** Одно состояние на процесс: сервис и экраны живут в одном процессе (D-30). */
 object TunnelState {
     private val flow = MutableStateFlow<TunnelStatus>(TunnelStatus.Idle)
     private val trafficFlow = MutableStateFlow(Traffic.ZERO)
     private val shareFlow = MutableStateFlow<List<ShareSpec.Endpoint>>(emptyList())
     private val shareRefusedFlow = MutableStateFlow(false)
+    private val offerFlow = MutableStateFlow<ServerOffer?>(null)
 
     val status: StateFlow<TunnelStatus> = flow.asStateFlow()
 
@@ -89,13 +96,21 @@ object TunnelState {
     /** Раздача просилась, но ядро с её входами не запустилось (адрес пропал, порт занят): туннель — без неё. */
     val shareRefused: StateFlow<Boolean> = shareRefusedFlow.asStateFlow()
 
+    /** Вопрос о сбое выбранного сервера (D-58); без туннеля или после ответа — null. */
+    val offer: StateFlow<ServerOffer?> = offerFlow.asStateFlow()
+
     fun set(next: TunnelStatus) {
         flow.value = next
         if (!next.busy) {
             trafficFlow.value = Traffic.ZERO
             shareFlow.value = emptyList()
             shareRefusedFlow.value = false
+            offerFlow.value = null
         }
+    }
+
+    fun offer(next: ServerOffer?) {
+        offerFlow.value = next
     }
 
     fun traffic(next: Traffic) {

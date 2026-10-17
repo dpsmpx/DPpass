@@ -162,6 +162,8 @@
     <string name="settings_connection">Подключение</string>
     <string name="settings_always_on">Постоянный VPN</string>
     <string name="settings_always_on_note">В настройках Android: VPN → %1$s → Постоянный VPN. Он же запускает приложение после перезагрузки.</string>
+    <string name="settings_auto_switch">Автопереключение сервера</string>
+    <string name="settings_auto_switch_note">Если выбранный сервер перестал отвечать, DPpass сам перейдёт на другой и сообщит. Выключено — спросит в уведомлении.</string>
     <string name="settings_notifications">Уведомления</string>
     <string name="settings_notifications_note">Состояние туннеля и скорость в шторке</string>
     <string name="settings_share_note">Другие устройства по Wi-Fi, USB или Bluetooth — через туннель</string>
@@ -236,6 +238,16 @@
     <string name="notification_connected_traffic">%1$s · ↓ %2$s ↑ %3$s</string>
     <string name="notification_title_connected">DPpass · подключено</string>
     <string name="notification_public_connected">Подключено</string>
+
+    <string name="switch_channel">Смена сервера</string>
+    <string name="switch_title">Сервер перестал отвечать</string>
+    <string name="switch_ask_text">«%1$s»: %2$s. Перейти на «%3$s»?</string>
+    <string name="switch_done_title">Сервер сменён</string>
+    <string name="switch_done_text">«%1$s»: %2$s. Теперь выбран «%3$s».</string>
+    <string name="switch_public">Разблокируйте телефон, чтобы выбрать</string>
+    <string name="action_switch">Перейти</string>
+    <string name="action_switch_to">Перейти на «%1$s»</string>
+    <string name="action_keep">Остаться</string>
 
     <plurals name="servers_count">
         <item quantity="one">%d сервер</item>

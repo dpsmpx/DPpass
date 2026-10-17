@@ -4,6 +4,7 @@ import com.dpsmpx.dppass.config.ServerProfile
 import com.dpsmpx.dppass.config.TransportClass
 import com.dpsmpx.dppass.config.transportClass
 import com.dpsmpx.dppass.core.ProfileId
+import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.network.NetworkAssessment
 import com.dpsmpx.dppass.network.NetworkType
 import com.dpsmpx.dppass.network.Reachability
@@ -376,6 +377,31 @@ class SessionSupervisor(
     private companion object {
         const val HOUR_MILLIS = 60L * 60 * 1000
     }
+}
+
+/**
+ * Что делать с подтверждённой деградацией сессии (D-58): наблюдатель
+ * решил, что сервер перестал держать соединение. [reason] — последняя
+ * проваленная проба, её видит пользователь.
+ */
+sealed interface Degradation {
+    val reason: Diagnostic
+
+    /**
+     * Переподключиться по плану (D-15): выбран режим «Автоматически»,
+     * подключение через устройство раздачи (D-55), замены нет или
+     * пользователь уже ответил «Остаться».
+     */
+    data class Reconnect(override val reason: Diagnostic) : Degradation
+
+    /**
+     * Сбоит сервер, выбранный пользователем (D-34): спросить, перейти ли на
+     * [to]. Пока ответа нет — переподключение к [from], как прежде.
+     */
+    data class Ask(val from: ServerProfile, val to: ServerProfile, override val reason: Diagnostic) : Degradation
+
+    /** «Автопереключение» включено — согласие заранее: [to] становится выбранным, пользователю — сообщение. */
+    data class Switch(val from: ServerProfile, val to: ServerProfile, override val reason: Diagnostic) : Degradation
 }
 
 /** Разбор/запись одного числа модели: короткие, устойчивые к мусору. */

@@ -22,6 +22,7 @@ import kotlinx.coroutines.withContext
 /**
  * «Настройки» (D-38, D-40): политика пользователя — маршрутизация, DNS,
  * приложения; постоянный VPN и уведомления — в настройках Android;
+ * автопереключение сервера (D-58);
  * раздача другим устройствам (D-51); тема; журнал (D-26) и «О программе»
  * (D-43).
  *
@@ -123,6 +124,15 @@ class SettingsScreen(host: Host) : Screen(host) {
                         .subtitle(context.getString(R.string.settings_always_on_note, context.applicationInfo.loadLabel(context.packageManager)))
                         .trailing(Ui.icon(context, R.drawable.ic_open, R.color.text_secondary))
                         .onClick { openSystem(Intent(Settings.ACTION_VPN_SETTINGS)) },
+                    Ui.matchWidth(),
+                )
+                addView(Ui.divider(context))
+                addView(
+                    // Согласие заранее заменять выбранный сервер, когда он перестал отвечать (D-58).
+                    Ui.switchRow(context, R.drawable.ic_bolt, context.getString(R.string.settings_auto_switch), context.getString(R.string.settings_auto_switch_note), host.prefs.autoSwitch) {
+                        host.prefs.autoSwitch = it
+                        host.graph?.core?.log?.info("auto_switch", "on" to it)
+                    },
                     Ui.matchWidth(),
                 )
                 addView(Ui.divider(context))

@@ -163,4 +163,22 @@ class RelayTest {
         assertIs<ConnectionReport.Failed>(failed)
         assertEquals(1, failed.attempts.size)
     }
+
+    @Test
+    fun relayHealthFailureNamesTheSharingPhone() = runBlocking {
+        val core = DPpassCore(MockBackendCompiler(), MockProxyEngine(), blobs, clock, "com.dpsmpx.dppass", PlatformTraits(true))
+        val device = core.relays.add(draft()).valueOrNull()!!
+        // Вход раздачи ответил, а данных нет (D-59): причина — у раздающего телефона, исходная — в цепочке.
+        for (code in listOf(DiagCode.ENDPOINT_UNREACHABLE, DiagCode.PAYLOAD_STALLED, DiagCode.HEALTH_CHECK_FAILED, DiagCode.TLS_HANDSHAKE_FAILED)) {
+            val failed = assertIs<ConnectionReport.Failed>(core.connectVia(device, GATEWAY, HealthChecker { _, _ -> Outcome.failure(code, "проба") }, null) {})
+            assertEquals(DiagCode.RELAY_UPSTREAM_FAILED, failed.reason.code, code.name)
+            assertTrue("раздающем телефоне" in failed.reason.message)
+            assertEquals(code, failed.reason.causes.single().code)
+        }
+        // Отказ не проверки здоровья — со своим кодом.
+        val other = assertIs<ConnectionReport.Failed>(
+            core.connectVia(device, GATEWAY, HealthChecker { _, _ -> Outcome.failure(DiagCode.INTERNAL_ERROR, "сбой") }, null) {},
+        )
+        assertEquals(DiagCode.ATTEMPTS_EXHAUSTED, other.reason.code)
+    }
 }

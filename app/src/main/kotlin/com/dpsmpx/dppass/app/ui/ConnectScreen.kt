@@ -5,6 +5,8 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.dpsmpx.dppass.R
+import com.dpsmpx.dppass.app.DPpassVpnService
+import com.dpsmpx.dppass.app.ServerOffer
 import com.dpsmpx.dppass.app.Traffic
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.TunnelStatus
@@ -19,7 +21,9 @@ import kotlinx.coroutines.launch
 /**
  * «Подключение» (D-34, D-40): одна кнопка, состояние туннеля, время с
  * подключения, скорость и трафик сессии, выбранный сервер, режим
- * маршрутизации (D-38) и причина последнего отказа.
+ * маршрутизации (D-38) и причина последнего отказа. Сбой выбранного
+ * сервера (D-58) — вопрос «перейти?» карточкой: тот же, что в уведомлении,
+ * и виден, даже если уведомления выключены.
  */
 class ConnectScreen(host: Host) : Screen(host) {
     private val source = Ui.text(context, R.style.Text_DPpass_Secondary).apply { gravity = Gravity.CENTER_HORIZONTAL }
@@ -98,6 +102,19 @@ class ConnectScreen(host: Host) : Screen(host) {
         addView(Ui.button(context, R.string.open_log, Ui.Style.OUTLINE, R.drawable.ic_log).apply { setOnClickListener { host.push(LogScreen(host)) } })
     }
 
+    private val offerText = Ui.text(context, R.style.Text_DPpass_Secondary)
+    private val offerSwitch = Ui.button(context, R.string.action_switch, Ui.Style.PRIMARY, R.drawable.ic_bolt)
+    private val offerCard = Ui.card(context).apply {
+        setBackgroundResource(R.drawable.bg_card)
+        addView(Ui.text(context, R.style.Text_DPpass_Title, context.getString(R.string.switch_title)).apply { setTextColor(context.getColor(R.color.warning)) })
+        addView(offerText)
+        addView(offerSwitch, Ui.matchWidth())
+        addView(Ui.button(context, R.string.action_keep, Ui.Style.TEXT).apply { setOnClickListener { offer?.let { keep(it) } } }, Ui.matchWidth())
+    }
+
+    /** Вопрос, на который отвечают кнопки карточки (D-58). */
+    private var offer: ServerOffer? = null
+
     private val emptyCard = Ui.card(context, 12).apply {
         gravity = Gravity.CENTER_HORIZONTAL
         addView(
@@ -130,6 +147,7 @@ class ConnectScreen(host: Host) : Screen(host) {
             addView(title, Ui.matchWidth().apply { topMargin = Ui.dp(context, 20) })
             addView(detail, Ui.matchWidth().apply { topMargin = Ui.dp(context, 4) })
             addView(stats, Ui.matchWidth().apply { topMargin = Ui.dp(context, 24) })
+            addView(offerCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 16) })
             addView(serverCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 16) })
             addView(failureCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 16) })
             addView(emptyCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 24) })
@@ -222,6 +240,22 @@ class ConnectScreen(host: Host) : Screen(host) {
             failureCard.visibility = View.GONE
         }
         emptyCard.visibility = if (graph != null && !hasServers) View.VISIBLE else View.GONE
+        renderOffer(TunnelState.offer.value)
+    }
+
+    private fun renderOffer(next: ServerOffer?) {
+        offer = next
+        offerCard.visibility = if (next == null) View.GONE else View.VISIBLE
+        next ?: return
+        val locale = context.resources.configuration.locales[0]
+        val kind = context.getString(Ui.kind(next.reason.kind)).replaceFirstChar { it.lowercase(locale) }
+        offerText.text = context.getString(R.string.switch_ask_text, next.fromName, kind, next.toName)
+        offerSwitch.text = context.getString(R.string.action_switch_to, next.toName)
+        offerSwitch.setOnClickListener { context.startForegroundService(DPpassVpnService.switchIntent(context, next.toId)) }
+    }
+
+    private fun keep(o: ServerOffer) {
+        context.startService(DPpassVpnService.keepIntent(context, o.fromId))
     }
 
     private fun renderDetail(status: TunnelStatus) {
@@ -247,6 +281,7 @@ class ConnectScreen(host: Host) : Screen(host) {
         // Пока экран виден: время с подключения — каждую секунду, трафик — по мере прихода от сервиса.
         ticker = host.scope.launch {
             launch { TunnelState.traffic.collect { renderTraffic(it, TunnelState.status.value) } }
+            launch { TunnelState.offer.collect { renderOffer(it) } }
             while (isActive) {
                 renderDetail(TunnelState.status.value)
                 delay(1_000)

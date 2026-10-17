@@ -174,6 +174,13 @@ enum class DiagCode(val kind: FailureKind, val defaultSeverity: Severity) {
      */
     PAIRING_BROKEN(FailureKind.AUTHENTICATION_FAILED, Severity.ERROR),
 
+    /**
+     * Через устройство раздачи (D-55, D-59) данные не идут: вход раздачи
+     * принял логин и пароль, а проверка здоровья не прошла — сбоит туннель
+     * раздающего телефона, а не этот телефон и не его сеть.
+     */
+    RELAY_UPSTREAM_FAILED(FailureKind.HEALTH_CHECK_FAILED, Severity.ERROR),
+
     // --- активация ---
     ACTIVATION_REJECTED(FailureKind.CONFIG_VALIDATION_FAILED, Severity.ERROR),
     ROLLED_BACK_TO_LAST_KNOWN_GOOD(FailureKind.HEALTH_CHECK_FAILED, Severity.WARNING),
