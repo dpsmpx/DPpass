@@ -304,6 +304,7 @@
     <string name="speed_via">Through “%1$s”</string>
     <string name="speed_ping">Ping %1$s ms (best %2$s) · jitter %3$s ms</string>
     <string name="speed_download">Download %1$s Mbit/s — %2$s in %3$s s</string>
+    <string name="speed_stalled">Data stopped %1$s s into the download (%2$s Mbit/s until then) and nothing came after: this looks like the connection being frozen, not a slow link.</string>
     <string name="speed_failed">Speed not measured</string>
 
     <plurals name="servers_count">

@@ -145,10 +145,19 @@ class NetworkCheckScreen(host: Host) : SubScreen(host, R.string.netcheck_title) 
         fun ms(v: Double) = String.format(locale, "%.0f", v)
         val mbps = String.format(locale, "%.1f", s.downloadBitsPerSecond / 1_000_000.0)
         val seconds = String.format(locale, "%.1f", s.transferMillis / 1000.0)
-        speedResult.text = listOf(
+        val lines = mutableListOf(
             context.getString(R.string.speed_ping, ms(s.pingMillis), ms(s.minPingMillis), ms(s.jitterMillis)),
             context.getString(R.string.speed_download, mbps, bytes(s.receivedBytes), seconds),
-        ).joinToString("\n")
+        )
+        // Данные встали посреди загрузки (L7): средняя — не скорость канала, это надо сказать.
+        s.stalledAfterMillis?.let { after ->
+            lines += context.getString(
+                R.string.speed_stalled,
+                String.format(locale, "%.1f", after / 1000.0),
+                String.format(locale, "%.1f", s.activeBitsPerSecond / 1_000_000.0),
+            )
+        }
+        speedResult.text = lines.joinToString("\n")
         speedResult.visibility = View.VISIBLE
     }
 

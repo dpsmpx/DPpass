@@ -303,6 +303,7 @@
     <string name="speed_via">Через «%1$s»</string>
     <string name="speed_ping">Пинг %1$s мс (лучший %2$s) · jitter %3$s мс</string>
     <string name="speed_download">Загрузка %1$s Мбит/с — %2$s за %3$s с</string>
+    <string name="speed_stalled">Данные встали через %1$s с после начала загрузки (до того — %2$s Мбит/с), дальше — ни байта: похоже на «заморозку» соединения, а не на медленный канал.</string>
     <string name="speed_failed">Скорость не измерена</string>
 
     <plurals name="servers_count">

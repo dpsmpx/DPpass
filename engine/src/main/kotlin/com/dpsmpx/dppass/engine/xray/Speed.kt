@@ -22,6 +22,15 @@ data class SpeedReport(
     val receivedBytes: Long,
     val transferMillis: Long,
     val pings: Int,
+    /**
+     * Данные встали (L7): последний байт пришёл через столько мс от начала
+     * загрузки, а дальше до конца срока — ни байта (не меньше
+     * [XraySpeed.STALL_GAP_MILLIS]). null — шли до конца. Тогда средняя
+     * [downloadBitsPerSecond] — не скорость канала, а «сколько пустили».
+     */
+    val stalledAfterMillis: Long? = null,
+    /** Скорость до остановки: тело за время до последнего байта; при `stalledAfterMillis == null` — та же, что средняя. */
+    val activeBitsPerSecond: Long = downloadBitsPerSecond,
 )
 
 /** Замер через туннель на ядре Xray (D-61): цель, пределы и итог. */
@@ -34,6 +43,9 @@ object XraySpeed {
     const val MAX_BYTES: Long = 25L * 1024 * 1024
     const val MAX_TIME_MILLIS: Int = 8_000
     const val TIMEOUT_MILLIS: Int = 25_000
+
+    /** Тишина до конца срока, после которой загрузка считается вставшей, а не медленной. */
+    const val STALL_GAP_MILLIS: Long = 2_000
     private const val CORE_TEXT_LIMIT = 2_000
 
     fun report(r: SpeedProbeResult, redactor: Redactor = Redactor()): Outcome<SpeedReport> {
@@ -62,6 +74,12 @@ object XraySpeed {
         }
         val jitter = if (ms.size < 2) 0.0 else ms.zipWithNext { a, b -> abs(b - a) }.average()
         val bps = if (r.transferMicros <= 0) 0 else r.receivedBytes * 8 * 1_000_000 / r.transferMicros
-        return SpeedReport(median, sorted.firstOrNull() ?: 0.0, jitter, bps, r.receivedBytes, r.transferMicros / 1000, ms.size)
+        val stalled = r.receivedBytes > 0 && r.lastByteMicros > 0 && r.transferMicros - r.lastByteMicros >= STALL_GAP_MILLIS * 1000
+        val active = if (stalled) r.receivedBytes * 8 * 1_000_000 / r.lastByteMicros else bps
+        return SpeedReport(
+            median, sorted.firstOrNull() ?: 0.0, jitter, bps, r.receivedBytes, r.transferMicros / 1000, ms.size,
+            stalledAfterMillis = if (stalled) r.lastByteMicros / 1000 else null,
+            activeBitsPerSecond = active,
+        )
     }
 }

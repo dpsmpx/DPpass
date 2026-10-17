@@ -15,8 +15,9 @@ import (
 // ядра мимо правил; сервер с заданным объёмом ответа — на loopback.
 
 // down — сервер «путь?bytes=N»: N байт; chunk и pause — медленная выдача;
-// stall — после заголовков загрузки ни байта.
-func down(t *testing.T, status int, chunk int, pause time.Duration, stall bool) (string, *x509.CertPool) {
+// stall — после заголовков загрузки ни байта; freezeAfter > 0 — столько байт
+// тела и тишина (как «заморозка» L7).
+func down(t *testing.T, status int, chunk int, pause time.Duration, stall bool, freezeAfter ...int) (string, *x509.CertPool) {
 	t.Helper()
 	s := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n, err := strconv.Atoi(r.URL.Query().Get("bytes"))
@@ -35,6 +36,12 @@ func down(t *testing.T, status int, chunk int, pause time.Duration, stall bool) 
 		}
 		w.(http.Flusher).Flush()
 		if stall {
+			<-r.Context().Done()
+			return
+		}
+		if len(freezeAfter) > 0 {
+			_, _ = w.Write(make([]byte, freezeAfter[0]))
+			w.(http.Flusher).Flush()
 			<-r.Context().Done()
 			return
 		}
@@ -77,6 +84,18 @@ func TestSpeedTestStopsAtTimeLimit(t *testing.T) {
 	r := SpeedTest(u, 2, 100<<20, 400*time.Millisecond, 10*time.Second)
 	if r.Outcome != ProbeOK || r.Received == 0 || r.Received >= 100<<20 || r.Transfer < 300*time.Millisecond || r.Transfer > 3*time.Second {
 		t.Fatalf("по сроку: %+v", r)
+	}
+}
+
+// «Заморозка» (L7): часть тела и тишина до конца срока — замер состоялся,
+// но последний байт пришёл задолго до конца: это видно, а не прячется в среднем.
+func TestSpeedTestSeesDataStoppingMidTransfer(t *testing.T) {
+	u, roots := down(t, http.StatusOK, 1, 0, false, 200<<10)
+	withRoots(t, roots)
+	startProxy(t)
+	r := SpeedTest(u, 2, 10<<20, 800*time.Millisecond, 10*time.Second)
+	if r.Outcome != ProbeOK || r.Received != 200<<10 || r.LastByte <= 0 || r.Transfer-r.LastByte < 500*time.Millisecond {
+		t.Fatalf("заморозка после 200 КБ: %+v", r)
 	}
 }
 

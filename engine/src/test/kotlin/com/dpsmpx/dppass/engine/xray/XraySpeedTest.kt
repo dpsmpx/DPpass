@@ -29,6 +29,20 @@ class XraySpeedTest {
         assertEquals(20.0, even.pingMillis)
         assertEquals(20.0, even.jitterMillis)
         assertEquals(0, XraySpeed.summary(result(10_000)).downloadBitsPerSecond, "без загрузки скорость не выдумывается")
+        assertEquals(null, s.stalledAfterMillis, "шли до конца")
+    }
+
+    @Test
+    fun dataStoppingEarlyIsAStallNotASlowLink() {
+        // Телефон, 17.10.2026: ~237 КБ за 8 с два раза подряд — пришли за 1,2 с, дальше тишина.
+        val frozen = SpeedProbeResult(DnsProbeOutcome.OK, listOf(50_000), 237_283, 8_000_000, "", lastByteMicros = 1_200_000)
+        val s = XraySpeed.summary(frozen)
+        assertEquals(1_200, s.stalledAfterMillis)
+        assertEquals(237_283L * 8 * 1_000_000 / 8_000_000, s.downloadBitsPerSecond, "средняя за срок — как была")
+        assertEquals(237_283L * 8 * 1_000_000 / 1_200_000, s.activeBitsPerSecond, "до остановки — быстрее")
+        // Тишина меньше порога — не остановка: медленный, но живой канал.
+        val slow = SpeedProbeResult(DnsProbeOutcome.OK, listOf(50_000), 237_283, 8_000_000, "", lastByteMicros = 7_000_000)
+        assertEquals(null, XraySpeed.summary(slow).stalledAfterMillis)
     }
 
     @Test
@@ -55,18 +69,20 @@ class XraySpeedTest {
     @Test
     fun bridgeAnswerFollowsTheContract() {
         val pings = listOf(41_000L, 4_000_000_000L)
-        val answer = ByteBuffer.allocate(2 + pings.size * 4 + 8 + 4).apply {
+        val answer = ByteBuffer.allocate(2 + pings.size * 4 + 8 + 4 + 4).apply {
             put(DnsProbeOutcome.OK.code.toByte())
             put(pings.size.toByte())
             pings.forEach { putInt(it.toInt()) }
             putLong(26_214_400)
             putInt(7_999_000)
+            putInt(7_998_000)
         }.array() + "текст".encodeToByteArray()
         val r = XrayJni.decodeSpeed(answer)
         assertEquals(DnsProbeOutcome.OK, r.outcome)
         assertEquals(pings, r.pingMicros, "мкс — без знака")
         assertEquals(26_214_400, r.receivedBytes)
         assertEquals(7_999_000, r.transferMicros)
+        assertEquals(7_998_000, r.lastByteMicros)
         assertEquals("текст", r.text)
         assertEquals(DnsProbeOutcome.CONTRACT, XrayJni.decodeSpeed(byteArrayOf(0, 3, 0, 0)).outcome, "короче заявленного")
         assertEquals(DnsProbeOutcome.CONTRACT, XrayJni.decodeSpeed(byteArrayOf()).outcome)

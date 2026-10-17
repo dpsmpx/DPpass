@@ -85,6 +85,8 @@ object NetworkCheck {
                         "kbps" to downloadBitsPerSecond / 1000,
                         "bytes" to receivedBytes,
                         "ms" to transferMillis,
+                        "stalled_ms" to stalledAfterMillis,
+                        "active_kbps" to activeBitsPerSecond / 1000,
                     )
                 }
                 is Outcome.Failure -> r.errors.forEach(log::diagnostic)

@@ -19,8 +19,8 @@
 //     вперёд, — затем текст ошибки;
 //   - замер через туннель (D-61): исход (bridge.ProbeOutcome), число пингов
 //     (1 байт), время каждого в мкс (по 4 байта), пришедшие байты загрузки
-//     (8 байт) и её время в мкс (4 байта) — старшим вперёд, — затем текст
-//     ошибки;
+//     (8 байт), её время в мкс (4 байта) и время последнего байта от её
+//     начала в мкс (4 байта) — старшим вперёд, — затем текст ошибки;
 //   - сопоставление с геоданными (D-27): вид (bridge.GeoKind), код и
 //     значение — имя байтами UTF-8 или адрес 4 или 16 байт; ответ успеха —
 //     статус 0 и байт 1 (попадает) или 0 (нет), отказа — как у остальных.
@@ -271,6 +271,7 @@ func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSpeedTest(env *C.JNIEnv, _
 	}
 	out = binary.BigEndian.AppendUint64(out, uint64(max(r.Received, 0)))
 	out = binary.BigEndian.AppendUint32(out, micros(r.Transfer))
+	out = binary.BigEndian.AppendUint32(out, micros(r.LastByte))
 	if r.Err != nil {
 		out = append(out, r.Err.Error()...)
 	}

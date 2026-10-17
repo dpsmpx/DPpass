@@ -28,12 +28,15 @@ import (
 // путь?bytes=N (адрес с заданным объёмом ответа, D-60).
 
 // SpeedResult — время ответа на каждый малый запрос, сколько байт тела
-// загрузки пришло и за какое время. Исход — как у пробы DNS.
+// загрузки пришло, за какое время и когда пришёл последний байт (от начала
+// загрузки): последний байт задолго до конца срока — данные встали (L7), а
+// не канал медленный. Исход — как у пробы DNS.
 type SpeedResult struct {
 	Outcome  ProbeOutcome
 	Pings    []time.Duration
 	Received int64
 	Transfer time.Duration
+	LastByte time.Duration
 	Err      error
 }
 
@@ -102,9 +105,11 @@ func speed(ctx context.Context, inst *core.Instance, u *url.URL, host string, po
 	})
 	defer timer.Stop()
 	start := time.Now()
-	n, err := io.Copy(io.Discard, io.LimitReader(resp.Body, maxBytes))
+	w := &lastByteWriter{start: start}
+	n, err := io.Copy(w, io.LimitReader(resp.Body, maxBytes))
 	res.Received = n
 	res.Transfer = time.Since(start)
+	res.LastByte = w.last
 	switch {
 	case err == nil, expired.Load() && n > 0:
 		// Срок загрузки вышел посреди тела — замер состоялся: столько пришло за maxTime.
@@ -113,6 +118,19 @@ func speed(ctx context.Context, inst *core.Instance, u *url.URL, host string, po
 		return &stageError{outcome: ProbeStalled, err: fmt.Errorf("за %v не пришло ни байта тела загрузки", maxTime)}
 	}
 	return err
+}
+
+// lastByteWriter — приёмник тела загрузки: запоминает, когда пришли последние байты.
+type lastByteWriter struct {
+	start time.Time
+	last  time.Duration
+}
+
+func (w *lastByteWriter) Write(p []byte) (int, error) {
+	if len(p) > 0 {
+		w.last = time.Since(w.start)
+	}
+	return len(p), nil
 }
 
 // request — GET путь?bytes=n по уже открытому соединению; last — последний
