@@ -90,6 +90,14 @@ class ConnectScreen(host: Host) : Screen(host) {
                 .also { modeRow = it },
             Ui.matchWidth(),
         )
+        addView(Ui.divider(context, 16))
+        addView(
+            Ui.ListRow(context, R.drawable.ic_info, context.getString(R.string.plan_title))
+                .subtitle(context.getString(R.string.plan_entry_note))
+                .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                .onClick { host.push(PlanScreen(host)) },
+            Ui.matchWidth(),
+        )
     }
     private lateinit var modeRow: Ui.ListRow
 

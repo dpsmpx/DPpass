@@ -95,6 +95,14 @@ class SettingsScreen(host: Host) : Screen(host) {
                         .onClick { host.push(AppsScreen(host) { change(it) }) },
                     Ui.matchWidth(),
                 )
+                addView(Ui.divider(context))
+                addView(
+                    Ui.ListRow(context, R.drawable.ic_search, context.getString(R.string.route_title))
+                        .subtitle(context.getString(R.string.route_entry_note))
+                        .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                        .onClick { host.push(RouteCheckScreen(host)) },
+                    Ui.matchWidth(),
+                )
             },
             Ui.matchWidth(),
         )

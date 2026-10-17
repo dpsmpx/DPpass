@@ -30,12 +30,24 @@ class SubscriptionsScreen(host: Host) : Screen(host) {
     }
     private val error = Ui.text(context, R.style.Text_DPpass_Secondary).apply { setTextColor(context.getColor(R.color.error)) }
 
+    // История активаций (D-07): что применялось из подписок и своих конфигураций и почему нет.
+    private val history = Ui.listCard(context).apply {
+        addView(
+            Ui.ListRow(context, R.drawable.ic_clock, context.getString(R.string.history_title))
+                .subtitle(context.getString(R.string.history_entry_note))
+                .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                .onClick { host.push(ActivationHistoryScreen(host)) },
+            Ui.matchWidth(),
+        )
+    }
+
     override val view: View = scroll(
         Ui.column(context, 12).apply {
             addView(header(context.getString(R.string.tab_subscriptions), Ui.iconButton(context, R.drawable.ic_add, context.getString(R.string.add_title)) { ImportFlow.menu(host) }))
             addView(error)
             addView(empty, Ui.matchWidth())
             addView(list, Ui.matchWidth())
+            addView(history, Ui.matchWidth())
         },
         topDp = 4,
     )

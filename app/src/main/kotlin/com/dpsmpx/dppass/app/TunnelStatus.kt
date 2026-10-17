@@ -1,5 +1,7 @@
 package com.dpsmpx.dppass.app
 
+import com.dpsmpx.dppass.connection.AttemptRecord
+import com.dpsmpx.dppass.connection.Exclusion
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.engine.ShareSpec
@@ -77,6 +79,19 @@ class TrafficMeter {
  */
 data class ServerOffer(val fromId: ProfileId, val fromName: String, val toId: ProfileId, val toName: String, val reason: Diagnostic)
 
+/**
+ * Последнее подключение (D-15): попытки по порядку с причинами и исходами
+ * и исключённые с причинами — то, что сервис туннеля сохранил после плана,
+ * для экрана «Почему этот сервер». Без сессии и без секретов.
+ */
+data class PlanSnapshot(
+    val atMillis: Long,
+    val attempts: List<AttemptRecord>,
+    val excluded: List<Exclusion>,
+    /** Подключение через устройство раздачи (D-55): план из одного кандидата. */
+    val viaRelay: Boolean,
+)
+
 /** Одно состояние на процесс: сервис и экраны живут в одном процессе (D-30). */
 object TunnelState {
     private val flow = MutableStateFlow<TunnelStatus>(TunnelStatus.Idle)
@@ -84,6 +99,7 @@ object TunnelState {
     private val shareFlow = MutableStateFlow<List<ShareSpec.Endpoint>>(emptyList())
     private val shareRefusedFlow = MutableStateFlow(false)
     private val offerFlow = MutableStateFlow<ServerOffer?>(null)
+    private val planFlow = MutableStateFlow<PlanSnapshot?>(null)
 
     val status: StateFlow<TunnelStatus> = flow.asStateFlow()
 
@@ -111,6 +127,13 @@ object TunnelState {
 
     fun offer(next: ServerOffer?) {
         offerFlow.value = next
+    }
+
+    /** Последнее подключение (D-15); остаётся и после остановки — объяснить отказ. */
+    val plan: StateFlow<PlanSnapshot?> = planFlow.asStateFlow()
+
+    fun plan(next: PlanSnapshot) {
+        planFlow.value = next
     }
 
     fun traffic(next: Traffic) {

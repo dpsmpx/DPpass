@@ -245,6 +245,8 @@ class DPpassVpnService : VpnService() {
             handle.close()
             throw e
         }
+        // План и исходы попыток — для «Почему этот сервер» (D-15), и при отказе тоже.
+        report?.let { TunnelState.plan(PlanSnapshot(core.clock.nowMillis(), it.attempts, it.plan.excluded, viaRelay = relay != null)) }
         when (report) {
             is ConnectionReport.Connected -> withContext(NonCancellable) {
                 // Вызовы ядра не прерываются отменой: остановка могла прийти, пока

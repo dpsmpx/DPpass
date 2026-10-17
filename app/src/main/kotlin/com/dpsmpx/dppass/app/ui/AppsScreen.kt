@@ -1,5 +1,6 @@
 package com.dpsmpx.dppass.app.ui
 
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
@@ -163,21 +164,23 @@ class AppsScreen(host: Host, private val apply: (UserPolicy) -> Unit) : SubScree
         }
     }
 
-    /** Приложения с ярлыком запуска, кроме самого DPpass, — по алфавиту. */
-    private fun launcherApps(): List<AppEntry> {
-        val pm = context.packageManager
-        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        val found = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            pm.queryIntentActivities(intent, PackageManager.ResolveInfoFlags.of(0))
-        } else {
-            @Suppress("DEPRECATION") // замена — ResolveInfoFlags, только с API 33
-            pm.queryIntentActivities(intent, 0)
-        }
-        return found
-            .map { it.activityInfo.applicationInfo }
-            .distinctBy { it.packageName }
-            .filter { it.packageName != context.packageName }
-            .map { AppEntry(it.packageName, pm.getApplicationLabel(it).toString(), runCatching { pm.getApplicationIcon(it) }.getOrNull()) }
-            .sortedBy { it.label.lowercase() }
+    private fun launcherApps(): List<AppEntry> = launcherApps(context)
+}
+
+/** Приложения с ярлыком запуска, кроме самого DPpass, — по алфавиту (выбор приложений, «Почему этот маршрут»). */
+internal fun launcherApps(context: Context): List<AppEntry> {
+    val pm = context.packageManager
+    val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+    val found = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        pm.queryIntentActivities(intent, PackageManager.ResolveInfoFlags.of(0))
+    } else {
+        @Suppress("DEPRECATION") // замена — ResolveInfoFlags, только с API 33
+        pm.queryIntentActivities(intent, 0)
     }
+    return found
+        .map { it.activityInfo.applicationInfo }
+        .distinctBy { it.packageName }
+        .filter { it.packageName != context.packageName }
+        .map { AppEntry(it.packageName, pm.getApplicationLabel(it).toString(), runCatching { pm.getApplicationIcon(it) }.getOrNull()) }
+        .sortedBy { it.label.lowercase() }
 }
