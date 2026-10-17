@@ -481,4 +481,15 @@
         <item quantity="many">DPpass запомнил это на %d минут в этой сети: при подключении первыми пойдут серверы, которые работали под белым списком; никто не исключается.</item>
         <item quantity="other">DPpass запомнил это на %d минуты в этой сети: при подключении первыми пойдут серверы, которые работали под белым списком; никто не исключается.</item>
     </plurals>
+    <!-- Пропущенные записи подписки (этап 4) -->
+    <plurals name="subs_skipped">
+        <item quantity="one">%d запись не стала сервером — почему</item>
+        <item quantity="few">%d записи не стали серверами — почему</item>
+        <item quantity="many">%d записей не стали серверами — почему</item>
+        <item quantity="other">%d записи не стали серверами — почему</item>
+    </plurals>
+    <string name="subs_skipped_why">Почему</string>
+    <string name="subs_skipped_title">Не вошло из «%1$s»</string>
+    <string name="subs_skipped_note">С последнего обновления в этом запуске приложения — %1$s. Причины — без ссылок и секретов.</string>
+    <string name="subs_skipped_entry">Запись %1$d</string>
 </resources>

@@ -464,4 +464,13 @@
         <item quantity="one">DPpass remembers this for %d minute in this network: on connect, servers that worked under an allowlist go first; none are excluded.</item>
         <item quantity="other">DPpass remembers this for %d minutes in this network: on connect, servers that worked under an allowlist go first; none are excluded.</item>
     </plurals>
+    <!-- Пропущенные записи подписки (этап 4) -->
+    <plurals name="subs_skipped">
+        <item quantity="one">%d entry did not become a server — why</item>
+        <item quantity="other">%d entries did not become servers — why</item>
+    </plurals>
+    <string name="subs_skipped_why">Why</string>
+    <string name="subs_skipped_title">Not included from “%1$s”</string>
+    <string name="subs_skipped_note">From the last update in this app session — %1$s. Reasons are shown without links or secrets.</string>
+    <string name="subs_skipped_entry">Entry %1$d</string>
 </resources>

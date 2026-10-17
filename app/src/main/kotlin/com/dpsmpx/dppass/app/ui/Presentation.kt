@@ -222,13 +222,21 @@ data class SubscriptionRow(
     val deviceIdEnabled: Boolean,
     /** Объявление поставщика — текст как есть, без управляющих символов и не длиннее [ANNOUNCE_LIMIT]. */
     val announce: String?,
+    /** Сколько записей последнего разбора не стали серверами; null — в этом запуске не разбиралась. */
+    val skipped: Int? = null,
 )
 
 const val ANNOUNCE_LIMIT: Int = 300
 private const val DAY_MILLIS: Long = 24 * 60 * 60_000L
 
 object SubscriptionList {
-    fun rows(state: SubscriptionsState, source: ConfigSource, nowMillis: Long): List<SubscriptionRow> = state.items.map { s ->
+    /** [skipped] — сколько записей последнего разбора подписки не стали серверами (`SkippedEntries`). */
+    fun rows(
+        state: SubscriptionsState,
+        source: ConfigSource,
+        nowMillis: Long,
+        skipped: (SubscriptionId) -> Int? = { null },
+    ): List<SubscriptionRow> = state.items.map { s ->
         val ok = s.lastSuccessful
         val failed = s.lastFailed?.takeIf { f -> ok == null || f.failedAtMillis >= ok.fetchedAtMillis }
         val traffic = s.metadata.traffic
@@ -256,8 +264,14 @@ object SubscriptionList {
             expired = expire != null && expire <= nowMillis,
             deviceIdEnabled = s.deviceId != null,
             announce = s.metadata.announce?.let(::plain)?.takeIf { it.isNotEmpty() },
+            skipped = skipped(s.id),
         )
     }
+
+    /** Номер записи ответа поставщика с единицы из пути находки `entry[i]`; null — путь не о записи. */
+    fun entryNumber(path: String?): Int? = path?.let { ENTRY.matchEntire(it) }?.groupValues?.get(1)?.toIntOrNull()?.plus(1)
+
+    private val ENTRY = Regex("""entry\[(\d+)]""")
 
     /** Текст поставщика — только печатаемые символы и переводы строк; лишнее обрезается. */
     fun plain(text: String): String = text

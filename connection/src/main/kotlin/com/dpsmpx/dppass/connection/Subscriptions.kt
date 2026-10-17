@@ -64,6 +64,36 @@ class SubscriptionBook(private val blobs: BlobStore, private val quarantine: Qua
 }
 
 /**
+ * Записи последнего разобранного ответа поставщика, которые не стали
+ * серверами (этап 4, «Объяснимость»): запись не разобрана
+ * (`SUBSCRIPTION_ENTRY_SKIPPED`, причина — в `causes`) или ядро её не
+ * выражает (`PROFILE_EXCLUDED_UNSUPPORTED`). В сообщениях — имена серверов и
+ * параметров, не ссылки. Только в памяти процесса: формат хранения подписок
+ * не меняется (D-06); после перезапуска список появится со следующим
+ * обновлением.
+ */
+data class SkippedEntries(val atMillis: Long, val entries: List<Diagnostic>) {
+    companion object {
+        val CODES: Set<DiagCode> = setOf(DiagCode.SUBSCRIPTION_ENTRY_SKIPPED, DiagCode.PROFILE_EXCLUDED_UNSUPPORTED)
+
+        /**
+         * Из итога обновления. Тело разобрано — его пропуски (и пустой список,
+         * если пропусков нет); тело не менялось или не загрузилось — null:
+         * прежний список остаётся в силе. Отказ, при котором тело разобрано
+         * (все записи пропущены), — тоже пропуски.
+         */
+        fun of(update: UpdateResult, atMillis: Long): SkippedEntries? {
+            val entries = update.diagnostics.filter { it.code in CODES }
+            return when (update) {
+                is UpdateResult.Ready -> SkippedEntries(atMillis, entries)
+                is UpdateResult.Unchanged -> null
+                is UpdateResult.Failed -> if (entries.isEmpty()) null else SkippedEntries(atMillis, entries)
+            }
+        }
+    }
+}
+
+/**
  * Итог обновления подписки: что вернул конвейер и, если дошло, как прошла
  * активация; [before] и [after] — активная конфигурация до и после.
  */
@@ -101,6 +131,12 @@ class SubscriptionService(
 ) {
     @Volatile
     private var cached: SubscriptionsState? = null
+
+    /** Пропущенные записи последнего разбора каждой подписки — в памяти процесса ([SkippedEntries]). */
+    private val skipped = java.util.concurrent.ConcurrentHashMap<SubscriptionId, SkippedEntries>()
+
+    /** Что из последнего разобранного ответа поставщика не стало серверами; null — в этом запуске не разбирался. */
+    fun skipped(id: SubscriptionId): SkippedEntries? = skipped[id]
 
     fun state(): Outcome<SubscriptionsState> = cached?.let { Outcome.Success(it) } ?: book.load().also { r ->
         if (r is Outcome.Success) cached = r.value
@@ -172,7 +208,7 @@ class SubscriptionService(
 
     fun remove(id: SubscriptionId): Outcome<SubscriptionsState> = edit { st ->
         st.copy(items = st.items.filter { it.id != id }, activeId = st.activeId?.takeIf { it != id })
-    }
+    }.also { if (it is Outcome.Success) skipped.remove(id) }
 
     /** Идентификатор устройства для этой подписки (D-33): включить — новое случайное значение, выключить — забыть. */
     fun setDeviceId(id: SubscriptionId, enabled: Boolean): Outcome<SubscriptionsState> = edit { st ->
@@ -207,6 +243,7 @@ class SubscriptionService(
         val source = SourceFetcher(network = fetcher, inline = InlineSubscriptionFetcher(clock))
         val update = SubscriptionUpdater(source, clock, appVersion).update(forUpdate, core.profileFilter())
         core.subscriptionNotes(update)
+        SkippedEntries.of(update, clock.nowMillis())?.let { skipped[id] = it }
         val before = core.activation.state.activeConfig
         val (next, activation) = when (update) {
             is UpdateResult.Ready -> {

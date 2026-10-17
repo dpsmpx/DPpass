@@ -231,4 +231,16 @@ class PresentationTest {
         assertNull(rows[1].autoUpdateMinutes)
         assertNull(rows[1].usedPercent)
     }
+
+    @Test
+    fun skippedEntriesAreCountedAndPlaced() {
+        val s = Subscription(SubscriptionId("s1"), "S", SubscriptionSource.Url(Secret("https://a.example.net/s")))
+        val state = SubscriptionsState(listOf(s), null)
+        assertNull(SubscriptionList.rows(state, ConfigSource.None, 0).single().skipped, "не разбиралась — ничего не известно")
+        assertEquals(3, SubscriptionList.rows(state, ConfigSource.None, 0) { 3 }.single().skipped)
+        assertEquals(1, SubscriptionList.entryNumber("entry[0]"))
+        assertEquals(12, SubscriptionList.entryNumber("entry[11]"))
+        assertNull(SubscriptionList.entryNumber("profiles[0]"))
+        assertNull(SubscriptionList.entryNumber(null))
+    }
 }

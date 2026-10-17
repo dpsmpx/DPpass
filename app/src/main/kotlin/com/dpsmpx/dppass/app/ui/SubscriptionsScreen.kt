@@ -76,7 +76,9 @@ class SubscriptionsScreen(host: Host) : Screen(host) {
             }
         }
         error.visibility = View.GONE
-        val rows = SubscriptionList.rows(state, ConfigSource.of(core.activation.state.active?.source), Clock.SYSTEM.nowMillis())
+        val rows = SubscriptionList.rows(state, ConfigSource.of(core.activation.state.active?.source), Clock.SYSTEM.nowMillis()) { id ->
+            core.subscriptions.skipped(id)?.entries?.size
+        }
         empty.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
         list.removeAllViews()
         rows.forEach { list.addView(card(it), Ui.matchWidth()) }
@@ -152,6 +154,15 @@ class SubscriptionsScreen(host: Host) : Screen(host) {
             }
         }
         r.announce?.let { addView(Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.subs_announce, it))) }
+        // Записи, не ставшие серверами (этап 4, «Объяснимость»): сколько и почему — по нажатию.
+        r.skipped?.takeIf { it > 0 }?.let { n ->
+            addView(
+                Ui.button(context, R.string.subs_skipped_why, Ui.Style.TEXT, R.drawable.ic_info).apply {
+                    text = context.resources.getQuantityString(R.plurals.subs_skipped, n, n)
+                    setOnClickListener { skippedSheet(r) }
+                },
+            )
+        }
 
         val busy = r.id in ImportFlow.running
         val action = if (r.active) R.string.subs_refresh else R.string.subs_apply
@@ -180,6 +191,23 @@ class SubscriptionsScreen(host: Host) : Screen(host) {
             parts += r.autoUpdateMinutes?.let { context.getString(R.string.subs_auto_every, it / 60) } ?: context.getString(R.string.subs_auto_off)
         }
         return parts.joinToString(ServerList.SEPARATOR)
+    }
+
+    /** Что из последнего ответа поставщика не стало серверами и почему (`SkippedEntries`). */
+    private fun skippedSheet(r: SubscriptionRow) {
+        val report = host.graph?.core?.subscriptions?.skipped(r.id) ?: return
+        val items = Ui.listCard(context)
+        report.entries.forEachIndexed { i, d ->
+            if (i > 0) items.addView(Ui.divider(context))
+            val place = SubscriptionList.entryNumber(d.path)?.let { context.getString(R.string.subs_skipped_entry, it) }
+            val why = d.causes.flatMap { listOf(it) + it.causes }.map { it.message }
+            items.addView(Ui.ListRow(context, R.drawable.ic_block, d.message).subtitle((listOfNotNull(place) + why).joinToString("\n")), Ui.matchWidth())
+        }
+        val body = Ui.column(context, 12).apply {
+            addView(Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.subs_skipped_note, dateTime(report.atMillis))))
+            addView(items, Ui.matchWidth())
+        }
+        Ui.sheet(context, context.getString(R.string.subs_skipped_title, r.name), body).show()
     }
 
     /** Меню подписки: всё, что меняется реже, чем «обновить». */

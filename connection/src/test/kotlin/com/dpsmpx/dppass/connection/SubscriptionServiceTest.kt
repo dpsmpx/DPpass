@@ -3,6 +3,7 @@ package com.dpsmpx.dppass.connection
 import com.dpsmpx.dppass.core.ManualClock
 import com.dpsmpx.dppass.core.SubscriptionId
 import com.dpsmpx.dppass.diagnostics.DiagCode
+import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Secret
 import com.dpsmpx.dppass.engine.mock.MockBackendCompiler
@@ -275,5 +276,57 @@ class SubscriptionFlowTest {
             assertIs<Outcome.Failure>(core.subscriptions.add(bad, null), bad)
         }
         assertEquals("sub.example.com", core.subscriptions.add(URL, null).valueOrNull()!!.name)
+    }
+}
+
+/** Записи, не ставшие серверами (этап 4, «Объяснимость»): сколько и почему — в памяти процесса. */
+class SkippedEntriesTest {
+    private val clock = ManualClock(5_000)
+    private val blobs = InMemoryBlobStore()
+
+    private fun core() = DPpassCore(MockBackendCompiler(), MockProxyEngine(), blobs, clock, "com.dpsmpx.dppass", PlatformTraits(true))
+
+    @Test
+    fun lastParsedBodyKeepsItsSkippedEntriesWithReasons() = runBlocking {
+        val core = core()
+        // Синтетика: две годные ссылки, схема, которой DPpass нет, и ссылка без «секрет@хост:порт».
+        val body = LINKS + "vmess://synthetic-vmess-body\n" + "trojan://203.0.113.40:443\n"
+        val sub = core.subscriptions.addInline(body, "Мои").valueOrNull()!!
+        assertNull(core.subscriptions.skipped(sub.id), "до разбора — ничего не известно")
+        val offline = SubscriptionFetcher { _, _ -> Outcome.failure(DiagCode.SUBSCRIPTION_FETCH_FAILED, "свои серверы сеть не зовут") }
+        val run = core.subscriptions.refresh(sub.id, offline, "test").valueOrNull()!!
+        assertTrue(run.applied, run.diagnostics.joinToString { it.render() })
+        val skipped = core.subscriptions.skipped(sub.id)!!
+        assertEquals(5_000, skipped.atMillis)
+        assertEquals(listOf("entry[2]", "entry[3]"), skipped.entries.map { it.path })
+        assertTrue(skipped.entries.all { it.code == DiagCode.SUBSCRIPTION_ENTRY_SKIPPED }, skipped.entries.joinToString { it.render() })
+        // Причина — в causes, без текста ссылки (в нём бывают секреты).
+        val vmess = skipped.entries.first().causes.flatMap { listOf(it) + it.causes }
+        assertTrue(vmess.any { "vmess://" in it.message }, vmess.toString())
+        assertTrue(
+            skipped.entries.none { e -> (listOf(e) + e.causes).any { "synthetic-vmess-body" in it.message } },
+            skipped.entries.joinToString { it.render() },
+        )
+
+        // Подписку удалили — и её список.
+        assertTrue(core.subscriptions.remove(sub.id).isSuccess)
+        assertNull(core.subscriptions.skipped(sub.id))
+    }
+
+    @Test
+    fun onlyAParsedBodyReplacesTheList() {
+        val s = Subscription(SubscriptionId("s1"), "S", SubscriptionSource.Url(Secret(URL)))
+        val skippedNote = Diagnostic.warning(DiagCode.SUBSCRIPTION_ENTRY_SKIPPED, "запись пропущена", "entry[0]")
+        val excluded = Diagnostic.warning(DiagCode.PROFILE_EXCLUDED_UNSUPPORTED, "сервер «X» исключён: ядро его не поддерживает", "entry[1]")
+        val ignored = Diagnostic.info(DiagCode.SHARE_LINK_PARAM_IGNORED, "параметр отброшен")
+        // Тело разобрано, но годных серверов нет — отказ с пропусками: они и есть причина.
+        val allSkipped = UpdateResult.Failed(s, listOf(skippedNote, excluded, ignored))
+        assertEquals(
+            listOf(DiagCode.SUBSCRIPTION_ENTRY_SKIPPED, DiagCode.PROFILE_EXCLUDED_UNSUPPORTED),
+            SkippedEntries.of(allSkipped, 1)!!.entries.map { it.code },
+        )
+        // Не загрузилось или не изменилось — тело не разбиралось: прежний список в силе.
+        assertNull(SkippedEntries.of(UpdateResult.Failed(s, listOf(Diagnostic.error(DiagCode.SUBSCRIPTION_FETCH_FAILED, "нет сети"))), 1))
+        assertNull(SkippedEntries.of(UpdateResult.Unchanged(s, emptyList()), 1))
     }
 }
