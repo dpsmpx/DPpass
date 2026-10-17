@@ -9,8 +9,8 @@ import com.dpsmpx.dppass.app.PairingLink
 import com.dpsmpx.dppass.app.RelayNetworks
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.TunnelStatus
-import com.dpsmpx.dppass.connection.RelayDevice
 import com.dpsmpx.dppass.connection.Pairing
+import com.dpsmpx.dppass.connection.RelayDevice
 import com.dpsmpx.dppass.connection.RelayDraft
 import com.dpsmpx.dppass.connection.RelayService
 import com.dpsmpx.dppass.diagnostics.DiagCode
@@ -65,7 +65,12 @@ class RelaysScreen(host: Host) : SubScreen(host, R.string.relays_title) {
         body.addView(Ui.section(context, context.getString(R.string.relays_devices)))
         body.addView(
             Ui.listCard(context).apply {
-                addView(Ui.radioRow(context, context.getString(R.string.relays_off), context.getString(R.string.relays_off_note), selected == null) { choose(null) }, Ui.matchWidth())
+                addView(
+                    Ui.radioRow(context, context.getString(R.string.relays_off), context.getString(R.string.relays_off_note), selected == null) {
+                        choose(null)
+                    },
+                    Ui.matchWidth(),
+                )
                 for (d in devices) {
                     addView(Ui.divider(context))
                     val where = found[d.id]?.medium
@@ -83,9 +88,22 @@ class RelaysScreen(host: Host) : SubScreen(host, R.string.relays_title) {
             },
             Ui.matchWidth(),
         )
-        body.addView(Ui.button(context, R.string.relays_pair, Ui.Style.PRIMARY, R.drawable.ic_link).apply { setOnClickListener { pairWithHost() } }, Ui.matchWidth())
-        body.addView(Ui.button(context, R.string.relays_add, Ui.Style.TONAL, R.drawable.ic_add).apply { setOnClickListener { add(host, null) { rescan() } } }, Ui.matchWidth())
-        body.addView(Ui.button(context, R.string.import_clipboard, Ui.Style.OUTLINE, R.drawable.ic_paste).apply { setOnClickListener { ImportFlow.fromClipboard(host) } }, Ui.matchWidth())
+        body.addView(
+            Ui.button(context, R.string.relays_pair, Ui.Style.PRIMARY, R.drawable.ic_link).apply { setOnClickListener { pairWithHost() } },
+            Ui.matchWidth(),
+        )
+        body.addView(
+            Ui.button(context, R.string.relays_add, Ui.Style.TONAL, R.drawable.ic_add).apply {
+                setOnClickListener { add(host, null) { rescan() } }
+            },
+            Ui.matchWidth(),
+        )
+        body.addView(
+            Ui.button(context, R.string.import_clipboard, Ui.Style.OUTLINE, R.drawable.ic_paste).apply {
+                setOnClickListener { ImportFlow.fromClipboard(host) }
+            },
+            Ui.matchWidth(),
+        )
 
         // ---- сети рядом: шлюзы, где не ответило ни одно известное устройство ----
         body.addView(Ui.section(context, context.getString(R.string.relays_networks)))
@@ -112,7 +130,12 @@ class RelaysScreen(host: Host) : SubScreen(host, R.string.relays_title) {
 
         // ---- честные пределы (D-13) ----
         body.addView(Ui.section(context, context.getString(R.string.share_limits)))
-        body.addView(Ui.card(context).apply { addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.relays_limits_text))) }, Ui.matchWidth())
+        body.addView(
+            Ui.card(context).apply {
+                addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.relays_limits_text)))
+            },
+            Ui.matchWidth(),
+        )
     }
 
     /**
@@ -138,7 +161,9 @@ class RelaysScreen(host: Host) : SubScreen(host, R.string.relays_title) {
             val r = try {
                 socket.use { so ->
                     withContext(Dispatchers.IO) {
-                        Pairing.guest(so.getInputStream(), so.getOutputStream(), SecureRandom()) { code -> withContext(MainThread) { PairingDialog.ask(context, code) } }
+                        Pairing.guest(so.getInputStream(), so.getOutputStream(), SecureRandom()) { code ->
+                            withContext(MainThread) { PairingDialog.ask(context, code) }
+                        }
                     }
                 }
             } catch (e: IOException) {
@@ -169,7 +194,11 @@ class RelaysScreen(host: Host) : SubScreen(host, R.string.relays_title) {
     private fun choose(id: String?) {
         if (id == host.prefs.selectedRelay) return
         host.prefs.selectedRelay = id
-        if (TunnelState.status.value.busy) host.reconnectIfBusy() else if (id != null) host.connect()
+        if (TunnelState.status.value.busy) {
+            host.reconnectIfBusy()
+        } else if (id != null) {
+            host.connect()
+        }
         host.changed()
     }
 

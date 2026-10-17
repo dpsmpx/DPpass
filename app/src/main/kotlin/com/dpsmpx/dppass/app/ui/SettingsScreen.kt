@@ -75,14 +75,26 @@ class SettingsScreen(host: Host) : Screen(host) {
         body.addView(
             Ui.listCard(context).apply {
                 addView(
-                    Ui.switchRow(context, R.drawable.ic_block, context.getString(R.string.settings_block_ads), context.getString(R.string.settings_block_ads_note), policy.blockAds) {
+                    Ui.switchRow(
+                        context,
+                        R.drawable.ic_block,
+                        context.getString(R.string.settings_block_ads),
+                        context.getString(R.string.settings_block_ads_note),
+                        policy.blockAds,
+                    ) {
                         change(policy.copy(blockAds = it))
                     },
                     Ui.matchWidth(),
                 )
                 addView(Ui.divider(context))
                 addView(
-                    Ui.switchRow(context, R.drawable.ic_lan, context.getString(R.string.settings_bypass_lan), context.getString(R.string.settings_bypass_lan_note), policy.bypassLan) {
+                    Ui.switchRow(
+                        context,
+                        R.drawable.ic_lan,
+                        context.getString(R.string.settings_bypass_lan),
+                        context.getString(R.string.settings_bypass_lan_note),
+                        policy.bypassLan,
+                    ) {
                         change(policy.copy(bypassLan = it))
                     },
                     Ui.matchWidth(),
@@ -119,7 +131,9 @@ class SettingsScreen(host: Host) : Screen(host) {
             Ui.matchWidth(),
         )
         body.addView(
-            Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.settings_dns_note)).apply { setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0) },
+            Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.settings_dns_note)).apply {
+                setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0)
+            },
         )
 
         // ---- подключение ----
@@ -137,7 +151,13 @@ class SettingsScreen(host: Host) : Screen(host) {
                 addView(Ui.divider(context))
                 addView(
                     // Согласие заранее заменять выбранный сервер, когда он перестал отвечать (D-58).
-                    Ui.switchRow(context, R.drawable.ic_bolt, context.getString(R.string.settings_auto_switch), context.getString(R.string.settings_auto_switch_note), host.prefs.autoSwitch) {
+                    Ui.switchRow(
+                        context,
+                        R.drawable.ic_bolt,
+                        context.getString(R.string.settings_auto_switch),
+                        context.getString(R.string.settings_auto_switch_note),
+                        host.prefs.autoSwitch,
+                    ) {
                         host.prefs.autoSwitch = it
                         host.graph?.core?.log?.info("auto_switch", "on" to it)
                     },
@@ -250,7 +270,9 @@ class SettingsScreen(host: Host) : Screen(host) {
             when (r) {
                 is Outcome.Failure -> host.problem(context.getString(R.string.settings_not_applied), r.errors.first())
                 is Outcome.Success -> when (val a = r.value) {
-                    is ActivationResult.Rejected -> a.diagnostics.firstOrNull { it.isError }?.let { host.problem(context.getString(R.string.settings_not_applied), it) }
+                    is ActivationResult.Rejected -> a.diagnostics.firstOrNull { it.isError }?.let {
+                        host.problem(context.getString(R.string.settings_not_applied), it)
+                    }
                     is ActivationResult.Activated -> host.reconnectIfBusy()
                     null -> Unit
                 }

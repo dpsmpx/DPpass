@@ -83,8 +83,14 @@ class ExplainTest {
     fun noRuleMeansAppSplitAutoOrDefault() {
         // Приложение вне туннеля — напрямую раньше всех правил.
         val except = UserPolicy(appMode = AppMode.EXCEPT, apps = setOf("org.example.bank"))
-        assertEquals(RouteAnswer(RouteVerdict.DIRECT, RouteWhy.AppOutside), answer(except, RouteQuery(domain = "www.example.com", packageName = "org.example.bank")))
-        assertEquals(RouteAnswer(RouteVerdict.TUNNEL, RouteWhy.Default), answer(except, RouteQuery(domain = "www.example.com", packageName = "org.example.other")))
+        assertEquals(
+            RouteAnswer(RouteVerdict.DIRECT, RouteWhy.AppOutside),
+            answer(except, RouteQuery(domain = "www.example.com", packageName = "org.example.bank")),
+        )
+        assertEquals(
+            RouteAnswer(RouteVerdict.TUNNEL, RouteWhy.Default),
+            answer(except, RouteQuery(domain = "www.example.com", packageName = "org.example.other")),
+        )
         // «Авто» (D-45): отечественное напрямую после всех правил.
         val auto = UserPolicy(mode = RoutingMode.AUTO)
         assertEquals(RouteAnswer(RouteVerdict.DIRECT, RouteWhy.AutoDomestic), answer(auto, RouteQuery(domain = "shop.example.ru")))
@@ -95,7 +101,10 @@ class ExplainTest {
     fun documentRuleKeepsItsId() {
         val routing = RoutingPolicy(defaultAction = RouteAction.DIRECT)
         val query = RouteQuery(domain = "www.example.com")
-        assertEquals(RouteAnswer(RouteVerdict.TUNNEL, RouteWhy.DocumentRule("work")), RouteExplain.answer(RouteDecision(RouteAction.PROXY, RuleId("work"), "правило work"), query, routing))
+        assertEquals(
+            RouteAnswer(RouteVerdict.TUNNEL, RouteWhy.DocumentRule("work")),
+            RouteExplain.answer(RouteDecision(RouteAction.PROXY, RuleId("work"), "правило work"), query, routing),
+        )
         // Документ с действием по умолчанию DIRECT и без автосплита — это действие по умолчанию, а не «авто».
         assertEquals(RouteAnswer(RouteVerdict.DIRECT, RouteWhy.Default), RouteExplain.answer(RouteDecision(RouteAction.DIRECT, null, ""), query, routing))
     }
@@ -114,7 +123,14 @@ class ExplainTest {
     }
 
     private fun profile(id: String) =
-        ServerProfile(ProfileId(id), "🇳🇱 Сервер $id", Endpoint(Host.Domain("$id.example.net"), 443), ProtocolSpec.Trojan(Secret("synthetic")), TransportSpec.Tcp, SecuritySpec.Tls("$id.example.net", emptyList(), null))
+        ServerProfile(
+            ProfileId(id),
+            "🇳🇱 Сервер $id",
+            Endpoint(Host.Domain("$id.example.net"), 443),
+            ProtocolSpec.Trojan(Secret("synthetic")),
+            TransportSpec.Tcp,
+            SecuritySpec.Tls("$id.example.net", emptyList(), null),
+        )
 
     @Test
     fun planRowsKeepOrderReasonsAndOutcomes() {
@@ -152,7 +168,8 @@ class ExplainTest {
             record(1, "user-import", ActivationStatus.SUPERSEDED),
             record(3, "rollback:2", ActivationStatus.ACTIVE),
             record(2, "subscription:sub-1#7", ActivationStatus.ROLLED_BACK),
-            record(4, "subscription:sub-1#8", ActivationStatus.REJECTED).copy(failedStep = ActivationStep.COMPILE, failure = "ROUTE_COMPILATION_FAILED: правило не выражается"),
+            record(4, "subscription:sub-1#8", ActivationStatus.REJECTED)
+                .copy(failedStep = ActivationStep.COMPILE, failure = "ROUTE_COMPILATION_FAILED: правило не выражается"),
         )
         assertEquals(listOf(4L, 3L, 2L, 1L), ActivationHistory.rows(history).map { it.revision })
         assertEquals(HistorySource.Own, ActivationHistory.source("user-import"))

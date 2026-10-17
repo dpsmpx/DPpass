@@ -34,7 +34,8 @@ private const val UUID1 = "00000000-0000-4000-8000-000000000011"
 class ShareLinkParserTest {
     @Test
     fun realityVisionLink() {
-        val link = "vless://$UUID1@203.0.113.11:443?type=tcp&security=reality&sni=www.example.com&pbk=$KEY&sid=01234567&fp=firefox&flow=xtls-rprx-vision&encryption=none#Reality%20NL"
+        val link = "vless://$UUID1@203.0.113.11:443?type=tcp&security=reality&sni=www.example.com&pbk=$KEY&sid=01234567" +
+            "&fp=firefox&flow=xtls-rprx-vision&encryption=none#Reality%20NL"
         val p = ShareLinkParser.parse(link, "s").valueOrNull()!!
         assertEquals("Reality NL", p.name)
         assertEquals(VlessFlow.VISION, (p.protocol as ProtocolSpec.Vless).flow)
@@ -62,7 +63,10 @@ class ShareLinkParserTest {
 
     @Test
     fun namesAreNormalizedLikeDocumentAndEmptyMeansAbsent() {
-        val p = ShareLinkParser.parse("vless://$UUID1@cdn.example.net:443?type=ws&security=tls&sni=CDN.Example.NET.&host=CDN.Example.NET&path=%2Fws", "s").valueOrNull()!!
+        val p = ShareLinkParser.parse(
+            "vless://$UUID1@cdn.example.net:443?type=ws&security=tls&sni=CDN.Example.NET.&host=CDN.Example.NET&path=%2Fws",
+            "s",
+        ).valueOrNull()!!
         assertEquals("cdn.example.net", (p.security as SecuritySpec.Tls).serverName)
         assertEquals(TransportSpec.WebSocket("/ws", "cdn.example.net"), p.transport)
         val empty = ShareLinkParser.parse("trojan://pass@198.51.100.1:443?sni=&type=ws&host=", "s").valueOrNull()!!
@@ -218,12 +222,18 @@ class ShareLinkParserTest {
         assertEquals(XHttpExtra(xPaddingBytes = CountRange(100, 1000), noGrpcHeader = true, xmux = Xmux(maxConcurrency = CountRange(16, 32))), e)
         assertTrue(ConfigValidator.validateProfile(x.valueOrNull()!!, "p").none { it.isError })
 
-        val hy2 = ShareLinkParser.parse("hysteria2://test-password-2@192.0.2.30:8443/?sni=hy2.example.com&fm=%7B%22quicParams%22%3A%7B%22congestion%22%3A%22bbr%22%7D%7D", "s")
+        val hy2 = ShareLinkParser.parse(
+            "hysteria2://test-password-2@192.0.2.30:8443/?sni=hy2.example.com&fm=%7B%22quicParams%22%3A%7B%22congestion%22%3A%22bbr%22%7D%7D",
+            "s",
+        )
         assertEquals(Hysteria2Congestion.BBR, (hy2.valueOrNull()!!.protocol as ProtocolSpec.Hysteria2).congestion)
 
         // Незнакомый ключ — отказ с названием, без значения.
         val headers = unsupportedNames(
-            ShareLinkParser.parse("vless://$UUID1@203.0.113.26:443?type=xhttp&security=tls&sni=a.example.com&extra=%7B%22headers%22%3A%7B%22x%22%3A%22secret-9%22%7D%7D", "s"),
+            ShareLinkParser.parse(
+                "vless://$UUID1@203.0.113.26:443?type=xhttp&security=tls&sni=a.example.com&extra=%7B%22headers%22%3A%7B%22x%22%3A%22secret-9%22%7D%7D",
+                "s",
+            ),
         )
         assertTrue("extra.headers" in headers && "secret-9" !in headers, headers)
         val brutal = unsupportedNames(
@@ -252,7 +262,16 @@ class ShareLinkParserTest {
 
     @Test
     fun malformedLinksNeverThrowAndNeverEchoSecrets() {
-        for (bad in listOf("vless://", "vless://@:", "vless://$UUID1@[::1:443", "vless://$UUID1@h:99999", "vless://$UUID1@h:443?a=%zz", "vless://$UUID1@h:443?a=1&a=2", "nonsense")) {
+        val malformed = listOf(
+            "vless://",
+            "vless://@:",
+            "vless://$UUID1@[::1:443",
+            "vless://$UUID1@h:99999",
+            "vless://$UUID1@h:443?a=%zz",
+            "vless://$UUID1@h:443?a=1&a=2",
+            "nonsense",
+        )
+        for (bad in malformed) {
             val r = ShareLinkParser.parse(bad, "s")
             assertIs<Outcome.Failure>(r, bad)
             assertFalse(r.diagnostics.any { UUID1 in it.message }, bad)
@@ -277,7 +296,11 @@ class MetadataParserTest {
     @Test
     fun safeFieldsApplyControlDirectivesDoNot() {
         val r = MetadataParser.parse(
-            mapOf("profile-title" to "base64:0J/RgNC40LzQtdGA", "subscription-userinfo" to "upload=1; download=2; total=3; expire=4", "new-url" to "https://x.example.com/t"),
+            mapOf(
+                "profile-title" to "base64:0J/RgNC40LzQtdGA",
+                "subscription-userinfo" to "upload=1; download=2; total=3; expire=4",
+                "new-url" to "https://x.example.com/t",
+            ),
             mapOf("hide-settings" to "1", "profile-update-interval" to "6"),
         )
         assertEquals("Пример", r.metadata.title)
@@ -357,7 +380,12 @@ class SubscriptionUpdaterTest {
     @Test
     fun filterExclusionsAreExplicit() = runBlocking {
         val onlyTrojan = ProfileFilter { ps ->
-            FilterResult(ps.filter { it.protocol is ProtocolSpec.Trojan }, listOf(com.dpsmpx.dppass.diagnostics.Diagnostic.warning(DiagCode.PROFILE_EXCLUDED_UNSUPPORTED, "x")))
+            FilterResult(
+                ps.filter {
+                    it.protocol is ProtocolSpec.Trojan
+                },
+                listOf(com.dpsmpx.dppass.diagnostics.Diagnostic.warning(DiagCode.PROFILE_EXCLUDED_UNSUPPORTED, "x")),
+            )
         }
         val r = SubscriptionUpdater(fetcher(links), clock, "test").update(sub(), onlyTrojan) as UpdateResult.Ready
         assertEquals(1, r.candidate.profiles.size)
@@ -395,7 +423,12 @@ class SubscriptionUpdaterTest {
         SubscriptionUpdater(recording(sent, links), clock, "1.2.3").update(sub().copy(deviceId = id), passAll)
         assertEquals(id, sent.last().deviceId)
         // Больше ничего об устройстве в запросе нет: только адрес, User-Agent и идентификатор подписки.
-        assertEquals(setOf("source", "userAgent", "deviceId"), SubscriptionRequest::class.java.declaredFields.filter { !Modifier.isStatic(it.modifiers) }.map { it.name }.toSet())
+        assertEquals(
+            setOf("source", "userAgent", "deviceId"),
+            SubscriptionRequest::class.java.declaredFields.filter {
+                !Modifier.isStatic(it.modifiers)
+            }.map { it.name }.toSet(),
+        )
     }
 
     @Test
@@ -483,7 +516,8 @@ class SubscriptionCodecTest {
     @Test
     fun version2ReadsAsNameNotChosenByUser() {
         // До версии 3 признака не было: имя показывается, как показывалось, — название поставщика (D-53).
-        val v2 = """{"format":"dppass.subscriptions","format_version":2,"items":[{"id":"s1","name":"Дом","url":"https://sub.example.com/t","binding":"user","revision_counter":0,"metadata":{"title":"Поставщик"}}]}"""
+        val v2 = """{"format":"dppass.subscriptions","format_version":2,"items":[""" +
+            """{"id":"s1","name":"Дом","url":"https://sub.example.com/t","binding":"user","revision_counter":0,"metadata":{"title":"Поставщик"}}]}"""
         val s = SubscriptionCodec.read(v2).valueOrNull()!!.items.single()
         assertFalse(s.nameByUser)
         assertEquals("Поставщик", s.displayName)
@@ -502,7 +536,8 @@ class SubscriptionCodecTest {
 
     @Test
     fun version1ReadsWithDefaults() {
-        val v1 = """{"format":"dppass.subscriptions","format_version":1,"items":[{"id":"s1","name":"S","url":"https://sub.example.com/t","binding":"user","revision_counter":0,"metadata":{}}]}"""
+        val v1 = """{"format":"dppass.subscriptions","format_version":1,"items":[""" +
+            """{"id":"s1","name":"S","url":"https://sub.example.com/t","binding":"user","revision_counter":0,"metadata":{}}]}"""
         val s = SubscriptionCodec.read(v1).valueOrNull()!!.items.single()
         assertEquals(UpdatePolicy(), s.updatePolicy)
         assertNull(s.lastCheckedMillis)

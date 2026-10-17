@@ -45,20 +45,28 @@ object XrayHealth {
         val who = "DNS-сервер «${server.id}»"
         val (code, message) = when (r.outcome) {
             DnsProbeOutcome.OK -> return Outcome.Success(Unit)
-            DnsProbeOutcome.UNREACHABLE -> DiagCode.ENDPOINT_UNREACHABLE to
-                "через сервер профиля за ${r.elapsedMillis} мс не пришло ни байта ($who): сервер недоступен или отверг соединение"
-            DnsProbeOutcome.TLS -> DiagCode.TLS_HANDSHAKE_FAILED to
-                "TLS с $who через сервер профиля не установлен"
-            DnsProbeOutcome.STALLED -> DiagCode.PAYLOAD_STALLED to
-                "соединение через сервер есть (${r.receivedBytes} байт), но ответа ($who) за ${r.elapsedMillis} мс нет"
-            DnsProbeOutcome.BAD_ANSWER -> DiagCode.HEALTH_CHECK_FAILED to
-                "$who ответил через сервер профиля не ответом DNS"
+            DnsProbeOutcome.UNREACHABLE ->
+                DiagCode.ENDPOINT_UNREACHABLE to
+                    "через сервер профиля за ${r.elapsedMillis} мс не пришло ни байта ($who): сервер недоступен или отверг соединение"
+            DnsProbeOutcome.TLS ->
+                DiagCode.TLS_HANDSHAKE_FAILED to
+                    "TLS с $who через сервер профиля не установлен"
+            DnsProbeOutcome.STALLED ->
+                DiagCode.PAYLOAD_STALLED to
+                    "соединение через сервер есть (${r.receivedBytes} байт), но ответа ($who) за ${r.elapsedMillis} мс нет"
+            DnsProbeOutcome.BAD_ANSWER ->
+                DiagCode.HEALTH_CHECK_FAILED to
+                    "$who ответил через сервер профиля не ответом DNS"
             DnsProbeOutcome.NOT_RUNNING -> DiagCode.HEALTH_CHECK_FAILED to "ядро не запущено — проверять нечего"
             DnsProbeOutcome.CONTRACT -> DiagCode.HEALTH_CHECK_FAILED to "мост не понял цель пробы ($who)"
         }
         val d = Diagnostic.error(code, message)
         return Outcome.failure(
-            if (r.text.isEmpty()) d else d.withCause(Diagnostic(code, "проба DNS", error = ErrorSummary("xray", redactor.redact(r.text.take(CORE_TEXT_LIMIT))))),
+            if (r.text.isEmpty()) {
+                d
+            } else {
+                d.withCause(Diagnostic(code, "проба DNS", error = ErrorSummary("xray", redactor.redact(r.text.take(CORE_TEXT_LIMIT)))))
+            },
         )
     }
 

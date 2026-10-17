@@ -211,7 +211,11 @@ object ConfigValidator {
             }
             TransportSpec.Tcp, TransportSpec.Native -> null to null
         }
-        (p.transport as? TransportSpec.XHttp)?.extra?.let { e -> validateXHttpExtra(e, "$path.transport").forEach { err(DiagCode.TRANSPORT_SETTING_INVALID, it.second, it.first) } }
+        (p.transport as? TransportSpec.XHttp)?.extra?.let { e ->
+            validateXHttpExtra(e, "$path.transport").forEach {
+                err(DiagCode.TRANSPORT_SETTING_INVALID, it.second, it.first)
+            }
+        }
         if (transportPath != null && !isValidPath(transportPath)) {
             err(DiagCode.PATH_INVALID, PATH_MESSAGE, "$path.transport.path")
         }

@@ -16,7 +16,9 @@ class XraySpeedTest {
 
     @Test
     fun pingIsMedianJitterIsMeanStepSpeedIsBodyOverTransfer() {
-        val r = assertIs<Outcome.Success<SpeedReport>>(XraySpeed.report(result(40_000, 60_000, 50_000, 45_000, 55_000, received = 12_500_000, transfer = 5_000_000)))
+        val r = assertIs<Outcome.Success<SpeedReport>>(
+            XraySpeed.report(result(40_000, 60_000, 50_000, 45_000, 55_000, received = 12_500_000, transfer = 5_000_000)),
+        )
         val s = r.value
         assertEquals(50.0, s.pingMillis)
         assertEquals(40.0, s.minPingMillis)
@@ -57,7 +59,10 @@ class XraySpeedTest {
         )
         for ((outcome, code) in cases) {
             val secret = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
-            val f = assertIs<Outcome.Failure>(XraySpeed.report(result(outcome = outcome, text = "dial https://speed.example.net/$secret: refused")), outcome.name)
+            val f = assertIs<Outcome.Failure>(
+                XraySpeed.report(result(outcome = outcome, text = "dial https://speed.example.net/$secret: refused")),
+                outcome.name,
+            )
             val d = f.errors.single()
             assertEquals(code, d.code, outcome.name)
             // Текст ядра — через Redactor, как у пробы здоровья (T3); адреса скрывает журнал уровня STRICT.

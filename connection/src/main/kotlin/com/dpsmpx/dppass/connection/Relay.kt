@@ -96,7 +96,9 @@ data class RelayLink(val address: IpAddress, val port: Int, val user: String, va
             }
             val port = m.groupValues[4].toInt()
             if (port !in 1..65535) return Outcome.failure(DiagCode.PORT_INVALID, "порт вне 1..65535")
-            val name = m.groupValues[5].takeIf { it.isNotEmpty() }?.let { dec(it) ?: return Outcome.failure(DiagCode.VALUE_UNKNOWN, "имя в ссылке не раскодировано") }
+            val name = m.groupValues[5].takeIf { it.isNotEmpty() }?.let {
+                dec(it) ?: return Outcome.failure(DiagCode.VALUE_UNKNOWN, "имя в ссылке не раскодировано")
+            }
             return Outcome.Success(RelayLink(address, port, user, password, name))
         }
 
@@ -310,7 +312,11 @@ class RelayService(private val store: RelayStore, private val clock: Clock, priv
             } else {
                 IpAddress.parseV4(text)?.takeIf(Cidr::isPrivateV4).also {
                     if (it == null) {
-                        out += Diagnostic.error(DiagCode.RELAY_ADDRESS_NOT_LOCAL, "адрес — частный IPv4 своей сети (192.168.x.x, 10.x.x.x, 172.16–31.x.x) или пусто — шлюз сети", "address")
+                        out += Diagnostic.error(
+                            DiagCode.RELAY_ADDRESS_NOT_LOCAL,
+                            "адрес — частный IPv4 своей сети (192.168.x.x, 10.x.x.x, 172.16–31.x.x) или пусто — шлюз сети",
+                            "address",
+                        )
                     }
                 } ?: PLACEHOLDER
             }

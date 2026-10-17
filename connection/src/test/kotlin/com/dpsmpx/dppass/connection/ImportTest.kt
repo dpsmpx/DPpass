@@ -17,7 +17,10 @@ class ImportClassifierTest {
     fun documentAddressLinksBase64AndGarbage() {
         assertEquals(ImportKind.Empty, ImportClassifier.classify(" \n "))
         assertEquals(ImportKind.OwnDocument, ImportClassifier.classify(doc("configs/valid-minimal.json")))
-        assertEquals(ImportKind.SubscriptionUrl("https://sub.example.com/api/sub/t0ken"), ImportClassifier.classify("  https://sub.example.com/api/sub/t0ken\n"))
+        assertEquals(
+            ImportKind.SubscriptionUrl("https://sub.example.com/api/sub/t0ken"),
+            ImportClassifier.classify("  https://sub.example.com/api/sub/t0ken\n"),
+        )
 
         // Файл корпуса — список в base64, как его отдаёт панель.
         val b64 = doc("subscriptions/remnawave-links.txt")

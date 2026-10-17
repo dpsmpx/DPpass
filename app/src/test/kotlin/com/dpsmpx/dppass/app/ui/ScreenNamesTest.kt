@@ -58,7 +58,9 @@ class ScreenNamesTest {
         val names = if (root.isDirectory) {
             File(root, pkg).list().orEmpty().toList()
         } else {
-            JarFile(root).use { jar -> jar.entries().toList().map { it.name }.filter { it.startsWith(pkg) && '/' !in it.removePrefix(pkg) }.map { it.removePrefix(pkg) } }
+            JarFile(root).use { jar ->
+                jar.entries().toList().map { it.name }.filter { it.startsWith(pkg) && '/' !in it.removePrefix(pkg) }.map { it.removePrefix(pkg) }
+            }
         }
         return names.filter { it.endsWith(".class") && '$' !in it }
             .map { Class.forName(base.packageName + "." + it.removeSuffix(".class"), false, base.classLoader) }

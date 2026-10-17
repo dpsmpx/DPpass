@@ -20,10 +20,10 @@ import com.dpsmpx.dppass.storage.WrappedKeyProvider
 import com.dpsmpx.dppass.subscriptions.HttpsSubscriptionFetcher
 import com.dpsmpx.dppass.subscriptions.SubscriptionFetcher
 import com.dpsmpx.dppass.tunnel.PlatformTraits
-import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import java.io.File
 
 /**
  * Сборка зависимостей приложения — единственное место, где Android

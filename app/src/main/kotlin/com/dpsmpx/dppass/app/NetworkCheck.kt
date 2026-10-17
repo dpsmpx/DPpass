@@ -151,11 +151,14 @@ object NetworkCheck {
 
     private fun underlying(context: Context): Underlying {
         val cm = context.getSystemService(ConnectivityManager::class.java) ?: return Underlying(null, NetworkType.NONE, null)
+
         // Процесс DPpass — вне своего туннеля (D-17): его сеть по умолчанию — сеть под туннелем.
         @Suppress("DEPRECATION") // замена — NetworkCallback; здесь нужен снимок по нажатию, а не подписка
         val all = listOfNotNull(cm.activeNetwork) + cm.allNetworks
         val network = all.firstOrNull { n ->
-            cm.getNetworkCapabilities(n)?.let { !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN) && it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) } == true
+            cm.getNetworkCapabilities(n)?.let {
+                !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN) && it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            } == true
         }
         val caps = network?.let(cm::getNetworkCapabilities)
         val type = when {

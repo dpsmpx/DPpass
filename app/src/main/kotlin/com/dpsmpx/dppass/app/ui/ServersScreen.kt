@@ -58,7 +58,11 @@ class ServersScreen(host: Host) : Screen(host) {
             addView(sortRow, Ui.matchWidth())
             addView(list, Ui.matchWidth())
             addView(empty, Ui.matchWidth())
-            addView(Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.latency_note)).apply { setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0) })
+            addView(
+                Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.latency_note)).apply {
+                    setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0)
+                },
+            )
         },
         topDp = 4,
     )
@@ -98,13 +102,27 @@ class ServersScreen(host: Host) : Screen(host) {
         val filtered = ServerList.filter(all, query)
         val rows = if (byLatency) ServerList.byLatency(filtered) else filtered
         if (query.isBlank()) {
-            list.addView(row(null, "A", context.getString(R.string.server_auto), context.getString(R.string.server_auto_hint), null, LatencyLabel.UNKNOWN, rows.none { it.selected }, false))
+            list.addView(
+                row(
+                    null, "A", context.getString(R.string.server_auto), context.getString(R.string.server_auto_hint), null, LatencyLabel.UNKNOWN,
+                    rows.none {
+                        it.selected
+                    },
+                    false,
+                ),
+            )
         }
         for (r in rows) {
             list.addView(Ui.divider(context, 72))
             list.addView(row(r.id, r.avatar, Avatar.stripFlag(r.name), r.summary, state(r), r.latency, r.selected, r.connected))
         }
-        if (rows.isEmpty()) list.addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.servers_not_found)).apply { setPadding(Ui.dp(context, 16), Ui.dp(context, 16), Ui.dp(context, 16), Ui.dp(context, 16)) })
+        if (rows.isEmpty()) {
+            list.addView(
+                Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.servers_not_found)).apply {
+                    setPadding(Ui.dp(context, 16), Ui.dp(context, 16), Ui.dp(context, 16), Ui.dp(context, 16))
+                },
+            )
+        }
     }
 
     private fun state(r: ServerRow): Triple<String, Int, Int>? = when (r.health) {

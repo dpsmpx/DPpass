@@ -541,7 +541,9 @@ class XrayCompilerTest {
         assertFailsWith<IllegalArgumentException> { ShareSpec(listOf(hotspot), 80, Secret("u"), Secret("p")) }
         assertFailsWith<IllegalArgumentException> { ShareSpec(listOf(hotspot, hotspot), 41234, Secret("u"), Secret("p")) }
         // D-56: логин сопряжённого не повторяет другой — ядро держит входы по логину.
-        assertFailsWith<IllegalArgumentException> { ShareSpec(listOf(hotspot), 41234, Secret("u"), Secret("p"), listOf(ShareSpec.Account(Secret("u"), Secret("q")))) }
+        assertFailsWith<IllegalArgumentException> {
+            ShareSpec(listOf(hotspot), 41234, Secret("u"), Secret("p"), listOf(ShareSpec.Account(Secret("u"), Secret("q"))))
+        }
     }
 
     /**
@@ -589,7 +591,9 @@ class XrayCompilerTest {
         assertTrue(ruleTags(plain).none { it == "dppass:share-default" })
         // По умолчанию proxy: правила для раздачи в конце нет — её клиентов ведёт первый исходящий.
         val viaProxy = ir(routing = """{"rules": [{"id": "net", "action": "direct", "domain": ["net.example.com"]}]}""")
-        val pp = Json.parse(XrayCompiler().compile(viaProxy, CompilePlan(viaProxy.profiles[0].id, true, share)).valueOrNull()!!.payloadForEngine()) as JsonObject
+        val pp = Json.parse(
+            XrayCompiler().compile(viaProxy, CompilePlan(viaProxy.profiles[0].id, true, share)).valueOrNull()!!.payloadForEngine(),
+        ) as JsonObject
         assertTrue(ruleTags(pp).none { it == "dppass:share-default" })
         assertEquals("proxy", pp["outbounds"].items.first()["tag"].text)
     }
@@ -607,7 +611,14 @@ class XrayCompilerTest {
                 .all { it.first == DiagCode.GEO_CODE_UNKNOWN },
             "кодов ru нет в наборе — GEO_CODE_UNKNOWN",
         )
-        val withRu = GeodataManifest("v0.0.0-20260101000000-0123456789ab", "0123456789ab", "2026-01", emptyList(), setOf("ru"), mapOf("category-ru" to emptyList()))
+        val withRu = GeodataManifest(
+            "v0.0.0-20260101000000-0123456789ab",
+            "0123456789ab",
+            "2026-01",
+            emptyList(),
+            setOf("ru"),
+            mapOf("category-ru" to emptyList()),
+        )
         val p = Json.parse(
             XrayCompiler(geodata = GeodataCodes.Installed(withRu)).compile(gi, CompilePlan(gi.profiles[0].id, true)).valueOrNull()!!.payloadForEngine(),
         ) as JsonObject

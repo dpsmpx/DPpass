@@ -243,7 +243,9 @@ object PolicyCodec {
         val dns = DnsProvider.entries.firstOrNull { it.wire == (root["dns"] as? JsonString)?.value } ?: return bad("dns")
         val p = UserPolicy(mode, ads, lan, appMode, packages.toSet(), dns)
         val problems = PolicyBuilder.validate(p).filter { it.isError }
-        if (problems.isNotEmpty()) return Outcome.Failure(listOf(Diagnostic.error(DiagCode.STORAGE_CORRUPTED, "политика не прошла проверку").copy(causes = problems)))
+        if (problems.isNotEmpty()) {
+            return Outcome.Failure(listOf(Diagnostic.error(DiagCode.STORAGE_CORRUPTED, "политика не прошла проверку").copy(causes = problems)))
+        }
         return Outcome.Success(p)
     }
 }

@@ -55,5 +55,4 @@ class AndroidTunnelProvider(private val service: VpnService) : TunnelProvider {
 
     // Адрес из байтов — без DNS: getByAddress не резолвит имён.
     private fun com.dpsmpx.dppass.core.IpAddress.toInet(): InetAddress = InetAddress.getByAddress(toBytes())
-
 }

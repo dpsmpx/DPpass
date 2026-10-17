@@ -315,9 +315,11 @@ class CorpusTest {
                     val net = SimulatedNetwork(cond, blocked)
                     val x = NetworkAssessor(net, ProbeBudget(clock)) { clock.advance(it) }.assess(NetworkType.MOBILE)
                     assertEquals(str(c, "restriction"), x.restriction.name, "${cond.name}: ${x.evidence}")
-                    for (k in listOf("dns", "udp", "tls")) str(c, k)?.let { want ->
-                        val got = when (k) { "dns" -> x.dns; "udp" -> x.udp; else -> x.tls }
-                        assertEquals(want, got.name, "${cond.name}.$k")
+                    for (k in listOf("dns", "udp", "tls")) {
+                        str(c, k)?.let { want ->
+                            val got = when (k) { "dns" -> x.dns; "udp" -> x.udp; else -> x.tls }
+                            assertEquals(want, got.name, "${cond.name}.$k")
+                        }
                     }
                     val core = core(MockBackend.FULL)
                     core.importAndActivate(configText)

@@ -1,7 +1,7 @@
 package com.dpsmpx.dppass.subscriptions
 
-import com.dpsmpx.dppass.config.ConfigLoader
 import com.dpsmpx.dppass.config.ConfigLimits
+import com.dpsmpx.dppass.config.ConfigLoader
 import com.dpsmpx.dppass.config.ConfigValidator
 import com.dpsmpx.dppass.config.ServerProfile
 import com.dpsmpx.dppass.core.Checksums

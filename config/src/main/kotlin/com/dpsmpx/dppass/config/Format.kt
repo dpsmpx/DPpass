@@ -87,7 +87,10 @@ class Migrator(
             )
             when (val r = step.migrate(doc)) {
                 is Outcome.Failure -> return Outcome.Failure(
-                    listOf(Diagnostic.error(DiagCode.MIGRATION_FAILED, "миграция $v → ${v + 1} не удалась; исходник не изменён", "$").copy(causes = r.diagnostics)),
+                    listOf(
+                        Diagnostic.error(DiagCode.MIGRATION_FAILED, "миграция $v → ${v + 1} не удалась; исходник не изменён", "$")
+                            .copy(causes = r.diagnostics),
+                    ),
                 )
                 is Outcome.Success -> {
                     doc = r.value

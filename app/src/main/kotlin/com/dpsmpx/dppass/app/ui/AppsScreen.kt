@@ -155,11 +155,15 @@ class AppsScreen(host: Host, private val apply: (UserPolicy) -> Unit) : SubScree
             addView(texts, Ui.weight().apply { marginStart = Ui.dp(context, 12) })
             addView(check)
             contentDescription = app.label
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) stateDescription = context.getString(if (check.isChecked) R.string.a11y_checked else R.string.a11y_unchecked)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                stateDescription = context.getString(if (check.isChecked) R.string.a11y_checked else R.string.a11y_unchecked)
+            }
             setOnClickListener {
                 if (!chosen.add(app.packageName)) chosen.remove(app.packageName)
                 check.isChecked = app.packageName in chosen
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) stateDescription = context.getString(if (check.isChecked) R.string.a11y_checked else R.string.a11y_unchecked)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    stateDescription = context.getString(if (check.isChecked) R.string.a11y_checked else R.string.a11y_unchecked)
+                }
             }
         }
     }

@@ -11,9 +11,9 @@ import com.dpsmpx.dppass.app.AppGraph
 import com.dpsmpx.dppass.app.AppPrefs
 import com.dpsmpx.dppass.app.TunnelStatus
 import com.dpsmpx.dppass.diagnostics.Diagnostic
+import kotlinx.coroutines.CoroutineScope
 import java.text.DateFormat
 import java.util.Date
-import kotlinx.coroutines.CoroutineScope
 
 /** Что экранам нужно от `MainActivity`: граф, область корутин и переходы. */
 interface Host {
@@ -108,7 +108,12 @@ abstract class Screen(protected val host: Host) {
         Formats.bytes(n, context.resources.getStringArray(R.array.units_bytes).toList(), context.resources.configuration.locales[0])
 
     protected fun speed(n: Long): String =
-        Formats.speed(n, context.resources.getStringArray(R.array.units_bytes).toList(), context.resources.configuration.locales[0], context.getString(R.string.per_second))
+        Formats.speed(
+            n,
+            context.resources.getStringArray(R.array.units_bytes).toList(),
+            context.resources.configuration.locales[0],
+            context.getString(R.string.per_second),
+        )
 }
 
 /** Вложенный экран: верхняя панель «Назад» и заголовок, ниже — прокрутка. */

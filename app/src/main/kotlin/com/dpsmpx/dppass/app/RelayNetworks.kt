@@ -117,6 +117,7 @@ object RelayNetworks {
 
     private fun links(context: Context): List<Triple<Network, Medium, android.net.LinkProperties>> {
         val cm = context.getSystemService(ConnectivityManager::class.java) ?: return emptyList()
+
         @Suppress("DEPRECATION") // замена — NetworkCallback; здесь нужен снимок по нажатию, а не подписка
         val networks = cm.allNetworks
         return networks.mapNotNull { n ->

@@ -36,7 +36,11 @@ class GeodataTest {
             "format" to JsonString("dppass.geodata"),
             "format_version" to Json.num(2),
             "sources" to Json.obj(
-                "dlc" to Json.obj("module" to JsonString("dlc"), "version" to JsonString("v0.0.0-20260101000000-0123456789ab"), "commit" to JsonString("0123456789ab")),
+                "dlc" to Json.obj(
+                    "module" to JsonString("dlc"),
+                    "version" to JsonString("v0.0.0-20260101000000-0123456789ab"),
+                    "commit" to JsonString("0123456789ab"),
+                ),
                 "dbip" to Json.obj("release" to JsonString(release), "sha256" to JsonString("0".repeat(64))),
             ),
             "files" to JsonArray(

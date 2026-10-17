@@ -132,7 +132,12 @@ object SubscriptionCodec {
             TrafficInfo(t.long("upload"), t.long("download"), t.long("total"), t.long("expire"))
         }
         val ok = (o["last_successful"] as? JsonObject)?.let { r ->
-            SubscriptionRevision(r.long("number") ?: bad("number"), r.str("checksum") ?: bad("checksum"), r.long("fetched_at") ?: bad("fetched_at"), (r.long("profiles") ?: bad("profiles")).toInt())
+            SubscriptionRevision(
+                r.long("number") ?: bad("number"),
+                r.str("checksum") ?: bad("checksum"),
+                r.long("fetched_at") ?: bad("fetched_at"),
+                (r.long("profiles") ?: bad("profiles")).toInt(),
+            )
         }
         val failed = (o["last_failed"] as? JsonObject)?.let { f ->
             val code = DiagCode.entries.firstOrNull { it.name == f.str("code") } ?: DiagCode.SUBSCRIPTION_FETCH_FAILED

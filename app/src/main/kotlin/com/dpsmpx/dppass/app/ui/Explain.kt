@@ -163,7 +163,9 @@ object ActivationHistory {
     /** `user-import`, `subscription:<id>#<ревизия>` или `rollback:<версия>`. */
     fun source(raw: String): HistorySource = when {
         raw == PolicyService.OWN_DOCUMENT -> HistorySource.Own
-        raw.startsWith(SUBSCRIPTION) -> raw.removePrefix(SUBSCRIPTION).let { HistorySource.Subscription(SubscriptionId(it.substringBefore('#')), it.substringAfter('#', "").toLongOrNull()) }
+        raw.startsWith(SUBSCRIPTION) -> raw.removePrefix(SUBSCRIPTION).let {
+            HistorySource.Subscription(SubscriptionId(it.substringBefore('#')), it.substringAfter('#', "").toLongOrNull())
+        }
         raw.startsWith(ROLLBACK) -> HistorySource.Rollback(raw.removePrefix(ROLLBACK).toLongOrNull())
         else -> HistorySource.Other(raw)
     }

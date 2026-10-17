@@ -129,14 +129,22 @@ class ConnectScreen(host: Host) : Screen(host) {
             Ui.icon(context, R.drawable.ic_subscriptions, R.color.primary, 40),
             LinearLayout.LayoutParams(Ui.dp(context, 40), Ui.dp(context, 40)).apply { gravity = Gravity.CENTER_HORIZONTAL },
         )
-        addView(Ui.text(context, R.style.Text_DPpass_Title, context.getString(R.string.empty_title)).apply { gravity = Gravity.CENTER_HORIZONTAL }, Ui.matchWidth())
-        addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.empty_text)).apply { gravity = Gravity.CENTER_HORIZONTAL }, Ui.matchWidth())
+        addView(
+            Ui.text(context, R.style.Text_DPpass_Title, context.getString(R.string.empty_title)).apply { gravity = Gravity.CENTER_HORIZONTAL },
+            Ui.matchWidth(),
+        )
+        addView(
+            Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.empty_text)).apply { gravity = Gravity.CENTER_HORIZONTAL },
+            Ui.matchWidth(),
+        )
         addView(
             Ui.button(context, R.string.subs_add, Ui.Style.PRIMARY, R.drawable.ic_add).apply { setOnClickListener { ImportFlow.addSubscription(host) } },
             Ui.matchWidth(),
         )
         addView(
-            Ui.button(context, R.string.import_clipboard, Ui.Style.OUTLINE, R.drawable.ic_paste).apply { setOnClickListener { ImportFlow.fromClipboard(host) } },
+            Ui.button(context, R.string.import_clipboard, Ui.Style.OUTLINE, R.drawable.ic_paste).apply {
+                setOnClickListener { ImportFlow.fromClipboard(host) }
+            },
             Ui.matchWidth(),
         )
         addView(
@@ -148,7 +156,15 @@ class ConnectScreen(host: Host) : Screen(host) {
     override val view: View = scroll(
         Ui.column(context).apply {
             gravity = Gravity.CENTER_HORIZONTAL
-            addView(header(context.getString(R.string.app_name), Ui.iconButton(context, R.drawable.ic_add, context.getString(R.string.add_title)) { ImportFlow.menu(host) }), Ui.matchWidth())
+            addView(
+                header(
+                    context.getString(R.string.app_name),
+                    Ui.iconButton(context, R.drawable.ic_add, context.getString(R.string.add_title)) {
+                        ImportFlow.menu(host)
+                    },
+                ),
+                Ui.matchWidth(),
+            )
             addView(source, Ui.matchWidth())
             val size = Ui.dp(context, 184)
             addView(power, LinearLayout.LayoutParams(size, size).apply { topMargin = Ui.dp(context, 24) })
@@ -222,7 +238,11 @@ class ConnectScreen(host: Host) : Screen(host) {
         val connected = (status as? TunnelStatus.Connected)?.let { c -> ir?.profiles?.firstOrNull { it.id == c.profileId } }
         val shown = if (relay != null) null else connected ?: chosen
         serverName.text = relay?.name ?: shown?.name?.let(Avatar::stripFlag) ?: context.getString(R.string.server_auto)
-        serverHint.text = if (relay != null) context.getString(R.string.relays_summary) else shown?.let(ServerList::summary) ?: context.getString(R.string.server_auto_hint)
+        serverHint.text = if (relay != null) {
+            context.getString(R.string.relays_summary)
+        } else {
+            shown?.let(ServerList::summary) ?: context.getString(R.string.server_auto_hint)
+        }
         (relay?.name ?: shown?.name)?.let { serverAvatar.text = Avatar.of(it) }
         serverAvatar.visibility = if (relay != null || shown != null) View.VISIBLE else View.GONE
         autoAvatar.visibility = if (relay == null && shown == null) View.VISIBLE else View.GONE

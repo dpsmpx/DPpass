@@ -60,6 +60,9 @@ class TunnelAppPolicyTest {
         )
         // Только сам DPpass — тоже пусто: себя в туннель он не пускает никогда.
         assertFalse(TunnelSpecBuilder.build(only(setOf("com.dpsmpx.dppass")), "com.dpsmpx.dppass", traits).isSuccess)
-        assertEquals(AppPolicy.OnlyApps(setOf("org.example.browser")), TunnelSpecBuilder.build(only(setOf("org.example.browser")), "com.dpsmpx.dppass", traits).valueOrNull()!!.apps)
+        assertEquals(
+            AppPolicy.OnlyApps(setOf("org.example.browser")),
+            TunnelSpecBuilder.build(only(setOf("org.example.browser")), "com.dpsmpx.dppass", traits).valueOrNull()!!.apps,
+        )
     }
 }

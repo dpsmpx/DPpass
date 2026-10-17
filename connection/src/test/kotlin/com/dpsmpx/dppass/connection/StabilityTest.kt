@@ -1,8 +1,9 @@
 package com.dpsmpx.dppass.connection
 
 import com.dpsmpx.dppass.config.ServerProfile
-import com.dpsmpx.dppass.config.transportClass
 import com.dpsmpx.dppass.config.TransportClass
+import com.dpsmpx.dppass.config.transportClass
+import com.dpsmpx.dppass.core.ManualClock
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.network.NetworkAssessment
@@ -11,7 +12,6 @@ import com.dpsmpx.dppass.network.Reachability
 import com.dpsmpx.dppass.network.RestrictionClass
 import com.dpsmpx.dppass.storage.InMemoryBlobStore
 import com.dpsmpx.dppass.storage.Quarantine
-import com.dpsmpx.dppass.core.ManualClock
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

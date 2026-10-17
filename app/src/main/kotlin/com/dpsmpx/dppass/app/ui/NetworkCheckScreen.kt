@@ -53,11 +53,19 @@ class NetworkCheckScreen(host: Host) : SubScreen(host, R.string.netcheck_title) 
     private var ticker: Job? = null
 
     override fun content(): View = Ui.column(context, 12).apply {
-        addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.netcheck_intro)).apply { setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0) })
+        addView(
+            Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.netcheck_intro)).apply {
+                setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0)
+            },
+        )
         addView(run.apply { setOnClickListener { start() } }, Ui.matchWidth())
         addView(verdict, Ui.matchWidth())
         addView(probes, Ui.matchWidth())
-        addView(Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.netcheck_note)).apply { setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0) })
+        addView(
+            Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.netcheck_note)).apply {
+                setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0)
+            },
+        )
         addView(Ui.section(context, context.getString(R.string.speed_section)))
         addView(
             Ui.card(context).apply {
@@ -73,7 +81,11 @@ class NetworkCheckScreen(host: Host) : SubScreen(host, R.string.netcheck_title) 
     override fun render(status: TunnelStatus) {
         // Замер — только через поднятый туннель: иначе мерить нечего (D-61).
         val connected = status is TunnelStatus.Connected
-        speedHint.text = if (connected) context.getString(R.string.speed_via, Avatar.stripFlag((status as TunnelStatus.Connected).profileName)) else context.getString(R.string.speed_needs_tunnel)
+        speedHint.text = if (connected) {
+            context.getString(R.string.speed_via, Avatar.stripFlag((status as TunnelStatus.Connected).profileName))
+        } else {
+            context.getString(R.string.speed_needs_tunnel)
+        }
         refreshButtons()
     }
 

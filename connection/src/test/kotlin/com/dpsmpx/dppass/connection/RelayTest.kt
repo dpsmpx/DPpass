@@ -123,7 +123,8 @@ class RelayTest {
         assertTrue(r.diagnostics.any { it.code == DiagCode.STORAGE_CORRUPTED })
         assertEquals(1, Quarantine(blobs, clock).list().valueOrNull()!!.size)
         // Адрес вне своей сети в записи — тоже нечитаемо, а не «как-нибудь».
-        val stored = RelayCodec.write(listOf(RelayDevice("0123456789ab", "R", null, 1, Secret("u"), Secret("p"), 0))).replace("\"port\"", "\"address\":\"203.0.113.10\",\"port\"")
+        val stored = RelayCodec.write(listOf(RelayDevice("0123456789ab", "R", null, 1, Secret("u"), Secret("p"), 0)))
+            .replace("\"port\"", "\"address\":\"203.0.113.10\",\"port\"")
         assertIs<Outcome.Failure>(RelayCodec.read(stored))
     }
 
@@ -137,7 +138,10 @@ class RelayTest {
         val (ok, sent) = run(byteArrayOf(5, 2, 1, 0))
         assertEquals(Socks5Login.Result.ACCEPTED, ok)
         // Приветствие: версия 5, один метод — логин и пароль; затем RFC 1929: 1, длина, логин, длина, пароль.
-        assertEquals(listOf<Byte>(5, 1, 2, 1, 2, 'u'.code.toByte(), '1'.code.toByte(), 3, 'p'.code.toByte(), '1'.code.toByte(), '2'.code.toByte()), sent.toList())
+        assertEquals(
+            listOf<Byte>(5, 1, 2, 1, 2, 'u'.code.toByte(), '1'.code.toByte(), 3, 'p'.code.toByte(), '1'.code.toByte(), '2'.code.toByte()),
+            sent.toList(),
+        )
         assertEquals(Socks5Login.Result.REJECTED, run(byteArrayOf(5, 2, 1, 1)).first)
         assertEquals(Socks5Login.Result.NOT_SOCKS, run(byteArrayOf(5, 0)).first, "вход без пароля — не вход раздачи")
         assertEquals(Socks5Login.Result.NOT_SOCKS, run("HTTP/1.1 400".toByteArray()).first)

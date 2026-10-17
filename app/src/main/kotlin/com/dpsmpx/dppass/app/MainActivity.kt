@@ -15,13 +15,13 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowManager
-import android.window.OnBackInvokedCallback
-import android.window.OnBackInvokedDispatcher
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.ui.ConnectScreen
 import com.dpsmpx.dppass.app.ui.Host
@@ -34,13 +34,13 @@ import com.dpsmpx.dppass.app.ui.SubscriptionsScreen
 import com.dpsmpx.dppass.app.ui.Ui
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
-import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.IOException
 
 /**
  * Интерфейс DPpass (D-34): одна `Activity`, четыре вкладки — «Подключение»,

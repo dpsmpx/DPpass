@@ -67,7 +67,11 @@ object MetadataParser {
         val title = values["profile-title"]?.let(::decodeText)?.trim()?.takeIf { it.isNotEmpty() }?.let {
             // Правило имени то же, что у SubscriptionService (управляющие — и DEL, и C1):
             // название видно в списке, уведомлении и журнале.
-            if (it.length > 64 || it.any { c -> c.isISOControl() }) null.also { bad("profile-title", "длиннее 64 символов или с управляющими символами") } else it
+            if (it.length > 64 || it.any { c -> c.isISOControl() }) {
+                null.also { bad("profile-title", "длиннее 64 символов или с управляющими символами") }
+            } else {
+                it
+            }
         }
         val interval = values["profile-update-interval"]?.trim()?.let { v ->
             v.toIntOrNull()?.takeIf { it in 1..24 * 30 } ?: null.also { bad("profile-update-interval", "ожидались часы 1..720") }

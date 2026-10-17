@@ -302,8 +302,9 @@ class SocketProber(
                 a.isAnyLocalAddress || a.isLoopbackAddress || a.isLinkLocalAddress || a.isSiteLocalAddress || a.isMulticastAddress ||
                     first == 0 || (first == 100 && second in 64..127) || first >= 240
             }
-            is Inet6Address -> a.isAnyLocalAddress || a.isLoopbackAddress || a.isLinkLocalAddress || a.isSiteLocalAddress ||
-                a.isMulticastAddress || (a.address[0].toInt() and 0xfe) == 0xfc
+            is Inet6Address ->
+                a.isAnyLocalAddress || a.isLoopbackAddress || a.isLinkLocalAddress || a.isSiteLocalAddress ||
+                    a.isMulticastAddress || (a.address[0].toInt() and 0xfe) == 0xfc
             else -> true
         }
     }

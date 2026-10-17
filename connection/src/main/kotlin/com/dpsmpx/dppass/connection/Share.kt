@@ -155,7 +155,10 @@ class ShareStore(private val blobs: BlobStore, private val quarantine: Quarantin
                     is Outcome.Success -> Outcome.Success(
                         f.value,
                         listOf(
-                            Diagnostic.warning(DiagCode.STORAGE_CORRUPTED, "настройки раздачи не прочитаны; исходник сохранён в карантин, раздача выключена, пароль новый")
+                            Diagnostic.warning(
+                                DiagCode.STORAGE_CORRUPTED,
+                                "настройки раздачи не прочитаны; исходник сохранён в карантин, раздача выключена, пароль новый",
+                            )
                                 .copy(causes = parsed.diagnostics),
                         ),
                     )

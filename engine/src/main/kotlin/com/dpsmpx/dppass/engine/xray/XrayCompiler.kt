@@ -418,8 +418,18 @@ class XrayCompiler(
                 val ip = RouteEvaluator.IP_RU
                 checkGeo(listOf(site), emptyList(), "$.routing.automatic_domestic")
                 checkGeo(emptyList(), listOf(ip), "$.routing.automatic_domestic")
-                user += userRule("${XrayBackend.SYSTEM_PREFIX}auto-domestic-site", Conditions(geoSites = listOf(site)), XrayBackend.TAG_DIRECT, "$.routing.automatic_domestic")
-                user += userRule("${XrayBackend.SYSTEM_PREFIX}auto-domestic-ip", Conditions(geoIps = listOf(ip)), XrayBackend.TAG_DIRECT, "$.routing.automatic_domestic")
+                user += userRule(
+                    "${XrayBackend.SYSTEM_PREFIX}auto-domestic-site",
+                    Conditions(geoSites = listOf(site)),
+                    XrayBackend.TAG_DIRECT,
+                    "$.routing.automatic_domestic",
+                )
+                user += userRule(
+                    "${XrayBackend.SYSTEM_PREFIX}auto-domestic-ip",
+                    Conditions(geoIps = listOf(ip)),
+                    XrayBackend.TAG_DIRECT,
+                    "$.routing.automatic_domestic",
+                )
             }
             // Раздача (D-51, T11): «напрямую» для её клиентов — через свой исходящий,
             // закрытый для loopback телефона. Правила те же, что у телефона: перед
@@ -571,11 +581,6 @@ class XrayCompiler(
         }
 
         /**
-         * `direct`: имя назначения ядро резолвит своим DNS по DnsPolicy и при
-         * отказе не уходит к системному резолверу (`ForceIP*`; `AsIs` и
-         * `UseIP*` молча спросили бы систему — T4).
-         */
-        /**
          * `direct` для клиентов раздачи (D-51, T11): адрес назначения — не loopback
          * и не «ноль» телефона. Устройству в раздаче службы, которые слушают
          * только 127.0.0.1, недоступны, как и без прокси; из TUN такие адреса не
@@ -591,6 +596,11 @@ class XrayCompiler(
             ),
         )
 
+        /**
+         * `direct`: имя назначения ядро резолвит своим DNS по DnsPolicy и при
+         * отказе не уходит к системному резолверу (`ForceIP*`; `AsIs` и
+         * `UseIP*` молча спросили бы систему — T4).
+         */
         fun directOutbound(s: DnsStrategy): JsonObject = Json.obj(
             "tag" to Json.str(XrayBackend.TAG_DIRECT),
             "protocol" to Json.str("freedom"),

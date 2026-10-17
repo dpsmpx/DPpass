@@ -83,27 +83,27 @@ internal object ImportFlow {
         val c = host.activity
         Ui.secure(
             AlertDialog.Builder(c)
-            .setTitle(R.string.import_document_title)
-            .setMessage(R.string.import_document_text)
-            .setPositiveButton(R.string.action_apply) { _, _ ->
-                val graph = host.graph ?: return@setPositiveButton
-                host.scope.launch {
-                    val r = withContext(Dispatchers.IO) { graph.core.importAndActivate(text) }
-                    val failure: Diagnostic? = when (r) {
-                        is Outcome.Failure -> r.errors.first()
-                        is Outcome.Success -> (r.value as? ActivationResult.Rejected)?.diagnostics?.firstOrNull { it.isError }
+                .setTitle(R.string.import_document_title)
+                .setMessage(R.string.import_document_text)
+                .setPositiveButton(R.string.action_apply) { _, _ ->
+                    val graph = host.graph ?: return@setPositiveButton
+                    host.scope.launch {
+                        val r = withContext(Dispatchers.IO) { graph.core.importAndActivate(text) }
+                        val failure: Diagnostic? = when (r) {
+                            is Outcome.Failure -> r.errors.first()
+                            is Outcome.Success -> (r.value as? ActivationResult.Rejected)?.diagnostics?.firstOrNull { it.isError }
+                        }
+                        if (failure == null) {
+                            host.toast(c.getString(R.string.import_done))
+                            host.reconnectIfBusy()
+                        } else {
+                            host.problem(c.getString(R.string.import_failed, c.getString(Ui.kind(failure.kind))), failure)
+                        }
+                        host.changed()
                     }
-                    if (failure == null) {
-                        host.toast(c.getString(R.string.import_done))
-                        host.reconnectIfBusy()
-                    } else {
-                        host.problem(c.getString(R.string.import_failed, c.getString(Ui.kind(failure.kind))), failure)
-                    }
-                    host.changed()
                 }
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show(),
+                .setNegativeButton(android.R.string.cancel, null)
+                .show(),
         )
     }
 
@@ -253,7 +253,9 @@ internal object ImportFlow {
                     val activation = run.activation
                     when {
                         run.applied -> {
-                            run.subscription.lastSuccessful?.profileCount.let { n -> host.toast(c.resources.getQuantityString(R.plurals.subs_applied, n ?: 0, name, n ?: 0)) }
+                            run.subscription.lastSuccessful?.profileCount.let { n ->
+                                host.toast(c.resources.getQuantityString(R.plurals.subs_applied, n ?: 0, name, n ?: 0))
+                            }
                             val connected = (TunnelState.status.value as? TunnelStatus.Connected)?.profileId
                             // Через устройство раздачи (D-55) туннель от серверов подписки не зависит.
                             val viaRelay = host.prefs.selectedRelay != null

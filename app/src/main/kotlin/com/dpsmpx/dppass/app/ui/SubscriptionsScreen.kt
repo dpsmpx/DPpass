@@ -26,7 +26,11 @@ class SubscriptionsScreen(host: Host) : Screen(host) {
     private val empty = Ui.card(context, 12).apply {
         addView(Ui.text(context, R.style.Text_DPpass_Body, context.getString(R.string.subs_empty)))
         addView(Ui.button(context, R.string.subs_add, Ui.Style.PRIMARY, R.drawable.ic_add).apply { setOnClickListener { ImportFlow.addSubscription(host) } })
-        addView(Ui.button(context, R.string.import_clipboard, Ui.Style.OUTLINE, R.drawable.ic_paste).apply { setOnClickListener { ImportFlow.fromClipboard(host) } })
+        addView(
+            Ui.button(context, R.string.import_clipboard, Ui.Style.OUTLINE, R.drawable.ic_paste).apply {
+                setOnClickListener { ImportFlow.fromClipboard(host) }
+            },
+        )
     }
     private val error = Ui.text(context, R.style.Text_DPpass_Secondary).apply { setTextColor(context.getColor(R.color.error)) }
 
@@ -43,7 +47,14 @@ class SubscriptionsScreen(host: Host) : Screen(host) {
 
     override val view: View = scroll(
         Ui.column(context, 12).apply {
-            addView(header(context.getString(R.string.tab_subscriptions), Ui.iconButton(context, R.drawable.ic_add, context.getString(R.string.add_title)) { ImportFlow.menu(host) }))
+            addView(
+                header(
+                    context.getString(R.string.tab_subscriptions),
+                    Ui.iconButton(context, R.drawable.ic_add, context.getString(R.string.add_title)) {
+                        ImportFlow.menu(host)
+                    },
+                ),
+            )
             addView(error)
             addView(empty, Ui.matchWidth())
             addView(list, Ui.matchWidth())
@@ -94,23 +105,38 @@ class SubscriptionsScreen(host: Host) : Screen(host) {
 
         r.usedBytes?.let { used ->
             val total = r.totalBytes
-            val text = if (total != null) context.getString(R.string.subs_traffic, bytes(used), bytes(total)) else context.getString(R.string.subs_traffic_unlimited, bytes(used))
+            val text = if (total != null) {
+                context.getString(R.string.subs_traffic, bytes(used), bytes(total))
+            } else {
+                context.getString(R.string.subs_traffic_unlimited, bytes(used))
+            }
             addView(Ui.text(context, R.style.Text_DPpass_Secondary, text))
             r.usedPercent?.let { pct -> addView(Ui.Meter(context).apply { fraction = pct / 100f }, Ui.matchWidth()) }
         }
         r.expireMillis?.let { at ->
             val text = when {
                 r.expired -> context.getString(R.string.subs_expired, date(at))
-                r.daysLeft != null -> context.getString(R.string.subs_expires_in, date(at), context.resources.getQuantityString(R.plurals.days, r.daysLeft.toInt(), r.daysLeft.toInt()))
+                r.daysLeft != null -> {
+                    val days = context.resources.getQuantityString(R.plurals.days, r.daysLeft.toInt(), r.daysLeft.toInt())
+                    context.getString(R.string.subs_expires_in, date(at), days)
+                }
                 else -> context.getString(R.string.subs_expires, date(at))
             }
             val warn = r.expired || (r.daysLeft != null && r.daysLeft <= 3)
-            addView(Ui.text(context, R.style.Text_DPpass_Secondary, text).apply { if (warn) setTextColor(context.getColor(if (r.expired) R.color.error else R.color.warning)) })
+            addView(
+                Ui.text(context, R.style.Text_DPpass_Secondary, text).apply {
+                    if (warn) setTextColor(context.getColor(if (r.expired) R.color.error else R.color.warning))
+                },
+            )
         }
         r.failure?.let { f ->
             if (f.code == DiagCode.SUBSCRIPTION_DEVICE_ID_REQUIRED && !r.deviceIdEnabled) {
                 // Понятная причина и одно действие вместо текста отказа: что делать — ясно и так.
-                addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.subs_device_id_needed)).apply { setTextColor(context.getColor(R.color.error)) })
+                addView(
+                    Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.subs_device_id_needed)).apply {
+                        setTextColor(context.getColor(R.color.error))
+                    },
+                )
                 addView(
                     Ui.button(context, R.string.subs_device_id_enable, Ui.Style.OUTLINE, R.drawable.ic_key).apply {
                         setOnClickListener { deviceId(r, true) }
@@ -130,7 +156,12 @@ class SubscriptionsScreen(host: Host) : Screen(host) {
         val busy = r.id in ImportFlow.running
         val action = if (r.active) R.string.subs_refresh else R.string.subs_apply
         addView(
-            Ui.button(context, if (busy) R.string.subs_refreshing else action, if (r.active) Ui.Style.TONAL else Ui.Style.PRIMARY, R.drawable.ic_refresh).apply {
+            Ui.button(
+                context,
+                if (busy) R.string.subs_refreshing else action,
+                if (r.active) Ui.Style.TONAL else Ui.Style.PRIMARY,
+                R.drawable.ic_refresh,
+            ).apply {
                 isEnabled = !busy
                 alpha = if (busy) 0.6f else 1f
                 setOnClickListener { refresh(r.id, r.name) }
@@ -168,7 +199,11 @@ class SubscriptionsScreen(host: Host) : Screen(host) {
                 (r.autoUpdateMinutes?.let { context.getString(R.string.subs_auto_every, it / 60) } ?: context.getString(R.string.subs_auto_off)) +
                     (r.providerIntervalHours?.let { "\n" + context.getString(R.string.subs_provider_interval, it) } ?: ""),
             ) { interval(r) }
-            item(R.drawable.ic_key, R.string.subs_device_id, context.getString(if (r.deviceIdEnabled) R.string.subs_device_id_on else R.string.subs_device_id_off)) {
+            item(
+                R.drawable.ic_key,
+                R.string.subs_device_id,
+                context.getString(if (r.deviceIdEnabled) R.string.subs_device_id_on else R.string.subs_device_id_off),
+            ) {
                 deviceIdSheet(r)
             }
         }
@@ -197,7 +232,11 @@ class SubscriptionsScreen(host: Host) : Screen(host) {
         }
         val body = Ui.column(context, 8).apply {
             addView(items, Ui.matchWidth())
-            addView(Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.subs_auto_note)).apply { setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0) })
+            addView(
+                Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.subs_auto_note)).apply {
+                    setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0)
+                },
+            )
         }
         sheet = Ui.sheet(context, context.getString(R.string.subs_auto_title), body)
         sheet.show()
@@ -207,7 +246,11 @@ class SubscriptionsScreen(host: Host) : Screen(host) {
     private fun deviceIdSheet(r: SubscriptionRow) {
         lateinit var sheet: android.app.Dialog
         val body = Ui.column(context, 8).apply {
-            addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.subs_device_id_note)).apply { setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0) })
+            addView(
+                Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.subs_device_id_note)).apply {
+                    setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0)
+                },
+            )
             val card = Ui.listCard(context)
             card.addView(
                 Ui.switchRow(context, R.drawable.ic_key, context.getString(R.string.subs_device_id), null, r.deviceIdEnabled) { on ->

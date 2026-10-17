@@ -111,8 +111,10 @@ object ConfigWriter {
                 d.servers.map { s ->
                     val route = Json.str(if (s.route == DnsRoute.TUNNEL) "tunnel" else "direct")
                     when (val t = s.transport) {
-                        is DnsTransport.Udp -> Json.obj("id" to Json.str(s.id), "type" to Json.str("udp"), "address" to Json.str(t.server.toString()), "route" to route)
-                        is DnsTransport.Tcp -> Json.obj("id" to Json.str(s.id), "type" to Json.str("tcp"), "address" to Json.str(t.server.toString()), "route" to route)
+                        is DnsTransport.Udp ->
+                            Json.obj("id" to Json.str(s.id), "type" to Json.str("udp"), "address" to Json.str(t.server.toString()), "route" to route)
+                        is DnsTransport.Tcp ->
+                            Json.obj("id" to Json.str(s.id), "type" to Json.str("tcp"), "address" to Json.str(t.server.toString()), "route" to route)
                         is DnsTransport.Https -> Json.obj("id" to Json.str(s.id), "type" to Json.str("https"), "url" to Json.str(t.url), "route" to route)
                         is DnsTransport.Tls -> Json.obj(
                             "id" to Json.str(s.id),

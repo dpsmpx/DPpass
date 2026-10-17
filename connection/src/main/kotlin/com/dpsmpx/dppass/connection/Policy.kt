@@ -208,6 +208,7 @@ object CandidatePlanner {
             HealthState.FAILED -> 2
         }
         fun classPenalty(p: ServerProfile) = if (tcpPenalized && p.transportClass == TransportClass.TCP_STREAM) 1 else 0
+
         // Выученная устойчивость (D-44): выше — раньше. Квантуется до сотых,
         // чтобы порядок был детерминирован и мелкий шум не правил план.
         // Нет модели — ноль у всех: порядок как прежде (существующие тесты).

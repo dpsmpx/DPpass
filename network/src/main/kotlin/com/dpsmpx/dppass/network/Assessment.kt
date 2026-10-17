@@ -124,8 +124,10 @@ object NetworkClassifier {
         }
 
         if (type == NetworkType.NONE) {
-            return NetworkAssessment(type, Reachability.UNKNOWN, Reachability.UNKNOWN, Reachability.UNKNOWN, Reachability.UNKNOWN,
-                Reachability.UNKNOWN, false, RestrictionClass.OFFLINE, Confidence.HIGH, listOf("система сообщает: сети нет"))
+            return NetworkAssessment(
+                type, Reachability.UNKNOWN, Reachability.UNKNOWN, Reachability.UNKNOWN, Reachability.UNKNOWN,
+                Reachability.UNKNOWN, false, RestrictionClass.OFFLINE, Confidence.HIGH, listOf("система сообщает: сети нет"),
+            )
         }
 
         val captive = of(ProbeKind.CAPTIVE, ProbeTarget.DOMESTIC)?.outcome == ProbeOutcome.REDIRECTED

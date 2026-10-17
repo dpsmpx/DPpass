@@ -82,7 +82,10 @@ class PolicyBuilderTest {
         val except = PolicyBuilder.routing(UserPolicy(appMode = AppMode.EXCEPT, apps = setOf("com.example.bank")))
         assertEquals(AppPolicy.ExceptApps(setOf("com.example.bank")), except.apps)
         assertEquals(RouteAction.DIRECT, RouteEvaluator(except).decide(RouteQuery(domain = "a.example.com", packageName = "com.example.bank")).action)
-        assertEquals(AppPolicy.OnlyApps(setOf("org.example.browser")), PolicyBuilder.routing(UserPolicy(appMode = AppMode.ONLY, apps = setOf("org.example.browser"))).apps)
+        assertEquals(
+            AppPolicy.OnlyApps(setOf("org.example.browser")),
+            PolicyBuilder.routing(UserPolicy(appMode = AppMode.ONLY, apps = setOf("org.example.browser"))).apps,
+        )
         assertEquals(false, PolicyBuilder.routing(UserPolicy(bypassLan = false)).bypassLan)
         // «Только выбранные» без приложений — ошибка: VpnService пустил бы в туннель все.
         assertEquals(listOf(DiagCode.APP_POLICY_CONFLICT), PolicyBuilder.validate(UserPolicy(appMode = AppMode.ONLY)).map { it.code })
@@ -124,7 +127,14 @@ class PolicyStoreTest {
         val blobs = InMemoryBlobStore()
         val store = PolicyStore(blobs, Quarantine(blobs, clock))
         assertEquals(UserPolicy.DEFAULT, store.load().valueOrNull())
-        val p = UserPolicy(RoutingMode.RU_DIRECT, blockAds = true, bypassLan = false, appMode = AppMode.EXCEPT, apps = setOf("com.example.bank"), dns = DnsProvider.QUAD9)
+        val p = UserPolicy(
+            RoutingMode.RU_DIRECT,
+            blockAds = true,
+            bypassLan = false,
+            appMode = AppMode.EXCEPT,
+            apps = setOf("com.example.bank"),
+            dns = DnsProvider.QUAD9,
+        )
         assertTrue(store.save(p).isSuccess)
         assertEquals(p, PolicyStore(blobs, Quarantine(blobs, clock)).load().valueOrNull())
     }

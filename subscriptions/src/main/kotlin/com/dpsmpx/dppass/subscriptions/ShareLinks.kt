@@ -5,8 +5,8 @@ import com.dpsmpx.dppass.config.CountRange
 import com.dpsmpx.dppass.config.Hysteria2Congestion
 import com.dpsmpx.dppass.config.ProtocolSpec
 import com.dpsmpx.dppass.config.SecuritySpec
-import com.dpsmpx.dppass.config.ShadowsocksMethod
 import com.dpsmpx.dppass.config.ServerProfile
+import com.dpsmpx.dppass.config.ShadowsocksMethod
 import com.dpsmpx.dppass.config.TlsFingerprint
 import com.dpsmpx.dppass.config.TransportSpec
 import com.dpsmpx.dppass.config.VlessFlow
@@ -83,9 +83,13 @@ object ShareLinkParser {
             ?: return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "не ссылка вида схема://…")
         if (scheme !in SUPPORTED) {
             val known = if (scheme in KNOWN_OTHER) "ещё не поддерживается" else "неизвестна"
-            return Outcome.Failure(listOf(Diagnostic.error(DiagCode.SHARE_LINK_INVALID, "схема $scheme://").withCause(
-                Diagnostic.warning(DiagCode.SHARE_LINK_SCHEME_UNSUPPORTED, "схема $scheme:// $known"),
-            )))
+            return Outcome.Failure(
+                listOf(
+                    Diagnostic.error(DiagCode.SHARE_LINK_INVALID, "схема $scheme://").withCause(
+                        Diagnostic.warning(DiagCode.SHARE_LINK_SCHEME_UNSUPPORTED, "схема $scheme:// $known"),
+                    ),
+                ),
+            )
         }
         val parts = split(text.substring(scheme.length + 3))
             ?: return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "ссылка $scheme:// без «секрет@хост:порт»")
@@ -196,8 +200,12 @@ object ShareLinkParser {
      */
     private fun shadowsocks(text: String, parts: Parts, endpoint: Endpoint, idPrefix: String): Outcome<ServerProfile> {
         if (parts.query.isNotEmpty()) return unsupported(parts.query.keys.sorted().joinToString())
-        val credentials = if (':' in parts.user) parts.user else decodeBase64(parts.user)
-            ?: return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "ss:// без «метод:пароль» (ни открыто, ни в base64)")
+        val credentials = if (':' in parts.user) {
+            parts.user
+        } else {
+            decodeBase64(parts.user)
+                ?: return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "ss:// без «метод:пароль» (ни открыто, ни в base64)")
+        }
         val method = credentials.substringBefore(':')
         val password = credentials.substringAfter(':', "")
         if (method == credentials || password.isEmpty()) {

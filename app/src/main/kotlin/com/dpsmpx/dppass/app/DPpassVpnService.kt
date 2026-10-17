@@ -231,7 +231,11 @@ class DPpassVpnService : VpnService() {
         val report = try {
             val tun = handle.toTunInput().let { base ->
                 // Сокеты ядра — в сеть устройства раздачи: с Bluetooth- и USB-модема путь к нему не по умолчанию.
-                if (target == null) base else base.copy(protector = SocketProtector { fd -> base.protector.protect(fd) && RelayNetworks.bind(target.network, fd) })
+                if (target == null) {
+                    base
+                } else {
+                    base.copy(protector = SocketProtector { fd -> base.protector.protect(fd) && RelayNetworks.bind(target.network, fd) })
+                }
             }
             if (relay != null && target != null) {
                 core.connectVia(relay, target.address, checker, tun, share) { delay(it) }
@@ -332,7 +336,12 @@ class DPpassVpnService : VpnService() {
      * другого кандидата; выбранный пользователем заменяется только с его
      * согласия — вопросом [ServerSwitch] или тумблером «Автопереключение».
      */
-    private fun startSupervisor(core: com.dpsmpx.dppass.connection.DPpassCore, engine: com.dpsmpx.dppass.engine.xray.XrayProxyEngine, ir: com.dpsmpx.dppass.config.ConfigIr, profileId: com.dpsmpx.dppass.core.ProfileId) {
+    private fun startSupervisor(
+        core: com.dpsmpx.dppass.connection.DPpassCore,
+        engine: com.dpsmpx.dppass.engine.xray.XrayProxyEngine,
+        ir: com.dpsmpx.dppass.config.ConfigIr,
+        profileId: com.dpsmpx.dppass.core.ProfileId,
+    ) {
         supervisor?.cancel()
         supervisor = scope.launch {
             val sup = core.supervisor(profileId, null)

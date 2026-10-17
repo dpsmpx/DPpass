@@ -112,7 +112,8 @@ class SubscriptionActivationTest {
         val env = Env(MockProxyEngine(behavior = MockBehavior(rejectConfig = true)))
         val base = ConfigLoader().load(data("configs/valid-minimal.json")).valueOrNull()!!.ir
         val sub = Subscription(SubscriptionId("prov"), "Provider", SubscriptionSource.Url(Secret("https://sub.example.com/abc")))
-        val ready = SubscriptionUpdater(fetcher(data("subscriptions/links-plain.txt"), env.clock), env.clock, "test").update(sub, env.core.profileFilter()) as UpdateResult.Ready
+        val updater = SubscriptionUpdater(fetcher(data("subscriptions/links-plain.txt"), env.clock), env.clock, "test")
+        val ready = updater.update(sub, env.core.profileFilter()) as UpdateResult.Ready
         val (after, act) = env.core.activateSubscription(base, ready.candidate)
         assertIs<ActivationResult.Rejected>(act)
         assertEquals(null, after.lastSuccessful)

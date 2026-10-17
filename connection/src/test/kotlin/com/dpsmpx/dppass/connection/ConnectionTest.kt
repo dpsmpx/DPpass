@@ -3,11 +3,11 @@ package com.dpsmpx.dppass.connection
 import com.dpsmpx.dppass.config.ConfigIr
 import com.dpsmpx.dppass.config.ConfigLoader
 import com.dpsmpx.dppass.config.transportClass
+import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.core.Json
 import com.dpsmpx.dppass.core.JsonArray
 import com.dpsmpx.dppass.core.JsonObject
 import com.dpsmpx.dppass.core.ManualClock
-import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
@@ -111,7 +111,12 @@ class ActivationServiceTest {
 
     @Test
     fun capabilityRejectionHappensBeforeCompile() = runBlocking {
-        val s = ActivationService(MockBackendCompiler(MockBackend.LIMITED), MockProxyEngine(MockBackend.LIMITED), ActivationStore(blobs, Quarantine(blobs, clock)), clock)
+        val s = ActivationService(
+            MockBackendCompiler(MockBackend.LIMITED),
+            MockProxyEngine(MockBackend.LIMITED),
+            ActivationStore(blobs, Quarantine(blobs, clock)),
+            clock,
+        )
         val r = s.activate(ir("valid-multi.json"), "test", "x", profileId = ProfileId("hy2"))
         assertEquals(ActivationStep.CAPABILITY, (r as ActivationResult.Rejected).record.failedStep)
         assertNull(s.state.active)
@@ -316,7 +321,9 @@ class CandidatePlannerTest {
     fun allowlistWithoutReachableCandidateExplainsLimit() {
         val noRelay = multi.copy(profiles = multi.profiles.filter { !it.hints.reachableUnderAllowlist })
         val clock = ManualClock(0)
-        val x = runBlocking { NetworkAssessor(SimulatedNetwork(NetworkCondition.ALLOWLIST_LIKE), ProbeBudget(clock)) { clock.advance(it) }.assess(NetworkType.MOBILE) }
+        val x = runBlocking {
+            NetworkAssessor(SimulatedNetwork(NetworkCondition.ALLOWLIST_LIKE), ProbeBudget(clock)) { clock.advance(it) }.assess(NetworkType.MOBILE)
+        }
         val p = CandidatePlanner.plan(noRelay, MockBackend.FULL, x, HealthBook(), null, 0)
         assertTrue(p.attempts.isEmpty())
         assertEquals(DiagCode.NO_VIABLE_CANDIDATE, p.verdict)

@@ -69,7 +69,14 @@ class QuicInitialTest {
     fun onlyAReplyToOurConnectionCounts() {
         val scid = hex("0102030405060708")
         fun reply(version: Int, id: ByteArray, form: Int = 0xC0) =
-            byteArrayOf(form.toByte(), (version ushr 24).toByte(), (version ushr 16).toByte(), (version ushr 8).toByte(), version.toByte(), id.size.toByte()) + id + ByteArray(20)
+            byteArrayOf(
+                form.toByte(),
+                (version ushr 24).toByte(),
+                (version ushr 16).toByte(),
+                (version ushr 8).toByte(),
+                version.toByte(),
+                id.size.toByte(),
+            ) + id + ByteArray(20)
         val initial = reply(1, scid)
         assertTrue(QuicInitial.isResponse(initial, initial.size, scid), "Initial сервера")
         val negotiation = reply(0, scid, form = 0x80)

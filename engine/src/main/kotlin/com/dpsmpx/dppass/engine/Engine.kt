@@ -19,6 +19,7 @@ import com.dpsmpx.dppass.routing.RoutingPolicy
 enum class EngineFeature {
     /** Ядро само знает приложение-владельца соединения (правила с apps внутри ядра). */
     APP_RULES_IN_ENGINE,
+
     /** IP-правила к домену после резолва (DomainResolution.IF_NO_DOMAIN_MATCH). */
     DOMAIN_RESOLUTION_IF_NO_MATCH,
     DNS_DOH,
@@ -26,8 +27,10 @@ enum class EngineFeature {
     DNS_RULES,
     GEOSITE,
     GEOIP,
+
     /** Ядро принимает fd TUN от платформы. */
     TUN_FD,
+
     /** Ядро различает сеть устройства (условие network в правилах). */
     NETWORK_CONDITION,
 }

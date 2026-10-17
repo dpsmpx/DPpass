@@ -13,7 +13,15 @@ import kotlin.test.assertTrue
 class TetherInterfacesTest {
     private fun ip(s: String) = IpAddress.parse(s)!!
 
-    private fun iface(name: String, addr: String, prefix: Int = 24, up: Boolean = true, p2p: Boolean = false, loopback: Boolean = false, broadcast: Boolean = true) =
+    private fun iface(
+        name: String,
+        addr: String,
+        prefix: Int = 24,
+        up: Boolean = true,
+        p2p: Boolean = false,
+        loopback: Boolean = false,
+        broadcast: Boolean = true,
+    ) =
         Iface(name, up, loopback, p2p, listOf(Address(ip(addr), prefix, broadcast)))
 
     private fun ep(addr: String, prefix: Int = 24) = ShareSpec.Endpoint(ip(addr), prefix)

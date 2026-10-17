@@ -10,14 +10,19 @@ enum class NetworkType { WIFI, MOBILE, ETHERNET, OTHER, NONE }
 enum class ProbeKind {
     /** DNS-запрос к резолверу сети. */
     DNS,
+
     /** Установка TCP-соединения. */
     TCP,
+
     /** TLS-рукопожатие с безобидным SNI. */
     TLS,
+
     /** UDP-обмен (QUIC-подобный). */
     UDP,
+
     /** HTTP-проверка на перехват (captive portal). */
     CAPTIVE,
+
     /** Передача больше 32 КБ в одном соединении (порог «16–20 КБ», L4/L7). */
     BULK,
 }
@@ -44,13 +49,17 @@ enum class ProbeOutcome {
     TIMEOUT,
     RESET,
     REFUSED,
+
     /** Ответ DNS подменён или NXDOMAIN для существующего имени. */
     DNS_TAMPERED,
+
     /** Передача остановилась на характерном объёме. */
     STALLED,
+
     /** HTTP перенаправлен на страницу входа. */
     REDIRECTED,
     UNREACHABLE,
+
     /** Пробу не дал провести бюджет — это не наблюдение о сети. */
     SKIPPED,
 
@@ -86,12 +95,16 @@ enum class RestrictionClass {
     /** Данных мало для вывода. */
     UNKNOWN,
     NORMAL,
+
     /** Что-то режется (DNS, TLS, крупные передачи), но путь наружу есть. */
     DEGRADED,
+
     /** Внутрь страны можно, наружу — нет: похоже на белый список (L9). */
     ALLOWLIST_LIKE,
+
     /** Перехват страницей входа. */
     CAPTIVE,
+
     /** Связи нет ни с чем (L10 или нет сети). */
     OFFLINE,
 }

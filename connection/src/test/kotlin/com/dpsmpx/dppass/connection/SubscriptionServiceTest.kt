@@ -118,7 +118,8 @@ class SubscriptionFlowTest {
     @Test
     fun userRoutingStaysWhenUserConfigIsActive() = runBlocking {
         val core = core()
-        assertIs<ActivationResult.Activated>(core.importAndActivate(java.io.File(System.getProperty("dppass.repoRoot"), "tests/data/configs/valid-minimal.json").readText()).valueOrNull())
+        val minimal = java.io.File(System.getProperty("dppass.repoRoot"), "tests/data/configs/valid-minimal.json").readText()
+        assertIs<ActivationResult.Activated>(core.importAndActivate(minimal).valueOrNull())
         val userRouting = core.activation.state.activeConfig!!.routing
         val run = core.subscriptions.refresh(added(core), Fetcher(LINKS), "test").valueOrNull()!!
         assertTrue(run.applied)
@@ -133,7 +134,8 @@ class SubscriptionFlowTest {
         core.subscriptions.refresh(id, fetcher, "test")
         val good = core.subscriptions.state().valueOrNull()!!.find(id)!!.lastSuccessful
         val activeBefore = core.activation.state.active
-        fetcher.body = Base64.getEncoder().encodeToString("vless://00000000-0000-0000-0000-000000000000@0.0.0.0:1?security=none#App%20not%20supported".toByteArray())
+        fetcher.body = Base64.getEncoder()
+            .encodeToString("vless://00000000-0000-0000-0000-000000000000@0.0.0.0:1?security=none#App%20not%20supported".toByteArray())
         fetcher.headers = mapOf("x-hwid-active" to "true", "x-hwid-not-supported" to "true")
         val run = core.subscriptions.refresh(id, fetcher, "test").valueOrNull()!!
         assertFalse(run.applied)

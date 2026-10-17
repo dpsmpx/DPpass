@@ -60,16 +60,29 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
     override fun render(status: TunnelStatus) {
         body.removeAllViews()
         body.addView(
-            Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.share_intro)).apply { setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0) },
+            Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.share_intro)).apply {
+                setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0)
+            },
         )
         failure?.let { d ->
-            body.addView(Ui.card(context).apply { addView(Ui.text(context, R.style.Text_DPpass_Secondary, d.message).apply { setTextColor(context.getColor(R.color.warning)) }) }, Ui.matchWidth())
+            body.addView(
+                Ui.card(context).apply {
+                    addView(Ui.text(context, R.style.Text_DPpass_Secondary, d.message).apply { setTextColor(context.getColor(R.color.warning)) })
+                },
+                Ui.matchWidth(),
+            )
         }
         val s = settings ?: return
         body.addView(
             Ui.listCard(context).apply {
                 addView(
-                    Ui.switchRow(context, R.drawable.ic_lan, context.getString(R.string.share_enable), context.getString(R.string.share_enable_note), s.enabled) { setSharing(it) },
+                    Ui.switchRow(
+                        context,
+                        R.drawable.ic_lan,
+                        context.getString(R.string.share_enable),
+                        context.getString(R.string.share_enable_note),
+                        s.enabled,
+                    ) { setSharing(it) },
                     Ui.matchWidth(),
                 )
             },
@@ -93,7 +106,11 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
                     addView(
                         Ui.ListRow(context, R.drawable.ic_lan, address)
                             .subtitle(context.getString(R.string.share_address_note))
-                            .trailing(Ui.iconButton(context, R.drawable.ic_copy, context.getString(R.string.share_copy_address)) { copy(address, sensitive = false) }),
+                            .trailing(
+                                Ui.iconButton(context, R.drawable.ic_copy, context.getString(R.string.share_copy_address)) {
+                                    copy(address, sensitive = false)
+                                },
+                            ),
                         Ui.matchWidth(),
                     )
                     addView(Ui.divider(context))
@@ -125,14 +142,22 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
                 addView(
                     Ui.ListRow(context, R.drawable.ic_key, context.getString(R.string.share_user))
                         .subtitle(s.user.reveal())
-                        .trailing(Ui.iconButton(context, R.drawable.ic_copy, context.getString(R.string.share_copy_user)) { copy(s.user.reveal(), sensitive = true) }),
+                        .trailing(
+                            Ui.iconButton(context, R.drawable.ic_copy, context.getString(R.string.share_copy_user)) {
+                                copy(s.user.reveal(), sensitive = true)
+                            },
+                        ),
                     Ui.matchWidth(),
                 )
                 addView(Ui.divider(context))
                 addView(
                     Ui.ListRow(context, R.drawable.ic_key, context.getString(R.string.share_password))
                         .subtitle(s.password.reveal())
-                        .trailing(Ui.iconButton(context, R.drawable.ic_copy, context.getString(R.string.share_copy_password)) { copy(s.password.reveal(), sensitive = true) }),
+                        .trailing(
+                            Ui.iconButton(context, R.drawable.ic_copy, context.getString(R.string.share_copy_password)) {
+                                copy(s.password.reveal(), sensitive = true)
+                            },
+                        ),
                     Ui.matchWidth(),
                 )
                 addView(Ui.divider(context))
@@ -172,7 +197,12 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
 
         // ---- честные пределы (D-13) ----
         body.addView(Ui.section(context, context.getString(R.string.share_limits)))
-        body.addView(Ui.card(context).apply { addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.share_limits_text))) }, Ui.matchWidth())
+        body.addView(
+            Ui.card(context).apply {
+                addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.share_limits_text)))
+            },
+            Ui.matchWidth(),
+        )
     }
 
     /**
@@ -209,10 +239,17 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
             val r = try {
                 socket.use { so ->
                     withContext(Dispatchers.IO) {
-                        Pairing.host(so.getInputStream(), so.getOutputStream(), SecureRandom(), { code -> withContext(MainThread) { PairingDialog.ask(context, code) } }) {
+                        Pairing.host(
+                            so.getInputStream(),
+                            so.getOutputStream(),
+                            SecureRandom(),
+                            { code -> withContext(MainThread) { PairingDialog.ask(context, code) } },
+                        ) {
                             val now = core.share.current().valueOrNull()
                             val name = context.getString(R.string.share_paired_default, (now?.paired?.size ?: 0) + 1)
-                            core.share.pair(name, core.clock.nowMillis()).map { d -> Pairing.Offer(now?.port ?: 0, d.user.reveal(), d.password.reveal(), label) }
+                            core.share.pair(name, core.clock.nowMillis()).map { d ->
+                                Pairing.Offer(now?.port ?: 0, d.user.reveal(), d.password.reveal(), label)
+                            }
                         }
                     }
                 }
@@ -260,7 +297,6 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
         watch?.cancel()
         watch = null
     }
-
 
     private suspend fun load() {
         val core = host.graph?.core ?: return

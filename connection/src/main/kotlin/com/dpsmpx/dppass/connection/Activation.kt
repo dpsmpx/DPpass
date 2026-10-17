@@ -216,7 +216,12 @@ class ActivationService(
         }
         val revision = state.nextRevision
         val rolledBack = current.copy(status = ActivationStatus.ROLLED_BACK, failure = "${reason.code}: ${reason.message}")
-        val restored = prev.copy(revision = revision, timestampMillis = clock.nowMillis(), source = "rollback:${current.revision}", status = ActivationStatus.ACTIVE)
+        val restored = prev.copy(
+            revision = revision,
+            timestampMillis = clock.nowMillis(),
+            source = "rollback:${current.revision}",
+            status = ActivationStatus.ACTIVE,
+        )
         val next = ActivationState(restored, prevConfig, null, null, trim(state.history + rolledBack + restored), revision + 1)
         return when (val s = commit(next)) {
             is Outcome.Failure -> s

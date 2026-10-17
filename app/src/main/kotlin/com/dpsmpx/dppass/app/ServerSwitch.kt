@@ -45,8 +45,12 @@ internal object ServerSwitch {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val n = builder(context, R.string.switch_title, text, d.reason)
-            .addAction(Notification.Action.Builder(Icon.createWithResource(context, R.drawable.ic_bolt), context.getString(R.string.action_switch), switch).build())
-            .addAction(Notification.Action.Builder(Icon.createWithResource(context, R.drawable.ic_check), context.getString(R.string.action_keep), keep).build())
+            .addAction(
+                Notification.Action.Builder(Icon.createWithResource(context, R.drawable.ic_bolt), context.getString(R.string.action_switch), switch).build(),
+            )
+            .addAction(
+                Notification.Action.Builder(Icon.createWithResource(context, R.drawable.ic_check), context.getString(R.string.action_keep), keep).build(),
+            )
             // Смахнули — ответ «Остаться»: не спрашивать снова до остановки туннеля.
             .setDeleteIntent(keep)
             .build()

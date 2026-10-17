@@ -22,6 +22,7 @@ import com.dpsmpx.dppass.routing.RouteDecision
 import com.dpsmpx.dppass.routing.RouteQuery
 import com.dpsmpx.dppass.routing.RoutingPolicy
 import com.dpsmpx.dppass.routing.Rule
+import kotlinx.coroutines.runBlocking
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -30,7 +31,6 @@ import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
-import kotlinx.coroutines.runBlocking
 
 /** Мост без библиотеки: отвечает как настоящий (одно ядро, неполная проверка при работе). */
 private class FakeRuntime : XrayRuntime {
@@ -277,7 +277,10 @@ class XrayProxyEngineTest {
         assertEquals(RuleId("ru-ips"), decide(RouteQuery(ip = IpAddress.parse("203.0.113.9"))).ruleId)
         // Сочетание атрибутов, которого нет ни у одной записи: ядро не применяет его — и объяснение тоже.
         assertEquals(RouteAction.PROXY, decide(RouteQuery(domain = "ads.example")).action)
-        assertEquals(listOf("site:category-ru shop.example.ru", "ip:ru 203.0.113.9", "site:category-ru ads.example", "site:split@ads@cn ads.example"), rt.geoAsked)
+        assertEquals(
+            listOf("site:category-ru shop.example.ru", "ip:ru 203.0.113.9", "site:category-ru ads.example", "site:split@ads@cn ads.example"),
+            rt.geoAsked,
+        )
 
         // Правило без геоданных сработало раньше — мост не спрашивается.
         rt.geoAsked.clear()

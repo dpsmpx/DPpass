@@ -109,8 +109,10 @@ class PresentationTest {
             lastSuccessful = ok,
             lastFailed = fail,
         )
-        val s2 = Subscription(SubscriptionId("s2"), "второй", SubscriptionSource.Url(Secret("https://b.example.org/x")), lastSuccessful = ok,
-            lastFailed = FailedRevision(null, 4_000, fail.reason))
+        val s2 = Subscription(
+            SubscriptionId("s2"), "второй", SubscriptionSource.Url(Secret("https://b.example.org/x")), lastSuccessful = ok,
+            lastFailed = FailedRevision(null, 4_000, fail.reason),
+        )
         val rows = SubscriptionList.rows(SubscriptionsState(listOf(s1, s2), SubscriptionId("s1")), ConfigSource.FromSubscription(SubscriptionId("s1")), 7_000)
         val r = rows[0]
         assertEquals("Мой поставщик", r.name, "название поставщика — вместо имени по адресу")
@@ -178,7 +180,10 @@ class PresentationTest {
         assertEquals(LatencyLevel.GOOD, LatencyLabel.of(ms(80)).level)
         assertEquals(LatencyLevel.FAIR, LatencyLabel.of(ms(150)).level)
         assertEquals(LatencyLevel.POOR, LatencyLabel.of(ms(400)).level)
-        assertEquals(LatencyLevel.FAILED, LatencyLabel.of(com.dpsmpx.dppass.network.LatencyResult.Failed(com.dpsmpx.dppass.network.LatencyFailure.TIMEOUT)).level)
+        assertEquals(
+            LatencyLevel.FAILED,
+            LatencyLabel.of(com.dpsmpx.dppass.network.LatencyResult.Failed(com.dpsmpx.dppass.network.LatencyFailure.TIMEOUT)).level,
+        )
         assertEquals(LatencyLevel.UDP, LatencyLabel.of(com.dpsmpx.dppass.network.LatencyResult.NotTcp).level)
         assertEquals(LatencyLevel.UNKNOWN, LatencyLabel.of(null).level)
 
@@ -204,9 +209,18 @@ class PresentationTest {
         val day = 24 * 60 * 60_000L
         val s = Subscription(
             SubscriptionId("s1"), "a", SubscriptionSource.Url(Secret("https://a.example.net/s")),
-            metadata = SubscriptionMetadata(traffic = TrafficInfo(10, 40, 100, (10 * day + 1000) / 1000), webPageUrl = "https://a.example.net/page", updateIntervalHours = 6),
+            metadata = SubscriptionMetadata(
+                traffic = TrafficInfo(10, 40, 100, (10 * day + 1000) / 1000),
+                webPageUrl = "https://a.example.net/page",
+                updateIntervalHours = 6,
+            ),
         )
-        val inline = Subscription(SubscriptionId("s2"), "b", SubscriptionSource.Inline(Secret("trojan://p@198.51.100.1:443")), updatePolicy = com.dpsmpx.dppass.subscriptions.UpdatePolicy(null))
+        val inline = Subscription(
+            SubscriptionId("s2"),
+            "b",
+            SubscriptionSource.Inline(Secret("trojan://p@198.51.100.1:443")),
+            updatePolicy = com.dpsmpx.dppass.subscriptions.UpdatePolicy(null),
+        )
         val rows = SubscriptionList.rows(SubscriptionsState(listOf(s, inline), null), ConfigSource.None, 0)
         assertEquals(50, rows[0].usedPercent)
         assertEquals(10L, rows[0].daysLeft)

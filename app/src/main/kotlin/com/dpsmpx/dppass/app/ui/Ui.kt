@@ -35,9 +35,9 @@ import android.widget.Switch
 import android.widget.TextView
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.diagnostics.FailureKind
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlin.coroutines.CoroutineContext
 import kotlin.math.roundToInt
-import kotlinx.coroutines.CoroutineDispatcher
 
 /**
  * Главный поток как диспетчер корутин. `kotlinx-coroutines-android` ради

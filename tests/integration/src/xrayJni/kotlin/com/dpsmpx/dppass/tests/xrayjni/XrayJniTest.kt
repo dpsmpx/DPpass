@@ -1,7 +1,7 @@
 package com.dpsmpx.dppass.tests.xrayjni
 
-import com.dpsmpx.dppass.config.ConfigLoader
 import com.dpsmpx.dppass.config.ConfigIr
+import com.dpsmpx.dppass.config.ConfigLoader
 import com.dpsmpx.dppass.config.ProtocolSpec
 import com.dpsmpx.dppass.config.SecuritySpec
 import com.dpsmpx.dppass.config.TransportSpec

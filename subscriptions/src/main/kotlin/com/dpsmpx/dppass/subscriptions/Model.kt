@@ -158,6 +158,7 @@ object UpdateSchedule {
 enum class RoutingBinding {
     /** Маршрутизация и DNS — пользователя; из подписки — только серверы (по умолчанию). */
     USER_ROUTING,
+
     /** Пользователь явно разрешил брать маршрутизацию и DNS поставщика (D-11). */
     PROVIDER_ROUTING,
 }

@@ -32,8 +32,9 @@ sealed interface DomainMatcher {
     fun matches(domain: String): Boolean = when (this) {
         is Full -> domain == name
         // без конкатенации: на горячем пути объяснения решений это заметно
-        is Suffix -> domain == suffix ||
-            (domain.length > suffix.length && domain.endsWith(suffix) && domain[domain.length - suffix.length - 1] == '.')
+        is Suffix ->
+            domain == suffix ||
+                (domain.length > suffix.length && domain.endsWith(suffix) && domain[domain.length - suffix.length - 1] == '.')
         is Keyword -> keyword in domain
     }
 }

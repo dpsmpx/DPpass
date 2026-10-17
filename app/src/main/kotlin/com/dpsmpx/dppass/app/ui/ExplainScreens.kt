@@ -98,7 +98,8 @@ class PlanScreen(host: Host) : SubScreen(host, R.string.plan_title) {
             if (i > 0) addView(Ui.divider(context))
             val (icon, result) = when (val x = r.result) {
                 PlanResult.Connected -> R.drawable.ic_check to context.getString(R.string.plan_connected)
-                is PlanResult.Failed -> R.drawable.ic_block to context.getString(R.string.error_with_reason, context.getString(Ui.kind(x.reason.kind)), x.reason.message)
+                is PlanResult.Failed ->
+                    R.drawable.ic_block to context.getString(R.string.error_with_reason, context.getString(Ui.kind(x.reason.kind)), x.reason.message)
                 PlanResult.Planned -> R.drawable.ic_servers to null
             }
             val lines = listOfNotNull(result, r.reasons.joinToString(ServerList.SEPARATOR).ifEmpty { null })
@@ -109,7 +110,11 @@ class PlanScreen(host: Host) : SubScreen(host, R.string.plan_title) {
     private fun exclusionsCard(rows: List<PlanExclusion>): View? {
         if (rows.isEmpty()) return null
         return Ui.column(context, 8).apply {
-            addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.plan_excluded)).apply { setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0) })
+            addView(
+                Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.plan_excluded)).apply {
+                    setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0)
+                },
+            )
             addView(
                 Ui.listCard(context).apply {
                     rows.forEachIndexed { i, r ->
@@ -132,7 +137,9 @@ class PlanScreen(host: Host) : SubScreen(host, R.string.plan_title) {
         }
     }
 
-    private fun caption(text: Int): View = Ui.text(context, R.style.Text_DPpass_Caption, context.getString(text)).apply { setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0) }
+    private fun caption(text: Int): View = Ui.text(context, R.style.Text_DPpass_Caption, context.getString(text)).apply {
+        setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0)
+    }
 
     private fun note(text: CharSequence): View = Ui.card(context).apply { addView(Ui.text(context, R.style.Text_DPpass_Secondary, text)) }
 }
@@ -146,7 +153,11 @@ class ActivationHistoryScreen(host: Host) : SubScreen(host, R.string.history_tit
     private val list = Ui.column(context, 8)
 
     override fun content(): View = Ui.column(context, 12).apply {
-        addView(Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.history_intro)).apply { setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0) })
+        addView(
+            Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.history_intro)).apply {
+                setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0)
+            },
+        )
         addView(list, Ui.matchWidth())
     }
 
@@ -155,7 +166,10 @@ class ActivationHistoryScreen(host: Host) : SubScreen(host, R.string.history_tit
         val rows = ActivationHistory.rows(core.activation.state.history)
         list.removeAllViews()
         if (rows.isEmpty()) {
-            list.addView(Ui.card(context).apply { addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.history_empty))) }, Ui.matchWidth())
+            list.addView(
+                Ui.card(context).apply { addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.history_empty))) },
+                Ui.matchWidth(),
+            )
             return
         }
         val subs = (core.subscriptions.state() as? Outcome.Success)?.value
@@ -191,7 +205,8 @@ class ActivationHistoryScreen(host: Host) : SubScreen(host, R.string.history_tit
         )
         r.failedStep?.let { lines += context.getString(R.string.history_failed_step, context.getString(step(it))) }
         r.failure?.let { lines += it }
-        return Ui.ListRow(context, icon, context.getString(R.string.history_revision, r.revision, context.getString(label))).subtitle(lines.joinToString("\n")).apply {
+        val heading = context.getString(R.string.history_revision, r.revision, context.getString(label))
+        return Ui.ListRow(context, icon, heading).subtitle(lines.joinToString("\n")).apply {
             subtitle.setTextIsSelectable(true)
             if (r.status == ActivationStatus.REJECTED) title.setTextColor(context.getColor(R.color.error))
         }
@@ -235,12 +250,20 @@ class RouteCheckScreen(host: Host) : SubScreen(host, R.string.route_title) {
     private var job: Job? = null
 
     override fun content(): View = Ui.column(context, 12).apply {
-        addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.route_intro)).apply { setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0) })
+        addView(
+            Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.route_intro)).apply {
+                setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0)
+            },
+        )
         addView(input, Ui.matchWidth())
         addView(Ui.listCard(context).apply { addView(appRow, Ui.matchWidth()) }, Ui.matchWidth())
         addView(checkButton.apply { setOnClickListener { runCheck() } }, Ui.matchWidth())
         addView(verdict, Ui.matchWidth())
-        addView(Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.route_note)).apply { setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0) })
+        addView(
+            Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.route_note)).apply {
+                setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0)
+            },
+        )
     }
 
     override fun render(status: TunnelStatus) {

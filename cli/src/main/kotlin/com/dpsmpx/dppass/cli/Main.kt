@@ -179,7 +179,9 @@ private fun check(a: Args): Int = runBlocking {
             printDiagnostics(r.diagnostics)
             when (val act = r.value) {
                 is ActivationResult.Activated -> {
-                    println("ACTIVATED revision=${act.record.revision} profile=${act.record.profileId} compiled_sha256=${act.record.compiledChecksum?.take(16)}")
+                    println(
+                        "ACTIVATED revision=${act.record.revision} profile=${act.record.profileId} compiled_sha256=${act.record.compiledChecksum?.take(16)}",
+                    )
                     printDiagnostics(act.diagnostics)
                     core.tunnelSpec()?.valueOrNull()?.let { spec ->
                         println("tunnel: routes=${spec.routes.size} excluded=${spec.excludedRoutes.size} apps=${spec.apps} ipv6=${spec.ipv6Mode}")
@@ -205,7 +207,11 @@ private fun route(a: Args): Int {
     val ip = a.opt("--ip")?.let { IpAddress.parse(it) ?: throw UsageError("не IP: $it") }
     val domain = a.opt("--domain")?.lowercase()
     if (ip == null && domain == null) throw UsageError("нужен --domain или --ip")
-    val network = a.opt("--network")?.let { n -> NetworkKind.entries.firstOrNull { it.name == n.uppercase() } ?: throw UsageError("сеть: wifi|mobile|ethernet|other") }
+    val network = a.opt("--network")?.let { n ->
+        NetworkKind.entries.firstOrNull {
+            it.name == n.uppercase()
+        } ?: throw UsageError("сеть: wifi|mobile|ethernet|other")
+    }
     val q = RouteQuery(
         domain = domain,
         ip = ip,

@@ -16,7 +16,7 @@ import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sqrt
 
-/**
+/*
  * Адаптивная модель устойчивости (D-44). Клиент учится на исходах своих
  * попыток и проб (D-32), чтобы выбирать кандидата, который в **этой
  * сети** держится стабильнее, и быстро уходить от сервера, который начал
@@ -264,7 +264,13 @@ class StabilityModel internal constructor(
     constructor() : this(LinkedHashMap(), TransportAdvisor())
 
     @Synchronized
-    fun observe(profileId: ProfileId, context: NetworkContext, sample: StabilityObservation, profile: ServerProfile? = null, assessment: NetworkAssessment? = null) {
+    fun observe(
+        profileId: ProfileId,
+        context: NetworkContext,
+        sample: StabilityObservation,
+        profile: ServerProfile? = null,
+        assessment: NetworkAssessment? = null,
+    ) {
         val key = key(profileId, context)
         records[key] = (records[key] ?: StabilityStats()).fold(sample)
         // Исход устройства раздачи (D-55) говорит о своей сети, а не о сети оператора:
@@ -411,6 +417,10 @@ internal object AdaptiveCodec {
     fun int(s: String, default: Int): Int = s.toIntOrNull() ?: default
     fun weights(line: String): DoubleArray {
         val parts = line.split(',')
-        return DoubleArray(TransportAdvisor.FEATURES) { i -> parts.getOrNull(i)?.toDoubleOrNull()?.takeIf { it.isFinite() }?.coerceIn(-TransportAdvisor.CLAMP, TransportAdvisor.CLAMP) ?: 0.0 }
+        return DoubleArray(TransportAdvisor.FEATURES) { i ->
+            parts.getOrNull(i)?.toDoubleOrNull()?.takeIf {
+                it.isFinite()
+            }?.coerceIn(-TransportAdvisor.CLAMP, TransportAdvisor.CLAMP) ?: 0.0
+        }
     }
 }

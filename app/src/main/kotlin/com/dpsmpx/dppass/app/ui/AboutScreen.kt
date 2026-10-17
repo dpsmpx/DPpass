@@ -10,10 +10,10 @@ import android.widget.LinearLayout
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.TunnelStatus
 import com.dpsmpx.dppass.engine.xray.XrayBackend
-import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.IOException
 
 /**
  * «О программе» (D-43): версия приложения и ядра, из чего собран набор
@@ -32,18 +32,31 @@ class AboutScreen(host: Host) : SubScreen(host, R.string.about_title) {
                     },
                     LinearLayout.LayoutParams(Ui.dp(context, 72), Ui.dp(context, 72)).apply { gravity = Gravity.CENTER_HORIZONTAL },
                 )
-                addView(Ui.text(context, R.style.Text_DPpass_Headline, context.getString(R.string.app_name)).apply { gravity = Gravity.CENTER_HORIZONTAL }, Ui.matchWidth())
                 addView(
-                    Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.about_version, host.graph?.appVersion ?: "?")).apply { gravity = Gravity.CENTER_HORIZONTAL },
+                    Ui.text(context, R.style.Text_DPpass_Headline, context.getString(R.string.app_name)).apply { gravity = Gravity.CENTER_HORIZONTAL },
                     Ui.matchWidth(),
                 )
-                addView(Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.about_not_release)).apply { gravity = Gravity.CENTER_HORIZONTAL }, Ui.matchWidth())
+                addView(
+                    Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.about_version, host.graph?.appVersion ?: "?")).apply {
+                        gravity = Gravity.CENTER_HORIZONTAL
+                    },
+                    Ui.matchWidth(),
+                )
+                addView(
+                    Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.about_not_release)).apply {
+                        gravity = Gravity.CENTER_HORIZONTAL
+                    },
+                    Ui.matchWidth(),
+                )
             },
             Ui.matchWidth(),
         )
         addView(
             Ui.listCard(context).apply {
-                addView(Ui.ListRow(context, R.drawable.ic_shield, context.getString(R.string.about_engine)).subtitle("Xray-core ${XrayBackend.VERSION} · MPL-2.0"), Ui.matchWidth())
+                addView(
+                    Ui.ListRow(context, R.drawable.ic_shield, context.getString(R.string.about_engine)).subtitle("Xray-core ${XrayBackend.VERSION} · MPL-2.0"),
+                    Ui.matchWidth(),
+                )
                 addView(Ui.divider(context))
                 addView(Ui.ListRow(context, R.drawable.ic_dns, context.getString(R.string.about_geodata)).subtitle(host.graph?.geodata ?: "—"), Ui.matchWidth())
                 addView(Ui.divider(context))
@@ -65,7 +78,10 @@ class AboutScreen(host: Host) : SubScreen(host, R.string.about_title) {
             Ui.matchWidth(),
         )
         addView(Ui.section(context, context.getString(R.string.about_privacy)))
-        addView(Ui.card(context).apply { addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.about_privacy_text))) }, Ui.matchWidth())
+        addView(
+            Ui.card(context).apply { addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.about_privacy_text))) },
+            Ui.matchWidth(),
+        )
     }
 
     override fun render(status: TunnelStatus) = Unit
@@ -112,7 +128,10 @@ class LicensesScreen(host: Host) : SubScreen(host, R.string.about_licenses) {
             }
             body.removeAllViews()
             for (p in parts) {
-                body.addView(Ui.card(context).apply { addView(Ui.text(context, R.style.Text_DPpass_Mono, p.trim()).apply { setTextIsSelectable(true) }) }, Ui.matchWidth())
+                body.addView(
+                    Ui.card(context).apply { addView(Ui.text(context, R.style.Text_DPpass_Mono, p.trim()).apply { setTextIsSelectable(true) }) },
+                    Ui.matchWidth(),
+                )
             }
         }
     }

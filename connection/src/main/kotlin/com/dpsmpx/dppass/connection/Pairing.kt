@@ -64,7 +64,13 @@ object Pairing {
      * ждать); [issue] — выдать вход, только когда подтвердили оба.
      */
     @Throws(IOException::class)
-    suspend fun host(input: InputStream, output: OutputStream, random: SecureRandom, confirm: suspend (String) -> Boolean, issue: suspend () -> Outcome<Offer>): Outcome<Unit> {
+    suspend fun host(
+        input: InputStream,
+        output: OutputStream,
+        random: SecureRandom,
+        confirm: suspend (String) -> Boolean,
+        issue: suspend () -> Outcome<Offer>,
+    ): Outcome<Unit> {
         val hello = receive(input, HELLO) ?: return broken("нет приветствия сопряжения")
         if (!hello.startsWith(MAGIC)) return broken("на порту сопряжения — не DPpass")
         val guestKeyBytes = hello.copyOfRange(MAGIC.size, hello.size)
