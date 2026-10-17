@@ -210,6 +210,7 @@ class NetworkCheckScreen(host: Host) : SubScreen(host, R.string.netcheck_title) 
     private fun target(t: ProbeTarget): Int = when (t) {
         ProbeTarget.DOMESTIC -> R.string.probe_domestic
         ProbeTarget.FOREIGN -> R.string.probe_foreign
+        ProbeTarget.FOREIGN_ALT -> R.string.probe_foreign_alt
     }
 
     private fun outcome(o: ProbeOutcome): Int = when (o) {

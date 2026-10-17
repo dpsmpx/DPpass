@@ -229,7 +229,7 @@
     <string name="about_licenses">Third-party licenses</string>
     <string name="about_licenses_note">Components inside DPpass and their licenses</string>
     <string name="about_privacy">Privacy</string>
-    <string name="about_privacy_text">DPpass has no telemetry, analytics or crash reports and doesn’t read device identifiers. Subscriptions get only their link, DPpass’s own User-Agent and — if you turn it on — a random device ID. Network check (only when you tap it) contacts ya.ru and speed.cloudflare.com and sends nothing about you. The log and report stay on the phone.</string>
+    <string name="about_privacy_text">DPpass has no telemetry, analytics or crash reports and doesn’t read device identifiers. Subscriptions get only their link, DPpass’s own User-Agent and — if you turn it on — a random device ID. Network check (only when you tap it) contacts ya.ru, speed.cloudflare.com and www.google.com and sends nothing about you. The log and report stay on the phone.</string>
     <string name="about_notice_missing">%1$s is missing from this build.</string>
 
     <string name="notification_channel">Tunnel</string>
@@ -252,7 +252,7 @@
 
     <string name="netcheck_title">Network check</string>
     <string name="netcheck_settings_note">What the network lets through right now</string>
-    <string name="netcheck_intro">DPpass checks, one at a time, what this network lets through: names, connections, secure connections, QUIC and a large transfer — to ya.ru and speed.cloudflare.com, past the tunnel. Nothing about you or the phone is sent; these sites see the phone’s address, as when opening a page.</string>
+    <string name="netcheck_intro">DPpass checks, one at a time, what this network lets through: names, connections, secure connections, QUIC and a large transfer — to ya.ru, speed.cloudflare.com and www.google.com, past the tunnel. Nothing about you or the phone is sent; these sites see the phone’s address, as when opening a page.</string>
     <string name="netcheck_note">For your information only: the result doesn’t change how a server is chosen yet. Repeated checks are paced — skipped steps are not network failures.</string>
     <string name="netcheck_run">Check network</string>
     <string name="netcheck_running">Checking…</string>
@@ -269,7 +269,8 @@
     <string name="probe_captive">Sign-in page</string>
     <string name="probe_bulk">Large transfer</string>
     <string name="probe_domestic">in Russia</string>
-    <string name="probe_foreign">abroad</string>
+    <string name="probe_foreign">abroad (Cloudflare)</string>
+    <string name="probe_foreign_alt">abroad (Google)</string>
     <string name="outcome_success">passed</string>
     <string name="outcome_timeout">no answer</string>
     <string name="outcome_reset">reset</string>

@@ -28,6 +28,13 @@ enum class NetworkCondition {
     CAPTIVE_PORTAL,
     ALLOWLIST_LIKE,
     FULL_ENDPOINT_BLOCK,
+
+    /**
+     * Закрыты адреса одного поставщика (L4): ориентир сети доставки сбрасывает
+     * соединения, второй зарубежный и серверы вне [SimulatedNetwork.blockedEndpoints]
+     * работают (D-62; телефон, 17.10.2026).
+     */
+    PROVIDER_BLOCKED,
     OFFLINE,
 }
 
@@ -54,7 +61,7 @@ class SimulatedNetwork(
     }
 
     private fun outcome(r: ProbeRequest): ProbeOutcome {
-        val foreign = r.target == ProbeTarget.FOREIGN
+        val foreign = r.target != ProbeTarget.DOMESTIC
         return when (condition) {
             // IP_BLOCKED и FULL_ENDPOINT_BLOCK бьют по адресам серверов, а не по ориентирам проб
             NetworkCondition.NORMAL, NetworkCondition.HIGH_LATENCY, NetworkCondition.IP_BLOCKED, NetworkCondition.FULL_ENDPOINT_BLOCK ->
@@ -75,6 +82,11 @@ class SimulatedNetwork(
             NetworkCondition.CAPTIVE_PORTAL -> if (r.kind == ProbeKind.CAPTIVE) ProbeOutcome.REDIRECTED else ProbeOutcome.TIMEOUT
             NetworkCondition.ALLOWLIST_LIKE -> if (foreign) ProbeOutcome.TIMEOUT else ProbeOutcome.SUCCESS
             NetworkCondition.OFFLINE -> ProbeOutcome.TIMEOUT
+            NetworkCondition.PROVIDER_BLOCKED -> when {
+                r.target != ProbeTarget.FOREIGN || r.kind == ProbeKind.DNS -> ProbeOutcome.SUCCESS
+                r.kind == ProbeKind.UDP -> ProbeOutcome.TIMEOUT
+                else -> ProbeOutcome.REFUSED
+            }
         }
     }
 
@@ -86,6 +98,7 @@ class SimulatedNetwork(
     fun candidatePath(path: PathClass, endpoint: String, reachableUnderAllowlist: Boolean): ProbeOutcome = when (condition) {
         NetworkCondition.NORMAL, NetworkCondition.HIGH_LATENCY, NetworkCondition.DNS_BLOCKED, NetworkCondition.DNS_DEGRADED -> ProbeOutcome.SUCCESS
         NetworkCondition.IP_BLOCKED -> if (endpoint in blockedEndpoints) ProbeOutcome.TIMEOUT else ProbeOutcome.SUCCESS
+        NetworkCondition.PROVIDER_BLOCKED -> if (endpoint in blockedEndpoints) ProbeOutcome.REFUSED else ProbeOutcome.SUCCESS
         NetworkCondition.TCP_REACHABLE_UDP_BLOCKED -> if (path == PathClass.UDP_QUIC) ProbeOutcome.TIMEOUT else ProbeOutcome.SUCCESS
         NetworkCondition.TLS_DEGRADED -> if (path == PathClass.TCP_STREAM) ProbeOutcome.STALLED else ProbeOutcome.SUCCESS
         NetworkCondition.PACKET_LOSS -> if (path == PathClass.UDP_QUIC) ProbeOutcome.SUCCESS else ProbeOutcome.STALLED

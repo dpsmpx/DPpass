@@ -228,7 +228,7 @@
     <string name="about_licenses">Лицензии компонентов</string>
     <string name="about_licenses_note">Что внутри DPpass и под какими лицензиями</string>
     <string name="about_privacy">Приватность</string>
-    <string name="about_privacy_text">В DPpass нет телеметрии, аналитики и отчётов о падениях, идентификаторы устройства он не читает. Подписке уходят только её адрес, собственный User-Agent DPpass и — если вы включите — случайный идентификатор устройства. Проверка сети (только по нажатию) обращается к ya.ru и speed.cloudflare.com и ничего о вас не передаёт. Журнал и отчёт остаются на телефоне.</string>
+    <string name="about_privacy_text">В DPpass нет телеметрии, аналитики и отчётов о падениях, идентификаторы устройства он не читает. Подписке уходят только её адрес, собственный User-Agent DPpass и — если вы включите — случайный идентификатор устройства. Проверка сети (только по нажатию) обращается к ya.ru, speed.cloudflare.com и www.google.com и ничего о вас не передаёт. Журнал и отчёт остаются на телефоне.</string>
     <string name="about_notice_missing">В этой сборке нет %1$s.</string>
 
     <string name="notification_channel">Туннель</string>
@@ -251,7 +251,7 @@
 
     <string name="netcheck_title">Проверка сети</string>
     <string name="netcheck_settings_note">Что сеть пропускает сейчас</string>
-    <string name="netcheck_intro">DPpass по очереди проверит, что пропускает эта сеть: имена, соединения, защищённое соединение, QUIC и крупную передачу — к ya.ru и speed.cloudflare.com, мимо туннеля. О вас и телефоне ничего не передаётся; эти сайты увидят адрес телефона, как при открытии страницы.</string>
+    <string name="netcheck_intro">DPpass по очереди проверит, что пропускает эта сеть: имена, соединения, защищённое соединение, QUIC и крупную передачу — к ya.ru, speed.cloudflare.com и www.google.com, мимо туннеля. О вас и телефоне ничего не передаётся; эти сайты увидят адрес телефона, как при открытии страницы.</string>
     <string name="netcheck_note">Только для сведения: на выбор сервера итог пока не влияет. Повторные проверки идут с паузой — пропущенные шаги не значат отказ сети.</string>
     <string name="netcheck_run">Проверить сеть</string>
     <string name="netcheck_running">Проверяю…</string>
@@ -268,7 +268,8 @@
     <string name="probe_captive">Страница входа</string>
     <string name="probe_bulk">Крупная передача</string>
     <string name="probe_domestic">в России</string>
-    <string name="probe_foreign">за рубежом</string>
+    <string name="probe_foreign">за рубежом (Cloudflare)</string>
+    <string name="probe_foreign_alt">за рубежом (Google)</string>
     <string name="outcome_success">прошло</string>
     <string name="outcome_timeout">нет ответа</string>
     <string name="outcome_reset">сброшено</string>

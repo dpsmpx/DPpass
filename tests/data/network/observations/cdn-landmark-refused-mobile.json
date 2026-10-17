@@ -1,0 +1,52 @@
+{
+  "note": "Телефон, мобильная сеть, 17.10.2026, 0.7.0–0.7.2-dev, план с одним зарубежным ориентиром: соединение с ориентиром сети доставки сбрасывается сразу, QUIC к нему молчит, зарубежное имя резолвится; в те же минуты TCP-сервер у другого хостера работал. Один ориентир не отличает закрытого поставщика от белого списка — вывод «что-то ограничивается», не белый список (D-62).",
+  "type": "MOBILE",
+  "probes": [
+    {
+      "kind": "CAPTIVE",
+      "target": "DOMESTIC",
+      "outcome": "SUCCESS",
+      "ms": 1
+    },
+    {
+      "kind": "DNS",
+      "target": "DOMESTIC",
+      "outcome": "SUCCESS",
+      "ms": 39
+    },
+    {
+      "kind": "TCP",
+      "target": "DOMESTIC",
+      "outcome": "SUCCESS",
+      "ms": 77
+    },
+    {
+      "kind": "DNS",
+      "target": "FOREIGN",
+      "outcome": "SUCCESS",
+      "ms": 41
+    },
+    {
+      "kind": "TCP",
+      "target": "FOREIGN",
+      "outcome": "REFUSED"
+    },
+    {
+      "kind": "TLS",
+      "target": "FOREIGN",
+      "outcome": "REFUSED"
+    },
+    {
+      "kind": "UDP",
+      "target": "FOREIGN",
+      "outcome": "TIMEOUT"
+    },
+    {
+      "kind": "BULK",
+      "target": "FOREIGN",
+      "outcome": "REFUSED"
+    }
+  ],
+  "restriction": "DEGRADED",
+  "confidence": "MEDIUM"
+}

@@ -50,6 +50,7 @@ class NetworkClassifierTest {
             NetworkCondition.CAPTIVE_PORTAL to RestrictionClass.CAPTIVE,
             NetworkCondition.ALLOWLIST_LIKE to RestrictionClass.ALLOWLIST_LIKE,
             NetworkCondition.FULL_ENDPOINT_BLOCK to RestrictionClass.NORMAL,
+            NetworkCondition.PROVIDER_BLOCKED to RestrictionClass.DEGRADED,
             NetworkCondition.OFFLINE to RestrictionClass.OFFLINE,
         )
         for ((c, cls) in expected) {
@@ -95,7 +96,7 @@ class ProbeSkipTest {
     @Test
     fun skippedForeignProbesAreNotNormal() {
         val probes = ProbePlan.STANDARD.map { r ->
-            ProbeResult(r, if (r.target == ProbeTarget.FOREIGN && r.kind != ProbeKind.DNS) ProbeOutcome.SKIPPED else ProbeOutcome.SUCCESS, 5)
+            ProbeResult(r, if (r.target != ProbeTarget.DOMESTIC && r.kind != ProbeKind.DNS) ProbeOutcome.SKIPPED else ProbeOutcome.SUCCESS, 5)
         }
         val x = NetworkClassifier.classify(NetworkType.MOBILE, probes)
         assertEquals(RestrictionClass.UNKNOWN, x.restriction, x.evidence.toString())
@@ -136,5 +137,58 @@ class CooldownTest {
         assertEquals(0, c.remainingMillis(), "пауза прошла — не уходит в минус")
         c.restart(15_000)
         assertEquals(15_000, c.remainingMillis(), "новый замер — новая пауза, своя длина")
+    }
+}
+
+/** Два зарубежных ориентира (D-62): закрыт поставщик — L4; закрыты оба — белый список. */
+class SecondLandmarkTest {
+    private fun probes(vararg pairs: Pair<ProbeRequest, ProbeOutcome>): List<ProbeResult> {
+        val given = pairs.toMap()
+        return ProbePlan.STANDARD.map { ProbeResult(it, given[it] ?: ProbeOutcome.SUCCESS, 40) }
+    }
+
+    private fun r(kind: ProbeKind, target: ProbeTarget) = ProbeRequest(kind, target)
+
+    @Test
+    fun oneProviderClosedIsL4NotForeignBlocked() {
+        val x = NetworkClassifier.classify(
+            NetworkType.MOBILE,
+            probes(
+                r(ProbeKind.TCP, ProbeTarget.FOREIGN) to ProbeOutcome.REFUSED,
+                r(ProbeKind.TLS, ProbeTarget.FOREIGN) to ProbeOutcome.REFUSED,
+                r(ProbeKind.UDP, ProbeTarget.FOREIGN) to ProbeOutcome.TIMEOUT,
+                r(ProbeKind.BULK, ProbeTarget.FOREIGN) to ProbeOutcome.REFUSED,
+            ),
+        )
+        assertEquals(RestrictionClass.DEGRADED, x.restriction, x.evidence.toString())
+        assertEquals(Reachability.OK, x.tcp, "наружу TCP проходит — ко второму ориентиру")
+        assertEquals(Reachability.OK, x.udp, "QUIC ко второму ориентиру прошёл")
+        assertTrue(x.evidence.any { "L4" in it }, x.evidence.toString())
+        assertTrue(x.evidence.none { it == "зарубежный адрес не отвечает по TCP" }, x.evidence.toString())
+    }
+
+    @Test
+    fun bothForeignClosedWhileNamesResolveIsAllowlistLike() {
+        val closed = listOf(ProbeTarget.FOREIGN, ProbeTarget.FOREIGN_ALT).flatMap { t ->
+            listOf(r(ProbeKind.TCP, t) to ProbeOutcome.REFUSED, r(ProbeKind.TLS, t) to ProbeOutcome.REFUSED, r(ProbeKind.UDP, t) to ProbeOutcome.TIMEOUT)
+        } + (r(ProbeKind.BULK, ProbeTarget.FOREIGN) to ProbeOutcome.REFUSED)
+        val x = NetworkClassifier.classify(NetworkType.MOBILE, probes(*closed.toTypedArray()))
+        assertEquals(RestrictionClass.ALLOWLIST_LIKE, x.restriction, x.evidence.toString())
+        assertEquals(Confidence.MEDIUM, x.confidence, "имена резолвятся — не выше средней")
+        assertEquals(Reachability.OK, x.dns)
+    }
+
+    @Test
+    fun withOneLandmarkResolvingNamesStayDegraded() {
+        // Наблюдение старого плана (одного ориентира) — без второго ориентира белый список не выводится.
+        val old = ProbePlan.STANDARD.filter { it.target != ProbeTarget.FOREIGN_ALT }.map {
+            val o = when {
+                it.target == ProbeTarget.FOREIGN && it.kind == ProbeKind.UDP -> ProbeOutcome.TIMEOUT
+                it.target == ProbeTarget.FOREIGN && it.kind != ProbeKind.DNS -> ProbeOutcome.REFUSED
+                else -> ProbeOutcome.SUCCESS
+            }
+            ProbeResult(it, o, 40)
+        }
+        assertEquals(RestrictionClass.DEGRADED, NetworkClassifier.classify(NetworkType.MOBILE, old).restriction)
     }
 }

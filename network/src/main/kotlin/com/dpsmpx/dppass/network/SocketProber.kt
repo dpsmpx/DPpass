@@ -28,7 +28,7 @@ import javax.net.ssl.SSLSocketFactory
  */
 data class Landmark(val host: String, val port: Int = 443, val bulkPath: String? = null)
 
-/** Ориентиры по решению D-60; меняются только решением. */
+/** Ориентиры по решениям D-60 и D-62; меняются только решением. */
 object Landmarks {
     /** Из типичного белого списка (L9): отличает «внутрь можно, наружу нельзя» от «нельзя никуда». */
     val DOMESTIC: Landmark = Landmark("ya.ru")
@@ -36,9 +36,17 @@ object Landmarks {
     /** Сеть доставки, где наблюдалось ограничение 16 КБ (L4, L7), с адресом заданного объёма. */
     val FOREIGN: Landmark = Landmark("speed.cloudflare.com", bulkPath = "/__down?bytes=65536")
 
+    /**
+     * У другого поставщика, чем [FOREIGN] (D-62): закрыт один — довод L4,
+     * закрыты оба при живом отечественном — белый список (L9). Только TCP,
+     * TLS и QUIC: имя резолвит проба DNS первого, крупной передачи нет.
+     */
+    val FOREIGN_ALT: Landmark = Landmark("www.google.com")
+
     fun of(target: ProbeTarget): Landmark = when (target) {
         ProbeTarget.DOMESTIC -> DOMESTIC
         ProbeTarget.FOREIGN -> FOREIGN
+        ProbeTarget.FOREIGN_ALT -> FOREIGN_ALT
     }
 }
 

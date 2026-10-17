@@ -74,6 +74,15 @@
       "verdict": "ATTEMPTS_EXHAUSTED"
     },
     {
+      "condition": "PROVIDER_BLOCKED",
+      "restriction": "DEGRADED",
+      "connects": true,
+      "blocked_endpoints": [
+        "203.0.113.10:443"
+      ],
+      "first_failed": "reality-1"
+    },
+    {
       "condition": "OFFLINE",
       "restriction": "OFFLINE",
       "connects": false,

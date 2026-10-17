@@ -66,9 +66,13 @@ object ProbePlan {
         ProbeRequest(ProbeKind.DNS, ProbeTarget.DOMESTIC),
         ProbeRequest(ProbeKind.TCP, ProbeTarget.DOMESTIC),
         ProbeRequest(ProbeKind.DNS, ProbeTarget.FOREIGN),
+        // Два зарубежных ориентира — вперемежку: пауза к каждому своя (D-14, D-62).
         ProbeRequest(ProbeKind.TCP, ProbeTarget.FOREIGN),
+        ProbeRequest(ProbeKind.TCP, ProbeTarget.FOREIGN_ALT),
         ProbeRequest(ProbeKind.TLS, ProbeTarget.FOREIGN),
+        ProbeRequest(ProbeKind.TLS, ProbeTarget.FOREIGN_ALT),
         ProbeRequest(ProbeKind.UDP, ProbeTarget.FOREIGN),
+        ProbeRequest(ProbeKind.UDP, ProbeTarget.FOREIGN_ALT),
         ProbeRequest(ProbeKind.BULK, ProbeTarget.FOREIGN),
     )
 }
@@ -128,10 +132,19 @@ object NetworkClassifier {
         val domesticDns = reach(of(ProbeKind.DNS, ProbeTarget.DOMESTIC))
         val domesticTcp = reach(of(ProbeKind.TCP, ProbeTarget.DOMESTIC))
         val dns = reach(of(ProbeKind.DNS, ProbeTarget.FOREIGN))
-        val tcp = reach(of(ProbeKind.TCP, ProbeTarget.FOREIGN))
-        val tls = reach(of(ProbeKind.TLS, ProbeTarget.FOREIGN))
-        val udp = reach(of(ProbeKind.UDP, ProbeTarget.FOREIGN))
+        val tcp1 = reach(of(ProbeKind.TCP, ProbeTarget.FOREIGN))
+        val tls1 = reach(of(ProbeKind.TLS, ProbeTarget.FOREIGN))
+        val udp1 = reach(of(ProbeKind.UDP, ProbeTarget.FOREIGN))
+        val tcp2 = reach(of(ProbeKind.TCP, ProbeTarget.FOREIGN_ALT))
+        val tls2 = reach(of(ProbeKind.TLS, ProbeTarget.FOREIGN_ALT))
+        val udp2 = reach(of(ProbeKind.UDP, ProbeTarget.FOREIGN_ALT))
         val bulk = reach(of(ProbeKind.BULK, ProbeTarget.FOREIGN))
+        // Что сеть пропускает наружу — лучшее из двух ориентиров (D-62): закрытый
+        // поставщик — довод, а не «TCP не проходит» вообще.
+        val tcp = best(tcp1, tcp2)
+        val tls = best(tls1, tls2)
+        val udp = best(udp1, udp2)
+        val altKnown = tcp2 != Reachability.UNKNOWN || tls2 != Reachability.UNKNOWN
         val known = results.count { it.outcome != ProbeOutcome.SKIPPED && it.outcome != ProbeOutcome.INCONCLUSIVE }
 
         fun result(cls: RestrictionClass, conf: Confidence) =
@@ -149,9 +162,19 @@ object NetworkClassifier {
             evidence += "нет ответа ни от отечественного, ни от зарубежного ориентира"
             return result(RestrictionClass.OFFLINE, if (foreignAllBlocked) Confidence.HIGH else Confidence.MEDIUM)
         }
-        if (domesticOk && foreignAllBlocked) {
-            evidence += "отечественный ориентир доступен, зарубежный — нет ни по DNS, ни по TCP, ни по TLS"
-            return result(RestrictionClass.ALLOWLIST_LIKE, if (udp == Reachability.BLOCKED) Confidence.HIGH else Confidence.MEDIUM)
+        // Белый список (L9): отечественное доступно, а зарубежное не отвечает по TCP и TLS.
+        // DNS обязателен, только если зарубежный ориентир один: оператор может резолвить
+        // зарубежные имена и сбрасывать соединения с ними (телефон, 17.10.2026, D-62).
+        val foreignClosed = tcp == Reachability.BLOCKED && tls == Reachability.BLOCKED
+        if (domesticOk && foreignClosed && (dns == Reachability.BLOCKED || altKnown)) {
+            evidence += if (dns == Reachability.BLOCKED) {
+                "отечественный ориентир доступен, зарубежный — нет ни по DNS, ни по TCP, ни по TLS"
+            } else {
+                "отечественный ориентир доступен, оба зарубежных — нет ни по TCP, ни по TLS (имена резолвятся)"
+            }
+            // Имена резолвятся — это не тот белый список, что описан (L9): уверенность не выше средней.
+            val sure = udp == Reachability.BLOCKED && dns == Reachability.BLOCKED
+            return result(RestrictionClass.ALLOWLIST_LIKE, if (sure) Confidence.HIGH else Confidence.MEDIUM)
         }
         if (known < 4) {
             evidence += "проведено проб: $known — мало для вывода"
@@ -166,8 +189,10 @@ object NetworkClassifier {
         if (dns != Reachability.OK && dns != Reachability.UNKNOWN) degraded += "DNS к зарубежному имени: $dns"
         if (tcp == Reachability.OK && tls != Reachability.OK && tls != Reachability.UNKNOWN) degraded += "TCP проходит, TLS — $tls"
         if (tcp == Reachability.BLOCKED && domesticOk) degraded += "зарубежный адрес не отвечает по TCP"
+        // Один ориентир закрыт, другой — нет: закрыты адреса поставщика (L4), а не путь наружу.
+        provider(tcp1, tcp2, "TCP")?.let { degraded += it } ?: provider(tls1, tls2, "TLS")?.let { degraded += it }
         if (bulk == Reachability.DEGRADED) degraded += "крупная передача остановилась (порог 16–20 КБ)"
-        val latencies = results.filter { it.ok && it.request.target == ProbeTarget.FOREIGN }.mapNotNull { it.latencyMillis }.sorted()
+        val latencies = results.filter { it.ok && it.request.target != ProbeTarget.DOMESTIC }.mapNotNull { it.latencyMillis }.sorted()
         if (latencies.isNotEmpty() && latencies[latencies.size / 2] > HIGH_LATENCY_MILLIS) {
             degraded += "высокая задержка: медиана ${latencies[latencies.size / 2]} мс"
         }
@@ -177,13 +202,28 @@ object NetworkClassifier {
             return result(RestrictionClass.DEGRADED, if (degraded.size >= 2) Confidence.HIGH else Confidence.MEDIUM)
         }
         // «Все» — только если ни одна зарубежная проба не пропущена и не осталась без вывода.
-        val untested = listOf(dns, tcp, tls, udp, bulk).any { it == Reachability.UNKNOWN }
+        val untested = listOf(dns, tcp, tls, udp, bulk).any { it == Reachability.UNKNOWN } ||
+            results.any { it.request.target != ProbeTarget.DOMESTIC && (it.outcome == ProbeOutcome.SKIPPED || it.outcome == ProbeOutcome.INCONCLUSIVE) }
         evidence += when {
             udp == Reachability.BLOCKED -> "остальные пробы прошли"
             untested -> "проведённые пробы прошли, часть не проверена"
             else -> "все пробы прошли"
         }
         return result(RestrictionClass.NORMAL, if (untested) Confidence.MEDIUM else Confidence.HIGH)
+    }
+
+    /** Лучшее из двух: OK > DEGRADED > BLOCKED > UNKNOWN — неизвестное не перевешивает наблюдение. */
+    private fun best(a: Reachability, b: Reachability): Reachability = listOf(a, b).minBy { RANK.indexOf(it) }
+
+    private val RANK = listOf(Reachability.OK, Reachability.DEGRADED, Reachability.BLOCKED, Reachability.UNKNOWN)
+
+    /** Довод L4: один ориентир по [step] закрыт, другой открыт; null — разницы нет. */
+    private fun provider(first: Reachability, second: Reachability, step: String): String? = when {
+        first == Reachability.BLOCKED && second == Reachability.OK ->
+            "ориентир сети доставки не отвечает по $step, второй зарубежный — отвечает: закрыты адреса поставщика (L4)"
+        first == Reachability.OK && second == Reachability.BLOCKED ->
+            "второй зарубежный ориентир не отвечает по $step, ориентир сети доставки — отвечает: закрыты адреса поставщика (L4)"
+        else -> null
     }
 
     const val HIGH_LATENCY_MILLIS: Long = 1_500
