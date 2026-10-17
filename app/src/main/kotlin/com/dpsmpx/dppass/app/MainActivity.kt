@@ -32,6 +32,7 @@ import com.dpsmpx.dppass.app.ui.ServersScreen
 import com.dpsmpx.dppass.app.ui.SettingsScreen
 import com.dpsmpx.dppass.app.ui.SubscriptionsScreen
 import com.dpsmpx.dppass.app.ui.Ui
+import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
@@ -383,8 +384,25 @@ class MainActivity : Activity(), Host {
         super.onActivityResult(requestCode, resultCode, data)
         when {
             requestCode == REQUEST_VPN && resultCode == RESULT_OK -> DPpassVpnService.start(this)
+            requestCode == REQUEST_VPN -> vpnConsentRefused()
             requestCode == REQUEST_FILE && resultCode == RESULT_OK -> data?.data?.let(::readFile)
         }
+    }
+
+    /**
+     * Согласия на VPN нет: пользователь отказал, или Android закрыл запрос
+     * сам, ничего не показав, — так он делает, когда «Постоянный VPN»
+     * включён у другого приложения (в том числе у сборки DPpass с другим
+     * пакетом, D-49). Туннель не поднимается — с причиной, а не молча (D-22).
+     */
+    private fun vpnConsentRefused() {
+        val reason = Diagnostic.error(
+            DiagCode.TUN_ESTABLISH_FAILED,
+            "Android не дал согласия на VPN. Если «Постоянный VPN» включён у другого приложения, " +
+                "Android закрывает запрос сам: выключите его в настройках Android → Сеть → VPN.",
+        )
+        DeviceLog.log.diagnostic(reason)
+        problem(getString(R.string.status_failed), reason)
     }
 
     override fun onResume() {

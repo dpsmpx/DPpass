@@ -160,6 +160,25 @@ class LogExportTest {
     @Test
     fun emptyLogSaysSo() {
         assertTrue("(журнал пуст или выключен)" in LogExport.text(dir, "DPpass"))
+        assertTrue("(журнал пуст или выключен)" in LogExport.text(dir, "DPpass", memory = emptyList()))
+    }
+
+    // D-54: журнал в файл выключен — кнопка копирует события этого запуска
+    // из памяти (как локальный отчёт), а не пустоту или файл прошлого запуска.
+    @Test
+    fun logOffCopiesThisRunFromMemory() {
+        val earlier = FileLogSink(dir, { 0L }, { it.run() })
+        earlier.startSession(listOf("earlier run"))
+        CrashRecord.append(dir, CrashRecord.render("main", IllegalStateException("boom"), 0L))
+        val run = listOf(event(1, "engine loaded"), event(2, "203.0.113.10"))
+        val text = LogExport.text(dir, "DPpass", memory = run)
+        val session = text.substringAfter("=== Текущий сеанс ===\n")
+        assertTrue(session.startsWith("(журнал на телефоне выключен — события этого запуска из памяти)\n"), text)
+        assertTrue("${FileLogSink.format(run[0])}\n" in session, text)
+        assertTrue(" e2 " in session, text)
+        assertFalse("203.0.113.10" in text, "IP — только в STRICT-виде: $text")
+        assertFalse("earlier run" in session, "файл прошлого запуска — не текущий сеанс: $text")
+        assertTrue("java.lang.IllegalStateException: boom" in text, "падение — как прежде")
     }
 
     @Test

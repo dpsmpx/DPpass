@@ -94,8 +94,9 @@ object DeviceLog {
 
     /**
      * Кнопка «Копировать журнал»: копирует то, что есть, даже с выключенным
-     * журналом. [done] вызывается в фоновом потоке: число скопированных
-     * символов или `null`, если копия не удалась.
+     * журналом — тогда события этого запуска из кольца памяти, те же, что
+     * в локальном отчёте (D-54). [done] вызывается в фоновом потоке: число
+     * скопированных символов или `null`, если копия не удалась.
      */
     fun copyToClipboard(context: Context, reason: String, done: (Int?) -> Unit) {
         val app = context.applicationContext
@@ -105,8 +106,9 @@ object DeviceLog {
                 done(null)
                 return@execute
             }
-            file?.flush(FLUSH_MILLIS)
-            val text = LogExport.text(d, TITLE)
+            val open = file
+            open?.flush(FLUSH_MILLIS)
+            val text = LogExport.text(d, TITLE, memory = if (open == null) memory.snapshot() else null)
             val clip = ClipData.newPlainText(TITLE, text)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 // Android 13+: система не показывает предпросмотр текста журнала.

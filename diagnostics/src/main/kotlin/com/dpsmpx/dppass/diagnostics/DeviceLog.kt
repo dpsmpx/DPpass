@@ -239,15 +239,19 @@ object CrashRecord {
  * [maxChars]; середина длинного сеанса заменяется отметкой. Всё ещё раз
  * проходит [Redactor] уровня `STRICT` — как отчёт, который отдают
  * кому-то (без IP и имён хостов).
+ *
+ * [memory] — события этого запуска из кольца памяти, когда журнал в файл
+ * выключен (D-54): тогда текущий сеанс — они, а не файл. Файла этого
+ * запуска нет, а в каталоге — разве что запуск, когда журнал был включён.
  */
 object LogExport {
     const val MAX_CHARS: Int = 120_000
     const val HEAD_CHARS: Int = 20_000
     private const val PREVIOUS_TAIL_CHARS = 20_000
 
-    fun text(dir: File, title: String, maxChars: Int = MAX_CHARS, headChars: Int = HEAD_CHARS): String {
+    fun text(dir: File, title: String, maxChars: Int = MAX_CHARS, headChars: Int = HEAD_CHARS, memory: List<LogEvent>? = null): String {
         val crash = read(File(dir, CrashRecord.FILE))
-        val session = sessionText(dir, FileLogSink.CURRENT, FileLogSink.PART_1, FileLogSink.HEAD)
+        val session = if (memory != null) memoryText(memory) else sessionText(dir, FileLogSink.CURRENT, FileLogSink.PART_1, FileLogSink.HEAD)
         val raw = buildString {
             append("=== ").append(title).append(" ===\n")
             if (crash.isNotEmpty()) {
@@ -301,6 +305,13 @@ object LogExport {
         val tailText = read(File(dir, part1)) + read(File(dir, current))
         if (headText.isEmpty()) return tailText
         return headText + (if (headText.endsWith("\n")) "" else "\n") + "… (начало сеанса выше, дальше — последние части) …\n" + tailText
+    }
+
+    /** Строки кольца — как строки файла ([FileLogSink.format]), с пометкой, откуда они. */
+    private fun memoryText(events: List<LogEvent>): String {
+        if (events.isEmpty()) return ""
+        val note = "(журнал на телефоне выключен — события этого запуска из памяти)\n"
+        return events.joinToString("\n", prefix = note, postfix = "\n") { FileLogSink.format(it) }
     }
 
     private fun tail(text: String, chars: Int): String {
