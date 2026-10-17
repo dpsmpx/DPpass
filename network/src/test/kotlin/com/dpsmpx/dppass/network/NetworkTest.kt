@@ -120,3 +120,21 @@ class ProbeSkipTest {
         assertEquals(0, b.waitForMillis(8))
     }
 }
+
+/** Пауза между замерами по кнопке (D-61): отсчёт и повтор. */
+class CooldownTest {
+    @Test
+    fun countsDownAndRestarts() {
+        val clock = ManualClock(1_000)
+        val c = Cooldown(clock)
+        assertEquals(0, c.remainingMillis(), "до первого замера ждать нечего")
+        c.restart(60_000)
+        assertEquals(60_000, c.remainingMillis())
+        clock.advance(59_500)
+        assertEquals(500, c.remainingMillis())
+        clock.advance(1_000)
+        assertEquals(0, c.remainingMillis(), "пауза прошла — не уходит в минус")
+        c.restart(15_000)
+        assertEquals(15_000, c.remainingMillis(), "новый замер — новая пауза, своя длина")
+    }
+}

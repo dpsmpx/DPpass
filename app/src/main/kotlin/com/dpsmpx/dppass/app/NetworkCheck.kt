@@ -11,6 +11,7 @@ import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Safe
 import com.dpsmpx.dppass.engine.xray.SpeedReport
 import com.dpsmpx.dppass.engine.xray.XrayProxyEngine
+import com.dpsmpx.dppass.network.Cooldown
 import com.dpsmpx.dppass.network.NetworkAssessment
 import com.dpsmpx.dppass.network.NetworkAssessor
 import com.dpsmpx.dppass.network.NetworkType
@@ -54,13 +55,26 @@ object NetworkCheck {
     val speedTestRunning: Boolean get() = measuring.get()
 
     /**
+     * Пауза после замера (D-61): одна на процесс — уход с экрана её не
+     * сбрасывает. После удачного замера — [SPEED_COOLDOWN_MILLIS] (25 МБ
+     * трафика и нагрузка на сервер), после отказа — короче
+     * ([SPEED_RETRY_MILLIS]): пользователь может сменить сервер и повторить.
+     */
+    private val speedCooldown = Cooldown(Clock.MONOTONIC)
+
+    /** Через сколько мс можно мерить скорость снова (0 — сейчас). */
+    fun speedReadyInMillis(): Long = speedCooldown.remainingMillis()
+
+    /**
      * Пинг, jitter и скорость через туннель (D-61) — через сервер [profile]
-     * поднятой сессии. Один замер за раз; null — замер уже идёт.
+     * поднятой сессии. Один замер за раз; null — замер уже идёт или пауза
+     * после прошлого ещё не прошла ([speedReadyInMillis]).
      */
     suspend fun speed(engine: XrayProxyEngine, log: Logger, profile: ProfileId?): Outcome<SpeedReport>? {
-        if (!measuring.compareAndSet(false, true)) return null
+        if (speedCooldown.remainingMillis() > 0 || !measuring.compareAndSet(false, true)) return null
+        var r: Outcome<SpeedReport>? = null
         return try {
-            val r = withContext(Dispatchers.IO) { engine.speedTest() }
+            r = withContext(Dispatchers.IO) { engine.speedTest() }
             when (r) {
                 is Outcome.Success -> with(r.value) {
                     log.info(
@@ -77,9 +91,14 @@ object NetworkCheck {
             }
             r
         } finally {
+            // Прерванный замер (ушли с экрана) — тоже трафик: пауза как после удачного.
+            speedCooldown.restart(if (r is Outcome.Failure) SPEED_RETRY_MILLIS else SPEED_COOLDOWN_MILLIS)
             measuring.set(false)
         }
     }
+
+    const val SPEED_COOLDOWN_MILLIS: Long = 60_000
+    const val SPEED_RETRY_MILLIS: Long = 15_000
 
     /** Сеть, которую меряет проверка: не VPN, с доступом в интернет. */
     private class Underlying(val network: Network?, val type: NetworkType, val caps: NetworkCapabilities?)

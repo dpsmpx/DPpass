@@ -17,6 +17,8 @@ import com.dpsmpx.dppass.network.ProbeResult
 import com.dpsmpx.dppass.network.ProbeTarget
 import com.dpsmpx.dppass.network.RestrictionClass
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -24,6 +26,10 @@ import kotlinx.coroutines.launch
  * каждой и класс сети с доводами. Итог только для сведения: в план
  * подключения он пока не идёт. Ниже — замер через туннель (D-61): пинг,
  * jitter и скорость загрузки через сервер, к которому подключён DPpass.
+ *
+ * После каждого замера — пауза: кнопка недоступна, на ней — сколько ещё
+ * ждать. У проверки сети пауза — из бюджета проб D-14, у скорости — своя
+ * ([NetworkCheck.speedReadyInMillis]).
  */
 class NetworkCheckScreen(host: Host) : SubScreen(host, R.string.netcheck_title) {
     private val run: Button = Ui.button(context, R.string.netcheck_run, Ui.Style.PRIMARY, R.drawable.ic_speed)
@@ -44,6 +50,7 @@ class NetworkCheckScreen(host: Host) : SubScreen(host, R.string.netcheck_title) 
         visibility = View.GONE
     }
     private var speedJob: Job? = null
+    private var ticker: Job? = null
 
     override fun content(): View = Ui.column(context, 12).apply {
         addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.netcheck_intro)).apply { setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0) })
@@ -66,23 +73,50 @@ class NetworkCheckScreen(host: Host) : SubScreen(host, R.string.netcheck_title) 
     override fun render(status: TunnelStatus) {
         // Замер — только через поднятый туннель: иначе мерить нечего (D-61).
         val connected = status is TunnelStatus.Connected
-        if (speedJob?.isActive != true) speedRun.isEnabled = connected
         speedHint.text = if (connected) context.getString(R.string.speed_via, Avatar.stripFlag((status as TunnelStatus.Connected).profileName)) else context.getString(R.string.speed_needs_tunnel)
+        refreshButtons()
     }
 
     override fun onShown() {
         render(TunnelState.status.value)
+        ticker?.cancel()
+        // Отсчёт паузы на кнопках — раз в секунду, пока экран виден.
+        ticker = host.scope.launch {
+            while (isActive) {
+                delay(1_000)
+                refreshButtons()
+            }
+        }
     }
 
+    /**
+     * Кнопки по состоянию: идёт замер — «Проверяю…», пауза — «через N с» и
+     * недоступна, иначе — доступна (скорость — только с поднятым туннелем).
+     */
+    private fun refreshButtons() {
+        if (job?.isActive != true) {
+            val wait = NetworkCheck.readyInMillis()
+            run.isEnabled = wait == 0L
+            run.text = if (wait == 0L) context.getString(R.string.netcheck_run) else context.getString(R.string.netcheck_run_wait, seconds(wait))
+        }
+        if (speedJob?.isActive != true) {
+            val wait = NetworkCheck.speedReadyInMillis()
+            speedRun.isEnabled = wait == 0L && TunnelState.status.value is TunnelStatus.Connected
+            speedRun.text = if (wait == 0L) context.getString(R.string.speed_run) else context.getString(R.string.speed_run_wait, seconds(wait))
+        }
+    }
+
+    private fun seconds(millis: Long): Int = ((millis + 999) / 1000).toInt()
+
     override fun onHidden() {
-        // Ушли с экрана — проверка и замер останавливаются: их никто не ждёт.
+        // Ушли с экрана — проверка и замер останавливаются: их никто не ждёт. Пауза остаётся.
+        ticker?.cancel()
+        ticker = null
         job?.cancel()
         job = null
-        run.isEnabled = true
-        run.setText(R.string.netcheck_run)
         speedJob?.cancel()
         speedJob = null
-        speedRun.setText(R.string.speed_run)
+        refreshButtons()
     }
 
     private fun measureSpeed() {
@@ -100,7 +134,7 @@ class NetworkCheckScreen(host: Host) : SubScreen(host, R.string.netcheck_title) 
                     is Outcome.Failure -> host.problem(context.getString(R.string.speed_failed), r.errors.first())
                 }
             } finally {
-                speedRun.setText(R.string.speed_run)
+                speedJob = null
                 render(TunnelState.status.value)
             }
         }
@@ -124,7 +158,7 @@ class NetworkCheckScreen(host: Host) : SubScreen(host, R.string.netcheck_title) 
         // Повтор раньше бюджета дал бы пропуски вместо вывода: подождать (D-14, D-60).
         val wait = NetworkCheck.readyInMillis()
         if (wait > 0) {
-            host.toast(context.getString(R.string.netcheck_wait, ((wait + 999) / 1000).toInt()))
+            host.toast(context.getString(R.string.netcheck_wait, seconds(wait)))
             return
         }
         run.isEnabled = false
@@ -137,8 +171,9 @@ class NetworkCheckScreen(host: Host) : SubScreen(host, R.string.netcheck_title) 
                 val result = NetworkCheck.run(context, core.log) { r -> context.runOnUiThread { addProbe(r) } }
                 showVerdict(result)
             } finally {
-                run.isEnabled = true
-                run.setText(R.string.netcheck_run)
+                // Проверка закончилась — на кнопке пауза до следующей (бюджет проб).
+                job = null
+                refreshButtons()
             }
         }
     }
