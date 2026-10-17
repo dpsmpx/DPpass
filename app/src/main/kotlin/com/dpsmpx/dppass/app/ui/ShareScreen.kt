@@ -55,7 +55,7 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
         body.addView(
             Ui.listCard(context).apply {
                 addView(
-                    Ui.switchRow(context, R.drawable.ic_lan, context.getString(R.string.share_enable), context.getString(R.string.share_enable_note), s.enabled) { setEnabled(it) },
+                    Ui.switchRow(context, R.drawable.ic_lan, context.getString(R.string.share_enable), context.getString(R.string.share_enable_note), s.enabled) { setSharing(it) },
                     Ui.matchWidth(),
                 )
             },
@@ -156,20 +156,28 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
         }
     }
 
-    private fun setEnabled(on: Boolean) = change { it.setEnabled(on) }
+    /**
+     * Не `setEnabled`: переключатель зовёт его из лямбды внутри `apply` на
+     * карточке, и там это имя — `View.setEnabled` карточки
+     * (`ScreenNamesTest`).
+     */
+    private fun setSharing(on: Boolean) = change("share_switched", "enabled" to on) { it.setEnabled(on) }
 
     private fun confirmRegenerate() {
         Ui.secure(
             AlertDialog.Builder(context)
                 .setMessage(context.getString(R.string.share_regenerate_confirm))
-                .setPositiveButton(android.R.string.ok) { _, _ -> change { it.regenerate() } }
+                .setPositiveButton(android.R.string.ok) { _, _ -> change("share_regenerated") { it.regenerate() } }
                 .setNegativeButton(android.R.string.cancel, null)
                 .show(),
         )
     }
 
-    /** Смена настроек раздачи: сохранить; не сохранилось — причина, прежнее остаётся. */
-    private fun change(f: (ShareService) -> Outcome<ShareSettings>) {
+    /**
+     * Смена настроек раздачи: сохранить; не сохранилось — причина, прежнее
+     * остаётся. Итог — в журнале ([event], без логина и пароля, D-11).
+     */
+    private fun change(event: String, vararg fields: Pair<String, Any?>, f: (ShareService) -> Outcome<ShareSettings>) {
         val core = host.graph?.core ?: return
         if (busy) return
         busy = true
@@ -180,10 +188,14 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
                 busy = false
             }
             when (r) {
-                is Outcome.Failure -> host.problem(context.getString(R.string.share_not_saved), r.errors.first())
+                is Outcome.Failure -> {
+                    r.errors.forEach(core.log::diagnostic)
+                    host.problem(context.getString(R.string.share_not_saved), r.errors.first())
+                }
                 is Outcome.Success -> {
                     settings = r.value
                     failure = null
+                    core.log.info(event, *fields)
                     host.reconnectIfBusy()
                 }
             }
