@@ -14,6 +14,7 @@ import com.dpsmpx.dppass.diagnostics.FailureKind
 import com.dpsmpx.dppass.network.LatencyResult
 import com.dpsmpx.dppass.subscriptions.SubscriptionSource
 import com.dpsmpx.dppass.subscriptions.SubscriptionsState
+import com.dpsmpx.dppass.subscriptions.UpdateSchedule
 import java.util.Locale
 import kotlin.math.roundToLong
 
@@ -201,6 +202,12 @@ data class SubscriptionRow(
     val inline: Boolean = false,
     /** Срок автообновления, минуты (D-39); null — только вручную. */
     val autoUpdateMinutes: Long? = null,
+    /**
+     * Через сколько мс следующее автообновление (D-39), 0 — пора (задание
+     * идёт раз в час). Только у применённой подписки по адресу: остальные по
+     * расписанию не обновляются; null — не обновится сама.
+     */
+    val nextUpdateInMillis: Long? = null,
     /** Доля использованного трафика, 0…100; null — предела нет или неизвестен. */
     val usedPercent: Int? = null,
     /** Сколько дней до конца срока (0 — сегодня); null — срока нет или он прошёл. */
@@ -244,17 +251,19 @@ object SubscriptionList {
         val used = traffic?.let { t -> if (t.uploadBytes == null && t.downloadBytes == null) null else (t.uploadBytes ?: 0) + (t.downloadBytes ?: 0) }
         val expire = traffic?.expireEpochSeconds?.takeIf { it > 0 }?.let { it * 1000 }
         val total = traffic?.totalBytes?.takeIf { it > 0 }
+        val active = source == ConfigSource.FromSubscription(s.id)
         SubscriptionRow(
             id = s.id,
             name = s.displayName,
             inline = s.source is SubscriptionSource.Inline,
             autoUpdateMinutes = s.updatePolicy.intervalMinutes,
+            nextUpdateInMillis = if (active && s.source is SubscriptionSource.Url) UpdateSchedule.waitMillis(s, nowMillis) else null,
             usedPercent = if (used != null && total != null) ((used * 100) / total).coerceIn(0, 100).toInt() else null,
             daysLeft = expire?.takeIf { it > nowMillis }?.let { (it - nowMillis) / DAY_MILLIS },
             pageUrl = s.metadata.webPageUrl,
             supportUrl = s.metadata.supportUrl,
             providerIntervalHours = s.metadata.updateIntervalHours,
-            active = source == ConfigSource.FromSubscription(s.id),
+            active = active,
             profileCount = ok?.profileCount,
             updatedAtMillis = ok?.fetchedAtMillis,
             failure = failed?.reason,

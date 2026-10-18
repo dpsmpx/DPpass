@@ -24,6 +24,7 @@ import com.dpsmpx.dppass.subscriptions.SubscriptionRevision
 import com.dpsmpx.dppass.subscriptions.SubscriptionSource
 import com.dpsmpx.dppass.subscriptions.SubscriptionsState
 import com.dpsmpx.dppass.subscriptions.TrafficInfo
+import com.dpsmpx.dppass.subscriptions.UpdatePolicy
 import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -261,5 +262,21 @@ class PresentationTest {
         assertFalse(StorageLost.isLost(Diagnostic.error(DiagCode.STORAGE_CORRUPTED, "запись испорчена")))
         assertEquals(wrapped, StorageLost.find(listOf(Diagnostic.warning(DiagCode.STORAGE_CORRUPTED, "x"), wrapped)))
         assertNull(StorageLost.find(emptyList()))
+    }
+
+    @Test
+    fun nextAutoUpdateIsShownOnlyForTheAppliedUrlSubscription() {
+        val hour = 3_600_000L
+        val url = Subscription(SubscriptionId("s1"), "S", SubscriptionSource.Url(Secret("https://a.example.net/s")))
+            .copy(updatePolicy = UpdatePolicy(intervalMinutes = 12 * 60), lastCheckedMillis = 0)
+        val other = url.copy(id = SubscriptionId("s2"))
+        val state = SubscriptionsState(listOf(url, other), SubscriptionId("s1"))
+        val rows = SubscriptionList.rows(state, ConfigSource.FromSubscription(SubscriptionId("s1")), 9 * hour)
+        assertEquals(3 * hour, rows[0].nextUpdateInMillis, "проверена в 0, раз в 12 ч — следующее через 3 ч")
+        assertNull(rows[1].nextUpdateInMillis, "не применена — сама не обновится (D-39)")
+        val late = SubscriptionList.rows(state, ConfigSource.FromSubscription(SubscriptionId("s1")), 13 * hour)
+        assertEquals(0L, late[0].nextUpdateInMillis, "срок прошёл — пора")
+        val off = SubscriptionsState(listOf(url.copy(updatePolicy = UpdatePolicy(intervalMinutes = null))), SubscriptionId("s1"))
+        assertNull(SubscriptionList.rows(off, ConfigSource.FromSubscription(SubscriptionId("s1")), 0)[0].nextUpdateInMillis, "только вручную")
     }
 }

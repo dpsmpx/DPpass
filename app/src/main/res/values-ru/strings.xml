@@ -521,4 +521,7 @@
     <string name="export_done">Конфигурация сохранена</string>
     <string name="export_failed">Конфигурация не сохранена</string>
     <string name="export_none">Активной конфигурации нет — экспортировать нечего</string>
+    <!-- Срок следующего автообновления (D-39) -->
+    <string name="subs_next">следующее %1$s</string>
+    <string name="subs_next_soon">следующее — в течение часа</string>
 </resources>

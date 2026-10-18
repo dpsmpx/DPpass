@@ -502,4 +502,7 @@
     <string name="export_done">Configuration saved</string>
     <string name="export_failed">Configuration not saved</string>
     <string name="export_none">No active configuration — nothing to export</string>
+    <!-- Срок следующего автообновления (D-39) -->
+    <string name="subs_next">next %1$s</string>
+    <string name="subs_next_soon">next within an hour</string>
 </resources>

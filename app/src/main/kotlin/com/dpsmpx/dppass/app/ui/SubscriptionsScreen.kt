@@ -189,6 +189,15 @@ class SubscriptionsScreen(host: Host) : Screen(host) {
         } ?: context.getString(R.string.subs_never)
         if (!r.inline) {
             parts += r.autoUpdateMinutes?.let { context.getString(R.string.subs_auto_every, it / 60) } ?: context.getString(R.string.subs_auto_off)
+            // Срок следующего автообновления (D-39) — только у применённой: остальные сами не обновляются.
+            r.nextUpdateInMillis?.let { wait ->
+                val now = Clock.SYSTEM.nowMillis()
+                parts += if (wait == 0L) {
+                    context.getString(R.string.subs_next_soon)
+                } else {
+                    context.getString(R.string.subs_next, DateUtils.getRelativeTimeSpanString(now + wait, now, DateUtils.MINUTE_IN_MILLIS))
+                }
+            }
         }
         return parts.joinToString(ServerList.SEPARATOR)
     }
