@@ -35,7 +35,9 @@ import com.dpsmpx.dppass.diagnostics.Safe
 import com.dpsmpx.dppass.engine.EngineSession
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.SocketProtector
+import com.dpsmpx.dppass.engine.xray.Ipv6Egress
 import com.dpsmpx.dppass.network.NetworkAssessment
+import com.dpsmpx.dppass.tunnel.Ipv6Mode
 import com.dpsmpx.dppass.tunnel.TunnelHandle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -285,7 +287,9 @@ class DPpassVpnService : VpnService() {
                     progress(TunnelStatus.Connected(report.profileId, name, core.clock.nowMillis(), Clock.MONOTONIC.nowMillis()))
                     watchNetwork(target?.network)
                     startTicker(report.session)
-                    startSupervisor(core, graph.engine, ir, report.profileId, if (contradicted) null else regime)
+                    // IPv6 через сервер (D-66): только когда TUN его берёт и путь — свой сервер, а не устройство раздачи.
+                    val checkIpv6 = relay == null && tunSpec.ipv6Mode == Ipv6Mode.TUNNELED
+                    startSupervisor(core, graph.engine, ir, report.profileId, if (contradicted) null else regime, checkIpv6)
                     if (shareSettings?.enabled == true) {
                         // Ядро с входами раздачи не запустилось — туннель без неё (D-51).
                         // Опрос сравнивает с предложенными адресами: тот же набор — без
@@ -356,14 +360,18 @@ class DPpassVpnService : VpnService() {
         profileId: com.dpsmpx.dppass.core.ProfileId,
         /** Режим сети на момент подключения (D-64): опыт сессии — в его контексте. */
         regime: NetworkAssessment?,
+        /** Проверить, выпускает ли сервер IPv6 (D-66): раз за сессию, после удачной пробы. */
+        checkIpv6: Boolean,
     ) {
         supervisor?.cancel()
+        TunnelState.ipv6(null)
         supervisor = scope.launch {
             val sup = core.supervisor(profileId, regime)
             val profile = ir.profiles.firstOrNull { it.id == profileId }
             val probeTimeout = (core.policy.healthTimeoutMillis - PROBE_MARGIN_MILLIS).toInt()
             var samples = 0
             var lastFailure: Diagnostic? = null
+            var ipv6Tries = if (checkIpv6) IPV6_TRIES else 0
             while (isActive) {
                 delay(SUPERVISION_INTERVAL_MILLIS)
                 // Наша ли ещё сессия: остановка или переподключение могли её сменить.
@@ -402,6 +410,20 @@ class DPpassVpnService : VpnService() {
                     onDegraded(core, profileId, reason, regime)
                     reconnect(this@DPpassVpnService)
                     return@launch
+                }
+                // Выпускает ли сервер IPv6 (D-66): после удачной пробы — сервер сейчас работает.
+                // Итог «не понять» — ещё попытка в следующий раз; замер начался — тоже.
+                if (!failed && ipv6Tries > 0) {
+                    val check = withContext(Dispatchers.IO) { engine.probeIpv6() }
+                    if (NetworkCheck.probesQuiet()) continue
+                    ipv6Tries = if (check.egress == Ipv6Egress.UNKNOWN) ipv6Tries - 1 else 0
+                    core.log.info(
+                        "ipv6_egress",
+                        "profile" to Safe(profileId.value),
+                        "result" to check.egress,
+                        "outcomes" to Safe(check.outcomes.joinToString(",") { it.name }),
+                    )
+                    if (check.egress != Ipv6Egress.UNKNOWN || ipv6Tries == 0) TunnelState.ipv6(Ipv6Note(profileId, check.egress, core.clock.nowMillis()))
                 }
             }
         }
@@ -681,6 +703,9 @@ class DPpassVpnService : VpnService() {
         /** Наблюдатель сессии (D-44): период пробы здоровья и как часто сохранять модель. */
         private const val SUPERVISION_INTERVAL_MILLIS = 15_000L
         private const val PERSIST_EVERY_SAMPLES = 8
+
+        /** Проб IPv6 за сессию (D-66), если итог «не понять»: потом строка «проверить не удалось». */
+        private const val IPV6_TRIES = 3
 
         /** Раздача (D-51): как часто проверять интерфейсы раздачи (docs/PERFORMANCE_BUDGET.md). */
         private const val SHARE_POLL_MILLIS = 5_000L

@@ -111,6 +111,8 @@ class MainActivity : Activity(), Host {
             }
         }
         scope.launch { TunnelState.status.collect { changed() } }
+        // Итог пробы IPv6 (D-66) приходит позже подключения — «Почему этот сервер» его покажет.
+        scope.launch { TunnelState.ipv6.collect { changed() } }
     }
 
     override fun onNewIntent(intent: Intent) {

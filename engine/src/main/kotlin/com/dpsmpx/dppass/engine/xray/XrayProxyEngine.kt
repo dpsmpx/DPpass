@@ -88,6 +88,18 @@ class XrayProxyEngine(private val runtime: Outcome<XrayRuntime>) : ProxyEngine {
     }
 
     /**
+     * Выпускает ли сервер запущенной сессии IPv6 (D-66, [XrayIpv6]): не больше
+     * трёх проб DNS по [XrayIpv6.TIMEOUT_MILLIS]. Блокирует поток.
+     */
+    fun probeIpv6(): Ipv6Check {
+        val rt = when (runtime) {
+            is Outcome.Failure -> return Ipv6Check(Ipv6Egress.UNKNOWN, emptyList())
+            is Outcome.Success -> runtime.value
+        }
+        return XrayIpv6.probe { target -> rt.probeDns(target, XrayIpv6.TIMEOUT_MILLIS).outcome }
+    }
+
+    /**
      * Замер через туннель запущенной сессии (D-61): пинг, jitter и скорость
      * загрузки через сервер профиля ([XraySpeed]). Блокирует поток до
      * [XraySpeed.TIMEOUT_MILLIS].

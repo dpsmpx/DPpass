@@ -18,6 +18,7 @@ import com.dpsmpx.dppass.connection.RelayDevice
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.core.SubscriptionId
 import com.dpsmpx.dppass.diagnostics.Outcome
+import com.dpsmpx.dppass.engine.xray.Ipv6Egress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -30,12 +31,14 @@ import kotlinx.coroutines.withContext
  */
 class PlanScreen(host: Host) : SubScreen(host, R.string.plan_title) {
     private val last = Ui.column(context, 8)
+    private val ipv6 = Ui.column(context, 8)
     private val next = Ui.column(context, 8)
     private var job: Job? = null
 
     override fun content(): View = Ui.column(context, 12).apply {
         addView(caption(R.string.plan_intro))
         addView(last, Ui.matchWidth())
+        addView(ipv6, Ui.matchWidth())
         addView(Ui.section(context, context.getString(R.string.plan_next)))
         addView(next, Ui.matchWidth())
         addView(caption(R.string.plan_next_note))
@@ -44,6 +47,7 @@ class PlanScreen(host: Host) : SubScreen(host, R.string.plan_title) {
     override fun render(status: TunnelStatus) {
         val core = host.graph?.core ?: return
         showLastPlan(core, TunnelState.plan.value)
+        showIpv6(status)
         if (job?.isActive == true) return
         // Выбрано устройство раздачи (D-55): план — из одного кандидата, его и показывать.
         host.prefs.selectedRelay?.let { id ->
@@ -81,6 +85,24 @@ class PlanScreen(host: Host) : SubScreen(host, R.string.plan_title) {
         val name = names(core)
         last.addView(attemptsCard(PlanView.attempts(snapshot, name)), Ui.matchWidth())
         exclusionsCard(PlanView.excluded(snapshot.excluded, name))?.let { last.addView(it, Ui.matchWidth()) }
+    }
+
+    /**
+     * Выпускает ли сервер сессии IPv6 (D-66) — строкой под последним
+     * подключением, пока сессия та же. Маршрут и DNS от неё не меняются.
+     */
+    private fun showIpv6(status: TunnelStatus) {
+        // Не «note»: так называется функция карточки ниже.
+        val result = TunnelState.ipv6.value?.takeIf { status is TunnelStatus.Connected && it.profileId == status.profileId }
+        ipv6.removeAllViews()
+        if (result == null) return
+        val name = (status as TunnelStatus.Connected).profileName
+        val text = when (result.egress) {
+            Ipv6Egress.FORWARDED -> R.string.plan_ipv6_forwarded
+            Ipv6Egress.NOT_FORWARDED -> R.string.plan_ipv6_not_forwarded
+            Ipv6Egress.UNKNOWN -> R.string.plan_ipv6_unknown
+        }
+        ipv6.addView(note(context.getString(text, name, dateTime(result.atMillis))))
     }
 
     private fun showNextPlan(core: DPpassCore, plan: ConnectionPlan?, underAllowlist: Boolean) {

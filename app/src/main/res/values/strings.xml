@@ -477,4 +477,8 @@
     <string name="import_qr">QR code from image</string>
     <string name="add_qr_note">A screenshot or photo with a QR code — no camera access</string>
     <string name="import_qr_failed">QR code not read</string>
+    <!-- IPv6 через сервер (D-66) -->
+    <string name="plan_ipv6_forwarded">IPv6 through “%1$s” works: sites with IPv6 only open too. Checked %2$s.</string>
+    <string name="plan_ipv6_not_forwarded">“%1$s” does not pass IPv6: sites that have only IPv6 will not open through it — they wait until a timeout. Sites with IPv4 open as usual. Checked %2$s.</string>
+    <string name="plan_ipv6_unknown">Could not check IPv6 through “%1$s”. Checked %2$s.</string>
 </resources>

@@ -496,4 +496,8 @@
     <string name="import_qr">QR-код с картинки</string>
     <string name="add_qr_note">Снимок экрана или фото с QR-кодом — без доступа к камере</string>
     <string name="import_qr_failed">QR-код не прочитан</string>
+    <!-- IPv6 через сервер (D-66) -->
+    <string name="plan_ipv6_forwarded">IPv6 через «%1$s» есть: сайты только с IPv6 тоже открываются. Проверено %2$s.</string>
+    <string name="plan_ipv6_not_forwarded">Сервер «%1$s» не выпускает IPv6: сайты, у которых есть только IPv6, через него не откроются — будут ждать до тайм-аута. Сайты с IPv4 открываются как обычно. Проверено %2$s.</string>
+    <string name="plan_ipv6_unknown">IPv6 через «%1$s» проверить не удалось. Проверено %2$s.</string>
 </resources>

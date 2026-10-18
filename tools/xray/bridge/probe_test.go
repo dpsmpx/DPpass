@@ -10,10 +10,13 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	xnet "github.com/xtls/xray-core/common/net"
 )
 
 // Проба DNS через proxy работающего ядра (D-32). Исходящий proxy в тестах
@@ -224,6 +227,33 @@ func TestProbeContract(t *testing.T) {
 	}
 	if r := ProbeDNS("udp://127.0.0.1:53", 0); r.Outcome != ProbeContract {
 		t.Errorf("нулевой срок: ожидался ProbeContract, получено %v", r)
+	}
+}
+
+// Цель с адресом IPv6 в скобках (проба выхода IPv6 через сервер, D-66): хост —
+// адрес IPv6 без скобок, а не имя; порт — свой или по схеме.
+func TestProbeTargetWithIPv6Literal(t *testing.T) {
+	cases := []struct {
+		target string
+		host   string
+		port   int
+	}{
+		{"tcp://[2606:4700:4700::1111]:53", "2606:4700:4700::1111", 53},
+		{"tcp://[2001:db8::1]", "2001:db8::1", 53},
+		{"udp://[::1]:5353", "::1", 5353},
+	}
+	for _, c := range cases {
+		u, err := url.Parse(c.target)
+		if err != nil {
+			t.Fatalf("%s: %v", c.target, err)
+		}
+		host, port, err := hostPort(u, 53)
+		if err != nil || host != c.host || port != c.port {
+			t.Errorf("%s: получено %q:%d (%v), ожидалось %q:%d", c.target, host, port, err, c.host, c.port)
+		}
+		if a := xnet.ParseAddress(host); a.Family() != xnet.AddressFamilyIPv6 {
+			t.Errorf("%s: адрес %v — не IPv6", c.target, a)
+		}
 	}
 }
 

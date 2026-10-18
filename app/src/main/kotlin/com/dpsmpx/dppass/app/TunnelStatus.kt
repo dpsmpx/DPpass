@@ -6,6 +6,7 @@ import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.TrafficStats
+import com.dpsmpx.dppass.engine.xray.Ipv6Egress
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -92,6 +93,9 @@ data class PlanSnapshot(
     val viaRelay: Boolean,
 )
 
+/** Итог пробы IPv6 через сервер [profileId] сессии (D-66): только в памяти, только для экрана. */
+data class Ipv6Note(val profileId: ProfileId, val egress: Ipv6Egress, val atMillis: Long)
+
 /** Одно состояние на процесс: сервис и экраны живут в одном процессе (D-30). */
 object TunnelState {
     private val flow = MutableStateFlow<TunnelStatus>(TunnelStatus.Idle)
@@ -100,6 +104,7 @@ object TunnelState {
     private val shareRefusedFlow = MutableStateFlow(false)
     private val offerFlow = MutableStateFlow<ServerOffer?>(null)
     private val planFlow = MutableStateFlow<PlanSnapshot?>(null)
+    private val ipv6Flow = MutableStateFlow<Ipv6Note?>(null)
 
     val status: StateFlow<TunnelStatus> = flow.asStateFlow()
 
@@ -122,7 +127,15 @@ object TunnelState {
             shareFlow.value = emptyList()
             shareRefusedFlow.value = false
             offerFlow.value = null
+            ipv6Flow.value = null
         }
+    }
+
+    /** Выпускает ли сервер сессии IPv6 (D-66); без туннеля, до пробы и после смены сервера — null. */
+    val ipv6: StateFlow<Ipv6Note?> = ipv6Flow.asStateFlow()
+
+    fun ipv6(next: Ipv6Note?) {
+        ipv6Flow.value = next
     }
 
     fun offer(next: ServerOffer?) {

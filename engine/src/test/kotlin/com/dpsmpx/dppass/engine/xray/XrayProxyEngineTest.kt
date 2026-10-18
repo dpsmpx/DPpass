@@ -327,4 +327,23 @@ class XrayProxyEngineTest {
             assertFalse("abc123secret456" in text, "личный путь DoH попал в диагностику: $text")
         }
     }
+
+    @Test
+    fun ipv6ProbeGoesThroughTheRunningCoreToIpv6LiteralsThenIpv4() {
+        // D-66: оба ориентира IPv6 не ответили, IPv4 тут же ответил — сервер не выпускает IPv6.
+        val rt = FakeRuntime()
+        val engine = XrayProxyEngine(Outcome.Success(rt))
+        assertEquals(Ipv6Egress.UNKNOWN, engine.probeIpv6().egress, "ядро не запущено — не понять")
+        runBlocking { assertIs<Outcome.Success<EngineSession>>(engine.start(compiled, null)) }
+        rt.probes.clear()
+        assertEquals(Ipv6Egress.FORWARDED, engine.probeIpv6().egress)
+        assertEquals(listOf(XrayIpv6.TARGETS[0]), rt.probes)
+
+        rt.probes.clear()
+        rt.probeAnswer = DnsProbeResult(DnsProbeOutcome.UNREACHABLE, 5_000, 0, "")
+        assertEquals(Ipv6Egress.UNKNOWN, engine.probeIpv6().egress, "IPv4 тоже не ответил — сбой сервера, а не IPv6")
+        assertEquals(XrayIpv6.TARGETS + XrayIpv6.CONTROL, rt.probes)
+
+        assertEquals(Ipv6Egress.UNKNOWN, XrayProxyEngine(Outcome.failure(DiagCode.BACKEND_NOT_AVAILABLE, "нет моста")).probeIpv6().egress)
+    }
 }
