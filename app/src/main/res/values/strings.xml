@@ -164,7 +164,6 @@
     <string name="settings_auto_switch">Auto-switch server</string>
     <string name="settings_auto_switch_note">If the chosen server stops responding, DPpass switches to another one and tells you. Off — it asks in a notification.</string>
     <string name="settings_check_on_change">Check the network when it changes</string>
-    <string name="settings_check_on_change_note">While the VPN is on: after a switch between Wi-Fi and mobile data DPpass checks the new network itself — %1$d s later, at most %2$d times an hour. The check sites see the phone’s address, as when opening a page.</string>
     <string name="settings_notifications">Notifications</string>
     <string name="settings_notifications_note">Tunnel state and speed in the shade</string>
     <string name="settings_share_note">Other devices over Wi-Fi, USB or Bluetooth, through the tunnel</string>
@@ -319,6 +318,10 @@
     <plurals name="days">
         <item quantity="one">%d day</item>
         <item quantity="other">%d days</item>
+    </plurals>
+    <plurals name="settings_check_on_change_note">
+        <item quantity="one">While the VPN is on: after a switch between Wi-Fi and mobile data DPpass checks the new network itself — %1$d s later, at most %2$d time an hour. The check sites see the phone’s address, as when opening a page.</item>
+        <item quantity="other">While the VPN is on: after a switch between Wi-Fi and mobile data DPpass checks the new network itself — %1$d s later, at most %2$d times an hour. The check sites see the phone’s address, as when opening a page.</item>
     </plurals>
     <plurals name="apps_except">
         <item quantity="one">All except %d app</item>

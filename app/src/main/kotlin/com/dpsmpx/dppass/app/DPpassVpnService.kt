@@ -117,6 +117,14 @@ class DPpassVpnService : VpnService() {
     private var changeCheck: Job? = null
 
     /**
+     * Смены сети (D-67) — на всё время работы сервиса, а не одной сессии:
+     * переподключение посреди паузы после смены (наблюдатель, раздача) не
+     * отменяет проверку новой сети и не делает её «сетью подключения».
+     * Сервис уходит — уходит и ожидающая проверка (`scope.cancel`).
+     */
+    private var changes: NetworkChangeChecks? = null
+
+    /**
      * Режим сети сессии (D-64): берётся при подключении и заново — при смене
      * сети и после проверки новой (D-67). Пишут колбэк сети и проверка,
      * читает наблюдатель сессии.
@@ -412,7 +420,7 @@ class DPpassVpnService : VpnService() {
                     core.log.info("adaptive_probe_discarded", "profile" to Safe(profileId.value), "ok" to !failed, "elapsed_ms" to elapsed)
                     continue
                 }
-                val stalled = failed && (result as Outcome.Failure).errors.any { it.code == DiagCode.PAYLOAD_STALLED }
+                val stalled = failed && result.errors.any { it.code == DiagCode.PAYLOAD_STALLED }
                 val regime = sessionRegime
                 if (regime !== applied) {
                     sup.changeContext(regime)
@@ -424,7 +432,7 @@ class DPpassVpnService : VpnService() {
                     regime,
                 )
                 if (failed) {
-                    lastFailure = (result as Outcome.Failure).errors.first()
+                    lastFailure = result.errors.first()
                     core.log.warning("adaptive_probe_failed", "profile" to Safe(profileId.value), "elapsed_ms" to elapsed)
                 }
                 if (++samples % PERSIST_EVERY_SAMPLES == 0 || decision == SessionSupervisor.Decision.RECONNECT) {
@@ -527,18 +535,24 @@ class DPpassVpnService : VpnService() {
      */
     private fun watchNetwork(fixed: Network? = null) {
         if (fixed != null) {
+            // Через устройство раздачи режим оператора ни при чём (D-64): проверка после смены не нужна.
+            changeCheck?.cancel()
+            changeCheck = null
             setUnderlyingNetworks(arrayOf(fixed))
             DeviceLog.log.info("underlying_network", "state" to Safe("relay"))
             return
         }
         val cm = getSystemService(ConnectivityManager::class.java) ?: return
-        // Смена сети (D-67): первая сеть колбэка — сеть подключения, не смена.
-        val changes = NetworkChangeChecks(Clock.MONOTONIC).also { c -> NetworkCheck.network(this)?.let(c::onNetwork) }
+        // Смена сети (D-67): первая сеть сервиса — сеть подключения, не смена.
+        val watch = changes ?: NetworkChangeChecks(Clock.MONOTONIC).also { c ->
+            NetworkCheck.network(this)?.let(c::onNetwork)
+            changes = c
+        }
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 setUnderlyingNetworks(arrayOf(network))
                 DeviceLog.log.info("underlying_network", "state" to Safe("available"))
-                if (changes.onNetwork(network.networkHandle)) onNetworkChanged(changes, network.networkHandle)
+                if (watch.onNetwork(network.networkHandle)) onNetworkChanged(watch, network.networkHandle)
             }
 
             override fun onLost(network: Network) {
@@ -605,8 +619,6 @@ class DPpassVpnService : VpnService() {
     }
 
     private fun unwatchNetwork() {
-        changeCheck?.cancel()
-        changeCheck = null
         val callback = networkCallback ?: return
         networkCallback = null
         try {

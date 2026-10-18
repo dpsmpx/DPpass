@@ -163,7 +163,6 @@
     <string name="settings_auto_switch">Автопереключение сервера</string>
     <string name="settings_auto_switch_note">Если выбранный сервер перестал отвечать, DPpass сам перейдёт на другой и сообщит. Выключено — спросит в уведомлении.</string>
     <string name="settings_check_on_change">Проверять сеть при её смене</string>
-    <string name="settings_check_on_change_note">Пока VPN включён: после перехода между Wi-Fi и мобильной сетью DPpass сам проверит новую — через %1$d с, не чаще %2$d раз в час. Сайты проверки увидят адрес телефона, как при открытии страницы.</string>
     <string name="settings_notifications">Уведомления</string>
     <string name="settings_notifications_note">Состояние туннеля и скорость в шторке</string>
     <string name="settings_share_note">Другие устройства по Wi-Fi, USB или Bluetooth — через туннель</string>
@@ -324,6 +323,12 @@
         <item quantity="few">%d дня</item>
         <item quantity="many">%d дней</item>
         <item quantity="other">%d дня</item>
+    </plurals>
+    <plurals name="settings_check_on_change_note">
+        <item quantity="one">Пока VPN включён: после перехода между Wi-Fi и мобильной сетью DPpass сам проверит новую — через %1$d с, не чаще %2$d раза в час. Сайты проверки увидят адрес телефона, как при открытии страницы.</item>
+        <item quantity="few">Пока VPN включён: после перехода между Wi-Fi и мобильной сетью DPpass сам проверит новую — через %1$d с, не чаще %2$d раз в час. Сайты проверки увидят адрес телефона, как при открытии страницы.</item>
+        <item quantity="many">Пока VPN включён: после перехода между Wi-Fi и мобильной сетью DPpass сам проверит новую — через %1$d с, не чаще %2$d раз в час. Сайты проверки увидят адрес телефона, как при открытии страницы.</item>
+        <item quantity="other">Пока VPN включён: после перехода между Wi-Fi и мобильной сетью DPpass сам проверит новую — через %1$d с, не чаще %2$d раза в час. Сайты проверки увидят адрес телефона, как при открытии страницы.</item>
     </plurals>
     <plurals name="apps_except">
         <item quantity="one">Все, кроме %d приложения</item>

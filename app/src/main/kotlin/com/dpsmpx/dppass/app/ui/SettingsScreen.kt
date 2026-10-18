@@ -171,8 +171,9 @@ class SettingsScreen(host: Host) : Screen(host) {
                         context,
                         R.drawable.ic_speed,
                         context.getString(R.string.settings_check_on_change),
-                        context.getString(
-                            R.string.settings_check_on_change_note,
+                        context.resources.getQuantityString(
+                            R.plurals.settings_check_on_change_note,
+                            NetworkChangeChecks.MAX_PER_HOUR,
                             (NetworkChangeChecks.SETTLE_MILLIS / 1000).toInt(),
                             NetworkChangeChecks.MAX_PER_HOUR,
                         ),

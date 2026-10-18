@@ -83,7 +83,7 @@ class NetworkCheckScreen(host: Host) : SubScreen(host, R.string.netcheck_title) 
         // Замер — только через поднятый туннель: иначе мерить нечего (D-61).
         val connected = status is TunnelStatus.Connected
         speedHint.text = if (connected) {
-            context.getString(R.string.speed_via, Avatar.stripFlag((status as TunnelStatus.Connected).profileName))
+            context.getString(R.string.speed_via, Avatar.stripFlag(status.profileName))
         } else {
             context.getString(R.string.speed_needs_tunnel)
         }

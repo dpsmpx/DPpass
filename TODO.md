@@ -82,6 +82,13 @@ Xray, проверки `check_apk.py` (16 КБ), `code.forbidden`
 - [ ] Устаревшее в сборке: `android.useAndroidX=false` (удаляется в
       AGP 10), `Configuration.setVisible` из плагина `com.android.lint`
       (удаляется в Gradle 11) — разобрать при обновлении по D-18.
+- [ ] Предупреждения Kotlin в `app/` — не ошибки: `allWarningsAsErrors`
+      включён только у модулей ядра (`build-logic`, `dppass.kotlin-library`),
+      у `app/` — только Lint (`warningsAsErrors`). Видно 18.10.2026: три
+      «Cast is redundant» (умное приведение K2) в `DPpassVpnService` и
+      `NetworkCheckScreen` прошли сборку — заметны только при перекомпиляции
+      файла. Эти три убраны с D-67; включить `allWarningsAsErrors` в
+      `app/build.gradle.kts` после полной перекомпиляции без предупреждений.
 
 ## На устройстве
 
