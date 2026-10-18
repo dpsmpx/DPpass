@@ -30,8 +30,8 @@ android {
         applicationId = AppIdentity.STABLE.applicationId
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 92
-        versionName = "0.7.22-dev"
+        versionCode = 93
+        versionName = "0.7.23-dev"
         // Ярлык приложения — через placeholder: стабильный для отладки,
         // случайный для личного release (D-47). Внутреннее имя «DPpass»
         // (экран «О программе», уведомление на своём экране) — @string/app_name.
@@ -90,6 +90,10 @@ android {
 
 kotlin {
     jvmToolchain(21)
+    compilerOptions {
+        // Предупреждения компилятора — ошибки, как у модулей ядра (build-logic, CLAUDE.md).
+        allWarningsAsErrors.set(true)
+    }
 }
 
 // Ядро Xray в APK (D-25): библиотека собирается задачей на вариант из

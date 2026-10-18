@@ -62,6 +62,9 @@ class ConnectScreen(host: Host) : Screen(host) {
         ellipsize = android.text.TextUtils.TruncateAt.END
     }
     private val serverLatency = LinearLayout(context)
+    private val modeRow = Ui.ListRow(context, R.drawable.ic_route, context.getString(R.string.routing_title))
+        .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+        .onClick { host.showTab(Host.TAB_SETTINGS) }
     private val serverCard = Ui.listCard(context).apply {
         val row = Ui.row(context).apply {
             setBackgroundResource(R.drawable.bg_row)
@@ -83,13 +86,7 @@ class ConnectScreen(host: Host) : Screen(host) {
         }
         addView(row, Ui.matchWidth())
         addView(Ui.divider(context, 16))
-        addView(
-            Ui.ListRow(context, R.drawable.ic_route, context.getString(R.string.routing_title))
-                .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
-                .onClick { host.showTab(Host.TAB_SETTINGS) }
-                .also { modeRow = it },
-            Ui.matchWidth(),
-        )
+        addView(modeRow, Ui.matchWidth())
         addView(Ui.divider(context, 16))
         addView(
             Ui.ListRow(context, R.drawable.ic_info, context.getString(R.string.plan_title))
@@ -99,7 +96,6 @@ class ConnectScreen(host: Host) : Screen(host) {
             Ui.matchWidth(),
         )
     }
-    private lateinit var modeRow: Ui.ListRow
 
     private val failureTitle = Ui.text(context, R.style.Text_DPpass_Title).apply { setTextColor(context.getColor(R.color.error)) }
     private val failureText = Ui.text(context, R.style.Text_DPpass_Secondary).apply { setTextIsSelectable(true) }

@@ -164,7 +164,7 @@ class AppsScreen(host: Host, private val apply: (UserPolicy) -> Unit) : SubScree
                     super.onInitializeAccessibilityNodeInfo(host, info)
                     info.className = CheckBox::class.java.name
                     info.isCheckable = true
-                    info.isChecked = check.isChecked
+                    Ui.checkedState(info, check.isChecked)
                 }
 
                 override fun onInitializeAccessibilityEvent(host: View, event: AccessibilityEvent) {

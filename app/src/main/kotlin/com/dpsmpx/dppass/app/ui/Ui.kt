@@ -280,7 +280,7 @@ internal object Ui {
                     super.onInitializeAccessibilityNodeInfo(host, info)
                     info.className = Switch::class.java.name
                     info.isCheckable = true
-                    info.isChecked = toggle.isChecked
+                    checkedState(info, toggle.isChecked)
                 }
 
                 // Событие касания — с новым состоянием: TalkBack произносит «включено» или «выключено».
@@ -294,6 +294,21 @@ internal object Ui {
                 toggle.isChecked = !toggle.isChecked
                 onChange(toggle.isChecked)
             }
+        }
+    }
+
+    /**
+     * Отмечен ли флажок или переключатель — для TalkBack. С Android 16 —
+     * `setChecked(int)` (есть и «частично»), `setChecked(boolean)` устарел;
+     * раньше — только он.
+     */
+    fun checkedState(info: AccessibilityNodeInfo, checked: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
+            info.setChecked(if (checked) AccessibilityNodeInfo.CHECKED_STATE_TRUE else AccessibilityNodeInfo.CHECKED_STATE_FALSE)
+        } else {
+            // Замена — ветка выше, её нет до Android 16.
+            @Suppress("DEPRECATION")
+            info.isChecked = checked
         }
     }
 

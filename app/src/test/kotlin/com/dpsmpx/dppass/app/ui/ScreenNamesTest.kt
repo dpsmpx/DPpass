@@ -54,7 +54,8 @@ class ScreenNamesTest {
     private fun screenClasses(): List<Class<*>> {
         val base = Screen::class.java
         val pkg = base.packageName.replace('.', '/') + "/"
-        val root = File(base.protectionDomain.codeSource.location.toURI())
+        val location = base.protectionDomain?.codeSource?.location ?: error("не найти, откуда загружен ${base.name}")
+        val root = File(location.toURI())
         val names = if (root.isDirectory) {
             File(root, pkg).list().orEmpty().toList()
         } else {

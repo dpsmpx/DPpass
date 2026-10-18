@@ -158,7 +158,11 @@ class MainActivity : Activity(), Host {
      */
     private fun edgeToEdge(root: View) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
-        window.setDecorFitsSystemWindows(false)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            // На Android 15+ при targetSdk 35+ так всегда, и вызов устарел; на 11–14 он ещё нужен.
+            @Suppress("DEPRECATION")
+            window.setDecorFitsSystemWindows(false)
+        }
         root.setOnApplyWindowInsetsListener { _, insets ->
             val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
             val ime = insets.getInsets(WindowInsets.Type.ime())
