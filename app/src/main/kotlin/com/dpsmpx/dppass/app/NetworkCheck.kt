@@ -24,6 +24,7 @@ import com.dpsmpx.dppass.network.ProbeResult
 import com.dpsmpx.dppass.network.Prober
 import com.dpsmpx.dppass.network.QuietWindow
 import com.dpsmpx.dppass.network.SocketProber
+import com.dpsmpx.dppass.network.UnderlyingNetworks
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -144,11 +145,8 @@ object NetworkCheck {
     /** Опровергнут (подключился сервер, который под списком отказывал): режим снова неизвестен. */
     fun forgetRegime() = regime.forget()
 
-    /** Непрозрачный ключ сети под туннелем (D-64, D-67); null — сети нет. В журнал не идёт. */
-    fun network(context: Context): Long? = underlying(context).network?.networkHandle
-
-    /** Сеть, которую меряет проверка: не VPN, с доступом в интернет. */
-    private class Underlying(val network: Network?, val type: NetworkType, val caps: NetworkCapabilities?)
+    /** Сеть под туннелем (D-40, D-67): не VPN, с доступом в интернет; её меряет проверка. */
+    internal class Underlying(val network: Network?, val type: NetworkType, val caps: NetworkCapabilities?)
 
     /** Проверить сеть; null — уже идёт другая проверка (D-67): её итог и будет итогом. */
     suspend fun run(
@@ -188,26 +186,38 @@ object NetworkCheck {
         return assessment
     }
 
-    private fun underlying(context: Context): Underlying {
+    /**
+     * Сеть под туннелем сейчас — выбор [UnderlyingNetworks.pick] по снимку
+     * сетей системы: сеть по умолчанию процесса, если она не VPN, иначе лучшая
+     * из сетей без VPN. Ею пользуются и проверка, и память режима (D-64), и
+     * сервис туннеля (D-40, D-67): ключи сети у них одни.
+     */
+    internal fun underlying(context: Context): Underlying {
         val cm = context.getSystemService(ConnectivityManager::class.java) ?: return Underlying(null, NetworkType.NONE, null)
+        val active = cm.activeNetwork
 
-        // Процесс DPpass — вне своего туннеля (D-17): его сеть по умолчанию — сеть под туннелем.
-        @Suppress("DEPRECATION") // замена — NetworkCallback; здесь нужен снимок по нажатию, а не подписка
-        val all = listOfNotNull(cm.activeNetwork) + cm.allNetworks
-        val network = all.firstOrNull { n ->
-            cm.getNetworkCapabilities(n)?.let {
-                !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN) && it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            } == true
+        @Suppress("DEPRECATION") // замена — NetworkCallback; здесь нужен снимок всех сетей сейчас, а не подписка
+        val all = cm.allNetworks.toList()
+        val caps = (listOfNotNull(active) + all).associateWith { cm.getNetworkCapabilities(it) }
+        fun candidate(n: Network): UnderlyingNetworks.Candidate? = caps[n]?.let {
+            UnderlyingNetworks.Candidate(
+                n.networkHandle,
+                type(it),
+                vpn = it.hasTransport(NetworkCapabilities.TRANSPORT_VPN),
+                internet = it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
+                validated = it.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
+            )
         }
-        val caps = network?.let(cm::getNetworkCapabilities)
-        val type = when {
-            caps == null -> NetworkType.NONE
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> NetworkType.WIFI
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> NetworkType.MOBILE
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> NetworkType.ETHERNET
-            else -> NetworkType.OTHER
-        }
-        return Underlying(network, type, caps)
+        val chosen = UnderlyingNetworks.pick(active?.let(::candidate), all.mapNotNull(::candidate))
+        val network = chosen?.let { c -> caps.keys.firstOrNull { it.networkHandle == c.handle } }
+        return Underlying(network, chosen?.type ?: NetworkType.NONE, network?.let(caps::get))
+    }
+
+    private fun type(caps: NetworkCapabilities): NetworkType = when {
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> NetworkType.WIFI
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> NetworkType.MOBILE
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> NetworkType.ETHERNET
+        else -> NetworkType.OTHER
     }
 
     /**

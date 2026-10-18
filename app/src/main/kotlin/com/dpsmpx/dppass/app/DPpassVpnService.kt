@@ -12,6 +12,8 @@ import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.PowerManager
@@ -38,6 +40,7 @@ import com.dpsmpx.dppass.engine.SocketProtector
 import com.dpsmpx.dppass.engine.xray.Ipv6Egress
 import com.dpsmpx.dppass.network.NetworkAssessment
 import com.dpsmpx.dppass.network.NetworkChangeChecks
+import com.dpsmpx.dppass.network.NetworkType
 import com.dpsmpx.dppass.network.RestrictionClass
 import com.dpsmpx.dppass.tunnel.Ipv6Mode
 import com.dpsmpx.dppass.tunnel.TunnelHandle
@@ -76,8 +79,9 @@ import java.util.Collections
  * поднимается последняя активная конфигурация (D-07). Остановка
  * пользователем — `START_NOT_STICKY`.
  *
- * Пока туннель поднят: сеть под ним — `setUnderlyingNetworks` по сети по
- * умолчанию (система и приложения видят её тип и тарификацию); счётчики
+ * Пока туннель поднят: сеть под ним — `setUnderlyingNetworks` по сети без
+ * VPN, выбранной [NetworkCheck.underlying] (система и приложения видят её
+ * тип и тарификацию); счётчики
  * ядра раз в секунду → [TunnelState.traffic], уведомление — раз в
  * [NOTIFY_EVERY] секунды и только при включённом экране.
  *
@@ -529,9 +533,15 @@ class DPpassVpnService : VpnService() {
     }
 
     /**
-     * Сеть под туннелем — сеть по умолчанию (D-40): её тип и тарификацию видят
-     * система и приложения. Через устройство раздачи (D-55) — его сеть
-     * [fixed]: туннель идёт по ней, какая бы ни была сеть по умолчанию.
+     * Сеть под туннелем (D-40): её тип и тарификацию видят система и
+     * приложения, её смена — повод проверить новую сеть (D-67). Через
+     * устройство раздачи (D-55) — его сеть [fixed]: туннель идёт по ней,
+     * какая бы ни была сеть по умолчанию.
+     *
+     * Слушаются все сети без VPN, а не «сеть по умолчанию»: её колбэк на
+     * телефоне о переходе Wi-Fi ↔ мобильная не сообщал (18.10.2026). При
+     * каждом событии нынешняя сеть выбирается заново ([NetworkCheck.underlying]),
+     * и только её смена что-то меняет.
      */
     private fun watchNetwork(fixed: Network? = null) {
         if (fixed != null) {
@@ -543,25 +553,40 @@ class DPpassVpnService : VpnService() {
             return
         }
         val cm = getSystemService(ConnectivityManager::class.java) ?: return
-        // Смена сети (D-67): первая сеть сервиса — сеть подключения, не смена.
-        val watch = changes ?: NetworkChangeChecks(Clock.MONOTONIC).also { c ->
-            NetworkCheck.network(this)?.let(c::onNetwork)
-            changes = c
-        }
+        // Смена сети (D-67): смены — на всё время сервиса, первая сеть — сеть подключения, не смена.
+        val watch = changes ?: NetworkChangeChecks(Clock.MONOTONIC).also { changes = it }
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                setUnderlyingNetworks(arrayOf(network))
-                DeviceLog.log.info("underlying_network", "state" to Safe("available"))
-                if (watch.onNetwork(network.networkHandle)) onNetworkChanged(watch, network.networkHandle)
+            // Колбэки — по одному, в потоке системы: [current] трогает только он.
+            private var current: Long? = null
+            private var currentType = NetworkType.NONE
+            private var registered = false
+
+            private fun update() {
+                val u = NetworkCheck.underlying(this@DPpassVpnService)
+                val handle = u.network?.networkHandle
+                if (registered && handle == current) return
+                registered = true
+                val from = currentType
+                current = handle
+                currentType = u.type
+                setUnderlyingNetworks(u.network?.let { arrayOf(it) })
+                DeviceLog.log.info("underlying_network", "state" to Safe(if (handle == null) "lost" else "available"), "type" to u.type)
+                if (handle != null && watch.onNetwork(handle)) onNetworkChanged(watch, handle, from, u.type)
             }
 
-            override fun onLost(network: Network) {
-                setUnderlyingNetworks(null)
-                DeviceLog.log.info("underlying_network", "state" to Safe("lost"))
-            }
+            override fun onAvailable(network: Network) = update()
+
+            override fun onLost(network: Network) = update()
+
+            // Система проверила сеть или сменила свою по умолчанию — без новых onAvailable/onLost.
+            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) = update()
         }
         try {
-            cm.registerDefaultNetworkCallback(callback)
+            cm.registerNetworkCallback(request, callback)
             networkCallback = callback
         } catch (e: RuntimeException) {
             // Слишком много колбэков у процесса или нет разрешения — туннель работает и без этого.
@@ -576,9 +601,9 @@ class DPpassVpnService : VpnService() {
      * под белым списком новой сети опыт сессии — его. Пропуск проверки — с
      * причиной в журнале: выключено, сеть уже другая, предел за час.
      */
-    private fun onNetworkChanged(changes: NetworkChangeChecks, network: Long) {
+    private fun onNetworkChanged(changes: NetworkChangeChecks, network: Long, from: NetworkType, to: NetworkType) {
         val core = AppGraph.core(this)
-        core.log.info("network_changed")
+        core.log.info("network_changed", "from" to from, "to" to to)
         retakeRegime(core, "network_changed")
         changeCheck?.cancel()
         changeCheck = scope.launch {

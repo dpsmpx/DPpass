@@ -295,3 +295,32 @@ class NetworkChangeChecksTest {
         assertTrue(c.tryStart(3), "час прошёл — снова можно")
     }
 }
+
+/** Сеть под туннелем (D-40, D-67): какую из сетей устройства считать нынешней. */
+class UnderlyingNetworksTest {
+    private fun net(handle: Long, type: NetworkType, vpn: Boolean = false, internet: Boolean = true, validated: Boolean = true) =
+        UnderlyingNetworks.Candidate(handle, type, vpn, internet, validated)
+
+    private val vpn = net(1, NetworkType.OTHER, vpn = true)
+    private val wifi = net(2, NetworkType.WIFI)
+    private val mobile = net(3, NetworkType.MOBILE)
+
+    @Test
+    fun theProcessDefaultWinsWhenItIsNotTheTunnel() {
+        assertEquals(mobile, UnderlyingNetworks.pick(mobile, listOf(vpn, wifi, mobile)), "система сама выбрала мобильную — так и есть")
+        assertEquals(wifi, UnderlyingNetworks.pick(wifi, listOf(mobile, wifi)))
+    }
+
+    @Test
+    fun withoutAUsableDefaultTheBestNonVpnNetworkIsChosen() {
+        // Сеть по умолчанию — свой туннель или её нет: выбор по сетям без VPN.
+        assertEquals(wifi, UnderlyingNetworks.pick(vpn, listOf(vpn, mobile, wifi)), "Wi-Fi раньше мобильной при «мобильных данных всегда»")
+        assertEquals(wifi, UnderlyingNetworks.pick(null, listOf(mobile, wifi)))
+        val wifiUnchecked = net(4, NetworkType.WIFI, validated = false)
+        assertEquals(mobile, UnderlyingNetworks.pick(vpn, listOf(wifiUnchecked, mobile)), "непроверенный Wi-Fi (страница входа) — после проверенной мобильной")
+        assertEquals(mobile, UnderlyingNetworks.pick(vpn, listOf(vpn, mobile)), "Wi-Fi выключен — мобильная")
+        assertEquals(wifiUnchecked, UnderlyingNetworks.pick(null, listOf(wifiUnchecked)))
+        assertNull(UnderlyingNetworks.pick(vpn, listOf(vpn, net(5, NetworkType.WIFI, internet = false))), "сети с интернетом нет")
+        assertNull(UnderlyingNetworks.pick(null, emptyList()))
+    }
+}
