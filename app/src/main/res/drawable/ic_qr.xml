@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- QR-код: три угловые метки и модули (свой рисунок, D-34). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M4,4H10V10H4Z M14,4H20V10H14Z M4,14H10V20H4Z"
+        android:strokeColor="@color/text"
+        android:strokeWidth="2"
+        android:strokeLineJoin="round" />
+    <path
+        android:fillColor="@color/text"
+        android:pathData="M6,6H8V8H6Z M16,6H18V8H16Z M6,16H8V18H6Z M13,13H15V15H13Z M17,13H19V15H17Z M15,15H17V17H15Z M13,17H15V19H13Z M17,17H19V19H17Z" />
+</vector>

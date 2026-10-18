@@ -216,6 +216,12 @@ enum class DiagCode(val kind: FailureKind, val defaultSeverity: Severity) {
     /** Лимит устройств у поставщика исчерпан (`x-hwid-max-devices-reached`): удалить устройство у поставщика (D-33). */
     SUBSCRIPTION_DEVICE_LIMIT_REACHED(FailureKind.SUBSCRIPTION_FETCH_FAILED, Severity.ERROR),
 
+    /** На картинке не найден читаемый QR-код (D-65): нет кода, он обрезан, размыт или пуст. */
+    IMPORT_QR_NOT_FOUND(FailureKind.SUBSCRIPTION_INVALID, Severity.ERROR),
+
+    /** Картинку не прочитать: не изображение, повреждена или больше предела (D-65). */
+    IMPORT_IMAGE_UNREADABLE(FailureKind.SUBSCRIPTION_INVALID, Severity.ERROR),
+
     // --- хранение ---
     STORAGE_READ_FAILED(FailureKind.STORAGE_FAILED, Severity.ERROR),
     STORAGE_WRITE_FAILED(FailureKind.STORAGE_FAILED, Severity.ERROR),

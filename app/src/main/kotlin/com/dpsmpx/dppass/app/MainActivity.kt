@@ -34,6 +34,7 @@ import com.dpsmpx.dppass.app.ui.SubscriptionsScreen
 import com.dpsmpx.dppass.app.ui.Ui
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
+import com.dpsmpx.dppass.diagnostics.Outcome
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -97,6 +98,7 @@ class MainActivity : Activity(), Host {
         DeviceLog.log.info("activity_create")
         showTab(prefs.tab.coerceIn(0, tabs.lastIndex))
         pendingImport = sharedText(intent)
+        sharedImage(intent)?.let(::readQr)
         scope.launch {
             val g = withContext(Dispatchers.IO) {
                 AppGraph.graph(this@MainActivity).also { if (it.core.activation.state.activeConfig == null) it.core.restore() }
@@ -114,13 +116,30 @@ class MainActivity : Activity(), Host {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        sharedText(intent)?.let { text -> if (graph != null) importText(text) else pendingImport = text }
+        sharedText(intent)?.let(::deliver)
+        sharedImage(intent)?.let(::readQr)
+    }
+
+    /** Граф ещё собирается — текст подождёт его (onCreate разберёт [pendingImport]). */
+    private fun deliver(text: String) {
+        if (graph != null) importText(text) else pendingImport = text
     }
 
     /** Текст из «Поделиться» (D-42); не больше документа DPpass. */
     private fun sharedText(intent: Intent?): String? {
         if (intent?.action != Intent.ACTION_SEND || intent.type != "text/plain") return null
         return intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() && it.length <= ImportFlow.MAX_FILE_BYTES }
+    }
+
+    /** Картинка из «Поделиться» (D-65): QR на ней распознаётся, как выбранный файл. */
+    private fun sharedImage(intent: Intent?): Uri? {
+        if (intent?.action != Intent.ACTION_SEND || intent.type?.startsWith("image/") != true) return null
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION") // типизированный вариант — только с API 33
+            intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
+        }
     }
 
     /**
@@ -333,6 +352,26 @@ class MainActivity : Activity(), Host {
         }
     }
 
+    override fun pickQrImage() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*")
+        try {
+            @Suppress("DEPRECATION") // Activity Result API есть только в AndroidX, а его нет (D-34)
+            startActivityForResult(intent, REQUEST_QR)
+        } catch (e: android.content.ActivityNotFoundException) {
+            toast(getString(R.string.no_system_screen))
+        }
+    }
+
+    /** QR с картинки (D-65): чтение и распознавание — в фоне; текст — тем же путём, что буфер обмена. */
+    private fun readQr(uri: Uri) {
+        scope.launch {
+            when (val r = withContext(Dispatchers.IO) { QrPicture.read(contentResolver, uri) }) {
+                is Outcome.Success -> deliver(r.value)
+                is Outcome.Failure -> problem(getString(R.string.import_qr_failed), r.errors.first())
+            }
+        }
+    }
+
     /** Файл импорта — в фоне, не больше [ImportFlow.MAX_FILE_BYTES]: дальше разбор всё равно откажет. */
     private fun readFile(uri: Uri) {
         scope.launch {
@@ -386,6 +425,7 @@ class MainActivity : Activity(), Host {
             requestCode == REQUEST_VPN && resultCode == RESULT_OK -> DPpassVpnService.start(this)
             requestCode == REQUEST_VPN -> vpnConsentRefused()
             requestCode == REQUEST_FILE && resultCode == RESULT_OK -> data?.data?.let(::readFile)
+            requestCode == REQUEST_QR && resultCode == RESULT_OK -> data?.data?.let(::readQr)
         }
     }
 
@@ -432,6 +472,7 @@ class MainActivity : Activity(), Host {
         const val REQUEST_VPN = 1
         const val REQUEST_NOTIFICATIONS = 2
         const val REQUEST_FILE = 3
+        const val REQUEST_QR = 4
         const val TRANSITION_MILLIS = 180L
     }
 }

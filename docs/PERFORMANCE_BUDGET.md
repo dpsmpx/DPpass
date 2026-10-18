@@ -32,6 +32,7 @@
 | Подписок в приложении | 64; адрес — 2048 символов, имя — 64 | `SubscriptionService.MAX_SUBSCRIPTIONS`, `MAX_URL`, `MAX_NAME` | `LimitsTest.subscriptionsUpTo64`, `LimitsTest.subscriptionUrlUpTo2048NameUpTo64` |
 | Обновление по расписанию | задание раз в час; подписка — по своему интервалу (по умолчанию 12 ч); после отказа — не раньше чем через 30 мин; только активная | `SubscriptionJobService`, `UpdateSchedule` (D-39) | `UpdateScheduleTest.intervalsFailuresAndOff` |
 | Импорт (буфер, файл, «Поделиться») | 1 МиБ | `ImportClassifier.MAX_BYTES` | `ImportClassifierTest.plainHttpAndOversizedTextAreRefusedWithReason` |
+| Картинка с QR (D-65) | файл — 32 МиБ; после уменьшения — не больше 2048² пикселей (степень двойки, с запасом на округление) | `QrImage.MAX_FILE_BYTES`, `QrImage.sampleSize`, `QrPicture` | `QrImageTest.sampleSizeKeepsPixelsWithinTheLimit` (уменьшение; чтение файла с пределом — на устройстве) |
 | Приложения в политике | 1000 | `UserPolicy.MAX_APPS` | `LimitsTest.policyAppsUpTo1000` |
 | Проверка задержки | по одному серверу, пауза 150 мс, тайм-аут 3 с, не больше 128 за прогон | `LatencyBook` (D-41) | `LatencyBookTest.measuresTcpOneByOneAndSkipsUdp` |
 | Обновление уведомления туннеля | раз в 2 с и только при включённом экране | `DPpassVpnService` (D-40) | нет (на устройстве) |

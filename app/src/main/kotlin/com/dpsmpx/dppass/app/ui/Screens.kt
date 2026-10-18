@@ -53,6 +53,9 @@ interface Host {
     /** Выбрать файл для импорта (D-42). */
     fun pickFile()
 
+    /** Выбрать картинку с QR-кодом для импорта (D-65): без разрешения камеры. */
+    fun pickQrImage()
+
     companion object {
         const val TAB_CONNECT: Int = 0
         const val TAB_SERVERS: Int = 1

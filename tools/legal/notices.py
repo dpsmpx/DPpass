@@ -46,6 +46,18 @@ SET_DIR = "notices"
 FILE = "NOTICES.txt"
 LICENSE_NAMES = ("LICENSE", "LICENSE.txt", "LICENSE.md", "LICENCE", "COPYING", "LICENSE-APACHE")
 XRAY_SOURCE = "https://github.com/XTLS/Xray-core/tree/v{version}"
+# NOTICE библиотек Apache-2.0 (§4(d) лицензии): строки об авторских правах из
+# NOTICE проекта на теге той версии, что в каталоге (docs/PROVENANCE.md).
+# Версия сменилась — NOTICE сверяется заново, иначе уведомления не собираются.
+MAVEN_NOTICES = {
+    "com.google.zxing:core": ("3.5.4", (
+        "NOTICE ZXing (github.com/zxing/zxing, тег zxing-3.5.4):",
+        "Barcode4J — Copyright 2002-2010 Jeremias Märki, Copyright 2005-2006 Dietmar Bürkle;",
+        "portions of this software were contributed under section 5 of the Apache License,",
+        "contributors: http://barcode4j.sourceforge.net/contributors.html.",
+        "JCommander — Copyright 2010 Cedric Beust cedric@beust.com.",
+    )),
+}
 
 
 class Missing(Exception):
@@ -158,7 +170,13 @@ def build(out_dir):
     head = []
     for kind, name, version, license_ in items:
         if kind == "maven":
-            head.append((name, version, license_, number(apache) if "Apache-2.0" in license_ else None, None))
+            note = None
+            if name in MAVEN_NOTICES:
+                want, notice = MAVEN_NOTICES[name]
+                if version != want:
+                    raise SystemExit(f"✗ notices: {name} {version}: NOTICE сверен для {want} — сверить NOTICE новой версии (D-18)")
+                note = "\n  ".join(notice)
+            head.append((name, version, license_, number(apache) if "Apache-2.0" in license_ else None, note))
         elif kind == "xray":
             mod_version = next(v for k, n, v, _ in items if k == "go" and n == "github.com/xtls/xray-core")
             t = license_text(module_dir("github.com/xtls/xray-core", mod_version, env))

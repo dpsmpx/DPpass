@@ -64,7 +64,7 @@
 | `tunnel` | `TunnelSpec` из IR, черты платформы, интерфейс платформы TUN | `config` |
 | `connection` | `DPpassCore`: активация с last-known-good, политика пользователя (D-38), подписки в хранилище, распознавание импорта (D-42), план кандидатов с задержкой (D-41) и выученной устойчивостью (D-44), оркестратор подключения, здоровье, адаптивная модель (`StabilityModel`, `StabilityBook`, наблюдатель сессии, D-44), раздача туннеля (`ShareService`, D-51), устройства раздачи (`RelayService`, `Socks5Login`, D-55), сопряжение по коду (`Pairing`, D-56), отчёт | `engine`, `network`, `storage`, `subscriptions`, `tunnel` |
 | `cli` | оболочка JVM: команды, модель сети, замеры | `connection` |
-| `app` | оболочка Android: сборка зависимостей, `VpnService`, интерфейсы раздачи (`TetherInterfaces`, D-51), плитка быстрых настроек, задание обновления подписок, Keystore, интерфейс (пакет `app.ui`, D-34) | `connection` |
+| `app` | оболочка Android: сборка зависимостей, `VpnService`, интерфейсы раздачи (`TetherInterfaces`, D-51), плитка быстрых настроек, задание обновления подписок, Keystore, интерфейс (пакет `app.ui`, D-34), QR с картинки (`QrImage`, ZXing core, D-65) | `connection` |
 | `tests/integration` | межмодульные сценарии | `connection` |
 | `tests/regression` | корпус регрессий `tests/data/` | `connection` |
 | `tests/fuzz` | мутационный fuzz разбора | `connection` |

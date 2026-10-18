@@ -21,8 +21,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Импорт (D-42): меню «Добавить», буфер обмена, файл, «Поделиться» и
- * адрес подписки. Принесённое распознаётся (`ImportClassifier`), и
+ * Импорт (D-42): меню «Добавить», буфер обмена, файл, «Поделиться»,
+ * адрес подписки и QR с картинки (D-65). Принесённое распознаётся (`ImportClassifier`), и
  * пользователь видит сводку — ничего не применяется без его нажатия
  * (T13: «Поделиться» — данные чужого приложения).
  */
@@ -41,6 +41,7 @@ internal object ImportFlow {
         item(R.drawable.ic_link, R.string.subs_add, R.string.add_subscription_note) { addSubscription(host) }
         item(R.drawable.ic_paste, R.string.import_clipboard, R.string.add_clipboard_note) { fromClipboard(host) }
         item(R.drawable.ic_file, R.string.import_file, R.string.add_file_note) { host.pickFile() }
+        item(R.drawable.ic_qr, R.string.import_qr, R.string.add_qr_note) { host.pickQrImage() }
         item(R.drawable.ic_lan, R.string.relays_entry, R.string.relays_entry_note) { host.push(RelaysScreen(host)) }
         sheet = Ui.sheet(c, c.getString(R.string.add_title), items)
         sheet.show()

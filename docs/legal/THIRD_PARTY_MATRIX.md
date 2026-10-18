@@ -35,6 +35,7 @@
 | `org.jetbrains.kotlinx:kotlinx-coroutines-core` (JVM-артефакт — `kotlinx-coroutines-core-jvm`; `kotlinx-coroutines-bom` — только выравнивание версий) | 1.11.0 | Apache-2.0 | APK, `cli`, ядро (`connection`) | разрешён | `suspend` на границах ядра, проб, здоровья, загрузки (`docs/ARCHITECTURE.md`, §12) |
 | `org.jetbrains.kotlin:kotlin-stdlib` | 2.4.20 | Apache-2.0 | APK, `cli`, все модули | разрешён | стандартная библиотека Kotlin; версию задаёт плагин Kotlin, не каталог |
 | `org.jetbrains:annotations` | 23.0.0 | Apache-2.0 | APK, `cli` (транзитивно от корутин и `kotlin-stdlib`) | разрешён | аннотации `@NotNull`/`@Nullable`; исполняемого кода нет |
+| `com.google.zxing:core` | 3.5.4 | Apache-2.0 | APK (`app`) | разрешён | распознавание QR с картинки (D-65); без зависимостей; NOTICE проекта (части Barcode4J) — в уведомлениях APK |
 
 ### 1.2. Тесты
 

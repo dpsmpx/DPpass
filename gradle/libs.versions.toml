@@ -12,6 +12,8 @@ kotlinx-coroutines = "1.11.0"
 junit = "6.1.3"
 # Форматтер Kotlin (D-63): только задачи ktlintCheck/ktlintFormat, в APK и cli не попадает.
 ktlint = "1.8.0"
+# Распознавание QR с картинки (D-65): только в app, только формат QR.
+zxing = "3.5.4"
 
 # Ядро прокси (D-24): версия Xray и Go-модуль той же версии (тег v26.9.30
 # upstream XTLS/Xray-core). Из него tools/xray собирает ядро для проверки
@@ -43,6 +45,9 @@ kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-t
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+
+# ZXing core: распознавание QR (D-65), без зависимостей; в app и тесты app.
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 
 # ktlint одним файлом (вариант с классификатором all, без транзитивных зависимостей, D-63).
 ktlint-cli = { module = "com.pinterest.ktlint:ktlint-cli", version.ref = "ktlint" }

@@ -56,6 +56,15 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
+            <!--
+              «Поделиться» картинкой (D-65): QR на ней распознаётся и идёт тем же
+              путём, что текст, — сводка и подтверждение (T13).
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
         </activity>
 
         <!-- Сервис туннеля. Связывается только системой (BIND_VPN_SERVICE). -->

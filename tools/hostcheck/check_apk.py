@@ -87,6 +87,7 @@ CODE_ROOTS = {
     "_COROUTINE/": "kotlinx-coroutines: метки кадров стека (матрица, §1.1)",
     "org/jetbrains/annotations/": "org.jetbrains:annotations (матрица, §1.1)",
     "org/intellij/lang/annotations/": "org.jetbrains:annotations (матрица, §1.1)",
+    "com/google/zxing/": "ZXing core: QR с картинки (матрица, §1.1, D-65)",
     "com/android/tools/r8/": "поддержка desugaring, которую D8 (AGP) добавляет в APK (матрица, §1.3)",
 }
 # Свой код, которому в APK не место: тестовые фикстуры (модель сети, здоровье по

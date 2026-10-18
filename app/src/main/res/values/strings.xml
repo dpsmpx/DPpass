@@ -473,4 +473,8 @@
     <string name="subs_skipped_title">Not included from “%1$s”</string>
     <string name="subs_skipped_note">From the last update in this app session — %1$s. Reasons are shown without links or secrets.</string>
     <string name="subs_skipped_entry">Entry %1$d</string>
+    <!-- QR с картинки (D-65) -->
+    <string name="import_qr">QR code from image</string>
+    <string name="add_qr_note">A screenshot or photo with a QR code — no camera access</string>
+    <string name="import_qr_failed">QR code not read</string>
 </resources>

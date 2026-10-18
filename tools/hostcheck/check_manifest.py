@@ -12,7 +12,7 @@
   * открытый HTTP запрещён (`usesCleartextTraffic=false` и
     network_security_config), доверие — только системным CA;
   * нет `debuggable`; экспортировано только то, что нужно: запуск
-    Activity (фильтры — только запуск и «Поделиться» текстом, D-42),
+    Activity (фильтры — только запуск и «Поделиться» текстом и картинкой, D-42, D-65),
     VpnService под `BIND_VPN_SERVICE`, плитка под
     `BIND_QUICK_SETTINGS_TILE` и служба задач под `BIND_JOB_SERVICE`
     (D-39, D-40): каждый сервис — под своим системным разрешением;
@@ -50,10 +50,11 @@ EXPORTED_OK = {
     ".app.DPpassTileService": "android.permission.BIND_QUICK_SETTINGS_TILE",
     ".app.SubscriptionJobService": "android.permission.BIND_JOB_SERVICE",
 }
-# Фильтры MainActivity: запуск и «Поделиться» текстом (D-42) — и ничего больше.
+# Фильтры MainActivity: запуск, «Поделиться» текстом (D-42) и картинкой с QR (D-65) — и ничего больше.
 MAIN_FILTERS = {
     (("android.intent.action.MAIN",), ("android.intent.category.LAUNCHER",), ()),
     (("android.intent.action.SEND",), ("android.intent.category.DEFAULT",), ("text/plain",)),
+    (("android.intent.action.SEND",), ("android.intent.category.DEFAULT",), ("image/*",)),
 }
 
 
@@ -153,7 +154,7 @@ def main():
                         for f in el.findall("intent-filter")
                     }
                     for extra in sorted(filters - MAIN_FILTERS):
-                        problems.append(f"<activity {name}>: фильтр {extra} не утверждён (D-42: только запуск и SEND text/plain)")
+                        problems.append(f"<activity {name}>: фильтр {extra} не утверждён (D-42, D-65: только запуск, SEND text/plain и SEND image/*)")
                     for f in el.findall("intent-filter"):
                         if any(d.get(A + "scheme") or d.get(A + "host") for d in f.findall("data")):
                             problems.append(f"<activity {name}>: фильтр со схемой или хостом — ссылки снаружи не принимаются")

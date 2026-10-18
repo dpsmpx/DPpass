@@ -30,8 +30,8 @@ android {
         applicationId = AppIdentity.STABLE.applicationId
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 79
-        versionName = "0.7.9-dev"
+        versionCode = 80
+        versionName = "0.7.10-dev"
         // Ярлык приложения — через placeholder: стабильный для отладки,
         // случайный для личного release (D-47). Внутреннее имя «DPpass»
         // (экран «О программе», уведомление на своём экране) — @string/app_name.
@@ -149,6 +149,8 @@ androidComponents {
 dependencies {
     implementation(project(":connection"))
     implementation(libs.kotlinx.coroutines.core)
+    // QR с картинки (D-65): распознаёт ZXing core, только в оболочке.
+    implementation(libs.zxing.core)
 
     // Логика экранов без Android (D-34) — тестами на хосте, как модули ядра.
     // Модулям ядра вариант JUnit 5 у kotlin-test выбирает плагин kotlin-jvm; у

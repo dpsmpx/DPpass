@@ -492,4 +492,8 @@
     <string name="subs_skipped_title">Не вошло из «%1$s»</string>
     <string name="subs_skipped_note">С последнего обновления в этом запуске приложения — %1$s. Причины — без ссылок и секретов.</string>
     <string name="subs_skipped_entry">Запись %1$d</string>
+    <!-- QR с картинки (D-65) -->
+    <string name="import_qr">QR-код с картинки</string>
+    <string name="add_qr_note">Снимок экрана или фото с QR-кодом — без доступа к камере</string>
+    <string name="import_qr_failed">QR-код не прочитан</string>
 </resources>
