@@ -1,6 +1,48 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Поле ввода и поиска: вариант поверхности, скруглённое (D-34). -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="@color/surface_variant" />
-    <corners android:radius="@dimen/radius_row" />
-</shape>
+<!--
+  Поле ввода и поиска (D-34): заливка — вариант поверхности, скруглённое; по
+  нижнему краю — линия, граница поля не ниже 3:1 к фону (WCAG 1.4.11, выбор
+  автора 18.10.2026). Линия — по прямому участку края, между скруглениями, и
+  рисуется внутри поля: размер поля и положение текста те же. В фокусе — 2 dp
+  цвета primary.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="@color/surface_variant" />
+                    <corners android:radius="@dimen/radius_row" />
+                </shape>
+            </item>
+            <item
+                android:gravity="bottom"
+                android:height="2dp"
+                android:left="@dimen/radius_row"
+                android:right="@dimen/radius_row">
+                <shape android:shape="rectangle">
+                    <solid android:color="@color/primary" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+    <item>
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="@color/surface_variant" />
+                    <corners android:radius="@dimen/radius_row" />
+                </shape>
+            </item>
+            <item
+                android:gravity="bottom"
+                android:height="1dp"
+                android:left="@dimen/radius_row"
+                android:right="@dimen/radius_row">
+                <shape android:shape="rectangle">
+                    <solid android:color="@color/outline_strong" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+</selector>

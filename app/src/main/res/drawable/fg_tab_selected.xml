@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Выбранная вкладка нижней панели (D-34): линия под подписью, в нижнем отступе
+  вкладки — подпись и значок остаются на месте. Не ниже 3:1 к панели
+  (WCAG 1.4.11, выбор автора 18.10.2026).
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:bottom="2dp"
+        android:gravity="bottom|center_horizontal"
+        android:height="3dp"
+        android:width="32dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/primary" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+</layer-list>

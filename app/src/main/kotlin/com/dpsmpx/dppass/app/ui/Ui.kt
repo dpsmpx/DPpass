@@ -319,7 +319,10 @@ internal object Ui {
      * маршрутизации, порядок серверов). Касаемая область сегмента — 48 dp
      * по высоте, видимая плашка — 40 dp: отступ сверху и снизу — у рисунка
      * (`bg_segment`, `fg_ripple_segment`), а не у дорожки, иначе касание у
-     * края дорожки не попадает в сегмент.
+     * края дорожки не попадает в сегмент. У выбранного — линия снизу внутри
+     * плашки (WCAG 1.4.11); отступ текста 10 dp сверху и снизу держит её под
+     * текстом и при двух строках и крупном шрифте, а одна строка стоит там же,
+     * где без линии.
      */
     fun segmented(context: Context, options: List<CharSequence>, selected: Int, onSelect: (Int) -> Unit): LinearLayout =
         LinearLayout(context).apply {
@@ -336,13 +339,12 @@ internal object Ui {
                         maxLines = 2
                         if (on) {
                             setBackgroundResource(R.drawable.bg_segment)
-                            backgroundTintList = ColorStateList.valueOf(context.getColor(R.color.surface))
                             elevation = dpF(context, 1f)
                         } else {
                             foreground = context.getDrawable(R.drawable.fg_ripple_segment)
                         }
-                        // После фона: отступы рисунка-вставки заменили бы заданные раньше.
-                        setPadding(dp(context, 12), dp(context, 4), dp(context, 12), dp(context, 4))
+                        // После фона: отступы рисунка заменили бы заданные раньше.
+                        setPadding(dp(context, 12), dp(context, 10), dp(context, 12), dp(context, 10))
                         setTextColor(context.getColor(if (on) R.color.text else R.color.text_secondary))
                         isClickable = true
                         isFocusable = true
@@ -355,7 +357,7 @@ internal object Ui {
             }
         }
 
-    /** Поле поиска: значок, текст, без рамки. [onChange] — на каждый ввод. */
+    /** Поле поиска: значок, текст, линия снизу (`bg_field`). [onChange] — на каждый ввод. */
     fun searchField(context: Context, hint: Int, onChange: (String) -> Unit): EditText = EditText(context).apply {
         setHint(hint)
         setTextAppearance(R.style.Text_DPpass_Body)
@@ -377,7 +379,7 @@ internal object Ui {
         })
     }
 
-    /** Поле ввода формы (адрес подписки, имя). */
+    /** Поле ввода формы (адрес подписки, имя): линия снизу, в фокусе — толще и цвета primary (`bg_field`). */
     fun field(context: Context, hint: Int, type: Int = InputType.TYPE_CLASS_TEXT): EditText = EditText(context).apply {
         setHint(hint)
         setTextAppearance(R.style.Text_DPpass_Body)

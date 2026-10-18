@@ -240,6 +240,8 @@ class MainActivity : Activity(), Host {
             (pill.getChildAt(0) as ImageView).imageTintList =
                 ColorStateList.valueOf(getColor(if (on) R.color.on_primary_container else R.color.text_secondary))
             (item.getChildAt(1) as TextView).setTextColor(getColor(if (on) R.color.text else R.color.text_secondary))
+            // Линия под подписью выбранной (WCAG 1.4.11): плашка значка к панели — 1,2:1.
+            item.foreground = if (on) getDrawable(R.drawable.fg_tab_selected) else null
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) item.stateDescription = if (on) getString(R.string.a11y_selected) else null
         }
         val visible = tabs[tab]
