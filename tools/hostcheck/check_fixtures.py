@@ -112,10 +112,10 @@ def one_of(path, what, value, allowed):
         bad(path, f"{what} = {value!r}; допустимо: {', '.join(sorted(map(str, allowed)))}")
 
 
-def codes(path, obj):
-    lst = obj.get("codes", [])
+def codes(path, obj, key="codes"):
+    lst = obj.get(key, [])
     if not isinstance(lst, list) or not all(isinstance(c, str) for c in lst):
-        bad(path, "codes — массив строк")
+        bad(path, f"{key} — массив строк")
         return
     for c in lst:
         if c not in CODES:
@@ -143,9 +143,11 @@ def check_config_dirs():
             if e is None or not keys(path, e, {"load", "activate", "xray"}, ("load",)):
                 continue
             ld = e["load"]
-            if keys(path, ld, {"outcome", "codes"}, ("outcome",)):
+            # absent — коды, которых в находках быть не должно (ложная вторая причина отказа).
+            if keys(path, ld, {"outcome", "codes", "absent"}, ("outcome",)):
                 one_of(path, "load.outcome", ld.get("outcome"), {"ok", "rejected"})
                 codes(path, ld)
+                codes(path, ld, "absent")
             act = e.get("activate")
             if act is not None and keys(path, act, {"backend", "outcome", "codes"}, ("outcome",)):
                 one_of(path, "activate.backend", act.get("backend", "mock"), {"mock", "mock-limited"})

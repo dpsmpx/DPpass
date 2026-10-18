@@ -1,0 +1,11 @@
+{
+  "load": {
+    "outcome": "rejected",
+    "codes": [
+      "SECRET_PLACEHOLDER"
+    ],
+    "absent": [
+      "REALITY_SHORT_ID_INVALID"
+    ]
+  }
+}

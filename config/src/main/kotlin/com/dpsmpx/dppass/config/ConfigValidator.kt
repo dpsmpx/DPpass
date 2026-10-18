@@ -18,6 +18,7 @@ object ConfigValidator {
     private val UUID = Regex("""[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}""")
     private val SHORT_ID = Regex("""([0-9a-f]{2}){0,8}""")
     private const val SERVER_NAME_MESSAGE = "имя сервера (server_name; в ссылке — sni) должно быть доменным именем (IDN — в punycode)"
+    private const val PLACEHOLDER_MESSAGE = "вместо секрета — метка из отредактированного экспорта; такой профиль не подключится"
     internal const val PATH_MESSAGE = "путь должен начинаться с «/», быть без пробелов и управляющих символов, не длиннее 1024"
     internal const val SERVICE_NAME_MESSAGE = "service_name (в ссылке — serviceName) — непустой, без пробелов, не длиннее 256"
 
@@ -107,7 +108,7 @@ object ConfigValidator {
                 return false
             }
             if (s.reveal() == Secret.REDACTED) {
-                err(DiagCode.SECRET_PLACEHOLDER, "вместо секрета — метка из отредактированного экспорта; такой профиль не подключится", at)
+                err(DiagCode.SECRET_PLACEHOLDER, PLACEHOLDER_MESSAGE, at)
                 return false
             }
             return true
@@ -184,7 +185,11 @@ object ConfigValidator {
                 if (sec.publicKey.length != 43 || key == null || key.size != 32) {
                     err(DiagCode.REALITY_PUBLIC_KEY_INVALID, "public_key — 32 байта X25519 в base64url без «=» (43 символа)", "$path.security.public_key")
                 }
-                if (!SHORT_ID.matches(sec.shortId.reveal())) {
+                // short_id в экспорте без секретов — тоже метка (D-11): причина — она, а не «не шестнадцатеричное».
+                val shortId = sec.shortId.reveal()
+                if (shortId == Secret.REDACTED) {
+                    err(DiagCode.SECRET_PLACEHOLDER, PLACEHOLDER_MESSAGE, "$path.security.short_id")
+                } else if (!SHORT_ID.matches(shortId)) {
                     err(DiagCode.REALITY_SHORT_ID_INVALID, "short_id — чётное число шестнадцатеричных цифр в нижнем регистре, до 16", "$path.security.short_id")
                 }
                 if (Host.normalizeDomain(sec.serverName) == null) {

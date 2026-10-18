@@ -63,6 +63,7 @@ import org.junit.jupiter.api.DynamicTest
 import org.junit.jupiter.api.TestFactory
 import java.io.File
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -84,7 +85,7 @@ class CorpusTest {
 
     private fun json(f: File): JsonObject = Json.parse(f.readText()) as JsonObject
     private fun str(o: JsonObject, k: String): String? = (o[k] as? JsonString)?.value
-    private fun codes(o: JsonObject?): List<String> = (o?.get("codes") as? JsonArray)?.items?.map { (it as JsonString).value }.orEmpty()
+    private fun codes(o: JsonObject?, key: String = "codes"): List<String> = (o?.get(key) as? JsonArray)?.items?.map { (it as JsonString).value }.orEmpty()
 
     /** Все коды дерева находок (с причинами). */
     private fun allCodes(ds: List<Diagnostic>): Set<String> = ds.flatMap { listOf(it.code.name) + allCodes(it.causes) }.toSet()
@@ -107,6 +108,8 @@ class CorpusTest {
                 val got = allCodes(r.diagnostics)
                 assertEquals(str(load, "outcome") == "ok", r.isSuccess, "исход разбора $name: ${r.diagnostics.map { it.render() }}")
                 for (c in codes(load)) assertTrue(c in got, "$name: нет ожидаемого кода $c, есть $got")
+                // Отказ — с той причиной, а не ещё и с ложной: `absent` не должно быть в дереве находок.
+                for (c in codes(load, "absent")) assertFalse(c in got, "$name: лишний код $c, есть $got")
                 if (str(load, "outcome") == "ok") {
                     val unexpected = r.diagnostics.filter { it.severity.name != "INFO" }.map { it.code.name }.toSet() - codes(load).toSet()
                     assertTrue(unexpected.isEmpty(), "$name: неожиданные находки $unexpected")
