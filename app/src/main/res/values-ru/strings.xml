@@ -162,6 +162,8 @@
     <string name="settings_always_on_note">В настройках Android: VPN → %1$s → Постоянный VPN. Он же запускает приложение после перезагрузки.</string>
     <string name="settings_auto_switch">Автопереключение сервера</string>
     <string name="settings_auto_switch_note">Если выбранный сервер перестал отвечать, DPpass сам перейдёт на другой и сообщит. Выключено — спросит в уведомлении.</string>
+    <string name="settings_check_on_change">Проверять сеть при её смене</string>
+    <string name="settings_check_on_change_note">Пока VPN включён: после перехода между Wi-Fi и мобильной сетью DPpass сам проверит новую — через %1$d с, не чаще %2$d раз в час. Сайты проверки увидят адрес телефона, как при открытии страницы.</string>
     <string name="settings_notifications">Уведомления</string>
     <string name="settings_notifications_note">Состояние туннеля и скорость в шторке</string>
     <string name="settings_share_note">Другие устройства по Wi-Fi, USB или Bluetooth — через туннель</string>
@@ -226,7 +228,7 @@
     <string name="about_licenses">Лицензии компонентов</string>
     <string name="about_licenses_note">Что внутри DPpass и под какими лицензиями</string>
     <string name="about_privacy">Приватность</string>
-    <string name="about_privacy_text">В DPpass нет телеметрии, аналитики и отчётов о падениях, идентификаторы устройства он не читает. Подписке уходят только её адрес, собственный User-Agent DPpass и — если вы включите — случайный идентификатор устройства. Проверка сети (только по нажатию) обращается к ya.ru, speed.cloudflare.com и www.google.com и ничего о вас не передаёт. Журнал и отчёт остаются на телефоне.</string>
+    <string name="about_privacy_text">В DPpass нет телеметрии, аналитики и отчётов о падениях, идентификаторы устройства он не читает. Подписке уходят только её адрес, собственный User-Agent DPpass и — если вы включите — случайный идентификатор устройства. Проверка сети — по нажатию и, если это не выключено в настройках, после смены сети, пока VPN включён, — обращается к ya.ru, speed.cloudflare.com и www.google.com и ничего о вас не передаёт. Журнал и отчёт остаются на телефоне.</string>
     <string name="about_notice_missing">В этой сборке нет %1$s.</string>
 
     <string name="notification_channel">Туннель</string>
@@ -255,6 +257,7 @@
     <string name="netcheck_running">Проверяю…</string>
     <string name="netcheck_run_wait">Проверить сеть — через %1$d с</string>
     <string name="netcheck_wait">Проверки идут с паузой: частые пробы сами могут вызвать блокировку. Повторить можно через %1$d с.</string>
+    <string name="netcheck_busy">Сеть уже проверяется после её смены. Итог пойдёт в подключение; повторите через минуту.</string>
     <string name="netcheck_probe">%1$s · %2$s</string>
     <string name="netcheck_probe_ms">%1$s · %2$d мс</string>
     <string name="netcheck_network">Сеть: %1$s</string>

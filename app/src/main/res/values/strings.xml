@@ -163,6 +163,8 @@
     <string name="settings_always_on_note">In Android settings: VPN → %1$s → Always-on. It also starts the app after a reboot.</string>
     <string name="settings_auto_switch">Auto-switch server</string>
     <string name="settings_auto_switch_note">If the chosen server stops responding, DPpass switches to another one and tells you. Off — it asks in a notification.</string>
+    <string name="settings_check_on_change">Check the network when it changes</string>
+    <string name="settings_check_on_change_note">While the VPN is on: after a switch between Wi-Fi and mobile data DPpass checks the new network itself — %1$d s later, at most %2$d times an hour. The check sites see the phone’s address, as when opening a page.</string>
     <string name="settings_notifications">Notifications</string>
     <string name="settings_notifications_note">Tunnel state and speed in the shade</string>
     <string name="settings_share_note">Other devices over Wi-Fi, USB or Bluetooth, through the tunnel</string>
@@ -227,7 +229,7 @@
     <string name="about_licenses">Third-party licenses</string>
     <string name="about_licenses_note">Components inside DPpass and their licenses</string>
     <string name="about_privacy">Privacy</string>
-    <string name="about_privacy_text">DPpass has no telemetry, analytics or crash reports and doesn’t read device identifiers. Subscriptions get only their link, DPpass’s own User-Agent and — if you turn it on — a random device ID. Network check (only when you tap it) contacts ya.ru, speed.cloudflare.com and www.google.com and sends nothing about you. The log and report stay on the phone.</string>
+    <string name="about_privacy_text">DPpass has no telemetry, analytics or crash reports and doesn’t read device identifiers. Subscriptions get only their link, DPpass’s own User-Agent and — if you turn it on — a random device ID. Network check — when you tap it and, unless turned off in settings, after the network changes while the VPN is on — contacts ya.ru, speed.cloudflare.com and www.google.com and sends nothing about you. The log and report stay on the phone.</string>
     <string name="about_notice_missing">%1$s is missing from this build.</string>
 
     <string name="notification_channel">Tunnel</string>
@@ -256,6 +258,7 @@
     <string name="netcheck_running">Checking…</string>
     <string name="netcheck_run_wait">Check network — in %1$d s</string>
     <string name="netcheck_wait">Checks are paced: frequent probes can themselves trigger blocking. Try again in %1$d s.</string>
+    <string name="netcheck_busy">The network is already being checked after it changed. The result will be used for connecting; try again in a minute.</string>
     <string name="netcheck_probe">%1$s · %2$s</string>
     <string name="netcheck_probe_ms">%1$s · %2$d ms</string>
     <string name="netcheck_network">Network: %1$s</string>

@@ -111,6 +111,27 @@ class RegimeTest {
     }
 
     @Test
+    fun sessionRetakesTheRegimeWhenTheNetworkChanges() {
+        // D-67: сессия поднята под белым списком мобильной сети, телефон ушёл на Wi-Fi.
+        val stability = StabilityModel()
+        val id = ProfileId("xhttp-cdn")
+        val sup = SessionSupervisor(stability, id, underList, minHoldMillis = 0)
+        sup.onObservation(StabilityObservation(true, 300, timestampMillis = 1_000), profile("xhttp-cdn"), allowlist)
+        assertEquals(1, stability.stats(id, underList).observations)
+
+        // Новая сеть не проверена — режим неизвестен: опыт — общий, не опыт белого списка.
+        sup.changeContext(null)
+        sup.onObservation(StabilityObservation(true, 90, timestampMillis = 2_000), profile("xhttp-cdn"), null)
+        assertEquals(1, stability.stats(id, underList).observations, "опыт белого списка не тронут")
+        assertEquals(1, stability.stats(id, NetworkContext.of(null)).observations)
+
+        // Проверка новой сети дала белый список — снова его контекст.
+        sup.changeContext(allowlist)
+        sup.onObservation(StabilityObservation(true, 300, timestampMillis = 3_000), profile("xhttp-cdn"), allowlist)
+        assertEquals(2, stability.stats(id, underList).observations)
+    }
+
+    @Test
     fun attemptsUnderRegimeAreLearnedApartAndContradictionIsVisible() = runBlocking {
         val clock = ManualClock(1_000)
         val core = DPpassCore(MockBackendCompiler(), MockProxyEngine(), InMemoryBlobStore(), clock, "com.dpsmpx.dppass", PlatformTraits(true))

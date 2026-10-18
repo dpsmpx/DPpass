@@ -372,11 +372,15 @@ class StabilityModel internal constructor(
  *
  * Переключение — с гистерезисом модели и не чаще предела в час: смена
  * сервера сама нагрузка и сигнал фильтру (L7). Один экземпляр на сессию.
+ *
+ * Контекст опыта — режим сети сессии (D-64); сеть сменилась посреди сессии —
+ * режим берётся заново ([changeContext], D-67), и дальше наблюдения идут в
+ * контекст нового.
  */
 class SessionSupervisor(
     private val model: StabilityModel,
     private val profileId: ProfileId,
-    private val context: NetworkContext,
+    private var context: NetworkContext,
     private val maxSwitchesPerHour: Int = 4,
     private val minHoldMillis: Long = 20_000,
 ) {
@@ -384,6 +388,15 @@ class SessionSupervisor(
     private var lastSwitchMillis = Long.MIN_VALUE
 
     enum class Decision { HOLD, RECONNECT }
+
+    /**
+     * Режим сети сессии взят заново (D-67): следующие наблюдения — в контекст
+     * [assessment] (null — режим неизвестен). Предел переключений — прежний:
+     * он о сессии, а не о сети.
+     */
+    fun changeContext(assessment: NetworkAssessment?) {
+        context = NetworkContext.of(assessment)
+    }
 
     /** Свернуть наблюдение и решить. [profile]/[assessment] — для обобщения. */
     fun onObservation(sample: StabilityObservation, profile: ServerProfile? = null, assessment: NetworkAssessment? = null): Decision {

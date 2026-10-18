@@ -34,11 +34,21 @@ import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Проверка сети по кнопке (D-60): пробы [SocketProber] в сети под
- * туннелем, бюджет D-14 — один на процесс, итог — на экран и в журнал
- * без адресов. В план подключения итог не идёт (D-60).
+ * Проверка сети по кнопке (D-60) и после смены сети при поднятом туннеле
+ * (D-67): пробы [SocketProber] в сети под туннелем, бюджет D-14 — один на
+ * процесс, проверка — одна за раз, итог — на экран и в журнал без адресов.
+ * В план итог идёт только через память режима (D-64).
  */
 object NetworkCheck {
+    /** Кто начал проверку — в журнал (`network_check`), без адресов. */
+    enum class Trigger { BUTTON, NETWORK_CHANGE }
+
+    /** Идёт проверка: по кнопке и после смены сети — не вперемешку, пробы двух проверок упёрлись бы в бюджет. */
+    private val checking = AtomicBoolean(false)
+
+    /** Идёт проверка — своя или после смены сети. */
+    fun busy(): Boolean = checking.get()
+
     /** Один на процесс: две проверки подряд упираются в предел, а не дают залп (D-14). */
     private val budget = ProbeBudget(Clock.MONOTONIC)
 
@@ -134,19 +144,30 @@ object NetworkCheck {
     /** Опровергнут (подключился сервер, который под списком отказывал): режим снова неизвестен. */
     fun forgetRegime() = regime.forget()
 
+    /** Непрозрачный ключ сети под туннелем (D-64, D-67); null — сети нет. В журнал не идёт. */
+    fun network(context: Context): Long? = underlying(context).network?.networkHandle
+
     /** Сеть, которую меряет проверка: не VPN, с доступом в интернет. */
     private class Underlying(val network: Network?, val type: NetworkType, val caps: NetworkCapabilities?)
 
-    suspend fun run(context: Context, log: Logger, onResult: (ProbeResult) -> Unit): NetworkAssessment = withContext(Dispatchers.IO) {
+    /** Проверить сеть; null — уже идёт другая проверка (D-67): её итог и будет итогом. */
+    suspend fun run(
+        context: Context,
+        log: Logger,
+        trigger: Trigger = Trigger.BUTTON,
+        onResult: (ProbeResult) -> Unit = {},
+    ): NetworkAssessment? = withContext(Dispatchers.IO) {
+        if (!checking.compareAndSet(false, true)) return@withContext null
         quiet.begin()
         try {
-            assess(context, log, onResult)
+            assess(context, log, trigger, onResult)
         } finally {
             quiet.end()
+            checking.set(false)
         }
     }
 
-    private suspend fun assess(context: Context, log: Logger, onResult: (ProbeResult) -> Unit): NetworkAssessment {
+    private suspend fun assess(context: Context, log: Logger, trigger: Trigger, onResult: (ProbeResult) -> Unit): NetworkAssessment {
         val u = underlying(context)
         val network = u.network
         val prober = if (network == null) {
@@ -154,7 +175,7 @@ object NetworkCheck {
         } else {
             SocketProber(AndroidProbeNetwork(network, u.caps), Clock.MONOTONIC, SecureRandom())
         }
-        log.info("network_check", "type" to u.type)
+        log.info("network_check", "type" to u.type, "trigger" to trigger)
         val assessment = NetworkAssessor(prober, budget) { delay(it) }.assess(u.type) { r ->
             log.info("network_probe", "kind" to r.request.kind, "target" to r.request.target, "outcome" to r.outcome, "ms" to r.latencyMillis)
             onResult(r)

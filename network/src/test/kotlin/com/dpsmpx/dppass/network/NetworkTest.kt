@@ -8,6 +8,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ProbeBudgetTest {
@@ -240,5 +241,57 @@ class SecondLandmarkTest {
             ProbeResult(it, o, 40)
         }
         assertEquals(RestrictionClass.DEGRADED, NetworkClassifier.classify(NetworkType.MOBILE, old).restriction)
+    }
+}
+
+/** Проверка сети при её смене (D-67): что считать сменой, пауза и предел за час. */
+class NetworkChangeChecksTest {
+    @Test
+    fun firstAndRepeatedNetworkAreNotAChange() {
+        val clock = ManualClock(1_000)
+        val c = NetworkChangeChecks(clock, settleMillis = 20_000)
+        assertFalse(c.onNetwork(7), "первая сеть сессии — её режим взят при подключении")
+        assertFalse(c.onNetwork(7), "система повторила ту же сеть")
+        assertNull(c.waitMillis(7), "смены не было — проверять нечего")
+        assertFalse(c.tryStart(7))
+    }
+
+    @Test
+    fun checkWaitsForTheNetworkToSettleAndRestartsOnAnotherChange() {
+        val clock = ManualClock(1_000)
+        val c = NetworkChangeChecks(clock, settleMillis = 20_000)
+        c.onNetwork(7)
+        assertTrue(c.onNetwork(8), "Wi-Fi → мобильная")
+        assertEquals(20_000, c.waitMillis(8))
+        assertNull(c.waitMillis(7), "прежнюю сеть не проверяют")
+        clock.advance(15_000)
+        assertFalse(c.tryStart(8), "сеть ещё устанавливается")
+        assertTrue(c.onNetwork(9), "снова смена — отсчёт заново")
+        assertNull(c.waitMillis(8))
+        clock.advance(19_999)
+        assertEquals(1, c.waitMillis(9))
+        clock.advance(1)
+        assertTrue(c.tryStart(9))
+        assertNull(c.waitMillis(9), "проверка засчитана: без новой смены — не повторять")
+        assertFalse(c.tryStart(9))
+        assertTrue(c.onNetwork(7), "вернулись в прежнюю сеть — тоже смена")
+    }
+
+    @Test
+    fun notMoreThanTheLimitPerHourWhenTheNetworkFlaps() {
+        val clock = ManualClock(1_000)
+        val c = NetworkChangeChecks(clock, settleMillis = 0, maxPerHour = 4)
+        c.onNetwork(1)
+        var checks = 0
+        for (i in 0 until 40) {
+            // На границе Wi-Fi: смена каждые 3 минуты, два часа подряд.
+            c.onNetwork(if (i % 2 == 0) 2L else 1L)
+            if (c.tryStart(if (i % 2 == 0) 2L else 1L)) checks++
+            clock.advance(3 * 60_000)
+        }
+        assertEquals(8, checks, "40 смен за два часа — по 4 проверки в час, а не 40")
+        clock.advance(60 * 60_000)
+        c.onNetwork(3)
+        assertTrue(c.tryStart(3), "час прошёл — снова можно")
     }
 }

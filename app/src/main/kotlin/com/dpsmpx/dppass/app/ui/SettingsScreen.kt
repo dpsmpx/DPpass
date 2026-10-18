@@ -15,6 +15,7 @@ import com.dpsmpx.dppass.connection.PolicyService
 import com.dpsmpx.dppass.connection.RoutingMode
 import com.dpsmpx.dppass.connection.UserPolicy
 import com.dpsmpx.dppass.diagnostics.Outcome
+import com.dpsmpx.dppass.network.NetworkChangeChecks
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -160,6 +161,25 @@ class SettingsScreen(host: Host) : Screen(host) {
                     ) {
                         host.prefs.autoSwitch = it
                         host.graph?.core?.log?.info("auto_switch", "on" to it)
+                    },
+                    Ui.matchWidth(),
+                )
+                addView(Ui.divider(context))
+                addView(
+                    // Проверка новой сети при поднятом туннеле (D-67): выключено — только по кнопке (D-60).
+                    Ui.switchRow(
+                        context,
+                        R.drawable.ic_speed,
+                        context.getString(R.string.settings_check_on_change),
+                        context.getString(
+                            R.string.settings_check_on_change_note,
+                            (NetworkChangeChecks.SETTLE_MILLIS / 1000).toInt(),
+                            NetworkChangeChecks.MAX_PER_HOUR,
+                        ),
+                        host.prefs.checkOnNetworkChange,
+                    ) {
+                        host.prefs.checkOnNetworkChange = it
+                        host.graph?.core?.log?.info("check_on_network_change", "on" to it)
                     },
                     Ui.matchWidth(),
                 )

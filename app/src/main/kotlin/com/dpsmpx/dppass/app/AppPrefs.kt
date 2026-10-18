@@ -7,7 +7,8 @@ import com.dpsmpx.dppass.core.ProfileId
 
 /**
  * Настройки интерфейса (D-34): выбранный сервер или устройство раздачи
- * (D-55), автопереключение (D-58) и открытый экран. Не
+ * (D-55), автопереключение (D-58), проверка сети при её смене (D-67) и
+ * открытый экран. Не
  * секреты — id профиля подписки не раскрывает ссылку (`CONFIG_FORMAT.md`,
  * §6); резервных копий у приложения нет (`allowBackup=false`).
  */
@@ -41,6 +42,17 @@ class AppPrefs(context: Context) {
             prefs.edit().putBoolean(AUTO_SWITCH, value).apply()
         }
 
+    /**
+     * «Проверять сеть при её смене» (D-67): пока туннель поднят, после смены
+     * сети DPpass сам проверяет новую. Включено по умолчанию — выбор автора
+     * 18.10.2026; выключено — только по кнопке, как D-60.
+     */
+    var checkOnNetworkChange: Boolean
+        get() = prefs.getBoolean(CHECK_ON_CHANGE, true)
+        set(value) {
+            prefs.edit().putBoolean(CHECK_ON_CHANGE, value).apply()
+        }
+
     var tab: Int
         get() = prefs.getInt(TAB, 0)
         set(value) {
@@ -53,5 +65,6 @@ class AppPrefs(context: Context) {
         const val TAB = "tab"
         const val RELAY = "selected_relay"
         const val AUTO_SWITCH = "auto_switch"
+        const val CHECK_ON_CHANGE = "check_on_network_change"
     }
 }

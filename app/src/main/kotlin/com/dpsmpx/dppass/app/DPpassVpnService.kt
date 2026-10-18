@@ -37,6 +37,8 @@ import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.SocketProtector
 import com.dpsmpx.dppass.engine.xray.Ipv6Egress
 import com.dpsmpx.dppass.network.NetworkAssessment
+import com.dpsmpx.dppass.network.NetworkChangeChecks
+import com.dpsmpx.dppass.network.RestrictionClass
 import com.dpsmpx.dppass.tunnel.Ipv6Mode
 import com.dpsmpx.dppass.tunnel.TunnelHandle
 import kotlinx.coroutines.CancellationException
@@ -92,6 +94,10 @@ import java.util.Collections
  * Сбой выбранного сервера (D-58): ответы на вопрос [ServerSwitch] —
  * [ACTION_SWITCH] (замена становится выбранной, переподключение) и
  * [ACTION_KEEP] («Остаться»: не спрашивать о нём до остановки туннеля).
+ *
+ * Смена сети под туннелем (D-67): режим сети сессии берётся заново, а через
+ * паузу новая сеть проверяется — если пользователь не выключил это в
+ * настройках ([AppPrefs.checkOnNetworkChange]).
  */
 class DPpassVpnService : VpnService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -105,6 +111,18 @@ class DPpassVpnService : VpnService() {
     private var supervisor: Job? = null
     private var shareWatch: Job? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
+    /** Пауза после смены сети и проверка новой (D-67); новая смена отменяет прежнюю. */
+    @Volatile
+    private var changeCheck: Job? = null
+
+    /**
+     * Режим сети сессии (D-64): берётся при подключении и заново — при смене
+     * сети и после проверки новой (D-67). Пишут колбэк сети и проверка,
+     * читает наблюдатель сессии.
+     */
+    @Volatile
+    private var sessionRegime: NetworkAssessment? = null
 
     /** Серверы, о которых пользователь ответил «Остаться» (D-58): до остановки туннеля, то есть этого сервиса. */
     private val declined: MutableSet<ProfileId> = Collections.synchronizedSet(HashSet())
@@ -285,11 +303,13 @@ class DPpassVpnService : VpnService() {
                     TunnelState.offer.value?.takeIf { it.fromId != report.profileId }?.let { ServerSwitch.clear(this@DPpassVpnService) }
                     val name = ir.profiles.firstOrNull { it.id == report.profileId }?.name ?: report.profileId.value
                     progress(TunnelStatus.Connected(report.profileId, name, core.clock.nowMillis(), Clock.MONOTONIC.nowMillis()))
+                    // Режим сессии — до того, как колбэк сети может взять его заново (D-67).
+                    sessionRegime = if (contradicted) null else regime
                     watchNetwork(target?.network)
                     startTicker(report.session)
                     // IPv6 через сервер (D-66): только когда TUN его берёт и путь — свой сервер, а не устройство раздачи.
                     val checkIpv6 = relay == null && tunSpec.ipv6Mode == Ipv6Mode.TUNNELED
-                    startSupervisor(core, graph.engine, ir, report.profileId, if (contradicted) null else regime, checkIpv6)
+                    startSupervisor(core, graph.engine, ir, report.profileId, checkIpv6)
                     if (shareSettings?.enabled == true) {
                         // Ядро с входами раздачи не запустилось — туннель без неё (D-51).
                         // Опрос сравнивает с предложенными адресами: тот же набор — без
@@ -352,21 +372,23 @@ class DPpassVpnService : VpnService() {
      * журнале здоровья (D-58), и план без выбора пользователя начнёт с
      * другого кандидата; выбранный пользователем заменяется только с его
      * согласия — вопросом [ServerSwitch] или тумблером «Автопереключение».
+     *
+     * Опыт сессии — в контексте её режима сети ([sessionRegime], D-64); сеть
+     * сменилась — режим взят заново, и следующая проба идёт в новый (D-67).
      */
     private fun startSupervisor(
         core: com.dpsmpx.dppass.connection.DPpassCore,
         engine: com.dpsmpx.dppass.engine.xray.XrayProxyEngine,
         ir: com.dpsmpx.dppass.config.ConfigIr,
         profileId: com.dpsmpx.dppass.core.ProfileId,
-        /** Режим сети на момент подключения (D-64): опыт сессии — в его контексте. */
-        regime: NetworkAssessment?,
         /** Проверить, выпускает ли сервер IPv6 (D-66): раз за сессию, после удачной пробы. */
         checkIpv6: Boolean,
     ) {
         supervisor?.cancel()
         TunnelState.ipv6(null)
         supervisor = scope.launch {
-            val sup = core.supervisor(profileId, regime)
+            var applied = sessionRegime
+            val sup = core.supervisor(profileId, applied)
             val profile = ir.profiles.firstOrNull { it.id == profileId }
             val probeTimeout = (core.policy.healthTimeoutMillis - PROBE_MARGIN_MILLIS).toInt()
             var samples = 0
@@ -391,6 +413,11 @@ class DPpassVpnService : VpnService() {
                     continue
                 }
                 val stalled = failed && (result as Outcome.Failure).errors.any { it.code == DiagCode.PAYLOAD_STALLED }
+                val regime = sessionRegime
+                if (regime !== applied) {
+                    sup.changeContext(regime)
+                    applied = regime
+                }
                 val decision = sup.onObservation(
                     StabilityObservation(success = !failed, rttMillis = elapsed, stalled = stalled, timestampMillis = core.clock.nowMillis()),
                     profile,
@@ -505,10 +532,13 @@ class DPpassVpnService : VpnService() {
             return
         }
         val cm = getSystemService(ConnectivityManager::class.java) ?: return
+        // Смена сети (D-67): первая сеть колбэка — сеть подключения, не смена.
+        val changes = NetworkChangeChecks(Clock.MONOTONIC).also { c -> NetworkCheck.network(this)?.let(c::onNetwork) }
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 setUnderlyingNetworks(arrayOf(network))
                 DeviceLog.log.info("underlying_network", "state" to Safe("available"))
+                if (changes.onNetwork(network.networkHandle)) onNetworkChanged(changes, network.networkHandle)
             }
 
             override fun onLost(network: Network) {
@@ -525,7 +555,58 @@ class DPpassVpnService : VpnService() {
         }
     }
 
+    /**
+     * Сеть под туннелем сменилась (D-67). Режим сессии — заново: у новой сети
+     * он неизвестен, пока её не проверили. Через паузу ([NetworkChangeChecks])
+     * — проверка новой сети, той же, что по кнопке (D-60), и режим ещё раз:
+     * под белым списком новой сети опыт сессии — его. Пропуск проверки — с
+     * причиной в журнале: выключено, сеть уже другая, предел за час.
+     */
+    private fun onNetworkChanged(changes: NetworkChangeChecks, network: Long) {
+        val core = AppGraph.core(this)
+        core.log.info("network_changed")
+        retakeRegime(core, "network_changed")
+        changeCheck?.cancel()
+        changeCheck = scope.launch {
+            while (true) {
+                // null — сеть уже другая: её проверит своя смена.
+                val wait = changes.waitMillis(network) ?: return@launch
+                if (wait == 0L) break
+                delay(wait)
+            }
+            if (!AppPrefs(this@DPpassVpnService).checkOnNetworkChange) {
+                core.log.info("network_check_skipped", "reason" to Safe("disabled"))
+                return@launch
+            }
+            // Проверка по кнопке только что потратила бюджет (D-14): подождать, а не идти с пропусками.
+            delay(NetworkCheck.readyInMillis())
+            val skipped = when {
+                changes.waitMillis(network) == null -> "network_gone"
+                !changes.tryStart(network) -> "limit"
+                else -> null
+            }
+            if (skipped != null) {
+                core.log.info("network_check_skipped", "reason" to Safe(skipped))
+                return@launch
+            }
+            if (NetworkCheck.run(this@DPpassVpnService, core.log, NetworkCheck.Trigger.NETWORK_CHANGE) == null) {
+                // Идёт проверка по кнопке — её итог и будет итогом новой сети.
+                while (NetworkCheck.busy()) delay(BUSY_POLL_MILLIS)
+            }
+            retakeRegime(core, "network_checked")
+        }
+    }
+
+    /** Режим сессии — по памяти режима для нынешней сети (D-64, D-67): белый список или неизвестен. */
+    private fun retakeRegime(core: DPpassCore, reason: String) {
+        val regime = NetworkCheck.regime(this)
+        sessionRegime = regime
+        core.log.info("network_regime_retaken", "reason" to Safe(reason), "class" to (regime?.restriction ?: RestrictionClass.UNKNOWN))
+    }
+
     private fun unwatchNetwork() {
+        changeCheck?.cancel()
+        changeCheck = null
         val callback = networkCallback ?: return
         networkCallback = null
         try {
@@ -561,6 +642,7 @@ class DPpassVpnService : VpnService() {
             ticker?.cancel()
             ticker = null
             unwatchNetwork()
+            sessionRegime = null
             connecting?.cancel()
             connecting = null
             session?.stop()
@@ -705,6 +787,9 @@ class DPpassVpnService : VpnService() {
         /** Наблюдатель сессии (D-44): период пробы здоровья и как часто сохранять модель. */
         private const val SUPERVISION_INTERVAL_MILLIS = 15_000L
         private const val PERSIST_EVERY_SAMPLES = 8
+
+        /** Проверка новой сети (D-67) ждёт проверку по кнопке, начатую раньше: как часто смотреть, кончилась ли. */
+        private const val BUSY_POLL_MILLIS = 1_000L
 
         /** Проб IPv6 за сессию (D-66), если итог «не понять»: потом строка «проверить не удалось». */
         private const val IPV6_TRIES = 3

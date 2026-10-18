@@ -103,14 +103,20 @@ class NetworkCheckScreen(host: Host) : SubScreen(host, R.string.netcheck_title) 
     }
 
     /**
-     * Кнопки по состоянию: идёт замер — «Проверяю…», пауза — «через N с» и
-     * недоступна, иначе — доступна (скорость — только с поднятым туннелем).
+     * Кнопки по состоянию: идёт замер — «Проверяю…» (и проверка после смены
+     * сети, D-67), пауза — «через N с» и недоступна, иначе — доступна
+     * (скорость — только с поднятым туннелем).
      */
     private fun refreshButtons() {
         if (job?.isActive != true) {
             val wait = NetworkCheck.readyInMillis()
-            run.isEnabled = wait == 0L
-            run.text = if (wait == 0L) context.getString(R.string.netcheck_run) else context.getString(R.string.netcheck_run_wait, seconds(wait))
+            val busy = NetworkCheck.busy()
+            run.isEnabled = wait == 0L && !busy
+            run.text = when {
+                busy -> context.getString(R.string.netcheck_running)
+                wait == 0L -> context.getString(R.string.netcheck_run)
+                else -> context.getString(R.string.netcheck_run_wait, seconds(wait))
+            }
         }
         if (speedJob?.isActive != true) {
             val wait = NetworkCheck.speedReadyInMillis()
@@ -191,7 +197,13 @@ class NetworkCheckScreen(host: Host) : SubScreen(host, R.string.netcheck_title) 
         job = host.scope.launch {
             try {
                 val result = NetworkCheck.run(context, core.log) { r -> context.runOnUiThread { addProbe(r) } }
-                showVerdict(result)
+                if (result == null) {
+                    // Уже идёт проверка после смены сети (D-67): вторая вперемешку упёрлась бы в бюджет.
+                    host.toast(context.getString(R.string.netcheck_busy))
+                    probes.visibility = View.GONE
+                } else {
+                    showVerdict(result)
+                }
             } finally {
                 // Проверка закончилась — на кнопке пауза до следующей (бюджет проб).
                 job = null
