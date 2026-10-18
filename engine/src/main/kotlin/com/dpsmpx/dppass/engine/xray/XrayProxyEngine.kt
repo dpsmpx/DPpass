@@ -96,7 +96,7 @@ class XrayProxyEngine(private val runtime: Outcome<XrayRuntime>) : ProxyEngine {
             is Outcome.Failure -> return Ipv6Check(Ipv6Egress.UNKNOWN, emptyList())
             is Outcome.Success -> runtime.value
         }
-        return XrayIpv6.probe { target -> rt.probeDns(target, XrayIpv6.TIMEOUT_MILLIS).outcome }
+        return XrayIpv6.probe { target -> rt.probeDns(target, XrayIpv6.TIMEOUT_MILLIS) }
     }
 
     /**

@@ -422,6 +422,8 @@ class DPpassVpnService : VpnService() {
                         "profile" to Safe(profileId.value),
                         "result" to check.egress,
                         "outcomes" to Safe(check.outcomes.joinToString(",") { it.name }),
+                        // Время каждой пробы: сервер отказывает по IPv6 сразу или ждёт своего срока.
+                        "elapsed_ms" to Safe(check.results.joinToString(",") { it.elapsedMillis.toString() }),
                     )
                     if (check.egress != Ipv6Egress.UNKNOWN || ipv6Tries == 0) TunnelState.ipv6(Ipv6Note(profileId, check.egress, core.clock.nowMillis()))
                 }

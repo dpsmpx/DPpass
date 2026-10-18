@@ -12,8 +12,13 @@ enum class Ipv6Egress {
     UNKNOWN,
 }
 
-/** Итог и исходы проб по порядку — для журнала. */
-class Ipv6Check(val egress: Ipv6Egress, val outcomes: List<DnsProbeOutcome>)
+/**
+ * Итог и пробы по порядку — для журнала: исход и время каждой. По времени
+ * видно, отказывает сервер по IPv6 сразу или ждёт своего срока.
+ */
+class Ipv6Check(val egress: Ipv6Egress, val results: List<DnsProbeResult>) {
+    val outcomes: List<DnsProbeOutcome> get() = results.map { it.outcome }
+}
 
 /**
  * Выход IPv6 через сервер профиля (D-66): запрос DNS по TCP через сервер к
@@ -41,18 +46,18 @@ object XrayIpv6 {
     private val REFUSED = setOf(DnsProbeOutcome.UNREACHABLE, DnsProbeOutcome.STALLED)
 
     /**
-     * Пробы по порядку через [ask] (цель → исход): первый ответ IPv6 —
+     * Пробы по порядку через [ask] (цель → результат): первый ответ IPv6 —
      * «выпускает», не про IPv6 — «не понять» сразу; оба отказа — проба
      * IPv4. Не больше трёх проб.
      */
-    fun probe(ask: (String) -> DnsProbeOutcome): Ipv6Check {
-        val outcomes = mutableListOf<DnsProbeOutcome>()
+    fun probe(ask: (String) -> DnsProbeResult): Ipv6Check {
+        val results = mutableListOf<DnsProbeResult>()
         for (target in TARGETS) {
-            val o = ask(target).also { outcomes += it }
-            if (o == DnsProbeOutcome.OK) return Ipv6Check(Ipv6Egress.FORWARDED, outcomes)
-            if (o !in REFUSED) return Ipv6Check(Ipv6Egress.UNKNOWN, outcomes)
+            val o = ask(target).also { results += it }.outcome
+            if (o == DnsProbeOutcome.OK) return Ipv6Check(Ipv6Egress.FORWARDED, results)
+            if (o !in REFUSED) return Ipv6Check(Ipv6Egress.UNKNOWN, results)
         }
-        val control = ask(CONTROL).also { outcomes += it }
-        return Ipv6Check(if (control == DnsProbeOutcome.OK) Ipv6Egress.NOT_FORWARDED else Ipv6Egress.UNKNOWN, outcomes)
+        val control = ask(CONTROL).also { results += it }.outcome
+        return Ipv6Check(if (control == DnsProbeOutcome.OK) Ipv6Egress.NOT_FORWARDED else Ipv6Egress.UNKNOWN, results)
     }
 }

@@ -10,7 +10,7 @@ class XrayIpv6Test {
         val queue = ArrayDeque(answers.toList())
         val check = XrayIpv6.probe { target ->
             asked += target
-            queue.removeFirst()
+            DnsProbeResult(queue.removeFirst(), 100 * asked.size, 0, "")
         }
         assertEquals(0, queue.size, "все ответы использованы: $asked")
         return check to asked
@@ -33,6 +33,7 @@ class XrayIpv6Test {
         assertEquals(Ipv6Egress.NOT_FORWARDED, c.egress)
         assertEquals(XrayIpv6.TARGETS + XrayIpv6.CONTROL, asked)
         assertEquals(listOf(DnsProbeOutcome.UNREACHABLE, DnsProbeOutcome.STALLED, DnsProbeOutcome.OK), c.outcomes)
+        assertEquals(listOf(100, 200, 300), c.results.map { it.elapsedMillis }, "время каждой пробы — для журнала")
 
         // Сервер не отвечает и по IPv4 — это сбой сервера, а не отсутствие IPv6.
         assertEquals(Ipv6Egress.UNKNOWN, run(DnsProbeOutcome.UNREACHABLE, DnsProbeOutcome.UNREACHABLE, DnsProbeOutcome.STALLED).first.egress)
