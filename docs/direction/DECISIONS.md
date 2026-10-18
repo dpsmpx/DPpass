@@ -175,6 +175,7 @@ DPpass хранил сам и не смог прочитать, уходит в 
 - Зашифрованные «чтобы пользователь не видел» ссылки не поддерживаются.
 
 **Проверка.** `RedactorTest`, `LoggerTest`, `SecretLeakTest.noSecretsInLogsReportsDiagnosticsOrDisk`,
+`ExportTest` (экспорт в приложении, этап 4),
 `MetadataParserTest`, `ShareLinkParserTest`, `code.forbidden` — правило `secret-reveal`
 (`reveal()`; до D-50 — `check_forbidden_apis.py`).
 

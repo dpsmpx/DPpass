@@ -508,4 +508,17 @@
     <string name="storage_reset_confirm">Сбросить</string>
     <string name="storage_reset_done">Хранилище сброшено — добавьте подписку заново</string>
     <string name="storage_reset_failed">Хранилище не сброшено</string>
+    <!-- Экспорт конфигурации (D-11) -->
+    <string name="export_title">Экспорт конфигурации</string>
+    <string name="export_settings_note">Активная конфигурация документом DPpass</string>
+    <string name="export_note">Активная конфигурация документом DPpass. Без секретов идентификаторы и пароли заменены меткой: документ можно показать или отправить, но не активировать.</string>
+    <string name="export_save">Сохранить без секретов</string>
+    <string name="export_share">Поделиться без секретов</string>
+    <string name="export_full">Сохранить с секретами…</string>
+    <string name="export_full_title">Сохранить с секретами?</string>
+    <string name="export_full_text">В файле будут идентификаторы и пароли серверов: любой, у кого он окажется, сможет пользоваться вашими серверами. Храните его как пароль и не отправляйте в чаты.</string>
+    <string name="export_full_confirm">Сохранить</string>
+    <string name="export_done">Конфигурация сохранена</string>
+    <string name="export_failed">Конфигурация не сохранена</string>
+    <string name="export_none">Активной конфигурации нет — экспортировать нечего</string>
 </resources>

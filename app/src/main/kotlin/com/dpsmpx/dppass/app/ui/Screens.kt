@@ -56,6 +56,9 @@ interface Host {
     /** Выбрать картинку с QR-кодом для импорта (D-65): без разрешения камеры. */
     fun pickQrImage()
 
+    /** Сохранить [text] в файл, который пользователь выберет системным диалогом (экспорт, D-11). */
+    fun saveDocument(name: String, text: String)
+
     companion object {
         const val TAB_CONNECT: Int = 0
         const val TAB_SERVERS: Int = 1

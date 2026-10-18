@@ -2,6 +2,7 @@ package com.dpsmpx.dppass.connection
 
 import com.dpsmpx.dppass.config.ConfigIr
 import com.dpsmpx.dppass.config.ConfigLoader
+import com.dpsmpx.dppass.config.ConfigWriter
 import com.dpsmpx.dppass.config.LoadedConfig
 import com.dpsmpx.dppass.config.ServerProfile
 import com.dpsmpx.dppass.core.Clock
@@ -134,6 +135,14 @@ class DPpassCore(
             }
         }
     }
+
+    /**
+     * Активная конфигурация документом текущего формата (D-11); null —
+     * активной нет. По умолчанию секреты заменены меткой: такой документ
+     * можно показать, но не активировать. [ConfigWriter.Mode.FULL] — только
+     * явным действием пользователя («экспорт с секретами»).
+     */
+    fun export(mode: ConfigWriter.Mode = ConfigWriter.Mode.REDACTED): String? = activation.state.activeConfig?.let { ConfigWriter.write(it, mode) }
 
     /**
      * Разбор документа. Отвергнутый импорт не сохраняется: исходник —

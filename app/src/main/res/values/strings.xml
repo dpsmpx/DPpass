@@ -489,4 +489,17 @@
     <string name="storage_reset_confirm">Reset</string>
     <string name="storage_reset_done">Storage reset — add your subscription again</string>
     <string name="storage_reset_failed">Storage not reset</string>
+    <!-- Экспорт конфигурации (D-11) -->
+    <string name="export_title">Export configuration</string>
+    <string name="export_settings_note">The active configuration as a DPpass document</string>
+    <string name="export_note">The active configuration as a DPpass document. Without secrets, IDs and passwords are replaced with a mark: the document can be shown or sent, but not activated.</string>
+    <string name="export_save">Save without secrets</string>
+    <string name="export_share">Share without secrets</string>
+    <string name="export_full">Save with secrets…</string>
+    <string name="export_full_title">Save with secrets?</string>
+    <string name="export_full_text">The file will contain server IDs and passwords: anyone who gets it can use your servers. Keep it like a password and do not send it to chats.</string>
+    <string name="export_full_confirm">Save</string>
+    <string name="export_done">Configuration saved</string>
+    <string name="export_failed">Configuration not saved</string>
+    <string name="export_none">No active configuration — nothing to export</string>
 </resources>

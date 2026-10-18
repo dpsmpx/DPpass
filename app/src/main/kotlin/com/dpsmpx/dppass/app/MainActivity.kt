@@ -74,6 +74,9 @@ class MainActivity : Activity(), Host {
     private var tab = Host.TAB_CONNECT
     private var askedNotifications = false
     private var pendingImport: String? = null
+
+    /** Документ экспорта до выбора файла (D-11): только в памяти, после записи — забыт. */
+    private var pendingExport: String? = null
     private var backCallback: OnBackInvokedCallback? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -396,6 +399,39 @@ class MainActivity : Activity(), Host {
         }
     }
 
+    override fun saveDocument(name: String, text: String) {
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("application/json")
+            .putExtra(Intent.EXTRA_TITLE, name)
+        try {
+            pendingExport = text
+            @Suppress("DEPRECATION") // Activity Result API есть только в AndroidX, а его нет (D-34)
+            startActivityForResult(intent, REQUEST_EXPORT)
+        } catch (e: android.content.ActivityNotFoundException) {
+            pendingExport = null
+            toast(getString(R.string.no_system_screen))
+        }
+    }
+
+    /** Запись экспорта в выбранный файл — в фоне; документ после неё забыт. */
+    private fun writeExport(uri: Uri) {
+        val text = pendingExport ?: return toast(getString(R.string.export_failed))
+        pendingExport = null
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                try {
+                    contentResolver.openOutputStream(uri, "wt")?.use { it.write(text.toByteArray(Charsets.UTF_8)) } != null
+                } catch (e: IOException) {
+                    false
+                } catch (e: SecurityException) {
+                    false
+                }
+            }
+            toast(getString(if (ok) R.string.export_done else R.string.export_failed))
+        }
+    }
+
     /** QR с картинки (D-65): чтение и распознавание — в фоне; текст — тем же путём, что буфер обмена. */
     private fun readQr(uri: Uri) {
         scope.launch {
@@ -460,6 +496,8 @@ class MainActivity : Activity(), Host {
             requestCode == REQUEST_VPN -> vpnConsentRefused()
             requestCode == REQUEST_FILE && resultCode == RESULT_OK -> data?.data?.let(::readFile)
             requestCode == REQUEST_QR && resultCode == RESULT_OK -> data?.data?.let(::readQr)
+            requestCode == REQUEST_EXPORT && resultCode == RESULT_OK -> data?.data?.let(::writeExport)
+            requestCode == REQUEST_EXPORT -> pendingExport = null
         }
     }
 
@@ -507,6 +545,7 @@ class MainActivity : Activity(), Host {
         const val REQUEST_NOTIFICATIONS = 2
         const val REQUEST_FILE = 3
         const val REQUEST_QR = 4
+        const val REQUEST_EXPORT = 5
         const val TRANSITION_MILLIS = 180L
     }
 }

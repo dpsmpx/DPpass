@@ -233,6 +233,14 @@ class SettingsScreen(host: Host) : Screen(host) {
                 )
                 addView(Ui.divider(context))
                 addView(
+                    Ui.ListRow(context, R.drawable.ic_file, context.getString(R.string.export_title))
+                        .subtitle(context.getString(R.string.export_settings_note))
+                        .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                        .onClick { ExportFlow.menu(host) },
+                    Ui.matchWidth(),
+                )
+                addView(Ui.divider(context))
+                addView(
                     Ui.ListRow(context, R.drawable.ic_info, context.getString(R.string.about_title))
                         .subtitle(host.graph?.appVersion)
                         .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
