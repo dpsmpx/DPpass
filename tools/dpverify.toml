@@ -155,7 +155,7 @@ case = [
   { args = ["connect", "tests/data/configs/valid-multi.json", "--condition", "ALLOWLIST_LIKE"], code = 0, contains = ["CONNECTED via domestic-relay"] },
   { args = ["connect", "tests/data/configs/valid-multi.json", "--condition", "OFFLINE"], code = 1, contains = ["NETWORK_OFFLINE"] },
   { args = ["subscription", "tests/data/subscriptions/links-with-directives.txt", "--headers", "tests/data/subscriptions/links-with-directives.headers.json"], code = 0, contains = ["READY revision=1 profiles=3"], not_contains = ["evil.example.com"] },
-  { args = ["subscription", "tests/data/subscriptions/links-invalid-names.txt"], code = 0, contains = ["SERVER_NAME_INVALID at profiles[1].security.server_name"], not_contains = ["test-password"] },
+  { args = ["subscription", "tests/data/subscriptions/links-invalid-names.txt"], code = 0, contains = ["SERVER_NAME_INVALID at entry[1].security.server_name"], not_contains = ["test-password"] },
   { args = ["export", "tests/data/configs/valid-minimal.json"], code = 0, contains = ['"id": "<redacted>"'], not_contains = ["00000000-0000-4000-8000-000000000001"] },
   { args = ["report", "tests/data/configs/valid-minimal.json"], code = 0, contains = ["active_profile: reality-1"], not_contains = ["00000000-0000-4000-8000-000000000001"] },
   { args = ["bench", "--rules", "200"], code = 0, contains = ["route decisions:"] },
