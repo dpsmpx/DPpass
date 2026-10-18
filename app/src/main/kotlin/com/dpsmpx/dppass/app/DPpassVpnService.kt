@@ -128,6 +128,10 @@ class DPpassVpnService : VpnService() {
      */
     private var changes: NetworkChangeChecks? = null
 
+    /** Тип последней сети под туннелем — для `network_changed from=…` и после переподключения. */
+    @Volatile
+    private var underlyingType = NetworkType.NONE
+
     /**
      * Режим сети сессии (D-64): берётся при подключении и заново — при смене
      * сети и после проверки новой (D-67). Пишут колбэк сети и проверка,
@@ -562,7 +566,6 @@ class DPpassVpnService : VpnService() {
         val callback = object : ConnectivityManager.NetworkCallback() {
             // Колбэки — по одному, в потоке системы: [current] трогает только он.
             private var current: Long? = null
-            private var currentType = NetworkType.NONE
             private var registered = false
 
             private fun update() {
@@ -570,9 +573,9 @@ class DPpassVpnService : VpnService() {
                 val handle = u.network?.networkHandle
                 if (registered && handle == current) return
                 registered = true
-                val from = currentType
+                val from = underlyingType
                 current = handle
-                currentType = u.type
+                underlyingType = u.type
                 setUnderlyingNetworks(u.network?.let { arrayOf(it) })
                 DeviceLog.log.info("underlying_network", "state" to Safe(if (handle == null) "lost" else "available"), "type" to u.type)
                 if (handle != null && watch.onNetwork(handle)) onNetworkChanged(watch, handle, from, u.type)
