@@ -279,14 +279,12 @@ object SubscriptionList {
     }
 
     /**
-     * Номер записи ответа поставщика с единицы; null — номера нет. `entry[i]`
-     * — номер записи только у той, что не разобрал разбор ссылок
-     * (`SUBSCRIPTION_ENTRY_SKIPPED`). У фильтра ядра (`EngineProfileFilter`)
-     * `entry[i]` считается среди уже разобранных серверов и после пропусков
-     * указал бы не на ту запись; имя сервера там — в сообщении.
+     * Номер записи ответа поставщика с единицы из пути находки `entry[k]`;
+     * null — путь не о записи списка ссылок. У разбора, проверки и фильтра
+     * ядра `k` — одно и то же: номер записи среди всех записей тела
+     * (`DecodedPayload.paths`).
      */
-    fun entryNumber(d: Diagnostic): Int? =
-        d.path?.takeIf { d.code == DiagCode.SUBSCRIPTION_ENTRY_SKIPPED }?.let { ENTRY.matchEntire(it) }?.groupValues?.get(1)?.toIntOrNull()?.plus(1)
+    fun entryNumber(d: Diagnostic): Int? = d.path?.let { ENTRY.matchEntire(it) }?.groupValues?.get(1)?.toIntOrNull()?.plus(1)
 
     private val ENTRY = Regex("""entry\[(\d+)]""")
 

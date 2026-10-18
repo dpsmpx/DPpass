@@ -37,6 +37,10 @@ cat > gradle/verification-metadata.xml <<'XML'
 </verification-metadata>
 XML
 
-./gradlew --console=plain --warning-mode=summary --write-verification-metadata sha256 \
-  build :build-logic:test ktlintCheck :app:lint :app:assembleRelease -Pdppass.abiSplit=true
+# --refresh-dependencies: метаданные модулей — заново из репозиториев, как на машине
+# с пустым кэшем Gradle. Без него при тёплом кэше Gradle не перечитывает .pom модулей,
+# у которых есть .module, и их суммы пропали бы, а сборка с пустым кэшем (новая
+# машина, новая сессия) упала бы на проверке (18 октября 2026, junit-bom и др.).
+./gradlew --console=plain --warning-mode=summary --refresh-dependencies --write-verification-metadata sha256 \
+  build :cli:installDist :build-logic:test ktlintCheck :app:lint :app:assembleRelease -Pdppass.abiSplit=true
 python3 tools/provenance/check_dependencies.py

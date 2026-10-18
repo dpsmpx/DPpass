@@ -201,9 +201,13 @@ fun interface SubscriptionFetcher {
     suspend fun fetch(request: SubscriptionRequest, policy: FetchPolicy): Outcome<FetchedPayload>
 }
 
-/** Фильтр серверов по возможностям ядра; реализует `connection/` поверх `engine/`. */
+/**
+ * Фильтр серверов по возможностям ядра; реализует `connection/` поверх
+ * `engine/`. [paths] — место каждого профиля в теле подписки
+ * ([DecodedPayload.paths]): путь находок фильтра.
+ */
 fun interface ProfileFilter {
-    fun filter(profiles: List<ServerProfile>): FilterResult
+    fun filter(profiles: List<ServerProfile>, paths: List<String>): FilterResult
 }
 
 data class FilterResult(val usable: List<ServerProfile>, val notes: List<Diagnostic>)

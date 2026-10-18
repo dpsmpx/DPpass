@@ -21,7 +21,18 @@ data class DecodedPayload(
     /** Маршрутизация и DNS поставщика, если тело — документ DPpass. */
     val providerRouting: RoutingPolicy?,
     val providerDns: DnsPolicy?,
-)
+    /**
+     * Место каждого профиля в теле — путь находок о нём: у списка ссылок —
+     * `entry[k]`, номер записи среди всех записей тела (пропущенные тоже
+     * считаются); у документа — `profiles[i]`. Так «запись 3» в находке
+     * проверки или фильтра ядра — та же, что у разбора.
+     */
+    val paths: List<String> = profiles.indices.map { "profiles[$it]" },
+) {
+    init {
+        require(paths.size == profiles.size) { "путь — у каждого профиля" }
+    }
+}
 
 /**
  * Распознавание тела подписки: документ DPpass, список ссылок или
@@ -58,6 +69,7 @@ object PayloadDecoder {
         val notes = mutableListOf<Diagnostic>()
         val directives = LinkedHashMap<String, String>()
         val profiles = mutableListOf<ServerProfile>()
+        val paths = mutableListOf<String>()
         var entry = 0
         for (raw in text.lineSequence()) {
             val line = raw.trim()
@@ -77,13 +89,14 @@ object PayloadDecoder {
             when (val r = ShareLinkParser.parse(line, idPrefix)) {
                 is Outcome.Success -> {
                     profiles += r.value
+                    paths += path
                     // Находки принятой записи (отброшенный параметр, D-48) — с местом записи.
                     notes += r.diagnostics.map { it.copy(path = it.path ?: path) }
                 }
                 is Outcome.Failure -> notes += Diagnostic.warning(DiagCode.SUBSCRIPTION_ENTRY_SKIPPED, "запись пропущена", path).copy(causes = r.diagnostics)
             }
         }
-        return Outcome.Success(DecodedPayload(profiles, directives, null, null), notes)
+        return Outcome.Success(DecodedPayload(profiles, directives, null, null, paths), notes)
     }
 
     private fun base64(text: String): String? {
@@ -169,14 +182,16 @@ class SubscriptionUpdater(
         notes += meta.notes
 
         val valid = mutableListOf<ServerProfile>()
+        val validPaths = mutableListOf<String>()
         val seen = HashMap<ProfileId, ServerProfile>()
         val limit = ConfigLimits().maxProfiles
         for ((i, p) in decoded.profiles.withIndex()) {
-            val problems = ConfigValidator.validateProfile(p, "profiles[$i]")
+            val at = decoded.paths[i]
+            val problems = ConfigValidator.validateProfile(p, at)
             val first = seen[p.id]
             when {
                 problems.any { it.isError } ->
-                    notes += Diagnostic.warning(DiagCode.SUBSCRIPTION_ENTRY_SKIPPED, "сервер «${p.name}» пропущен: не прошёл проверку", "profiles[$i]")
+                    notes += Diagnostic.warning(DiagCode.SUBSCRIPTION_ENTRY_SKIPPED, "сервер «${p.name}» пропущен: не прошёл проверку", at)
                         .copy(causes = problems)
                 // id ссылки — от всего, кроме имени: тот же id — тот же сервер с теми же
                 // настройками. Второй такой профиль сделал бы конфигурацию нечитаемой (ID_DUPLICATE).
@@ -184,18 +199,19 @@ class SubscriptionUpdater(
                     notes += Diagnostic.warning(
                         DiagCode.SUBSCRIPTION_ENTRY_SKIPPED,
                         "сервер «${p.name}» пропущен: та же запись, что «${first.name}», отличается только именем",
-                        "profiles[$i]",
+                        at,
                     )
                 // Больше профилей, чем принимает документ, — конфигурация не прочиталась бы.
                 valid.size >= limit ->
-                    notes += Diagnostic.warning(DiagCode.SUBSCRIPTION_ENTRY_SKIPPED, "сервер «${p.name}» пропущен: серверов больше $limit", "profiles[$i]")
+                    notes += Diagnostic.warning(DiagCode.SUBSCRIPTION_ENTRY_SKIPPED, "сервер «${p.name}» пропущен: серверов больше $limit", at)
                 else -> {
                     valid += p
+                    validPaths += at
                     seen[p.id] = p
                 }
             }
         }
-        val filtered = filter.filter(valid)
+        val filtered = filter.filter(valid, validPaths)
         notes += filtered.notes
         if (filtered.usable.isEmpty()) {
             return fail(Diagnostic.error(DiagCode.SUBSCRIPTION_NO_USABLE_SERVERS, "в подписке нет ни одного пригодного сервера"), checksum)

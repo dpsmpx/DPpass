@@ -244,9 +244,9 @@ class PresentationTest {
         assertEquals(12, SubscriptionList.entryNumber(skipped("entry[11]")))
         assertNull(SubscriptionList.entryNumber(skipped("profiles[0]")))
         assertNull(SubscriptionList.entryNumber(skipped(null)))
-        // Фильтр ядра считает среди разобранных серверов: номер указал бы не на ту запись.
+        // Фильтр ядра — тот же номер записи тела, что у разбора (DecodedPayload.paths).
         val excluded = Diagnostic.warning(DiagCode.PROFILE_EXCLUDED_UNSUPPORTED, "сервер «A» исключён: ядро его не поддерживает", "entry[1]")
-        assertNull(SubscriptionList.entryNumber(excluded))
+        assertEquals(2, SubscriptionList.entryNumber(excluded))
     }
 
     @Test

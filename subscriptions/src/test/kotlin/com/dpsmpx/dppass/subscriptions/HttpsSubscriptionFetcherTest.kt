@@ -145,7 +145,7 @@ class HttpsSubscriptionFetcherTest {
         val conn = FakeConnection(url, 404, mapOf("x-hwid-active" to "true", "x-hwid-not-supported" to "true"))
         val f = HttpsSubscriptionFetcher(clock) { conn }
         val sub = Subscription(SubscriptionId("s1"), "S", SubscriptionSource.Url(Secret(url.toString())))
-        val r = SubscriptionUpdater(f, clock, "test").update(sub) { FilterResult(it, emptyList()) }
+        val r = SubscriptionUpdater(f, clock, "test").update(sub) { ps, _ -> FilterResult(ps, emptyList()) }
         assertEquals(DiagCode.SUBSCRIPTION_DEVICE_ID_REQUIRED, (r as UpdateResult.Failed).subscription.lastFailed!!.reason.code)
     }
 }

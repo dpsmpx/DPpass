@@ -47,15 +47,19 @@ import com.dpsmpx.dppass.tunnel.TunnelSpecBuilder
  */
 fun TunnelHandle.toTunInput(): TunInput = TunInput(fd, spec.mtu, SocketProtector(::protect))
 
-/** Фильтр серверов подписки по возможностям ядра: исключение — всегда с предупреждением. */
+/**
+ * Фильтр серверов подписки по возможностям ядра: исключение — всегда с
+ * предупреждением, путь — место записи в теле подписки (`entry[k]`).
+ */
 class EngineProfileFilter(private val caps: EngineCapabilities) : ProfileFilter {
-    override fun filter(profiles: List<ServerProfile>): FilterResult {
+    override fun filter(profiles: List<ServerProfile>, paths: List<String>): FilterResult {
+        require(paths.size == profiles.size) { "путь — у каждого профиля" }
         val usable = mutableListOf<ServerProfile>()
         val notes = mutableListOf<Diagnostic>()
         for ((i, p) in profiles.withIndex()) {
-            val problems = CapabilityChecker.checkProfile(p, caps, "entry[$i]")
+            val problems = CapabilityChecker.checkProfile(p, caps, paths[i])
             if (problems.any { it.isError }) {
-                notes += Diagnostic.warning(DiagCode.PROFILE_EXCLUDED_UNSUPPORTED, "сервер «${p.name}» исключён: ядро его не поддерживает", "entry[$i]")
+                notes += Diagnostic.warning(DiagCode.PROFILE_EXCLUDED_UNSUPPORTED, "сервер «${p.name}» исключён: ядро его не поддерживает", paths[i])
                     .copy(causes = problems)
             } else {
                 usable += p

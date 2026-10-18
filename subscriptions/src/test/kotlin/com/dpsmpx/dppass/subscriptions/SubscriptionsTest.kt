@@ -333,7 +333,7 @@ class MetadataParserTest {
 class SubscriptionUpdaterTest {
     private val clock = ManualClock(1000)
     private val links = "vless://$UUID1@203.0.113.11:443?security=tls&sni=a.example.com#A\ntrojan://p@198.51.100.2:443#B\n"
-    private val passAll = ProfileFilter { FilterResult(it, emptyList()) }
+    private val passAll = ProfileFilter { ps, _ -> FilterResult(ps, emptyList()) }
 
     private fun sub() = Subscription(SubscriptionId("sub1"), "Sub", SubscriptionSource.Url(Secret("https://sub.example.com/token123")))
 
@@ -379,7 +379,7 @@ class SubscriptionUpdaterTest {
 
     @Test
     fun filterExclusionsAreExplicit() = runBlocking {
-        val onlyTrojan = ProfileFilter { ps ->
+        val onlyTrojan = ProfileFilter { ps, _ ->
             FilterResult(
                 ps.filter {
                     it.protocol is ProtocolSpec.Trojan
@@ -390,6 +390,39 @@ class SubscriptionUpdaterTest {
         val r = SubscriptionUpdater(fetcher(links), clock, "test").update(sub(), onlyTrojan) as UpdateResult.Ready
         assertEquals(1, r.candidate.profiles.size)
         assertTrue(r.diagnostics.any { it.code == DiagCode.PROFILE_EXCLUDED_UNSUPPORTED })
+    }
+
+    @Test
+    fun findingsOfCheckAndFilterNameTheEntryOfTheBody() = runBlocking {
+        // Запись 1 не разобрана, у записи 2 неверное имя TLS, запись 3 исключает фильтр:
+        // путь каждой находки — номер записи тела, как у разбора, а не номер среди уцелевших.
+        val body = "vless://$UUID1@203.0.113.11:443?security=tls&sni=a.example.com#A\n" +
+            "trojan://198.51.100.40:443\n" +
+            "trojan://pass@198.51.100.1:443?sni=bad%20name.example.org#Bad\n" +
+            "trojan://q@198.51.100.3:443#C\n"
+        val given = mutableListOf<String>()
+        val noC = ProfileFilter { ps, paths ->
+            given += paths
+            FilterResult(
+                ps.filter { it.name != "C" },
+                ps.indices.filter { ps[it].name == "C" }.map {
+                    com.dpsmpx.dppass.diagnostics.Diagnostic.warning(DiagCode.PROFILE_EXCLUDED_UNSUPPORTED, "сервер «C» исключён", paths[it])
+                },
+            )
+        }
+        val r = SubscriptionUpdater(fetcher(body), clock, "test").update(sub(), noC) as UpdateResult.Ready
+        assertEquals(listOf("entry[0]", "entry[3]"), given, "фильтр получает места записей в теле")
+        val placed = r.diagnostics
+            .filter { it.code == DiagCode.SUBSCRIPTION_ENTRY_SKIPPED || it.code == DiagCode.PROFILE_EXCLUDED_UNSUPPORTED }
+            .map { it.code to it.path }
+        assertEquals(
+            listOf(
+                DiagCode.SUBSCRIPTION_ENTRY_SKIPPED to "entry[1]",
+                DiagCode.SUBSCRIPTION_ENTRY_SKIPPED to "entry[2]",
+                DiagCode.PROFILE_EXCLUDED_UNSUPPORTED to "entry[3]",
+            ),
+            placed,
+        )
     }
 
     @Test
