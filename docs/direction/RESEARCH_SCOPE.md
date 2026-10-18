@@ -18,6 +18,7 @@
 | `docs/research/COMPETITOR_ARCHITECTURE.md` | какие архитектурные уроки есть у существующих клиентов | D-05, D-12, D-20 |
 | `docs/research/ANDROID_NETWORK_MODEL.md` | что даёт и чего не даёт `VpnService` | D-17, D-19 |
 | `docs/research/ALLOWLIST_ACCESS.md` | что проверяет белый список и что клиент может без своего сервера | D-13, D-64; «Отложено» |
+| `docs/research/DPI_DESYNC.md` | что из разбиения пакетов Zapret, Zapret 2, byedpi и ByeByeDPI применимо к DPpass без root и что умеет ядро | D-13, D-20; «Отложено» |
 
 ## 2. Что исследуется
 
