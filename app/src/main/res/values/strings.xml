@@ -481,4 +481,12 @@
     <string name="plan_ipv6_forwarded">IPv6 through “%1$s” works: sites with IPv6 only open too. Checked %2$s.</string>
     <string name="plan_ipv6_not_forwarded">“%1$s” does not pass IPv6: sites that have only IPv6 will not open through it — they wait until a timeout. Sites with IPv4 open as usual. Checked %2$s.</string>
     <string name="plan_ipv6_unknown">Could not check IPv6 through “%1$s”. Checked %2$s.</string>
+    <!-- Сброс хранилища (D-19) -->
+    <string name="storage_lost_title">Saved data cannot be read</string>
+    <string name="storage_reset">Reset storage…</string>
+    <string name="storage_reset_title">Reset storage?</string>
+    <string name="storage_reset_text">The key DPpass encrypts its data with is lost — this happens after the screen lock is reset, after a restore or a transfer. Subscriptions, servers and settings cannot be read.\n\nReset moves everything saved, as is, to a service folder of the app (nothing is deleted) and starts empty: subscriptions and your servers have to be added again.</string>
+    <string name="storage_reset_confirm">Reset</string>
+    <string name="storage_reset_done">Storage reset — add your subscription again</string>
+    <string name="storage_reset_failed">Storage not reset</string>
 </resources>

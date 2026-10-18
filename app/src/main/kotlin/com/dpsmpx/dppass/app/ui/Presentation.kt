@@ -317,3 +317,15 @@ object Formats {
         return "$text ${units[unit]}"
     }
 }
+
+/**
+ * Сохранённое не прочитать: ключ данных утрачен (`STORAGE_DATA_KEY_LOST`,
+ * D-19). Выход — сброс хранилища, и только действием пользователя: такой
+ * отказ показывается с кнопкой сброса — в окне отказа и сразу при запуске.
+ */
+object StorageLost {
+    /** Первая находка об утрате ключа — сама или в цепочке причин. */
+    fun find(diagnostics: List<Diagnostic>): Diagnostic? = diagnostics.firstOrNull(::isLost)
+
+    fun isLost(d: Diagnostic): Boolean = d.code == DiagCode.STORAGE_DATA_KEY_LOST || d.causes.any(::isLost)
+}

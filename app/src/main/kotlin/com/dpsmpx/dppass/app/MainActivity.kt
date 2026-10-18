@@ -30,6 +30,7 @@ import com.dpsmpx.dppass.app.ui.MainThread
 import com.dpsmpx.dppass.app.ui.Screen
 import com.dpsmpx.dppass.app.ui.ServersScreen
 import com.dpsmpx.dppass.app.ui.SettingsScreen
+import com.dpsmpx.dppass.app.ui.StorageLost
 import com.dpsmpx.dppass.app.ui.SubscriptionsScreen
 import com.dpsmpx.dppass.app.ui.Ui
 import com.dpsmpx.dppass.diagnostics.DiagCode
@@ -100,11 +101,14 @@ class MainActivity : Activity(), Host {
         pendingImport = sharedText(intent)
         sharedImage(intent)?.let(::readQr)
         scope.launch {
-            val g = withContext(Dispatchers.IO) {
-                AppGraph.graph(this@MainActivity).also { if (it.core.activation.state.activeConfig == null) it.core.restore() }
+            val (g, restored) = withContext(Dispatchers.IO) {
+                val g = AppGraph.graph(this@MainActivity)
+                g to if (g.core.activation.state.activeConfig == null) g.core.restore() else emptyList()
             }
             graph = g
             changed()
+            // Сохранённое не прочитать — ключ утрачен (D-19): сказать сразу и с выходом, а не пустым экраном.
+            StorageLost.find(restored)?.let { problem(getString(R.string.storage_lost_title), it) }
             pendingImport?.let {
                 pendingImport = null
                 importText(it)
@@ -309,11 +313,39 @@ class MainActivity : Activity(), Host {
 
     override fun problem(title: CharSequence, reason: Diagnostic) {
         // Причина целиком, с текстом ядра: на устройстве её больше негде увидеть (D-22).
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(reason.renderWithCauses().joinToString("\n"))
+            .setPositiveButton(android.R.string.ok, null)
+        // Ключ данных утрачен (D-19): выход — сброс хранилища, только по нажатию и с подтверждением.
+        if (StorageLost.isLost(reason)) dialog.setNeutralButton(R.string.storage_reset) { _, _ -> confirmStorageReset() }
+        Ui.secure(dialog.show())
+    }
+
+    /**
+     * Сброс хранилища (D-19, `DPpassCore.resetStorage`): всё сохранённое
+     * откладывается как есть, ничего не удаляется, ключ создаётся заново.
+     * Туннель — остановить: его конфигурация из прежнего состояния.
+     */
+    private fun confirmStorageReset() {
         Ui.secure(
             AlertDialog.Builder(this)
-                .setTitle(title)
-                .setMessage(reason.renderWithCauses().joinToString("\n"))
-                .setPositiveButton(android.R.string.ok, null)
+                .setTitle(R.string.storage_reset_title)
+                .setMessage(R.string.storage_reset_text)
+                .setPositiveButton(R.string.storage_reset_confirm) { _, _ ->
+                    val core = graph?.core ?: return@setPositiveButton
+                    if (TunnelState.status.value.busy) disconnect()
+                    scope.launch {
+                        when (val r = withContext(Dispatchers.IO) { core.resetStorage() }) {
+                            is Outcome.Success -> {
+                                toast(getString(R.string.storage_reset_done))
+                                changed()
+                            }
+                            is Outcome.Failure -> problem(getString(R.string.storage_reset_failed), r.errors.first())
+                        }
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
                 .show(),
         )
     }

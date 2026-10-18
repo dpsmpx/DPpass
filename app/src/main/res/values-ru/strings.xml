@@ -500,4 +500,12 @@
     <string name="plan_ipv6_forwarded">IPv6 через «%1$s» есть: сайты только с IPv6 тоже открываются. Проверено %2$s.</string>
     <string name="plan_ipv6_not_forwarded">Сервер «%1$s» не выпускает IPv6: сайты, у которых есть только IPv6, через него не откроются — будут ждать до тайм-аута. Сайты с IPv4 открываются как обычно. Проверено %2$s.</string>
     <string name="plan_ipv6_unknown">IPv6 через «%1$s» проверить не удалось. Проверено %2$s.</string>
+    <!-- Сброс хранилища (D-19) -->
+    <string name="storage_lost_title">Сохранённое не прочитать</string>
+    <string name="storage_reset">Сбросить хранилище…</string>
+    <string name="storage_reset_title">Сбросить хранилище?</string>
+    <string name="storage_reset_text">Ключ, которым DPpass шифрует свои данные, утрачен — так бывает после сброса блокировки экрана, восстановления или переноса. Подписки, серверы и настройки не прочитать.\n\nСброс отложит всё сохранённое как есть в служебную папку приложения (ничего не удаляется) и начнёт с пустого: подписки и свои серверы нужно будет добавить заново.</string>
+    <string name="storage_reset_confirm">Сбросить</string>
+    <string name="storage_reset_done">Хранилище сброшено — добавьте подписку заново</string>
+    <string name="storage_reset_failed">Хранилище не сброшено</string>
 </resources>

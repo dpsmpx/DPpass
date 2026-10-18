@@ -247,4 +247,19 @@ class PresentationTest {
         val excluded = Diagnostic.warning(DiagCode.PROFILE_EXCLUDED_UNSUPPORTED, "сервер «A» исключён: ядро его не поддерживает", "entry[1]")
         assertNull(SubscriptionList.entryNumber(excluded))
     }
+
+    @Test
+    fun lostStorageKeyIsFoundItselfOrAmongCauses() {
+        val lost = Diagnostic.error(DiagCode.STORAGE_DATA_KEY_LOST, "ключ данных утрачен")
+        val wrapped = Diagnostic.error(DiagCode.ACTIVATION_REJECTED, "конфигурация не сохранена").copy(
+            causes = listOf(Diagnostic.error(DiagCode.STORAGE_WRITE_FAILED, "запись не удалась").copy(causes = listOf(lost))),
+        )
+        assertTrue(StorageLost.isLost(lost))
+        assertTrue(StorageLost.isLost(wrapped), "причина в глубине цепочки — тоже утрата ключа")
+        // Временный отказ ключа и порча записи — не повод сбрасывать хранилище (D-19).
+        assertFalse(StorageLost.isLost(Diagnostic.error(DiagCode.STORAGE_DATA_KEY_UNAVAILABLE, "ключ сейчас недоступен")))
+        assertFalse(StorageLost.isLost(Diagnostic.error(DiagCode.STORAGE_CORRUPTED, "запись испорчена")))
+        assertEquals(wrapped, StorageLost.find(listOf(Diagnostic.warning(DiagCode.STORAGE_CORRUPTED, "x"), wrapped)))
+        assertNull(StorageLost.find(emptyList()))
+    }
 }
