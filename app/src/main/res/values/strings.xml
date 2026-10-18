@@ -75,8 +75,6 @@
     <string name="server_state_paused">Retry in %1$d s: %2$s</string>
     <string name="server_connected">Connected</string>
     <string name="a11y_selected">Selected</string>
-    <string name="a11y_checked">Checked</string>
-    <string name="a11y_unchecked">Not checked</string>
     <string name="servers_empty">No servers. Add a subscription or paste server links.</string>
     <string name="servers_search">Search servers</string>
     <string name="servers_not_found">Nothing found</string>

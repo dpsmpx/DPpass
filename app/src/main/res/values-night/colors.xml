@@ -5,6 +5,7 @@
     <color name="surface">#FF171A21</color>
     <color name="surface_variant">#FF21252E</color>
     <color name="outline">#FF2F3440</color>
+    <color name="outline_strong">#FF6E7586</color>
     <color name="text">#FFECEEF3</color>
     <color name="text_secondary">#FFA6ACBA</color>
     <color name="primary">#FF92B1FF</color>

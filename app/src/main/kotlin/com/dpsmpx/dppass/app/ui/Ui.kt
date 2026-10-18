@@ -24,6 +24,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
+import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
 import android.widget.EditText
@@ -173,10 +174,12 @@ internal object Ui {
         text = value
         gravity = Gravity.CENTER
         setBackgroundResource(R.drawable.bg_oval)
-        // Флаг — эмодзи: крупнее буквы.
+        // Флаг — эмодзи: крупнее буквы. Размер — в dp, а не в sp: буква и флаг здесь значок
+        // в круге постоянного размера, при крупном шрифте системы они обрезались бы; имя
+        // сервера рядом растёт со шрифтом.
         val emoji = value.codePointCount(0, value.length) > 1 || value.codePointAt(0) > 0xFFFF
         setTextAppearance(R.style.Text_DPpass_Title)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, if (emoji) 20f else 16f)
+        setTextSize(TypedValue.COMPLEX_UNIT_DIP, if (emoji) 20f else 16f)
         setTextColor(context.getColor(R.color.on_primary_container))
         backgroundTintList = ColorStateList.valueOf(context.getColor(R.color.primary_container))
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -248,7 +251,11 @@ internal object Ui {
         }
     }
 
-    /** Строка с переключателем: касание строки переключает; TalkBack читает её как переключатель. */
+    /**
+     * Строка с переключателем: касание строки переключает; TalkBack читает её
+     * как переключатель. Бегунок выключенного — `outline_strong`, а не цвет
+     * поверхности: иначе он сливается с карточкой (WCAG 1.4.11).
+     */
     fun switchRow(context: Context, iconRes: Int?, title: CharSequence, subtitle: CharSequence?, checked: Boolean, onChange: (Boolean) -> Unit): ListRow {
         val toggle = Switch(context).apply {
             isChecked = checked
@@ -257,7 +264,7 @@ internal object Ui {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             thumbTintList = ColorStateList(
                 arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-                intArrayOf(context.getColor(R.color.primary), context.getColor(R.color.surface)),
+                intArrayOf(context.getColor(R.color.primary), context.getColor(R.color.outline_strong)),
             )
             trackTintList = ColorStateList(
                 arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
@@ -274,6 +281,13 @@ internal object Ui {
                     info.className = Switch::class.java.name
                     info.isCheckable = true
                     info.isChecked = toggle.isChecked
+                }
+
+                // Событие касания — с новым состоянием: TalkBack произносит «включено» или «выключено».
+                override fun onInitializeAccessibilityEvent(host: View, event: AccessibilityEvent) {
+                    super.onInitializeAccessibilityEvent(host, event)
+                    event.className = Switch::class.java.name
+                    event.isChecked = toggle.isChecked
                 }
             }
             setOnClickListener {
@@ -302,30 +316,33 @@ internal object Ui {
 
     /**
      * Сегменты: выбор одного из 2–3 вариантов в одну строку (режим
-     * маршрутизации, порядок серверов).
+     * маршрутизации, порядок серверов). Касаемая область сегмента — 48 dp
+     * по высоте, видимая плашка — 40 dp: отступ сверху и снизу — у рисунка
+     * (`bg_segment`, `fg_ripple_segment`), а не у дорожки, иначе касание у
+     * края дорожки не попадает в сегмент.
      */
     fun segmented(context: Context, options: List<CharSequence>, selected: Int, onSelect: (Int) -> Unit): LinearLayout =
         LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundResource(R.drawable.bg_pill)
             backgroundTintList = ColorStateList.valueOf(context.getColor(R.color.surface_variant))
-            val p = dp(context, 4)
-            setPadding(p, p, p, p)
+            setPadding(dp(context, 4), 0, dp(context, 4), 0)
             options.forEachIndexed { i, label ->
                 val on = i == selected
                 addView(
                     text(context, R.style.Text_DPpass_Label, label).apply {
                         gravity = Gravity.CENTER
-                        minHeight = dp(context, 40)
-                        setPadding(dp(context, 12), 0, dp(context, 12), 0)
+                        minHeight = dp(context, TOUCH_DP)
                         maxLines = 2
                         if (on) {
-                            setBackgroundResource(R.drawable.bg_pill)
+                            setBackgroundResource(R.drawable.bg_segment)
                             backgroundTintList = ColorStateList.valueOf(context.getColor(R.color.surface))
                             elevation = dpF(context, 1f)
                         } else {
-                            foreground = context.getDrawable(R.drawable.fg_ripple_pill)
+                            foreground = context.getDrawable(R.drawable.fg_ripple_segment)
                         }
+                        // После фона: отступы рисунка-вставки заменили бы заданные раньше.
+                        setPadding(dp(context, 12), dp(context, 4), dp(context, 12), dp(context, 4))
                         setTextColor(context.getColor(if (on) R.color.text else R.color.text_secondary))
                         isClickable = true
                         isFocusable = true

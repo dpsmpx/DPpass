@@ -190,6 +190,11 @@ run = ["python3", "tools/hostcheck/check_manifest.py"]
 level = "static"
 
 [[command]]
+id = "project.contrast"
+run = ["python3", "tools/hostcheck/check_contrast.py"]
+level = "static"
+
+[[command]]
 id = "project.format"
 run = ["python3", "tools/hostcheck/check_format.py"]
 level = "static"

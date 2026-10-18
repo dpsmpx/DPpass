@@ -2,13 +2,17 @@
 <!--
   Цветовые токены DPpass, светлая тема (D-34). Тёмная — values-night/colors.xml
   с теми же именами. Текст на фоне и на поверхности — контраст не ниже
-  WCAG AA (4,5:1); вторичный текст — тоже.
+  WCAG AA (4,5:1); вторичный текст — тоже. Граница и состояние элемента
+  управления — не ниже 3:1 (WCAG 1.4.11): `outline_strong`; `outline` —
+  только украшения (разделители, обводка карточки). Пары и пороги держит
+  tools/hostcheck/check_contrast.py.
 -->
 <resources>
     <color name="bg">#FFF4F6FA</color>
     <color name="surface">#FFFFFFFF</color>
     <color name="surface_variant">#FFEBEEF5</color>
     <color name="outline">#FFD8DCE6</color>
+    <color name="outline_strong">#FF7A8194</color>
     <color name="text">#FF11141B</color>
     <color name="text_secondary">#FF586072</color>
     <color name="primary">#FF2453C2</color>

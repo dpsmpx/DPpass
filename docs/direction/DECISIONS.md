@@ -987,7 +987,10 @@ D-15 («здоровье — по полезной нагрузке») для я
 **Проверка.**
 - `check_apk.py` — корни пакетов кода без изменений;
 - Lint (`warningsAsErrors`);
-- `CandidatePlannerTest.userChoiceGoesFirstAndIgnoresBackoff`.
+- `CandidatePlannerTest.userChoiceGoesFirstAndIgnoresBackoff`;
+- `check_contrast.py` (`project.contrast`, с 18 октября 2026) — контраст
+  токенов обеих тем: текст не ниже 4,5:1, граница и состояние элемента
+  управления — не ниже 3:1 (WCAG 2.2 AA).
 
 ### D-35 — Подпись тестовых сборок: ключ разработчика у автора, APK — в ветке `apk`
 

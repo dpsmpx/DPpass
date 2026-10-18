@@ -7,6 +7,8 @@ import android.graphics.drawable.Drawable
 import android.os.Build
 import android.text.TextUtils
 import android.view.View
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.CheckBox
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -155,15 +157,25 @@ class AppsScreen(host: Host, private val apply: (UserPolicy) -> Unit) : SubScree
             addView(texts, Ui.weight().apply { marginStart = Ui.dp(context, 12) })
             addView(check)
             contentDescription = app.label
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                stateDescription = context.getString(if (check.isChecked) R.string.a11y_checked else R.string.a11y_unchecked)
+            // Строка — флажок для TalkBack на всех версиях Android (stateDescription — только с 11-й),
+            // как строка с переключателем (Ui.switchRow); событие касания несёт новое состояние.
+            accessibilityDelegate = object : View.AccessibilityDelegate() {
+                override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
+                    super.onInitializeAccessibilityNodeInfo(host, info)
+                    info.className = CheckBox::class.java.name
+                    info.isCheckable = true
+                    info.isChecked = check.isChecked
+                }
+
+                override fun onInitializeAccessibilityEvent(host: View, event: AccessibilityEvent) {
+                    super.onInitializeAccessibilityEvent(host, event)
+                    event.className = CheckBox::class.java.name
+                    event.isChecked = check.isChecked
+                }
             }
             setOnClickListener {
                 if (!chosen.add(app.packageName)) chosen.remove(app.packageName)
                 check.isChecked = app.packageName in chosen
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    stateDescription = context.getString(if (check.isChecked) R.string.a11y_checked else R.string.a11y_unchecked)
-                }
             }
         }
     }

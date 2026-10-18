@@ -74,8 +74,6 @@
     <string name="server_state_paused">Повтор через %1$d с: %2$s</string>
     <string name="server_connected">Подключён</string>
     <string name="a11y_selected">Выбрано</string>
-    <string name="a11y_checked">Отмечено</string>
-    <string name="a11y_unchecked">Не отмечено</string>
     <string name="servers_empty">Серверов нет. Добавьте подписку или вставьте ссылки на серверы.</string>
     <string name="servers_search">Поиск серверов</string>
     <string name="servers_not_found">Ничего не найдено</string>

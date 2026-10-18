@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Отклик невыбранного сегмента — в границах плашки, как у выбранного (bg_segment, D-34). -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/fg_ripple_pill"
+    android:insetTop="4dp"
+    android:insetBottom="4dp" />
