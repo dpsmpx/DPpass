@@ -56,6 +56,14 @@ class QrImageTest {
     }
 
     @Test
+    fun aDecoderFailureOnABrokenPictureIsARefusalNotACrash() {
+        val p = picture("https://sub.example.com/s/synthetic-token")
+        val f = assertIs<Outcome.Failure>(QrImage.decode(p.argb, p.width, p.height) { throw ArrayIndexOutOfBoundsException(7) })
+        assertEquals(DiagCode.IMPORT_QR_NOT_FOUND, f.errors.single().code)
+        assertEquals(DiagCode.INTERNAL_ERROR, f.errors.single().causes.single().code, "причина — сбой распознавателя, с типом исключения")
+    }
+
+    @Test
     fun sampleSizeKeepsPixelsWithinTheLimit() {
         assertEquals(1, QrImage.sampleSize(2048, 2048))
         assertEquals(2, QrImage.sampleSize(4000, 3000))

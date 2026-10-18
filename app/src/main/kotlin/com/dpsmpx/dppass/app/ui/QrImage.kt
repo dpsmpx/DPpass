@@ -1,6 +1,7 @@
 package com.dpsmpx.dppass.app.ui
 
 import com.dpsmpx.dppass.diagnostics.DiagCode
+import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
@@ -54,15 +55,30 @@ internal object QrImage {
 
     /**
      * Первый QR-код на картинке [argb] (`width × height`, по строкам). Пустой
-     * код — тоже «не найден»: импортировать нечего.
+     * код — тоже «не найден»: импортировать нечего. [read] — распознаватель
+     * (в тестах — свой).
      */
-    fun decode(argb: IntArray, width: Int, height: Int): Outcome<String> {
+    fun decode(
+        argb: IntArray,
+        width: Int,
+        height: Int,
+        read: (BinaryBitmap) -> String = { MultiFormatReader().decode(it, HINTS).text },
+    ): Outcome<String> {
         require(width > 0 && height > 0 && argb.size == width * height)
         val bitmap = BinaryBitmap(HybridBinarizer(RGBLuminanceSource(width, height, argb)))
         val text = try {
-            MultiFormatReader().decode(bitmap, HINTS).text
+            read(bitmap)
         } catch (e: ReaderException) {
             null
+        } catch (e: RuntimeException) {
+            // Картинка — чужие данные: на испорченной ZXing бывает и не ReaderException
+            // (выход за массив, неверный аргумент). Это отказ с причиной, а не падение приложения.
+            return Outcome.Failure(
+                listOf(
+                    Diagnostic.error(DiagCode.IMPORT_QR_NOT_FOUND, NOT_FOUND)
+                        .withCause(Diagnostic.fromThrowable(DiagCode.INTERNAL_ERROR, "распознаватель QR отказал на этой картинке", e)),
+                ),
+            )
         }
         if (text.isNullOrBlank()) return Outcome.failure(DiagCode.IMPORT_QR_NOT_FOUND, NOT_FOUND)
         return Outcome.Success(text)
