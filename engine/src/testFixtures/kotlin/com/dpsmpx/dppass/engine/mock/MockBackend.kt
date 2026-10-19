@@ -68,6 +68,11 @@ class MockBackendCompiler(override val capabilities: EngineCapabilities = MockBa
         val profile = ir.profile(plan.profileId)
             ?: return Outcome.failure(DiagCode.PROFILE_NOT_FOUND, "нет профиля «${plan.profileId}»")
         val lowered = AppLowering.lower(ir.routing)
+        // Разбиение ClientHello (D-68) — как у настоящего ядра: без TLS
+        // разбивать нечего, и это предупреждение, а не тишина (D-05).
+        val split = plan.splitClientHello && profile.security != SecuritySpec.None
+        val notSplit = Diagnostic.warning(DiagCode.CLIENT_HELLO_SPLIT_NOT_APPLIED, "mock: у «${profile.name}» нет TLS — разбивать нечего")
+            .takeIf { plan.splitClientHello && !split }
 
         val credential = when (val p = profile.protocol) {
             is ProtocolSpec.Vless -> p.id.reveal()
@@ -85,6 +90,7 @@ class MockBackendCompiler(override val capabilities: EngineCapabilities = MockBa
             "transport_path" to Json.str(transportPath(profile.transport)),
             "security" to Json.str(profile.security.kind.name.lowercase()),
             "server_name" to Json.str(serverName(profile.security)),
+            "split_client_hello" to Json.bool(true).takeIf { split },
         )
         val routes = lowered.engineRules.map { rule ->
             val c = rule.conditions
@@ -120,7 +126,7 @@ class MockBackendCompiler(override val capabilities: EngineCapabilities = MockBa
         )
         val payload = Json.write(doc, pretty = false)
         val compiled = CompiledConfig(capabilities.backendId, capabilities.backendVersion, profile.id, payload, Checksums.sha256(payload))
-        return Outcome.Success(compiled, problems)
+        return Outcome.Success(compiled, problems + listOfNotNull(notSplit))
     }
 
     private fun domainText(m: DomainMatcher): String = when (m) {

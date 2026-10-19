@@ -148,8 +148,12 @@ NetworkAssessor.assess  (пробы по одной, с бюджетом) → Ne
 CandidatePlanner.plan   (детерминированно, ≤ maxAttempts, с причинами) → ConnectionPlan
 ConnectionOrchestrator.connect
   для каждой попытки (пауза между попытками):
-    compile → engine.validate → engine.start → HealthChecker (полезная
-    нагрузка, тайм-аут) → успех: Connected | отказ: stop, backoff в HealthBook
+    compile (предупреждения — в журнал) → engine.validate → engine.start →
+    HealthChecker (полезная нагрузка, тайм-аут) → успех: Connected | отказ:
+    stop, backoff в HealthBook
+    с разбиением ClientHello (D-68) отказ рукопожатия TLS/REALITY
+    (SplitFallback) → та же попытка без разбиения, сервер — в SplitMemory
+    у DPpassCore: до перезапуска без разбиения (D-69)
   → ConnectionReport (каждая попытка — причина из плана и исход)
 Отказ в работе («подключено, но пусто»): ActivationService.rollback → предыдущая.
 ```

@@ -188,6 +188,13 @@ enum class DiagCode(val kind: FailureKind, val defaultSeverity: Severity) {
      */
     RELAY_UPSTREAM_FAILED(FailureKind.HEALTH_CHECK_FAILED, Severity.ERROR),
 
+    /**
+     * Сервер не принял ClientHello по частям (D-69, к D-68): с разбиением
+     * рукопожатие TLS или REALITY не прошло. Та же попытка — без разбиения,
+     * и до перезапуска к этому серверу — без него.
+     */
+    CLIENT_HELLO_SPLIT_REJECTED(FailureKind.TLS_HANDSHAKE_FAILED, Severity.WARNING),
+
     // --- активация ---
     ACTIVATION_REJECTED(FailureKind.CONFIG_VALIDATION_FAILED, Severity.ERROR),
     ROLLED_BACK_TO_LAST_KNOWN_GOOD(FailureKind.HEALTH_CHECK_FAILED, Severity.WARNING),

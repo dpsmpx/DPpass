@@ -101,6 +101,9 @@ class DPpassCore(
     /** Задержка до серверов по последнему замеру (D-41). */
     val latency: LatencyBook = LatencyBook()
 
+    /** Серверы, не принявшие разбитый ClientHello (D-69): до перезапуска процесса. */
+    val splitMemory: SplitMemory = SplitMemory()
+
     /** Хранение адаптивной модели (D-44). */
     private val stabilityStore = StabilityBook(store, quarantine)
 
@@ -227,7 +230,7 @@ class DPpassCore(
     ): ConnectionReport? {
         val ir = activation.state.activeConfig ?: return null
         val plan = plan(assessment, preferred, regime) ?: return null
-        val orchestrator = ConnectionOrchestrator(compiler, engine, checker, health, clock, log, policy, stability, assessment ?: regime, pause)
+        val orchestrator = ConnectionOrchestrator(compiler, engine, checker, health, clock, log, policy, stability, assessment ?: regime, splitMemory, pause)
         return orchestrator.connect(ir, plan, tun, share, splitClientHello)
     }
 
@@ -298,7 +301,7 @@ class DPpassCore(
             ir, compiler.capabilities, null, health, health.lastGood(), clock.nowMillis(), policy, device.profileId, latency::millis, stability,
         )
         log.info("relay_connect", "device" to Safe(device.id), "port" to device.port)
-        val orchestrator = ConnectionOrchestrator(compiler, engine, checker, health, clock, log, policy, stability, null, pause)
+        val orchestrator = ConnectionOrchestrator(compiler, engine, checker, health, clock, log, policy, stability, null, pause = pause)
         val report = orchestrator.connect(ir, plan, tun, share)
         // Вход раздачи ответил, а данные не пошли (D-59): сбоит туннель того телефона, а не сервер.
         val failure = (report as? ConnectionReport.Failed)?.attempts?.singleOrNull()?.failure

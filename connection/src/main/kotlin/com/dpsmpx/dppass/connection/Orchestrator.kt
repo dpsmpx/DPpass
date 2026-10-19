@@ -73,6 +73,8 @@ class ConnectionOrchestrator(
     /** Адаптивная модель (D-44): каждая попытка — наблюдение. */
     private val stability: StabilityModel? = null,
     private val assessment: com.dpsmpx.dppass.network.NetworkAssessment? = null,
+    /** Серверы, не принявшие разбитый ClientHello (D-69): общая на процесс, у [DPpassCore]. */
+    private val splitMemory: SplitMemory = SplitMemory(),
     // pause — последним: вызывается замыкающей лямбдой у вызывающего.
     private val pause: suspend (Long) -> Unit,
 ) {
@@ -81,7 +83,8 @@ class ConnectionOrchestrator(
     /**
      * [share] — раздача туннеля другим устройствам (D-51): входы ядра на
      * адресах раздачи. [splitClientHello] — разбивать ClientHello к серверу
-     * (D-68), выбор пользователя.
+     * (D-68), выбор пользователя; сервер, который его не принял, — без
+     * разбиения (D-69).
      */
     suspend fun connect(ir: ConfigIr, plan: ConnectionPlan, tun: TunInput?, share: ShareSpec? = null, splitClientHello: Boolean = false): ConnectionReport {
         if (plan.attempts.isEmpty()) {
@@ -96,19 +99,37 @@ class ConnectionOrchestrator(
             if (n > 0) pause(policy.pacingMillis)
             val p = attempt.profile
             log.info("attempt", "profile" to Safe(p.id.value), "class" to p.transportClass, "reasons" to Safe(attempt.reasons.joinToString("; ")))
-            val startedAt = clock.nowMillis()
-            val t = tryOne(ir, p, tun, offered, splitClientHello)
+            var startedAt = clock.nowMillis()
+            var reasons = attempt.reasons
+            val remembered = splitClientHello && splitMemory.rejected(p.id)
+            if (remembered) {
+                log.info("client_hello_split_skipped", "profile" to Safe(p.id.value))
+                reasons = reasons + SPLIT_REMEMBERED
+            }
             // Раздачу отверг запуск, а не сервер: следующие попытки — без неё (D-51).
-            t.shareRefused?.let {
+            fun refuseShare(t: Try) = t.shareRefused?.let {
                 log.diagnostic(it)
                 shareRefused = it
                 offered = null
+            }
+            var t = tryOne(ir, p, tun, offered, splitClientHello && !remembered).also(::refuseShare)
+            // Сервер не принял разбитый ClientHello (D-69): та же попытка без
+            // разбиения, сразу; в учёт здоровья и опыта идёт только она.
+            if (t is Try.Fail && t.split && SplitFallback.rejectedBy(t.reason)) {
+                log.diagnostic(
+                    Diagnostic.warning(DiagCode.CLIENT_HELLO_SPLIT_REJECTED, "сервер не принял ClientHello по частям — та же попытка без разбиения")
+                        .withCause(t.reason),
+                )
+                splitMemory.reject(p.id)
+                reasons = reasons + SPLIT_REJECTED
+                startedAt = clock.nowMillis()
+                t = tryOne(ir, p, tun, offered, false).also(::refuseShare)
             }
             val failure = when (t) {
                 is Try.Ok -> {
                     book.recordSuccess(p.id, clock.nowMillis())
                     observe(p, startedAt, success = true, stalled = false)
-                    records += AttemptRecord(p.id, attempt.reasons, true, null)
+                    records += AttemptRecord(p.id, reasons, true, null)
                     return ConnectionReport.Connected(p.id, t.session, records, plan, shareRefused)
                 }
                 is Try.Fail -> t.reason
@@ -116,7 +137,7 @@ class ConnectionOrchestrator(
             book.recordFailure(p.id, failure.code, clock.nowMillis())
             observe(p, startedAt, success = false, stalled = failure.code == DiagCode.PAYLOAD_STALLED)
             log.diagnostic(failure)
-            records += AttemptRecord(p.id, attempt.reasons, false, failure)
+            records += AttemptRecord(p.id, reasons, false, failure)
         }
         val n = plan.attempts.size
         val d = Diagnostic.error(
@@ -140,19 +161,28 @@ class ConnectionOrchestrator(
         )
     }
 
-    /** [shareRefused] — раздача не поднялась, и попытка шла без неё (D-51). */
+    /**
+     * [shareRefused] — раздача не поднялась, и попытка шла без неё (D-51).
+     * [Fail.split] — ClientHello к серверу и правда разбивался (D-68): ядро
+     * не ответило «разбивать нечего».
+     */
     private sealed interface Try {
         val shareRefused: Diagnostic?
 
         data class Ok(val session: EngineSession, override val shareRefused: Diagnostic? = null) : Try
-        data class Fail(val reason: Diagnostic, override val shareRefused: Diagnostic? = null) : Try
+        data class Fail(val reason: Diagnostic, override val shareRefused: Diagnostic? = null, val split: Boolean = false) : Try
     }
 
     private suspend fun tryOne(ir: ConfigIr, p: ServerProfile, tun: TunInput?, share: ShareSpec?, split: Boolean): Try {
-        val compiled = when (val c = compiler.compile(ir, CompilePlan(p.id, tun != null, share, split))) {
+        val c = compiler.compile(ir, CompilePlan(p.id, tun != null, share, split))
+        val compiled = when (c) {
             is Outcome.Failure -> return Try.Fail(c.errors.first())
             is Outcome.Success -> c.value
         }
+        // Предупреждения сборки — в журнал (раньше успех их терял): например,
+        // «разбивать нечего» у сервера без TLS (D-68).
+        c.diagnostics.forEach(log::diagnostic)
+        val applied = split && c.diagnostics.none { it.code == DiagCode.CLIENT_HELLO_SPLIT_NOT_APPLIED }
         (engine.validate(compiled) as? Outcome.Failure)?.let { return Try.Fail(it.errors.first()) }
         val session = when (val s = engine.start(compiled, tun)) {
             is Outcome.Failure -> {
@@ -182,10 +212,16 @@ class ConnectionOrchestrator(
         }
         if (result is Outcome.Failure) {
             session.stop()
-            return Try.Fail(result.errors.first())
+            return Try.Fail(result.errors.first(), split = applied)
         }
         // Успех с оговоркой (например, здоровье не проверено, D-32) — в журнал, а не мимо.
         result.diagnostics.forEach(log::diagnostic)
         return Try.Ok(session)
+    }
+
+    private companion object {
+        /** Причины в записи попытки — видны в «Почему этот сервер» (D-69). */
+        const val SPLIT_REJECTED = "сервер не принял разбитый ClientHello — без разбиения"
+        const val SPLIT_REMEMBERED = "без разбиения ClientHello: этот сервер его не принял"
     }
 }
