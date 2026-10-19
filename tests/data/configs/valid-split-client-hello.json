@@ -1,0 +1,220 @@
+{
+  "format": "dppass.config",
+  "format_version": 1,
+  "name": "Multi, split ClientHello",
+  "profiles": [
+    {
+      "id": "reality-1",
+      "name": "Reality 1",
+      "server": "203.0.113.10",
+      "port": 443,
+      "protocol": {
+        "type": "vless",
+        "id": "00000000-0000-4000-8000-000000000001",
+        "flow": "vision"
+      },
+      "transport": {
+        "type": "tcp"
+      },
+      "security": {
+        "type": "reality",
+        "server_name": "www.example.com",
+        "public_key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "short_id": "01234567",
+        "fingerprint": "chrome"
+      },
+      "hints": {
+        "priority": 10
+      }
+    },
+    {
+      "id": "xhttp-cdn",
+      "name": "XHTTP via CDN",
+      "server": "cdn.example.net",
+      "port": 443,
+      "protocol": {
+        "type": "vless",
+        "id": "00000000-0000-4000-8000-000000000002"
+      },
+      "transport": {
+        "type": "xhttp",
+        "path": "/x",
+        "host": "cdn.example.net",
+        "mode": "packet-up"
+      },
+      "security": {
+        "type": "tls",
+        "server_name": "cdn.example.net",
+        "alpn": [
+          "h2"
+        ],
+        "fingerprint": "chrome"
+      },
+      "hints": {
+        "priority": 5
+      }
+    },
+    {
+      "id": "trojan-ws",
+      "name": "Trojan WS",
+      "server": "198.51.100.20",
+      "port": 443,
+      "protocol": {
+        "type": "trojan",
+        "password": "test-password-1"
+      },
+      "transport": {
+        "type": "websocket",
+        "path": "/ws",
+        "host": "ws.example.org"
+      },
+      "security": {
+        "type": "tls",
+        "server_name": "ws.example.org"
+      }
+    },
+    {
+      "id": "hy2",
+      "name": "Hysteria2",
+      "server": "192.0.2.30",
+      "port": 8443,
+      "protocol": {
+        "type": "hysteria2",
+        "password": "test-password-2",
+        "obfs_password": "test-obfs-1"
+      },
+      "transport": {
+        "type": "native"
+      },
+      "security": {
+        "type": "tls",
+        "server_name": "hy2.example.com",
+        "alpn": [
+          "h3"
+        ]
+      }
+    },
+    {
+      "id": "ss2022",
+      "name": "SS-2022",
+      "server": "192.0.2.40",
+      "port": 8388,
+      "protocol": {
+        "type": "shadowsocks",
+        "method": "2022-blake3-aes-128-gcm",
+        "password": "AAECAwQFBgcICQoLDA0ODw=="
+      },
+      "transport": {
+        "type": "tcp"
+      },
+      "security": {
+        "type": "none"
+      }
+    },
+    {
+      "id": "domestic-relay",
+      "name": "Relay reachable under allowlist",
+      "server": "relay.example.ru",
+      "port": 443,
+      "protocol": {
+        "type": "vless",
+        "id": "00000000-0000-4000-8000-000000000006",
+        "flow": "vision"
+      },
+      "transport": {
+        "type": "tcp"
+      },
+      "security": {
+        "type": "reality",
+        "server_name": "www.example.ru",
+        "public_key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "short_id": "89abcdef",
+        "fingerprint": "firefox"
+      },
+      "hints": {
+        "priority": -5,
+        "allowlist_reachable": true
+      }
+    }
+  ],
+  "routing": {
+    "default": "proxy",
+    "domain_resolution": "never",
+    "bypass_lan": true,
+    "apps": {
+      "mode": "except",
+      "packages": [
+        "com.example.bank"
+      ]
+    },
+    "rules": [
+      {
+        "id": "bank-app-direct",
+        "action": "direct",
+        "apps": [
+          "com.example.gosapp"
+        ]
+      },
+      {
+        "id": "ads-block",
+        "action": "block",
+        "domain_suffix": [
+          "ads.example.com"
+        ],
+        "domain_keyword": [
+          "tracker"
+        ]
+      },
+      {
+        "id": "ru-direct",
+        "action": "direct",
+        "domain_suffix": [
+          "example.ru"
+        ]
+      },
+      {
+        "id": "ru-ip-direct",
+        "action": "direct",
+        "geoip": [
+          "ru"
+        ]
+      },
+      {
+        "id": "quic-block",
+        "action": "block",
+        "protocol": [
+          "udp"
+        ],
+        "port": [
+          "443"
+        ]
+      }
+    ]
+  },
+  "dns": {
+    "servers": [
+      {
+        "id": "remote",
+        "type": "https",
+        "url": "https://dns.example.net/dns-query",
+        "route": "tunnel"
+      },
+      {
+        "id": "local",
+        "type": "system",
+        "route": "direct"
+      }
+    ],
+    "default": "remote",
+    "rules": [
+      {
+        "domain_suffix": [
+          "example.ru"
+        ],
+        "server": "local"
+      }
+    ],
+    "strategy": "prefer_ipv4",
+    "leak_protection": true
+  }
+}

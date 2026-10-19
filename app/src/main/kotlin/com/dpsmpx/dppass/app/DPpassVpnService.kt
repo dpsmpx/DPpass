@@ -282,7 +282,10 @@ class DPpassVpnService : VpnService() {
             if (relay != null && target != null) {
                 core.connectVia(relay, target.address, checker, tun, share) { delay(it) }
             } else {
-                core.connect(null, checker, tun, preferred, share, regime) { delay(it) }
+                // Разбиение ClientHello к серверу (D-68) — выбор пользователя; к устройству раздачи — нет.
+                val split = AppPrefs(this@DPpassVpnService).splitClientHello
+                core.log.info("client_hello_split", "on" to split)
+                core.connect(null, checker, tun, preferred, share, regime, split) { delay(it) }
             }
         } catch (e: CancellationException) {
             // Остановка во время подключения: сеанс, запущенный посреди проверки

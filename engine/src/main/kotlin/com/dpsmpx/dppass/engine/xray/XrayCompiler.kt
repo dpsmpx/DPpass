@@ -83,7 +83,16 @@ class XrayCompiler(
         val profile = ir.profiles[index]
         val build = Build(problems, geodata)
 
-        val proxy = build.proxyOutbound(profile, "$.profiles[$index]")
+        // Разбиение ClientHello (D-68): только где он есть и идёт по TCP; иначе — сказать, а не молча (D-05).
+        val split = plan.splitClientHello && splittable(profile)
+        if (plan.splitClientHello && !split) {
+            problems += Diagnostic.warning(
+                DiagCode.CLIENT_HELLO_SPLIT_NOT_APPLIED,
+                "${XrayBackend.ID} ${XrayBackend.VERSION}: у «${profile.name}» нет TLS поверх TCP — разбивать нечего, подключение как есть",
+                "$.profiles[$index]",
+            )
+        }
+        val proxy = build.proxyOutbound(profile, "$.profiles[$index]").let { if (split) viaSplit(it) else it }
         val dns = build.dns(ir.dns)
         val routing = build.routing(ir, plan.withTun, plan.share)
         if (problems.any { it.isError }) return Outcome.Failure(problems)
@@ -98,6 +107,7 @@ class XrayCompiler(
         val outbounds = order.map { terminal.getValue(it) } + listOfNotNull(
             dnsOutbound().takeIf { plan.withTun },
             build.directShareOutbound(ir.dns.strategy).takeIf { plan.share != null },
+            splitOutbound().takeIf { split },
         )
 
         val doc = Json.obj(
@@ -621,6 +631,58 @@ class XrayCompiler(
     }
 
     private companion object {
+        /**
+         * Есть ли у сервера ClientHello, который идёт по TCP (D-68): TLS или
+         * REALITY. У Hysteria2 и XHTTP только по h3 — QUIC (`fragment` Xray
+         * режет только TCP); без TLS и у устройства раздачи ClientHello нет.
+         */
+        fun splittable(p: ServerProfile): Boolean {
+            if (p.protocol is ProtocolSpec.Hysteria2 || p.protocol is ProtocolSpec.Socks) return false
+            val tls = when (val s = p.security) {
+                SecuritySpec.None -> return false
+                is SecuritySpec.Reality -> return true
+                is SecuritySpec.Tls -> s
+            }
+            return !(p.transport is TransportSpec.XHttp && tls.alpn == listOf("h3"))
+        }
+
+        /** Исходящий `proxy` открывает соединение с сервером через [splitOutbound] (`sockopt.dialerProxy`). */
+        fun viaSplit(proxy: JsonObject): JsonObject {
+            val stream = proxy.fields["streamSettings"] as JsonObject
+            val sockopt = Json.obj("dialerProxy" to Json.str(XrayBackend.TAG_SPLIT))
+            return JsonObject(proxy.fields + ("streamSettings" to JsonObject(stream.fields + ("sockopt" to sockopt))))
+        }
+
+        /**
+         * Прямой выход с разбиением ClientHello (D-68, `proxy/freedom`): первая
+         * запись TLS — на записи по [SPLIT_LENGTH] байт, каждая — отдельной
+         * записью в сокет с паузой [SPLIT_INTERVAL] мс, то есть отдельным
+         * сегментом TCP. Так оба приёма сразу: только сегменты или только
+         * записи ТСПУ собирал (FOCI 2025, `docs/research/DPI_DESYNC.md`, §4).
+         * Имя сервера он резолвит как и сам `proxy` без разбиения — системой
+         * (`AsIs`, D-29); сокеты защищает тот же хук моста (D-25).
+         */
+        fun splitOutbound(): JsonObject = Json.obj(
+            "tag" to Json.str(XrayBackend.TAG_SPLIT),
+            "protocol" to Json.str("freedom"),
+            "settings" to Json.obj(
+                "fragment" to Json.obj(
+                    "packets" to Json.str("tlshello"),
+                    "length" to Json.str(SPLIT_LENGTH),
+                    "interval" to Json.str(SPLIT_INTERVAL),
+                ),
+            ),
+        )
+
+        /**
+         * Длина части и пауза — ориентир, не замер (D-68): ClientHello Chrome
+         * (~1,8 КБ с ключом ML-KEM) — ~30 частей и ~60 мс к рукопожатию; имя
+         * сервера в нём стоит в случайном месте (порядок расширений случаен),
+         * поэтому части мелкие по всей длине. Сверка — на телефоне (`TODO.md`).
+         */
+        const val SPLIT_LENGTH: String = "40-80"
+        const val SPLIT_INTERVAL: String = "1-3"
+
         /**
          * Куда «напрямую» клиентам раздачи нельзя (T11): loopback и «ноль» (на
          * Linux соединение с 0.0.0.0 приходит на loopback). Адреса IPv4 в виде

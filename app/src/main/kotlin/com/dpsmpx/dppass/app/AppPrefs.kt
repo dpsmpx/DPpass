@@ -7,8 +7,8 @@ import com.dpsmpx.dppass.core.ProfileId
 
 /**
  * Настройки интерфейса (D-34): выбранный сервер или устройство раздачи
- * (D-55), автопереключение (D-58), проверка сети при её смене (D-67) и
- * открытый экран. Не
+ * (D-55), автопереключение (D-58), проверка сети при её смене (D-67),
+ * разбиение ClientHello к серверу (D-68) и открытый экран. Не
  * секреты — id профиля подписки не раскрывает ссылку (`CONFIG_FORMAT.md`,
  * §6); резервных копий у приложения нет (`allowBackup=false`).
  */
@@ -53,6 +53,18 @@ class AppPrefs(context: Context) {
             prefs.edit().putBoolean(CHECK_ON_CHANGE, value).apply()
         }
 
+    /**
+     * «Разбивать начало соединения с сервером» (D-68): TLS ClientHello к
+     * серверу — на части по записям TLS и сегментам TCP. Выключено по
+     * умолчанию: помогает против части фильтров по имени, но само по себе
+     * заметно и добавляет время к подключению.
+     */
+    var splitClientHello: Boolean
+        get() = prefs.getBoolean(SPLIT_CLIENT_HELLO, false)
+        set(value) {
+            prefs.edit().putBoolean(SPLIT_CLIENT_HELLO, value).apply()
+        }
+
     var tab: Int
         get() = prefs.getInt(TAB, 0)
         set(value) {
@@ -66,5 +78,6 @@ class AppPrefs(context: Context) {
         const val RELAY = "selected_relay"
         const val AUTO_SWITCH = "auto_switch"
         const val CHECK_ON_CHANGE = "check_on_network_change"
+        const val SPLIT_CLIENT_HELLO = "split_client_hello"
     }
 }

@@ -687,4 +687,34 @@ class XrayCompilerTest {
         )
         assertEquals(null, outbound(payload(plain), "proxy")["streamSettings"]["finalmask"])
     }
+
+    @Test
+    fun clientHelloSplitDialsTheServerThroughAFragmentingDirectOutbound() {
+        // D-68: TLS и REALITY поверх TCP — через `freedom` с `fragment` (`sockopt.dialerProxy`).
+        val multi = corpus("valid-multi.json")
+        for ((i, p) in multi.profiles.withIndex()) {
+            val r = XrayCompiler().compile(multi, CompilePlan(p.id, true, splitClientHello = true))
+            val doc = Json.parse(r.valueOrNull()!!.payloadForEngine()) as JsonObject
+            val dialer = outbound(doc, "proxy")["streamSettings"]?.let { (it as JsonObject)["sockopt"] }?.let { it["dialerProxy"].text }
+            val splits = doc["outbounds"].items.filter { it["tag"].text == XrayBackend.TAG_SPLIT }
+            val tcpTls = p.protocol !is ProtocolSpec.Hysteria2 && p.security !is SecuritySpec.None
+            if (tcpTls) {
+                assertEquals(XrayBackend.TAG_SPLIT, dialer, p.id.value)
+                val fragment = splits.single()["settings"]["fragment"]
+                assertEquals("freedom", splits.single()["protocol"].text)
+                assertEquals("tlshello", fragment["packets"].text)
+                assertTrue(fragment["interval"].text.substringAfter('-').toInt() > 0, "пауза — каждая запись отдельным сегментом TCP")
+                assertTrue(r.diagnostics.none { it.code == DiagCode.CLIENT_HELLO_SPLIT_NOT_APPLIED }, p.id.value)
+            } else {
+                // QUIC (Hysteria2) или без TLS: разбивать нечего — сказано, а не молча (D-05).
+                assertNull(dialer, p.id.value)
+                assertTrue(splits.isEmpty(), p.id.value)
+                assertEquals("$.profiles[$i]", r.diagnostics.single { it.code == DiagCode.CLIENT_HELLO_SPLIT_NOT_APPLIED }.path)
+            }
+        }
+        // Без выбора пользователя — как раньше: ни выхода, ни dialerProxy.
+        val plain = payload(multi)
+        assertTrue(plain["outbounds"].items.none { it["tag"].text == XrayBackend.TAG_SPLIT })
+        assertNull((outbound(plain, "proxy")["streamSettings"] as JsonObject)["sockopt"])
+    }
 }

@@ -83,10 +83,17 @@ class CompiledConfig(
 }
 
 /**
- * Что именно компилировать: какой профиль активен, есть ли TUN и
- * раздаётся ли туннель другим устройствам ([share], D-51).
+ * Что именно компилировать: какой профиль активен, есть ли TUN,
+ * раздаётся ли туннель другим устройствам ([share], D-51) и разбивать ли
+ * TLS ClientHello к серверу на части ([splitClientHello], D-68: выбор
+ * пользователя, по умолчанию — нет).
  */
-data class CompilePlan(val profileId: ProfileId, val withTun: Boolean, val share: ShareSpec? = null)
+data class CompilePlan(
+    val profileId: ProfileId,
+    val withTun: Boolean,
+    val share: ShareSpec? = null,
+    val splitClientHello: Boolean = false,
+)
 
 /**
  * Раздача туннеля другим устройствам (D-51): вход прокси с логином и

@@ -221,12 +221,14 @@ class DPpassCore(
         share: ShareSpec? = null,
         /** Режим сети по свежей проверке (D-64): порядок плана и контекст опыта попыток. */
         regime: NetworkAssessment? = null,
+        /** Разбивать ClientHello к серверу (D-68): выбор пользователя, по умолчанию — нет. */
+        splitClientHello: Boolean = false,
         pause: suspend (Long) -> Unit,
     ): ConnectionReport? {
         val ir = activation.state.activeConfig ?: return null
         val plan = plan(assessment, preferred, regime) ?: return null
         val orchestrator = ConnectionOrchestrator(compiler, engine, checker, health, clock, log, policy, stability, assessment ?: regime, pause)
-        return orchestrator.connect(ir, plan, tun, share)
+        return orchestrator.connect(ir, plan, tun, share, splitClientHello)
     }
 
     /** Наблюдатель сессии (D-44): Android-слой кормит его пробами (D-32). */

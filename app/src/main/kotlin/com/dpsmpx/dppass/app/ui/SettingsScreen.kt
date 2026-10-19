@@ -186,6 +186,22 @@ class SettingsScreen(host: Host) : Screen(host) {
                 )
                 addView(Ui.divider(context))
                 addView(
+                    // Разбиение ClientHello к серверу (D-68): действует сразу — туннель переподключается.
+                    Ui.switchRow(
+                        context,
+                        R.drawable.ic_shield,
+                        context.getString(R.string.settings_split_hello),
+                        context.getString(R.string.settings_split_hello_note),
+                        host.prefs.splitClientHello,
+                    ) {
+                        host.prefs.splitClientHello = it
+                        host.graph?.core?.log?.info("client_hello_split_set", "on" to it)
+                        host.reconnectIfBusy()
+                    },
+                    Ui.matchWidth(),
+                )
+                addView(Ui.divider(context))
+                addView(
                     Ui.ListRow(context, R.drawable.ic_bell, context.getString(R.string.settings_notifications))
                         .subtitle(context.getString(R.string.settings_notifications_note))
                         .trailing(Ui.icon(context, R.drawable.ic_open, R.color.text_secondary))

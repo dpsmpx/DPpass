@@ -121,6 +121,13 @@ enum class DiagCode(val kind: FailureKind, val defaultSeverity: Severity) {
      */
     GEO_CODE_UNKNOWN(FailureKind.ROUTE_COMPILATION_FAILED, Severity.ERROR),
 
+    /**
+     * Разбиение ClientHello (D-68) включено, но у сервера нет TLS поверх TCP
+     * (Hysteria2, XHTTP по h3 — это QUIC; без TLS и у устройства раздачи
+     * ClientHello нет): разбивать нечего, сервер подключается как есть.
+     */
+    CLIENT_HELLO_SPLIT_NOT_APPLIED(FailureKind.CAPABILITY_UNSUPPORTED, Severity.WARNING),
+
     // --- ядро ---
     BACKEND_REJECTED_CONFIG(FailureKind.BACKEND_VALIDATION_FAILED, Severity.ERROR),
     BACKEND_START_FAILED(FailureKind.BACKEND_START_FAILED, Severity.ERROR),

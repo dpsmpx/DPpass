@@ -1,0 +1,174 @@
+{
+  "log": {
+    "loglevel": "none",
+    "dnsLog": false
+  },
+  "dns": {
+    "tag": "dppass:dns",
+    "servers": [
+      {
+        "address": "localhost",
+        "tag": "dns:local",
+        "domains": [
+          "domain:example.ru"
+        ],
+        "skipFallback": true,
+        "finalQuery": true
+      },
+      {
+        "address": "https://dns.example.net/dns-query",
+        "tag": "dns:remote",
+        "finalQuery": true
+      }
+    ],
+    "queryStrategy": "UseIP",
+    "disableFallbackIfMatch": true
+  },
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "ruleTag": "dppass:dns-hijack",
+        "inboundTag": [
+          "tun-in"
+        ],
+        "ip": [
+          "172.19.0.2"
+        ],
+        "port": "53",
+        "outboundTag": "dns-out"
+      },
+      {
+        "ruleTag": "dppass:dns:remote",
+        "inboundTag": [
+          "dns:remote"
+        ],
+        "outboundTag": "proxy"
+      },
+      {
+        "ruleTag": "ads-block",
+        "domain": [
+          "domain:ads.example.com",
+          "keyword:tracker"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "ruleTag": "ru-direct",
+        "domain": [
+          "domain:example.ru"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "ruleTag": "ru-ip-direct",
+        "ip": [
+          "geoip:ru"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "ruleTag": "quic-block",
+        "port": "443",
+        "network": "udp",
+        "outboundTag": "block"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "tag": "tun-in",
+      "protocol": "tun",
+      "settings": {
+        "name": "dppass0",
+        "mtu": 1500
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "routeOnly": true
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "proxy",
+      "protocol": "trojan",
+      "settings": {
+        "address": "198.51.100.20",
+        "port": 443,
+        "password": "test-password-1"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/ws",
+          "host": "ws.example.org"
+        },
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "ws.example.org"
+        },
+        "sockopt": {
+          "dialerProxy": "dppass:split"
+        }
+      }
+    },
+    {
+      "tag": "direct",
+      "protocol": "freedom",
+      "streamSettings": {
+        "sockopt": {
+          "domainStrategy": "ForceIPv4v6"
+        }
+      }
+    },
+    {
+      "tag": "block",
+      "protocol": "blackhole",
+      "settings": {
+        "response": {
+          "type": "none"
+        }
+      }
+    },
+    {
+      "tag": "dns-out",
+      "protocol": "dns",
+      "settings": {
+        "rules": [
+          {
+            "action": "hijack",
+            "qType": "1,28"
+          },
+          {
+            "action": "return",
+            "rCode": 0
+          }
+        ]
+      }
+    },
+    {
+      "tag": "dppass:split",
+      "protocol": "freedom",
+      "settings": {
+        "fragment": {
+          "packets": "tlshello",
+          "length": "40-80",
+          "interval": "1-3"
+        }
+      }
+    }
+  ],
+  "stats": {},
+  "policy": {
+    "system": {
+      "statsOutboundUplink": true,
+      "statsOutboundDownlink": true
+    }
+  }
+}

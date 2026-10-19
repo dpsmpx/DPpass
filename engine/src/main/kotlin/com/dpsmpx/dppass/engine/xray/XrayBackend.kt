@@ -67,6 +67,13 @@ object XrayBackend {
     /** Префикс служебных тегов: в id DPpass двоеточия не бывает (`Ids`), совпасть с id пользователя они не могут. */
     const val SYSTEM_PREFIX: String = "dppass:"
 
+    /**
+     * Прямой выход, через который исходящий `proxy` открывает соединение с
+     * сервером, когда ClientHello разбивается на части (D-68,
+     * `streamSettings.sockopt.dialerProxy`).
+     */
+    const val TAG_SPLIT: String = "${SYSTEM_PREFIX}split"
+
     /** Тег встроенного DNS-клиента по умолчанию (без него Xray берёт случайный, и конфигурация не повторялась бы). */
     const val TAG_DNS_DEFAULT: String = "${SYSTEM_PREFIX}dns"
 

@@ -137,6 +137,7 @@ class CorpusTest {
      * `rejected` — хотя бы один профиль отвергнут, коды — в находках компиляции.
      * `geodata` — оглавление набора в корпусе: коды и атрибуты сверяются с ним,
      * как на устройстве (D-27); без него — не сверяются, как на хосте.
+     * `split_client_hello` — компиляция с разбиением ClientHello (D-68).
      */
     private fun checkXray(where: String, ir: ConfigIr, expect: JsonObject) {
         val geodata = str(expect, "geodata")?.let { rel ->
@@ -144,7 +145,8 @@ class CorpusTest {
             GeodataCodes.Installed(manifest.valueOrNull() ?: fail("Xray, $where: оглавление $rel не разобрано: ${manifest.diagnostics.map { it.render() }}"))
         } ?: GeodataCodes.Unchecked
         val compiler = XrayCompiler(geodata = geodata)
-        val results = ir.profiles.map { it.id.value to compiler.compile(ir, CompilePlan(it.id, withTun = true)) }
+        val split = (expect["split_client_hello"] as? JsonBool)?.value == true
+        val results = ir.profiles.map { it.id.value to compiler.compile(ir, CompilePlan(it.id, withTun = true, splitClientHello = split)) }
         val diagnostics = results.flatMap { it.second.diagnostics }
         val got = allCodes(diagnostics)
         val compiled = results.all { it.second.isSuccess }

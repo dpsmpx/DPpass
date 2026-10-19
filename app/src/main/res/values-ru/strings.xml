@@ -163,6 +163,8 @@
     <string name="settings_auto_switch">Автопереключение сервера</string>
     <string name="settings_auto_switch_note">Если выбранный сервер перестал отвечать, DPpass сам перейдёт на другой и сообщит. Выключено — спросит в уведомлении.</string>
     <string name="settings_check_on_change">Проверять сеть при её смене</string>
+    <string name="settings_split_hello">Разбивать начало соединения</string>
+    <string name="settings_split_hello_note">Начало защищённого соединения с сервером (TLS ClientHello) уходит мелкими частями. Может помочь против фильтров, которые ищут там имя сайта; помогает не везде и добавляет десятки миллисекунд к подключению. Только серверы с TLS или REALITY поверх TCP; действует сразу.</string>
     <string name="settings_notifications">Уведомления</string>
     <string name="settings_notifications_note">Состояние туннеля и скорость в шторке</string>
     <string name="settings_share_note">Другие устройства по Wi-Fi, USB или Bluetooth — через туннель</string>

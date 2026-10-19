@@ -78,8 +78,12 @@ class ConnectionOrchestrator(
 ) {
     private val context = NetworkContext.of(assessment)
 
-    /** [share] — раздача туннеля другим устройствам (D-51): входы ядра на адресах раздачи. */
-    suspend fun connect(ir: ConfigIr, plan: ConnectionPlan, tun: TunInput?, share: ShareSpec? = null): ConnectionReport {
+    /**
+     * [share] — раздача туннеля другим устройствам (D-51): входы ядра на
+     * адресах раздачи. [splitClientHello] — разбивать ClientHello к серверу
+     * (D-68), выбор пользователя.
+     */
+    suspend fun connect(ir: ConfigIr, plan: ConnectionPlan, tun: TunInput?, share: ShareSpec? = null, splitClientHello: Boolean = false): ConnectionReport {
         if (plan.attempts.isEmpty()) {
             val d = Diagnostic.error(plan.verdict ?: DiagCode.NO_VIABLE_CANDIDATE, plan.verdictMessage ?: "нет кандидатов")
             log.diagnostic(d)
@@ -93,7 +97,7 @@ class ConnectionOrchestrator(
             val p = attempt.profile
             log.info("attempt", "profile" to Safe(p.id.value), "class" to p.transportClass, "reasons" to Safe(attempt.reasons.joinToString("; ")))
             val startedAt = clock.nowMillis()
-            val t = tryOne(ir, p, tun, offered)
+            val t = tryOne(ir, p, tun, offered, splitClientHello)
             // Раздачу отверг запуск, а не сервер: следующие попытки — без неё (D-51).
             t.shareRefused?.let {
                 log.diagnostic(it)
@@ -144,8 +148,8 @@ class ConnectionOrchestrator(
         data class Fail(val reason: Diagnostic, override val shareRefused: Diagnostic? = null) : Try
     }
 
-    private suspend fun tryOne(ir: ConfigIr, p: ServerProfile, tun: TunInput?, share: ShareSpec?): Try {
-        val compiled = when (val c = compiler.compile(ir, CompilePlan(p.id, tun != null, share))) {
+    private suspend fun tryOne(ir: ConfigIr, p: ServerProfile, tun: TunInput?, share: ShareSpec?, split: Boolean): Try {
+        val compiled = when (val c = compiler.compile(ir, CompilePlan(p.id, tun != null, share, split))) {
             is Outcome.Failure -> return Try.Fail(c.errors.first())
             is Outcome.Success -> c.value
         }
@@ -159,7 +163,7 @@ class ConnectionOrchestrator(
                 if (share == null || reason.code != DiagCode.BACKEND_START_FAILED) return Try.Fail(reason)
                 val refused = Diagnostic.warning(DiagCode.BACKEND_START_FAILED, "раздача не поднялась: ядро с её входами не запустилось — туннель без раздачи")
                     .withCause(reason)
-                return when (val t = tryOne(ir, p, tun, null)) {
+                return when (val t = tryOne(ir, p, tun, null, split)) {
                     is Try.Ok -> t.copy(shareRefused = refused)
                     is Try.Fail -> t.copy(shareRefused = refused)
                 }

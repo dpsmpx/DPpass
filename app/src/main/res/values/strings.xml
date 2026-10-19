@@ -164,6 +164,8 @@
     <string name="settings_auto_switch">Auto-switch server</string>
     <string name="settings_auto_switch_note">If the chosen server stops responding, DPpass switches to another one and tells you. Off — it asks in a notification.</string>
     <string name="settings_check_on_change">Check the network when it changes</string>
+    <string name="settings_split_hello">Split the connection start</string>
+    <string name="settings_split_hello_note">Sends the start of the secure connection to the server (TLS ClientHello) in small pieces. May help against filters that look for the site name there; not everywhere, and it adds tens of milliseconds to connecting. Only servers with TLS or REALITY over TCP; applies right away.</string>
     <string name="settings_notifications">Notifications</string>
     <string name="settings_notifications_note">Tunnel state and speed in the shade</string>
     <string name="settings_share_note">Other devices over Wi-Fi, USB or Bluetooth, through the tunnel</string>
