@@ -258,10 +258,17 @@ object CandidatePlanner {
             val reasons = mutableListOf<String>()
             if (pick.id == preferred) reasons += "выбран пользователем"
             if (pick.id == lastKnownGood) reasons += "последний удачный кандидат"
-            when (health.of(pick.id).state) {
+            val h = health.of(pick.id)
+            when (h.state) {
                 HealthState.HEALTHY -> reasons += "был здоров"
                 HealthState.UNKNOWN -> reasons += "ещё не проверялся"
-                HealthState.FAILED -> reasons += "отказывал раньше, пауза истекла"
+                // На паузе в плане только выбор пользователя: пауза ему не мешает, но
+                // и «истекла» о ней не сказать (журнал 19.10.2026: «истекла» через 22 с).
+                HealthState.FAILED -> reasons += if (h.backoffUntilMillis > nowMillis) {
+                    "отказывал недавно: пауза ещё ${(h.backoffUntilMillis - nowMillis + 999) / 1000} с, но выбран пользователем"
+                } else {
+                    "отказывал раньше, пауза истекла"
+                }
             }
             if (classPenalty(pick) > 0) reasons += "TCP-поток ниже: в этой сети режутся TLS или крупные передачи"
             if (pick !== head) reasons += "другой класс транспорта, чем у предыдущей попытки"

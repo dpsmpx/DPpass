@@ -267,6 +267,9 @@ class CandidatePlannerTest {
         )
         assertEquals(ProfileId("ss2022"), chosen.attempts.first().profile.id)
         assertTrue("выбран пользователем" in chosen.attempts.first().reasons)
+        // Пауза не истекла — так и сказано, а не «пауза истекла» (журнал 19.10.2026).
+        assertTrue("отказывал недавно: пауза ещё 30 с, но выбран пользователем" in chosen.attempts.first().reasons, chosen.attempts.first().reasons.toString())
+        assertTrue(chosen.attempts.first().reasons.none { "истекла" in it })
         // Остальные — запасные по D-15: последний удачный среди них, соседние попытки — разных классов.
         val lkg = chosen.attempts.drop(1).single { it.profile.id == ProfileId("reality-1") }
         assertTrue("последний удачный кандидат" in lkg.reasons)
