@@ -53,6 +53,42 @@ class RedactorTest {
         assertFalse("cdn.example.net" in out)
     }
 
+    // Журнал устройства 19 октября 2026: в скопированный журнал ушло имя сервера
+    // из ошибки Go — в ссылке хост был скрыт, а в тексте после неё нет.
+    @Test
+    fun strictLevelHidesHostnamesInEngineErrors() {
+        val strict = Redactor(Redactor.Level.STRICT)
+        val error = "failed to dial to (wss://cdn.example.net/ws) > tls: failed to verify certificate: " +
+            "x509: certificate is not valid for any names, but wanted to match cdn.example.net"
+        val out = strict.redact(error)
+        assertFalse("cdn.example.net" in out, out)
+        assertTrue(out.endsWith("wanted to match <host>"), out)
+        for (text in listOf(
+            "lookup srv.example.org: no such host",
+            "lookup srv.example.org on <ip>:53: no such host",
+            "x509: certificate is valid for a.example.com, b.example.com, not srv.example.org",
+            "dialing TCP to tcp:srv.example.org:443",
+            "failed to open connection to udp:srv.example.org:8443",
+            "host xn--80ak6aa92e.xn--p1ai: refused",
+        )) {
+            val redacted = strict.redact(text)
+            assertFalse("example" in redacted || "xn--80ak6aa92e" in redacted, redacted)
+            assertTrue("<host>" in redacted, redacted)
+        }
+        // Не имя хоста: тип исключения, класс, версия, профиль, путь пакета Xray.
+        for (text in listOf(
+            "java.lang.IllegalStateException: boom",
+            "at com.dpsmpx.dppass.app.MainActivity.onCreate(MainActivity.kt:42)",
+            "DPpass 0.7.25-dev",
+            "profile=s1.7ed027eec175",
+            "proxy/vless/outbound: failed to find an available destination",
+            "geodata_ready set=dlc 63777333b7dd",
+        )) {
+            assertEquals(text, strict.redact(text))
+        }
+        assertEquals("lookup srv.example.org: no such host", Redactor().redact("lookup srv.example.org: no such host"), "STANDARD имена оставляет")
+    }
+
     // Журнал устройства 17 октября 2026: в ошибке ядра «dial tcp <ip><ip> connect» —
     // порт с двоеточиями по краям принят за IPv6. Адрес скрыт, порт — нет.
     @Test

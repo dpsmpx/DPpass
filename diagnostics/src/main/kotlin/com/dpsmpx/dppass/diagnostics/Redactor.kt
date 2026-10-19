@@ -10,8 +10,8 @@ package com.dpsmpx.dppass.diagnostics
  *
  * - [Level.STANDARD] — UUID, ссылки (остаются схема, хост и порт),
  *   пары `ключ=значение` с секретными именами, длинные токены;
- * - [Level.STRICT] — ещё и IP-адреса и имена хостов в ссылках: для
- *   отчёта, который пользователь отправляет кому-то.
+ * - [Level.STRICT] — ещё и IP-адреса и имена хостов, в ссылках и в
+ *   тексте: для отчёта, который пользователь отправляет кому-то.
  */
 class Redactor(private val level: Level = Level.STANDARD) {
     enum class Level { STANDARD, STRICT }
@@ -29,6 +29,7 @@ class Redactor(private val level: Level = Level.STANDARD) {
         if (level == Level.STRICT) {
             out = IPV4.replace(out, IP_MARK)
             out = IPV6.replace(out) { m -> redactIpv6(m.value) }
+            out = HOSTNAME.replace(out, HOST_MARK)
         }
         return out
     }
@@ -79,5 +80,17 @@ class Redactor(private val level: Level = Level.STANDARD) {
 
         private val IPV4 = Regex("""\b(?:\d{1,3}\.){3}\d{1,3}\b""")
         private val IPV6 = Regex("""(?<![0-9a-fA-F:])(?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}(?![0-9a-fA-F:])""")
+
+        // Имя хоста вне ссылки — в ошибках Go и Xray: «lookup <имя>: no such
+        // host», «x509: … wanted to match <имя>», «not <имя>», «tcp:<имя>:443».
+        // Журнал 19 октября 2026: так имя сервера ушло в скопированный журнал.
+        // Только строчные: имена типов (`java.lang.IllegalStateException`) и
+        // кадры стека остаются. Сразу после точки, «/» или «-» имя не
+        // начинается: это середина пути или имени файла.
+        // Последняя метка — буквы или IDN (`xn--p1ai`), иначе это версия
+        // (`0.7.25-dev`) или идентификатор профиля (`s1.7ed027eec175`).
+        private val HOSTNAME = Regex(
+            """(?<![\w./-])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})(?![\w-]|\.\w)""",
+        )
     }
 }
