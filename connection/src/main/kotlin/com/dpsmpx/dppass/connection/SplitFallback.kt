@@ -1,6 +1,7 @@
 package com.dpsmpx.dppass.connection
 
 import com.dpsmpx.dppass.core.ProfileId
+import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 
 /**
@@ -15,8 +16,19 @@ import com.dpsmpx.dppass.diagnostics.Diagnostic
  * лишь удвоил бы ожидание.
  */
 object SplitFallback {
-    /** Отказ похож на неразобранный ClientHello: ошибка TLS, сертификата или REALITY где-то в цепочке причин. */
-    fun rejectedBy(reason: Diagnostic): Boolean = chain(reason).any { MARKER.containsMatchIn(it.message) }
+    /**
+     * Отказ похож на неразобранный ClientHello: через сервер не прошло ни
+     * байта, и где-то в цепочке причин — ошибка TLS, сертификата или REALITY.
+     * Текст ядра лежит в сводке ошибки причины (`ErrorSummary`, так пишет
+     * проба здоровья `XrayHealth`), а не в сообщении: 19 октября 2026 на
+     * телефоне повтор из-за этого не сработал.
+     *
+     * `TLS_HANDSHAKE_FAILED` пробы — TLS с DNS-сервером уже через сервер
+     * профиля: соединение с сервером было, разбиение ни при чём.
+     */
+    fun rejectedBy(reason: Diagnostic): Boolean =
+        reason.code == DiagCode.ENDPOINT_UNREACHABLE &&
+            chain(reason).any { d -> MARKER.containsMatchIn(d.message) || d.error?.message?.let(MARKER::containsMatchIn) == true }
 
     private fun chain(d: Diagnostic): Sequence<Diagnostic> = sequenceOf(d) + d.causes.asSequence().flatMap { chain(it) }
 

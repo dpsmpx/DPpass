@@ -9,6 +9,12 @@ import com.dpsmpx.dppass.diagnostics.MemoryLogSink
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.engine.mock.MockBackendCompiler
 import com.dpsmpx.dppass.engine.mock.MockProxyEngine
+import com.dpsmpx.dppass.engine.xray.DnsProbeOutcome
+import com.dpsmpx.dppass.engine.xray.DnsProbeResult
+import com.dpsmpx.dppass.engine.xray.XrayHealth
+import com.dpsmpx.dppass.routing.DnsRoute
+import com.dpsmpx.dppass.routing.DnsServer
+import com.dpsmpx.dppass.routing.DnsTransport
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -23,23 +29,29 @@ import kotlin.test.assertTrue
 class SplitFallbackTest {
     private val multi = ir("valid-multi.json")
 
-    /** Как в журнале 19 октября 2026: CDN без SNI в первой записи отдал сертификат «ни для какого имени». */
-    private val certMismatch = Diagnostic.error(DiagCode.ENDPOINT_UNREACHABLE, "через сервер профиля за 3186 мс не пришло ни байта")
-        .withCause(
-            Diagnostic.error(
-                DiagCode.ENDPOINT_UNREACHABLE,
-                "проба DNS error_type=xray error=transport/internet/websocket: failed to dial WebSocket > " +
-                    "tls: failed to verify certificate: x509: certificate is not valid for any names, but wanted to match cdn.example.net",
-            ),
-        )
+    private val dns = DnsServer("remote", DnsTransport.Https("https://dns.example.net/dns-query"), DnsRoute.TUNNEL)
 
-    private val refused = Diagnostic.error(DiagCode.ENDPOINT_UNREACHABLE, "сервер недоступен")
-        .withCause(
-            Diagnostic.error(
-                DiagCode.ENDPOINT_UNREACHABLE,
-                "transport/internet/tcp: failed to dial to dest > dial tcp 192.0.2.10:443: connect: connection refused",
-            ),
-        )
+    /**
+     * Отказ — как его собирает настоящая проба здоровья ([XrayHealth.outcome]):
+     * текст ядра — в сводке ошибки причины, а не в сообщении. Тест на
+     * сообщении 19.10.2026 проходил, а на телефоне повтор не срабатывал.
+     */
+    private fun probe(outcome: DnsProbeOutcome, text: String): Diagnostic =
+        (XrayHealth.outcome(dns, DnsProbeResult(outcome, 3063, 0, text)) as Outcome.Failure).errors.first()
+
+    /** Журнал 19 октября 2026: CDN без SNI в первой записи отдал сертификат «ни для какого имени». */
+    private val certMismatch = probe(
+        DnsProbeOutcome.UNREACHABLE,
+        "исходящий proxy: proxy/vless/outbound: failed to find an available destination > common/retry: " +
+            "[transport/internet/websocket: failed to dial WebSocket > transport/internet/websocket: failed to dial to " +
+            "(wss://cdn.example.net/ws) > tls: failed to verify certificate: x509: certificate is not valid for any names, " +
+            "but wanted to match cdn.example.net] > common/retry: all retry attempts failed; проба: io: read/write on closed pipe",
+    )
+
+    private val refused = probe(
+        DnsProbeOutcome.UNREACHABLE,
+        "transport/internet/tcp: failed to dial to dest > dial tcp 192.0.2.10:443: connect: connection refused",
+    )
 
     private class Run(val report: ConnectionReport, val checks: List<Boolean>, val log: MemoryLogSink, val book: HealthBook)
 
@@ -122,11 +134,16 @@ class SplitFallbackTest {
     fun rejectionIsATlsOrRealityHandshakeErrorAnywhereInTheCauses() {
         fun d(m: String) = Diagnostic.error(DiagCode.ENDPOINT_UNREACHABLE, m)
         assertTrue(SplitFallback.rejectedBy(certMismatch))
+        assertTrue(certMismatch.causes.single().message == "проба DNS", "текст ядра — не в сообщении причины")
+        assertTrue(SplitFallback.rejectedBy(probe(DnsProbeOutcome.UNREACHABLE, "transport/internet/reality: REALITY: processed invalid connection")))
         assertTrue(SplitFallback.rejectedBy(d("dial: remote error: tls: handshake failure")))
         assertTrue(SplitFallback.rejectedBy(d("transport/internet/reality: REALITY: processed invalid connection")))
         assertTrue(SplitFallback.rejectedBy(d("сервер недоступен").withCause(d("x509: certificate signed by unknown authority"))))
 
         assertFalse(SplitFallback.rejectedBy(refused))
+        assertFalse(SplitFallback.rejectedBy(probe(DnsProbeOutcome.UNREACHABLE, "context deadline exceeded")))
+        // TLS с DNS-сервером уже через сервер профиля: соединение с сервером было.
+        assertFalse(SplitFallback.rejectedBy(probe(DnsProbeOutcome.TLS, "tls: failed to verify certificate: x509: certificate has expired")))
         assertFalse(SplitFallback.rejectedBy(d("dial tcp 192.0.2.10:443: i/o timeout")))
         assertFalse(SplitFallback.rejectedBy(d("read tcp 10.0.0.2:40000->192.0.2.10:443: read: connection reset by peer")))
         // Путь пакета Xray — не ошибка рукопожатия.
