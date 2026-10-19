@@ -110,7 +110,13 @@ androidComponents {
             description = "libdppassxray.so для ${variant.name}: tools/xray/native.py android"
             val xray = rootProject.layout.projectDirectory.dir("tools/xray")
             sources.from(
-                xray.asFileTree.matching { include("**/*.go", "go.mod", "go.sum", "*.py") },
+                // Только то, из чего собирается библиотека: пакеты jni и bridge
+                // (другие локальные native.py не пускает), модули и сборщик. Тесты
+                // Go в неё не входят — их правка не пересобирает ядро трёх ABI.
+                xray.asFileTree.matching {
+                    include("jni/**/*.go", "bridge/**/*.go", "go.mod", "go.sum", "native.py", "goenv.py")
+                    exclude("**/*_test.go")
+                },
                 rootProject.layout.projectDirectory.file("gradle/libs.versions.toml"),
                 // Экспорт JNI сверяется с external fun объекта XrayJni.
                 rootProject.layout.projectDirectory.file("engine/src/main/kotlin/com/dpsmpx/dppass/engine/xray/XrayRuntime.kt"),
@@ -127,7 +133,11 @@ androidComponents {
             description = "набор геоданных для ${variant.name}: tools/xray/geodata.py"
             val xray = rootProject.layout.projectDirectory.dir("tools/xray")
             sources.from(
-                xray.asFileTree.matching { include("geodata/**", "go.mod", "go.sum", "*.py") },
+                // Сборщик набора и его источники; тесты Go набор не меняют.
+                xray.asFileTree.matching {
+                    include("geodata/**", "go.mod", "go.sum", "geodata.py", "goenv.py")
+                    exclude("**/*_test.go")
+                },
                 rootProject.layout.projectDirectory.file("gradle/libs.versions.toml"),
                 rootProject.layout.projectDirectory.file("docs/PROVENANCE.md"),
             )

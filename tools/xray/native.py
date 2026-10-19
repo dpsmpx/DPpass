@@ -86,9 +86,33 @@ def catalog_versions():
 def run(cmd, env, what):
     r = subprocess.run(cmd, cwd=TOOL, env=env, capture_output=True, text=True)
     if r.returncode != 0:
-        tail = "\n".join((r.stdout + r.stderr).strip().splitlines()[-40:])
-        raise RuntimeError(f"{what}: код {r.returncode}\n{tail}")
+        out = r.stdout + r.stderr
+        tail = "\n".join(out.strip().splitlines()[-40:])
+        hint = ""
+        if "failed due to signal" in out or "unable to execute command" in out:
+            # clang или lld из NDK упал сам (сигнал, например abort после «Pointer tag … was
+            # truncated» на Android): сбой инструмента на этой машине, а не ошибка кода.
+            hint = ("\n→ компоновщик NDK завершился по сигналу — сбой инструмента сборки на этой машине, "
+                    "а не кода DPpass; повторить сборку")
+        raise RuntimeError(f"{what}: код {r.returncode}\n{tail}{hint}")
     return r.stdout
+
+
+# Локальные пакеты, из которых собирается библиотека: их и только их видит
+# задача Gradle xrayNative<Вариант> (app/build.gradle.kts, входы).
+LIBRARY_PACKAGES = {"jni", "bridge"}
+
+
+def check_library_packages(env):
+    """Библиотека — только из пакетов LIBRARY_PACKAGES: иначе задача Gradle не увидит правку
+    нового пакета и оставит в APK старое ядро."""
+    module = run(["go", "list", "-m"], env, "go list -m").strip()
+    deps = run(["go", "list", "-deps", "-f", "{{if not .Standard}}{{.ImportPath}}{{end}}", "./jni"], env, "go list ./jni").split()
+    local = {d[len(module) + 1:] for d in deps if d.startswith(module + "/")}
+    extra = sorted(local - LIBRARY_PACKAGES)
+    if extra:
+        raise RuntimeError(f"библиотека зависит от локальных пакетов {', '.join(extra)}: добавить их во входы "
+                           f"xrayNative (app/build.gradle.kts) и в LIBRARY_PACKAGES")
 
 
 def base_env():
@@ -246,6 +270,7 @@ def android(out_dir, abis):
     ndk, ndk_version = ndk_dir(versions)
     api = versions.get("android-minSdk")
     env0 = base_env()
+    check_library_packages(env0)
     bin_dir = os.path.join(ndk, "toolchains", "llvm", "prebuilt", "linux-x86_64", "bin")
     built = []
     for abi in abis:
