@@ -482,6 +482,13 @@
     <string name="subs_skipped_entry">Entry %1$d</string>
     <!-- QR с картинки (D-65) -->
     <string name="import_qr">QR code from image</string>
+    <string name="import_qr_camera">QR code with camera</string>
+    <string name="add_qr_camera_note">Point the camera at the code. DPpass asks for camera access the first time.</string>
+    <string name="qr_camera_title">QR code with camera</string>
+    <string name="qr_camera_hint">Point the camera at the subscription or server QR code. Nothing is applied until you confirm.</string>
+    <string name="qr_camera_failed">The camera did not open: another app may be using it, or it is turned off. Go back and try again.</string>
+    <string name="qr_camera_denied">Without camera access, read the QR code from a picture: Add → QR code from picture. Camera access can be allowed in the app settings.</string>
+    <string name="qr_camera_none">This phone has no camera DPpass can use</string>
     <string name="add_qr_note">A screenshot or photo with a QR code — no camera access</string>
     <string name="import_qr_failed">QR code not read</string>
     <!-- IPv6 через сервер (D-66) -->

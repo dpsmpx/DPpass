@@ -56,6 +56,9 @@ interface Host {
     /** Выбрать картинку с QR-кодом для импорта (D-65): без разрешения камеры. */
     fun pickQrImage()
 
+    /** QR-код камерой (D-71): разрешение «Камера» — при первом нажатии. */
+    fun scanQr()
+
     /** Сохранить [text] в файл, который пользователь выберет системным диалогом (экспорт, D-11). */
     fun saveDocument(name: String, text: String)
 
@@ -126,6 +129,9 @@ abstract class Screen(protected val host: Host) {
 abstract class SubScreen(host: Host, private val title: Int) : Screen(host) {
     protected abstract fun content(): View
 
+    /** Содержимое — в прокрутке; false — во всю высоту под панелью (превью камеры, D-71). */
+    protected open val scrolls: Boolean = true
+
     override val view: View by lazy {
         Ui.column(context).apply {
             setBackgroundColor(context.getColor(R.color.bg))
@@ -144,7 +150,7 @@ abstract class SubScreen(host: Host, private val title: Int) : Screen(host) {
                 },
                 Ui.matchWidth(),
             )
-            addView(scroll(content(), topDp = 8), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(if (scrolls) scroll(content(), topDp = 8) else content(), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         }
     }
 }

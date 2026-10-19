@@ -6,6 +6,8 @@
 
   * разрешения — ровно утверждённый набор (новое разрешение — правка
     этого списка с причиной, а не случайность из зависимости);
+  * оборудование (`uses-feature`) — только утверждённое и необязательное
+    (`required="false"`): без камеры приложение ставится и работает (D-71);
   * резервные копии выключены: `allowBackup=false`,
     `fullBackupContent=false`, правила извлечения исключают все домены
     и для облака, и для переноса на другое устройство;
@@ -41,6 +43,12 @@ PERMISSIONS = {
     "android.permission.FOREGROUND_SERVICE_SPECIAL_USE": "тип foreground-сервиса specialUse (Android 14+)",
     "android.permission.POST_NOTIFICATIONS": "постоянное уведомление, пока туннель поднят (Android 13+)",
     "android.permission.ACCESS_NETWORK_STATE": "сеть под туннелем — setUnderlyingNetworks по сети по умолчанию (D-40)",
+    "android.permission.CAMERA": "QR камерой (D-71): запрос при первом нажатии, камера — только пока открыт экран сканирования",
+}
+# Утверждённое оборудование — всё необязательное (required="false"), с причиной.
+FEATURES = {
+    "android.hardware.camera.any": "QR камерой (D-71): любая камера, не только задняя",
+    "android.hardware.camera": "разрешение CAMERA иначе требовало бы заднюю камеру",
 }
 BACKUP_DOMAINS = {"root", "file", "database", "sharedpref", "external"}
 # Экспортированный компонент → разрешение, которое обязан требовать (None — Activity без разрешения).
@@ -80,6 +88,15 @@ def main():
         problems.append(f"разрешение {p} не утверждено (список и причины — tools/hostcheck/check_manifest.py)")
     for p in sorted(set(PERMISSIONS) - declared):
         problems.append(f"нет разрешения {p}: {PERMISSIONS[p]}")
+
+    for f in root.findall("uses-feature"):
+        name = f.get(A + "name")
+        if name not in FEATURES:
+            problems.append(f"оборудование {name} не утверждено (список и причины — tools/hostcheck/check_manifest.py)")
+        elif f.get(A + "required") != "false":
+            problems.append(f"оборудование {name} должно быть необязательным (required=\"false\"): {FEATURES[name]}")
+    for name in sorted(set(FEATURES) - {f.get(A + "name") for f in root.findall("uses-feature")}):
+        problems.append(f"нет <uses-feature {name} required=\"false\">: {FEATURES[name]}")
 
     def attr(name):
         return app.get(A + name) if app is not None else None
@@ -175,7 +192,7 @@ def main():
         for p in problems:
             print("    " + p)
         return 1
-    print(f"✓ Манифест: {len(PERMISSIONS)} утверждённых разрешений, без резервных копий и открытого HTTP, один процесс, экспорт — только {', '.join(EXPORTED_OK)} (сервисы — под системными разрешениями), видимость пакетов — только ярлыки запуска")
+    print(f"✓ Манифест: {len(PERMISSIONS)} утверждённых разрешений, оборудование — только необязательное ({len(FEATURES)}), без резервных копий и открытого HTTP, один процесс, экспорт — только {', '.join(EXPORTED_OK)} (сервисы — под системными разрешениями), видимость пакетов — только ярлыки запуска")
     return 0
 
 

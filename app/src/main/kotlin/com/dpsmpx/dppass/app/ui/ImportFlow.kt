@@ -3,6 +3,7 @@ package com.dpsmpx.dppass.app.ui
 import android.app.AlertDialog
 import android.app.Dialog
 import android.content.ClipboardManager
+import android.content.pm.PackageManager
 import android.text.InputType
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.TunnelState
@@ -41,6 +42,10 @@ internal object ImportFlow {
         item(R.drawable.ic_link, R.string.subs_add, R.string.add_subscription_note) { addSubscription(host) }
         item(R.drawable.ic_paste, R.string.import_clipboard, R.string.add_clipboard_note) { fromClipboard(host) }
         item(R.drawable.ic_file, R.string.import_file, R.string.add_file_note) { host.pickFile() }
+        // Без камеры пункта нет (D-71): «QR-код с картинки» работает и так.
+        if (c.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
+            item(R.drawable.ic_qr, R.string.import_qr_camera, R.string.add_qr_camera_note) { host.scanQr() }
+        }
         item(R.drawable.ic_qr, R.string.import_qr, R.string.add_qr_note) { host.pickQrImage() }
         item(R.drawable.ic_lan, R.string.relays_entry, R.string.relays_entry_note) { host.push(RelaysScreen(host)) }
         sheet = Ui.sheet(c, c.getString(R.string.add_title), items)

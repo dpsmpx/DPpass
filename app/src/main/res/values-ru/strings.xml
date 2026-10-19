@@ -503,6 +503,13 @@
     <string name="subs_skipped_entry">Запись %1$d</string>
     <!-- QR с картинки (D-65) -->
     <string name="import_qr">QR-код с картинки</string>
+    <string name="import_qr_camera">QR-код камерой</string>
+    <string name="add_qr_camera_note">Навести камеру на код. Доступ к камере DPpass спросит при первом нажатии.</string>
+    <string name="qr_camera_title">QR-код камерой</string>
+    <string name="qr_camera_hint">Наведите камеру на QR-код подписки или сервера. Ничего не применится без вашего подтверждения.</string>
+    <string name="qr_camera_failed">Камера не открылась: её занимает другое приложение или она выключена. Вернитесь и попробуйте ещё раз.</string>
+    <string name="qr_camera_denied">Без доступа к камере QR можно прочитать с картинки: «Добавить» → «QR-код с картинки». Доступ к камере можно разрешить в настройках приложения.</string>
+    <string name="qr_camera_none">У телефона нет камеры, которую DPpass может открыть</string>
     <string name="add_qr_note">Снимок экрана или фото с QR-кодом — без доступа к камере</string>
     <string name="import_qr_failed">QR-код не прочитан</string>
     <!-- IPv6 через сервер (D-66) -->

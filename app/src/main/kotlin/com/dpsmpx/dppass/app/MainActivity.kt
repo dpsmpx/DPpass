@@ -27,6 +27,8 @@ import com.dpsmpx.dppass.app.ui.ConnectScreen
 import com.dpsmpx.dppass.app.ui.Host
 import com.dpsmpx.dppass.app.ui.ImportFlow
 import com.dpsmpx.dppass.app.ui.MainThread
+import com.dpsmpx.dppass.app.ui.QrCamera
+import com.dpsmpx.dppass.app.ui.QrCameraScreen
 import com.dpsmpx.dppass.app.ui.Screen
 import com.dpsmpx.dppass.app.ui.ServersScreen
 import com.dpsmpx.dppass.app.ui.SettingsScreen
@@ -405,6 +407,16 @@ class MainActivity : Activity(), Host {
         }
     }
 
+    /** QR камерой (D-71): камеры нет — сказать; разрешения нет — спросить, ответ — в [onRequestPermissionsResult]. */
+    override fun scanQr() {
+        val choice = QrCamera.choose(this) ?: return toast(getString(R.string.qr_camera_none))
+        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            push(QrCameraScreen(this, choice))
+        } else {
+            requestPermissions(arrayOf(Manifest.permission.CAMERA), REQUEST_CAMERA)
+        }
+    }
+
     override fun saveDocument(name: String, text: String) {
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
             .addCategory(Intent.CATEGORY_OPENABLE)
@@ -491,6 +503,10 @@ class MainActivity : Activity(), Host {
         if (requestCode == REQUEST_NOTIFICATIONS && grantResults.firstOrNull() == PackageManager.PERMISSION_DENIED) {
             toast(getString(R.string.notification_permission_note))
         }
+        if (requestCode == REQUEST_CAMERA) {
+            // Отказ — подсказка: QR с картинки работает без разрешений (D-65, D-71).
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) scanQr() else toast(getString(R.string.qr_camera_denied))
+        }
     }
 
     @Deprecated("Activity Result API есть только в AndroidX, а его нет (D-34)")
@@ -552,6 +568,7 @@ class MainActivity : Activity(), Host {
         const val REQUEST_FILE = 3
         const val REQUEST_QR = 4
         const val REQUEST_EXPORT = 5
+        const val REQUEST_CAMERA = 6
         const val TRANSITION_MILLIS = 180L
     }
 }
