@@ -165,6 +165,10 @@
     <string name="settings_auto_switch_note">If the chosen server stops responding, DPpass switches to another one and tells you. Off — it asks in a notification.</string>
     <string name="settings_check_on_change">Check the network when it changes</string>
     <string name="settings_split_hello">Split the connection start</string>
+    <string name="settings_split_sites">Sites directly with splitting</string>
+    <string name="settings_split_sites_empty">Empty — add sites that should go directly, past the server, with the connection start split</string>
+    <string name="split_sites_hint">example.com or geosite:name</string>
+    <string name="split_sites_note">One entry per line: a domain with its subdomains (example.com) or a list from the geodata set (geosite:youtube). TCP to these sites goes directly, past the server, and the start of TLS goes in small pieces; QUIC (UDP 443) to them is closed, so apps switch to TCP. May help against filters that look for the site name; does not help if the address itself is blocked. Works while connected to a server; applies right away.</string>
     <string name="settings_split_hello_note">Sends the start of the secure connection to the server (TLS ClientHello) in small pieces. May help against filters that look for the site name there; not everywhere, and it adds tens of milliseconds to connecting. Only servers with TLS or REALITY over TCP; applies right away.</string>
     <string name="settings_notifications">Notifications</string>
     <string name="settings_notifications_note">Tunnel state and speed in the shade</string>
@@ -309,6 +313,10 @@
     <string name="speed_stalled">Data stopped %1$s s into the download (%2$s Mbit/s until then) and nothing came after: this looks like the connection being frozen, not a slow link.</string>
     <string name="speed_failed">Speed not measured</string>
 
+    <plurals name="settings_split_sites_count">
+        <item quantity="one">%d site or list</item>
+        <item quantity="other">%d sites and lists</item>
+    </plurals>
     <plurals name="servers_count">
         <item quantity="one">%d server</item>
         <item quantity="other">%d servers</item>
@@ -459,6 +467,7 @@
     <string name="route_why_auto">Automatic split route: domestic destinations go directly after all rules (geosite/geoip:ru).</string>
     <string name="route_why_app">The app is outside the tunnel by your app selection.</string>
     <string name="route_why_lan">Local network: with “Local networks past VPN” such addresses don’t enter the tunnel.</string>
+    <string name="route_why_split_sites">Your list “Sites directly with splitting”: directly, past the server, with the connection start split.</string>
     <string name="route_why_default">No rule matched — the default action.</string>
     <string name="route_why_rule">Rule “%1$s” of your configuration.</string>
     <string name="route_note">The check is by name: rules by address (geoip) apply after the name is resolved and may answer differently. The answer is for the active configuration; a changed one applies on reconnect.</string>

@@ -345,13 +345,18 @@ Xray так, чтобы смысл IR сохранился, а где Xray по�
   ни одно правило не сработало; с разбиением ClientHello (D-68,
   `CompilePlan.splitClientHello`) у TCP с TLS или REALITY — ещё
   `dppass:split` (`freedom` с `fragment`), через него `proxy` открывает
-  соединение с сервером (`sockopt.dialerProxy`);
+  соединение с сервером (`sockopt.dialerProxy`); со списком «Напрямую с
+  разбиением» (D-72, `CompilePlan.splitSites`) — `dppass:direct-split`
+  (`freedom` с тем же `fragment` и той же `domainStrategy`, что у
+  `direct`);
 - правила: с раздачей (D-51) первым — `dppass:share-guard` (на входы
   раздачи только из подсетей раздачи и не с адресов телефона, остальное
   — `block`); перехват DNS из TUN (адрес `172.19.0.2:53` → `dns-out`),
   затем маршрут запросов каждого DNS-сервера, идущего через диспетчер
   ядра (по тегу сервера: через туннель или напрямую — до правил
-  пользователя, T4), затем правила пользователя по порядку с
+  пользователя, T4), затем со списком D-72 — `dppass:split-quic` (UDP 443
+  к сайтам списка → `block`) и `dppass:split-sites` (TCP →
+  `dppass:direct-split`), только для входа TUN, затем правила пользователя по порядку с
   `ruleTag` = id; правила, перенесённые `AppLowering` на уровень
   VpnService, в ядро не попадают;
 - DNS: по записи сервера на правило DNS в порядке правил

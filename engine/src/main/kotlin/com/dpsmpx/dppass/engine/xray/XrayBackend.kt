@@ -74,6 +74,17 @@ object XrayBackend {
      */
     const val TAG_SPLIT: String = "${SYSTEM_PREFIX}split"
 
+    /**
+     * Прямой выход к сайтам списка «Напрямую с разбиением» (D-72): `freedom`
+     * с той же разбивкой начала TLS, что [TAG_SPLIT], и с резолвом имени, как
+     * у [TAG_DIRECT].
+     */
+    const val TAG_DIRECT_SPLIT: String = "${SYSTEM_PREFIX}direct-split"
+
+    /** Теги правил списка «Напрямую с разбиением» (D-72): TCP — на [TAG_DIRECT_SPLIT], UDP 443 — закрыт. */
+    const val RULE_SPLIT_SITES: String = "${SYSTEM_PREFIX}split-sites"
+    const val RULE_SPLIT_QUIC: String = "${SYSTEM_PREFIX}split-quic"
+
     /** Тег встроенного DNS-клиента по умолчанию (без него Xray берёт случайный, и конфигурация не повторялась бы). */
     const val TAG_DNS_DEFAULT: String = "${SYSTEM_PREFIX}dns"
 

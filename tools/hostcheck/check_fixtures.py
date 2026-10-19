@@ -158,10 +158,13 @@ def check_config_dirs():
             xr = e.get("xray")
             if xr is None and ld.get("outcome") == "ok":
                 bad(path, "нет ожидания xray: разбираемая конфигурация корпуса компилируется и для Xray (этап 2)")
-            if xr is not None and keys(path, xr, {"outcome", "codes", "geodata", "split_client_hello"}, ("outcome",)):
+            if xr is not None and keys(path, xr, {"outcome", "codes", "geodata", "split_client_hello", "split_sites"}, ("outcome",)):
                 one_of(path, "xray.outcome", xr.get("outcome"), {"compiled", "rejected"})
                 if not isinstance(xr.get("split_client_hello", False), bool):
                     bad(path, "xray.split_client_hello — true или false (разбиение ClientHello, D-68)")
+                sites = xr.get("split_sites")
+                if "split_sites" in xr and not (isinstance(sites, list) and sites and all(isinstance(x, str) and x for x in sites)):
+                    bad(path, "xray.split_sites — непустой список строк: домены и geosite:… (сайты напрямую с разбиением, D-72)")
                 codes(path, xr)
                 if "geodata" in xr:
                     check_geodata_ref(path, xr["geodata"])

@@ -352,6 +352,18 @@ class RouteCheckScreen(host: Host) : SubScreen(host, R.string.route_title) {
         checkButton.isEnabled = false
         job = host.scope.launch {
             try {
+                // Список «Напрямую с разбиением» (D-72) сильнее документа — его ядро проверяет первым.
+                val sites = host.prefs.splitSites()
+                when (val s = withContext(Dispatchers.IO) { core.matchesSplitSites(query, sites) }) {
+                    is Outcome.Failure -> {
+                        host.problem(context.getString(R.string.route_failed), s.errors.first())
+                        return@launch
+                    }
+                    is Outcome.Success -> if (s.value) {
+                        showAnswer(RouteAnswer(RouteVerdict.DIRECT, RouteWhy.SplitSites))
+                        return@launch
+                    }
+                }
                 // Первое обращение к geosite/geoip читает файл набора — не на главном потоке.
                 when (val r = withContext(Dispatchers.IO) { core.explain(query) }) {
                     null -> host.toast(context.getString(R.string.route_no_config))
@@ -380,6 +392,7 @@ class RouteCheckScreen(host: Host) : SubScreen(host, R.string.route_title) {
             RouteWhy.AutoDomestic -> context.getString(R.string.route_why_auto)
             RouteWhy.AppOutside -> context.getString(R.string.route_why_app)
             RouteWhy.LocalNetwork -> context.getString(R.string.route_why_lan)
+            RouteWhy.SplitSites -> context.getString(R.string.route_why_split_sites)
             RouteWhy.Default -> context.getString(R.string.route_why_default)
             is RouteWhy.DocumentRule -> context.getString(R.string.route_why_rule, w.id)
         }

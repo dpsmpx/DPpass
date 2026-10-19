@@ -1,0 +1,18 @@
+{
+  "load": {
+    "outcome": "ok",
+    "codes": []
+  },
+  "activate": {
+    "backend": "mock",
+    "outcome": "activated"
+  },
+  "xray": {
+    "outcome": "compiled",
+    "geodata": "geodata/manifest.json",
+    "split_sites": [
+      "example.org",
+      "geosite:example-a"
+    ]
+  }
+}

@@ -164,6 +164,10 @@
     <string name="settings_auto_switch_note">Если выбранный сервер перестал отвечать, DPpass сам перейдёт на другой и сообщит. Выключено — спросит в уведомлении.</string>
     <string name="settings_check_on_change">Проверять сеть при её смене</string>
     <string name="settings_split_hello">Разбивать начало соединения</string>
+    <string name="settings_split_sites">Сайты напрямую с разбиением</string>
+    <string name="settings_split_sites_empty">Пусто — добавьте сайты, которые пойдут напрямую, мимо сервера, с разбиением начала соединения</string>
+    <string name="split_sites_hint">example.com или geosite:имя</string>
+    <string name="split_sites_note">Запись на строку: домен с поддоменами (example.com) или список из набора геоданных (geosite:youtube). TCP к этим сайтам идёт напрямую, мимо сервера, а начало TLS — мелкими частями; QUIC (UDP 443) к ним закрыт, и приложения переходят на TCP. Может помочь против фильтров, которые ищут имя сайта; не помогает, если закрыт сам адрес. Работает при подключении к серверу; действует сразу.</string>
     <string name="settings_split_hello_note">Начало защищённого соединения с сервером (TLS ClientHello) уходит мелкими частями. Может помочь против фильтров, которые ищут там имя сайта; помогает не везде и добавляет десятки миллисекунд к подключению. Только серверы с TLS или REALITY поверх TCP; действует сразу.</string>
     <string name="settings_notifications">Уведомления</string>
     <string name="settings_notifications_note">Состояние туннеля и скорость в шторке</string>
@@ -308,6 +312,12 @@
     <string name="speed_stalled">Данные встали через %1$s с после начала загрузки (до того — %2$s Мбит/с), дальше — ни байта: похоже на «заморозку» соединения, а не на медленный канал.</string>
     <string name="speed_failed">Скорость не измерена</string>
 
+    <plurals name="settings_split_sites_count">
+        <item quantity="one">%d сайт или список</item>
+        <item quantity="few">%d сайта или списка</item>
+        <item quantity="many">%d сайтов или списков</item>
+        <item quantity="other">%d сайта или списка</item>
+    </plurals>
     <plurals name="servers_count">
         <item quantity="one">%d сервер</item>
         <item quantity="few">%d сервера</item>
@@ -474,6 +484,7 @@
     <string name="route_why_auto">Автоматический раздельный маршрут: отечественное идёт напрямую после всех правил (geosite/geoip:ru).</string>
     <string name="route_why_app">Приложение вне туннеля по выбору приложений.</string>
     <string name="route_why_lan">Локальная сеть: при «Локальные сети мимо VPN» такие адреса в туннель не попадают.</string>
+    <string name="route_why_split_sites">Ваш список «Сайты напрямую с разбиением»: напрямую, мимо сервера, с разбиением начала соединения.</string>
     <string name="route_why_default">Ни одно правило не сработало — действие по умолчанию.</string>
     <string name="route_why_rule">Правило «%1$s» вашей конфигурации.</string>
     <string name="route_note">Проверка по имени: правила по адресам (geoip) срабатывают после того, как имя разрешится, и могут ответить иначе. Ответ — по активной конфигурации; изменённая применится при переподключении.</string>

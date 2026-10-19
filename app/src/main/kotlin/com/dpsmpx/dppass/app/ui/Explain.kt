@@ -80,6 +80,9 @@ sealed interface RouteWhy {
     /** Локальная сеть мимо туннеля: её маршруты TUN не берёт («Локальные сети мимо VPN»). */
     data object LocalNetwork : RouteWhy
 
+    /** Список «Напрямую с разбиением» (D-72): выбор на телефоне, раньше правил документа. */
+    data object SplitSites : RouteWhy
+
     /** Ни одно правило не сработало — действие по умолчанию. */
     data object Default : RouteWhy
 

@@ -8,12 +8,14 @@ import com.dpsmpx.dppass.config.VlessFlow
 import com.dpsmpx.dppass.core.Cidr
 import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.core.ProfileId
+import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Secret
 import com.dpsmpx.dppass.routing.RouteDecision
 import com.dpsmpx.dppass.routing.RouteEvaluator
 import com.dpsmpx.dppass.routing.RouteQuery
 import com.dpsmpx.dppass.routing.RoutingPolicy
+import com.dpsmpx.dppass.routing.SplitSites
 
 /** Возможности, которые бывают не у каждого ядра. */
 enum class EngineFeature {
@@ -84,15 +86,17 @@ class CompiledConfig(
 
 /**
  * Что именно компилировать: какой профиль активен, есть ли TUN,
- * раздаётся ли туннель другим устройствам ([share], D-51) и разбивать ли
+ * раздаётся ли туннель другим устройствам ([share], D-51), разбивать ли
  * TLS ClientHello к серверу на части ([splitClientHello], D-68: выбор
- * пользователя, по умолчанию — нет).
+ * пользователя, по умолчанию — нет) и какие сайты вести напрямую с
+ * разбиением ([splitSites], D-72: список пользователя, по умолчанию пуст).
  */
 data class CompilePlan(
     val profileId: ProfileId,
     val withTun: Boolean,
     val share: ShareSpec? = null,
     val splitClientHello: Boolean = false,
+    val splitSites: SplitSites = SplitSites.NONE,
 )
 
 /**
@@ -172,6 +176,13 @@ data class ShareSpec(
  */
 interface BackendCompiler {
     val capabilities: EngineCapabilities
+
+    /**
+     * Список «Напрямую с разбиением» (D-72) — против того, что знает ядро
+     * (коды geosite набора геоданных, D-27): до сохранения в настройках, а
+     * не отказом подключения. Без ядра — ничего не проверяется.
+     */
+    fun checkSplitSites(sites: SplitSites): List<Diagnostic> = emptyList()
 
     fun compile(ir: ConfigIr, plan: CompilePlan): Outcome<CompiledConfig>
 }

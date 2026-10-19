@@ -307,9 +307,13 @@ class DPpassVpnService : VpnService() {
                 core.connectVia(relay, target.address, checker, tun, share) { delay(it) }
             } else {
                 // Разбиение ClientHello к серверу (D-68) — выбор пользователя; к устройству раздачи — нет.
-                val split = AppPrefs(this@DPpassVpnService).splitClientHello
+                val prefs = AppPrefs(this@DPpassVpnService)
+                val split = prefs.splitClientHello
                 core.log.info("client_hello_split", "on" to split)
-                core.connect(null, checker, tun, preferred, share, regime, split) { delay(it) }
+                // Сайты напрямую с разбиением (D-72): в журнал — число записей, не сами сайты.
+                val sites = prefs.splitSites()
+                core.log.info("split_sites", "n" to sites.size)
+                core.connect(null, checker, tun, preferred, share, regime, split, sites) { delay(it) }
             }
         } catch (e: CancellationException) {
             // Остановка во время подключения: сеанс, запущенный посреди проверки

@@ -8,6 +8,7 @@ import com.dpsmpx.dppass.config.ServerProfile
 import com.dpsmpx.dppass.core.Clock
 import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.core.ProfileId
+import com.dpsmpx.dppass.core.RuleId
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.DiagnosticReport
@@ -17,6 +18,7 @@ import com.dpsmpx.dppass.diagnostics.Logger
 import com.dpsmpx.dppass.diagnostics.MemoryLogSink
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Safe
+import com.dpsmpx.dppass.diagnostics.map
 import com.dpsmpx.dppass.engine.BackendCompiler
 import com.dpsmpx.dppass.engine.CapabilityChecker
 import com.dpsmpx.dppass.engine.EngineCapabilities
@@ -25,8 +27,12 @@ import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.SocketProtector
 import com.dpsmpx.dppass.engine.TunInput
 import com.dpsmpx.dppass.network.NetworkAssessment
+import com.dpsmpx.dppass.routing.RouteAction
 import com.dpsmpx.dppass.routing.RouteDecision
 import com.dpsmpx.dppass.routing.RouteQuery
+import com.dpsmpx.dppass.routing.RoutingPolicy
+import com.dpsmpx.dppass.routing.Rule
+import com.dpsmpx.dppass.routing.SplitSites
 import com.dpsmpx.dppass.storage.BlobStore
 import com.dpsmpx.dppass.storage.Quarantine
 import com.dpsmpx.dppass.storage.StorageRecovery
@@ -226,12 +232,14 @@ class DPpassCore(
         regime: NetworkAssessment? = null,
         /** Разбивать ClientHello к серверу (D-68): выбор пользователя, по умолчанию — нет. */
         splitClientHello: Boolean = false,
+        /** Сайты напрямую с разбиением (D-72): список пользователя, по умолчанию пуст. */
+        splitSites: SplitSites = SplitSites.NONE,
         pause: suspend (Long) -> Unit,
     ): ConnectionReport? {
         val ir = activation.state.activeConfig ?: return null
         val plan = plan(assessment, preferred, regime) ?: return null
         val orchestrator = ConnectionOrchestrator(compiler, engine, checker, health, clock, log, policy, stability, assessment ?: regime, splitMemory, pause)
-        return orchestrator.connect(ir, plan, tun, share, splitClientHello)
+        return orchestrator.connect(ir, plan, tun, share, splitClientHello, splitSites)
     }
 
     /** Наблюдатель сессии (D-44): Android-слой кормит его пробами (D-32). */
@@ -322,6 +330,25 @@ class DPpassCore(
      */
     fun explain(query: RouteQuery): Outcome<RouteDecision>? = activation.state.activeConfig?.let { engine.explain(it.routing, query) }
 
+    /** Список «Напрямую с разбиением» (D-72) против ядра: коды geosite — по набору геоданных (D-27). */
+    fun checkSplitSites(sites: SplitSites): List<Diagnostic> = compiler.checkSplitSites(sites)
+
+    /**
+     * Попадает ли соединение в список «Напрямую с разбиением» (D-72): тот же
+     * смысл, что у правила ядра — домен с поддоменами или список geosite на
+     * наборе геоданных ядра (D-27). Для «Проверить маршрут»: список сильнее
+     * документа и проверяется раньше него.
+     */
+    fun matchesSplitSites(query: RouteQuery, sites: SplitSites): Outcome<Boolean> {
+        if (sites.isEmpty || query.domain == null) return Outcome.Success(false)
+        // Приложение вне туннеля до ядра не доходит — списку там нечего решать.
+        val pkg = query.packageName
+        val apps = activation.state.activeConfig?.routing?.apps
+        if (pkg != null && apps != null && !apps.includes(pkg)) return Outcome.Success(false)
+        val probe = RoutingPolicy(rules = listOf(Rule(SPLIT_SITES_RULE, sites.conditions(), RouteAction.DIRECT)), defaultAction = RouteAction.PROXY)
+        return engine.explain(probe, query.copy(packageName = null)).map { it.ruleId == SPLIT_SITES_RULE }
+    }
+
     fun subscriptionNotes(result: UpdateResult): List<Diagnostic> = result.diagnostics.also { it.forEach(log::diagnostic) }
 
     /** Локальный отчёт (D-12): собирается на устройстве, наружу не отправляется. */
@@ -350,6 +377,9 @@ class DPpassCore(
     private companion object {
         /** Отказы проверки здоровья (D-32): данные не пришли, «замерзли», проба не уложилась в срок. */
         val RELAY_HEALTH_CODES = setOf(DiagCode.ENDPOINT_UNREACHABLE, DiagCode.PAYLOAD_STALLED, DiagCode.HEALTH_CHECK_FAILED, DiagCode.TLS_HANDSHAKE_FAILED)
+
+        /** Правило-проба списка «Напрямую с разбиением» (D-72): живёт только внутри [matchesSplitSites]. */
+        val SPLIT_SITES_RULE = RuleId("split-sites")
     }
 
     internal fun logActivation(r: ActivationResult) {

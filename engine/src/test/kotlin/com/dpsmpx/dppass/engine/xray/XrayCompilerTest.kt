@@ -25,6 +25,7 @@ import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.capabilityDiff
 import com.dpsmpx.dppass.engine.mock.MockBackend
 import com.dpsmpx.dppass.routing.RouteAction
+import com.dpsmpx.dppass.routing.SplitSites
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -716,5 +717,63 @@ class XrayCompilerTest {
         val plain = payload(multi)
         assertTrue(plain["outbounds"].items.none { it["tag"].text == XrayBackend.TAG_SPLIT })
         assertNull((outbound(plain, "proxy")["streamSettings"] as JsonObject)["sockopt"])
+    }
+
+    @Test
+    fun splitSitesGoDirectThroughFragmentAndQuicIsBlocked() {
+        // D-72: список телефона — после служебных правил и раньше правил документа; TCP —
+        // на прямой выход с fragment, UDP 443 — закрыт; только вход TUN.
+        val routing = """{"default": "proxy", "rules": [{"id": "doc-proxy", "action": "proxy", "domain_suffix": ["example.com"]}]}"""
+        val doc = ir(routing = routing)
+        val sites = SplitSites.parse("example.com\ngeosite:example-a").valueOrNull()!!
+        val r = XrayCompiler().compile(doc, CompilePlan(doc.profiles[0].id, withTun = true, splitSites = sites))
+        val p = Json.parse(r.valueOrNull()!!.payloadForEngine()) as JsonObject
+        val rules = p["routing"]["rules"].items
+        val tags = rules.map { it["ruleTag"].text }
+        val quic = tags.indexOf(XrayBackend.RULE_SPLIT_QUIC)
+        val tcp = tags.indexOf(XrayBackend.RULE_SPLIT_SITES)
+        assertTrue(quic >= 0 && tcp == quic + 1, "$tags")
+        assertTrue(tags.indexOf("doc-proxy") > tcp, "список сильнее документа: $tags")
+        assertTrue(tags.take(quic).all { it.startsWith(XrayBackend.SYSTEM_PREFIX) }, "до списка — только служебные правила (DNS, T4): $tags")
+        val names = listOf("domain:example.com", "geosite:example-a")
+        with(rules[quic]) {
+            assertEquals(names, this["domain"].items.map { it.text })
+            assertEquals("udp", this["network"].text)
+            assertEquals("443", this["port"].text)
+            assertEquals(XrayBackend.TAG_BLOCK, this["outboundTag"].text)
+            assertEquals(listOf(XrayBackend.TAG_TUN_IN), this["inboundTag"].items.map { it.text })
+        }
+        with(rules[tcp]) {
+            assertEquals(names, this["domain"].items.map { it.text })
+            assertEquals("tcp", this["network"].text)
+            assertEquals(XrayBackend.TAG_DIRECT_SPLIT, this["outboundTag"].text)
+            assertEquals(listOf(XrayBackend.TAG_TUN_IN), this["inboundTag"].items.map { it.text })
+        }
+        val out = outbound(p, XrayBackend.TAG_DIRECT_SPLIT)
+        assertEquals("freedom", out["protocol"].text)
+        assertEquals("tlshello", out["settings"]["fragment"]["packets"].text)
+        // Резолв имени — как у direct (DnsPolicy, без отката к системе, T4).
+        assertEquals(outbound(p, XrayBackend.TAG_DIRECT)["streamSettings"], out["streamSettings"])
+        assertTrue(r.diagnostics.none { it.isError })
+
+        // Без списка — как раньше: ни правил, ни выхода.
+        val plain = payload(doc)
+        assertTrue(plain["routing"]["rules"].items.none { it["ruleTag"].text.startsWith("${XrayBackend.SYSTEM_PREFIX}split") })
+        assertTrue(plain["outbounds"].items.none { it["tag"].text == XrayBackend.TAG_DIRECT_SPLIT })
+
+        // Список geosite — против набора геоданных (D-27): нет такого — отказ с путём настройки.
+        val set = GeodataManifest(
+            "v0.0.0-20260101000000-0123456789ab", "0123456789ab", "2026-01", emptyList(), emptySet(),
+            mapOf("example-a" to emptyList()),
+        )
+        val compiler = XrayCompiler(geodata = GeodataCodes.Installed(set))
+        assertTrue(compiler.checkSplitSites(sites).isEmpty())
+        val unknown = SplitSites.parse("geosite:example-z").valueOrNull()!!
+        assertEquals(
+            listOf(DiagCode.GEO_CODE_UNKNOWN to "${SplitSites.PATH}.geosite"),
+            compiler.checkSplitSites(unknown).map { it.code to it.path },
+        )
+        val rejected = compiler.compile(doc, CompilePlan(doc.profiles[0].id, withTun = true, splitSites = unknown))
+        assertEquals(DiagCode.GEO_CODE_UNKNOWN, rejected.errors.single().code)
     }
 }

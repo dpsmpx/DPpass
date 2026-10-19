@@ -1,10 +1,13 @@
 package com.dpsmpx.dppass.app.ui
 
+import android.app.AlertDialog
 import android.app.UiModeManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
+import android.text.InputType
+import android.view.Gravity
 import android.view.View
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.TunnelStatus
@@ -16,6 +19,7 @@ import com.dpsmpx.dppass.connection.RoutingMode
 import com.dpsmpx.dppass.connection.UserPolicy
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.network.NetworkChangeChecks
+import com.dpsmpx.dppass.routing.SplitSites
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -201,6 +205,13 @@ class SettingsScreen(host: Host) : Screen(host) {
                     Ui.matchWidth(),
                 )
                 addView(Ui.divider(context))
+                // Сайты напрямую с разбиением (D-72): список телефона; действует сразу.
+                val sitesRow = Ui.ListRow(context, R.drawable.ic_shield, context.getString(R.string.settings_split_sites))
+                    .subtitle(splitSitesSummary(host.prefs.splitSites()))
+                    .trailing(Ui.icon(context, R.drawable.ic_open, R.color.text_secondary))
+                sitesRow.onClick { editSplitSites(sitesRow) }
+                addView(sitesRow, Ui.matchWidth())
+                addView(Ui.divider(context))
                 addView(
                     Ui.ListRow(context, R.drawable.ic_bell, context.getString(R.string.settings_notifications))
                         .subtitle(context.getString(R.string.settings_notifications_note))
@@ -323,6 +334,62 @@ class SettingsScreen(host: Host) : Screen(host) {
                 }
             }
             host.changed()
+        }
+    }
+
+    private fun splitSitesSummary(sites: SplitSites): String =
+        if (sites.isEmpty) {
+            context.getString(R.string.settings_split_sites_empty)
+        } else {
+            context.resources.getQuantityString(R.plurals.settings_split_sites_count, sites.size, sites.size)
+        }
+
+    /**
+     * Правка списка «Напрямую с разбиением» (D-72): запись на строку. Неверная
+     * строка или код geosite, которого нет в наборе (D-27), — ошибка у поля,
+     * окно не закрывается; сохраняется только разобранный список.
+     */
+    private fun editSplitSites(row: Ui.ListRow) {
+        val field = Ui.field(
+            context,
+            R.string.split_sites_hint,
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS,
+        ).apply {
+            isSingleLine = false
+            minLines = 4
+            maxLines = 10
+            gravity = Gravity.TOP or Gravity.START
+            val p = Ui.dp(context, 12)
+            setPadding(Ui.dp(context, 16), p, Ui.dp(context, 16), p)
+            setText(host.prefs.splitSitesText)
+        }
+        val form = Ui.column(context, 8).apply {
+            val p = Ui.dp(context, 24)
+            setPadding(p, Ui.dp(context, 8), p, 0)
+            addView(Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.split_sites_note)), Ui.matchWidth())
+            addView(field, Ui.matchWidth())
+        }
+        val dialog = AlertDialog.Builder(context)
+            .setTitle(R.string.settings_split_sites)
+            .setView(form)
+            .setPositiveButton(R.string.action_save, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+        Ui.secure(dialog)
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val parsed = SplitSites.parse(field.text.toString())
+            val sites = parsed.valueOrNull()
+            val problem = (parsed as? Outcome.Failure)?.errors?.first()
+                ?: sites?.let { host.graph?.core?.checkSplitSites(it)?.firstOrNull { d -> d.isError } }
+            if (problem != null || sites == null) {
+                field.error = problem?.message
+                return@setOnClickListener
+            }
+            host.prefs.splitSitesText = sites.format()
+            host.graph?.core?.log?.info("split_sites_set", "n" to sites.size)
+            row.subtitle(splitSitesSummary(sites))
+            dialog.dismiss()
+            host.reconnectIfBusy()
         }
     }
 

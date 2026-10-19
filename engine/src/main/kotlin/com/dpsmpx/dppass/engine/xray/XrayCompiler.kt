@@ -35,6 +35,7 @@ import com.dpsmpx.dppass.routing.DomainMatcher
 import com.dpsmpx.dppass.routing.DomainResolution
 import com.dpsmpx.dppass.routing.RouteAction
 import com.dpsmpx.dppass.routing.RouteEvaluator
+import com.dpsmpx.dppass.routing.SplitSites
 import com.dpsmpx.dppass.routing.TransportProtocol
 import java.util.Base64
 
@@ -76,6 +77,12 @@ class XrayCompiler(
     override val capabilities: EngineCapabilities = XrayBackend.CAPABILITIES,
     private val geodata: GeodataCodes = GeodataCodes.Unchecked,
 ) : BackendCompiler {
+    override fun checkSplitSites(sites: SplitSites): List<Diagnostic> {
+        val problems = mutableListOf<Diagnostic>()
+        Build(problems, geodata).splitSiteRules(sites, withTun = true)
+        return problems
+    }
+
     override fun compile(ir: ConfigIr, plan: CompilePlan): Outcome<CompiledConfig> {
         val problems = CapabilityChecker.check(ir, capabilities, plan).toMutableList()
         if (problems.any { it.isError }) return Outcome.Failure(problems)
@@ -94,7 +101,7 @@ class XrayCompiler(
         }
         val proxy = build.proxyOutbound(profile, "$.profiles[$index]").let { if (split) viaSplit(it) else it }
         val dns = build.dns(ir.dns)
-        val routing = build.routing(ir, plan.withTun, plan.share)
+        val routing = build.routing(ir, plan.withTun, plan.share, plan.splitSites)
         if (problems.any { it.isError }) return Outcome.Failure(problems)
 
         val terminal = mapOf(
@@ -108,6 +115,7 @@ class XrayCompiler(
             dnsOutbound().takeIf { plan.withTun },
             build.directShareOutbound(ir.dns.strategy).takeIf { plan.share != null },
             splitOutbound().takeIf { split },
+            build.directSplitOutbound(ir.dns.strategy).takeIf { !plan.splitSites.isEmpty },
         )
 
         val doc = Json.obj(
@@ -377,7 +385,7 @@ class XrayCompiler(
 
         // ---- маршрутизация ----
 
-        fun routing(ir: ConfigIr, withTun: Boolean, share: ShareSpec? = null): JsonObject {
+        fun routing(ir: ConfigIr, withTun: Boolean, share: ShareSpec? = null, splitSites: SplitSites = SplitSites.NONE): JsonObject {
             val lowered = AppLowering.lower(ir.routing)
             val rules = mutableListOf<JsonValue>()
             if (share != null) {
@@ -413,6 +421,7 @@ class XrayCompiler(
                     "outboundTag" to Json.str(if (s.route == DnsRoute.TUNNEL) XrayBackend.TAG_PROXY else XrayBackend.TAG_DIRECT),
                 )
             }
+            rules += splitSiteRules(splitSites, withTun)
             val user = mutableListOf<JsonObject>()
             for ((i, rule) in lowered.engineRules.withIndex()) {
                 val at = "$.routing.rules[${ir.routing.rules.indexOf(rule).takeIf { it >= 0 } ?: i}]"
@@ -469,6 +478,38 @@ class XrayCompiler(
             return Json.obj(
                 "domainStrategy" to Json.str(domainStrategy(ir.routing.domainResolution, withTun)),
                 "rules" to Json.arr(rules),
+            )
+        }
+
+        /**
+         * Список «Напрямую с разбиением» (D-72) — после служебных правил (DNS
+         * — T4) и раньше правил документа: это выбор пользователя на телефоне,
+         * и он сильнее документа. UDP 443 — закрыт: в QUIC Initial имя идёт
+         * целиком, а `fragment` режет только TLS поверх TCP; приложения
+         * переходят на TCP. Только вход TUN: клиенты раздачи — без разбиения,
+         * как в D-68. Имя ядро знает из распознавания у входа TUN (`sniffing`).
+         */
+        fun splitSiteRules(sites: SplitSites, withTun: Boolean): List<JsonObject> {
+            if (sites.isEmpty) return emptyList()
+            checkGeo(sites.geoSites, emptyList(), SplitSites.PATH)
+            val names = sites.domains.map { "domain:$it" } + sites.geoSites.map { "geosite:$it" }
+            val inbound = if (withTun) Json.strings(listOf(XrayBackend.TAG_TUN_IN)) else null
+            return listOf(
+                Json.obj(
+                    "ruleTag" to Json.str(XrayBackend.RULE_SPLIT_QUIC),
+                    "inboundTag" to inbound,
+                    "domain" to Json.strings(names),
+                    "port" to Json.str("443"),
+                    "network" to Json.str("udp"),
+                    "outboundTag" to Json.str(XrayBackend.TAG_BLOCK),
+                ),
+                Json.obj(
+                    "ruleTag" to Json.str(XrayBackend.RULE_SPLIT_SITES),
+                    "inboundTag" to inbound,
+                    "domain" to Json.strings(names),
+                    "network" to Json.str("tcp"),
+                    "outboundTag" to Json.str(XrayBackend.TAG_DIRECT_SPLIT),
+                ),
             )
         }
 
@@ -607,6 +648,19 @@ class XrayCompiler(
         )
 
         /**
+         * Прямой выход к сайтам списка «Напрямую с разбиением» (D-72): `direct`
+         * (тот же резолв имени по DnsPolicy) с разбиением начала TLS, как у
+         * выхода разбиения к серверу (D-68): части по [SPLIT_LENGTH] байт, пауза
+         * [SPLIT_INTERVAL] мс.
+         */
+        fun directSplitOutbound(s: DnsStrategy): JsonObject = JsonObject(
+            directOutbound(s).fields + mapOf(
+                "tag" to JsonString(XrayBackend.TAG_DIRECT_SPLIT),
+                "settings" to fragmentSettings(),
+            ),
+        )
+
+        /**
          * `direct`: имя назначения ядро резолвит своим DNS по DnsPolicy и при
          * отказе не уходит к системному резолверу (`ForceIP*`; `AsIs` и
          * `UseIP*` молча спросили бы систему — T4).
@@ -665,14 +719,18 @@ class XrayCompiler(
         fun splitOutbound(): JsonObject = Json.obj(
             "tag" to Json.str(XrayBackend.TAG_SPLIT),
             "protocol" to Json.str("freedom"),
-            "settings" to Json.obj(
-                "fragment" to Json.obj(
-                    "packets" to Json.str("tlshello"),
-                    "length" to Json.str(SPLIT_LENGTH),
-                    "interval" to Json.str(SPLIT_INTERVAL),
-                ),
+            "settings" to fragmentSettings(),
+        )
+
+        /** Разбивка начала TLS у `freedom` — одна для D-68 и D-72. */
+        fun fragmentSettings(): JsonObject = Json.obj(
+            "fragment" to Json.obj(
+                "packets" to Json.str("tlshello"),
+                "length" to Json.str(SPLIT_LENGTH),
+                "interval" to Json.str(SPLIT_INTERVAL),
             ),
         )
+
 
         /**
          * Длина части и пауза — ориентир, не замер (D-68): ClientHello Chrome

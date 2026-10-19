@@ -1,0 +1,88 @@
+{
+  "format": "dppass.config",
+  "format_version": 1,
+  "name": "Minimal, sites directly with splitting",
+  "profiles": [
+    {
+      "id": "reality-1",
+      "name": "Reality 1",
+      "server": "203.0.113.10",
+      "port": 443,
+      "protocol": {
+        "type": "vless",
+        "id": "00000000-0000-4000-8000-000000000001",
+        "flow": "vision"
+      },
+      "transport": {
+        "type": "tcp"
+      },
+      "security": {
+        "type": "reality",
+        "server_name": "www.example.com",
+        "public_key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "short_id": "01234567",
+        "fingerprint": "chrome"
+      },
+      "hints": {
+        "priority": 10
+      }
+    }
+  ],
+  "routing": {
+    "default": "proxy",
+    "domain_resolution": "never",
+    "bypass_lan": true,
+    "apps": {
+      "mode": "all"
+    },
+    "rules": [
+      {
+        "id": "ads-block",
+        "action": "block",
+        "domain_suffix": [
+          "ads.example.com"
+        ]
+      },
+      {
+        "id": "ru-direct",
+        "action": "direct",
+        "domain_suffix": [
+          "example.ru"
+        ]
+      },
+      {
+        "id": "lan-ip-direct",
+        "action": "direct",
+        "ip_cidr": [
+          "198.18.0.0/15"
+        ]
+      }
+    ]
+  },
+  "dns": {
+    "servers": [
+      {
+        "id": "remote",
+        "type": "https",
+        "url": "https://dns.example.net/dns-query",
+        "route": "tunnel"
+      },
+      {
+        "id": "local",
+        "type": "system",
+        "route": "direct"
+      }
+    ],
+    "default": "remote",
+    "rules": [
+      {
+        "domain_suffix": [
+          "example.ru"
+        ],
+        "server": "local"
+      }
+    ],
+    "strategy": "prefer_ipv4",
+    "leak_protection": true
+  }
+}

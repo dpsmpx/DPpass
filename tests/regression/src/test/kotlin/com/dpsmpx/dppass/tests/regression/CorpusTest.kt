@@ -48,6 +48,7 @@ import com.dpsmpx.dppass.network.simulation.SimulatedNetwork
 import com.dpsmpx.dppass.routing.AppLowering
 import com.dpsmpx.dppass.routing.RouteEvaluator
 import com.dpsmpx.dppass.routing.RouteQuery
+import com.dpsmpx.dppass.routing.SplitSites
 import com.dpsmpx.dppass.routing.TableGeoResolver
 import com.dpsmpx.dppass.routing.TransportProtocol
 import com.dpsmpx.dppass.storage.InMemoryBlobStore
@@ -58,14 +59,14 @@ import com.dpsmpx.dppass.subscriptions.SubscriptionSource
 import com.dpsmpx.dppass.subscriptions.SubscriptionUpdater
 import com.dpsmpx.dppass.subscriptions.UpdateResult
 import com.dpsmpx.dppass.tunnel.PlatformTraits
-import kotlinx.coroutines.runBlocking
-import org.junit.jupiter.api.DynamicTest
-import org.junit.jupiter.api.TestFactory
 import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.fail
+import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.DynamicTest
+import org.junit.jupiter.api.TestFactory
 
 /**
  * Корпус регрессий (`docs/TESTING.md`): каждый файл в `tests/data/` с
@@ -138,6 +139,8 @@ class CorpusTest {
      * `geodata` — оглавление набора в корпусе: коды и атрибуты сверяются с ним,
      * как на устройстве (D-27); без него — не сверяются, как на хосте.
      * `split_client_hello` — компиляция с разбиением ClientHello (D-68).
+     * `split_sites` — список «Напрямую с разбиением» (D-72): записи настройки
+     * телефона, разбираются как на телефоне.
      */
     private fun checkXray(where: String, ir: ConfigIr, expect: JsonObject) {
         val geodata = str(expect, "geodata")?.let { rel ->
@@ -146,7 +149,13 @@ class CorpusTest {
         } ?: GeodataCodes.Unchecked
         val compiler = XrayCompiler(geodata = geodata)
         val split = (expect["split_client_hello"] as? JsonBool)?.value == true
-        val results = ir.profiles.map { it.id.value to compiler.compile(ir, CompilePlan(it.id, withTun = true, splitClientHello = split)) }
+        val sites = (expect["split_sites"] as? JsonArray)?.let { list ->
+            val text = list.items.joinToString("\n") { (it as JsonString).value }
+            SplitSites.parse(text).valueOrNull() ?: fail("Xray, $where: split_sites не разобран: ${SplitSites.parse(text).diagnostics.map { it.render() }}")
+        } ?: SplitSites.NONE
+        val results = ir.profiles.map {
+            it.id.value to compiler.compile(ir, CompilePlan(it.id, withTun = true, splitClientHello = split, splitSites = sites))
+        }
         val diagnostics = results.flatMap { it.second.diagnostics }
         val got = allCodes(diagnostics)
         val compiled = results.all { it.second.isSuccess }

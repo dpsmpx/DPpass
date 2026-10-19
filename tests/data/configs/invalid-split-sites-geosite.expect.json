@@ -1,0 +1,21 @@
+{
+  "load": {
+    "outcome": "ok",
+    "codes": []
+  },
+  "activate": {
+    "backend": "mock",
+    "outcome": "activated"
+  },
+  "xray": {
+    "outcome": "rejected",
+    "geodata": "geodata/manifest.json",
+    "split_sites": [
+      "example.org",
+      "geosite:no-such-list"
+    ],
+    "codes": [
+      "GEO_CODE_UNKNOWN"
+    ]
+  }
+}

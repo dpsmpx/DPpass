@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.dpsmpx.dppass.core.Ids
 import com.dpsmpx.dppass.core.ProfileId
+import com.dpsmpx.dppass.routing.SplitSites
 
 /**
  * Настройки интерфейса (D-34): выбранный сервер или устройство раздачи
@@ -65,6 +66,20 @@ class AppPrefs(context: Context) {
             prefs.edit().putBoolean(SPLIT_CLIENT_HELLO, value).apply()
         }
 
+    /**
+     * Список «Напрямую с разбиением» (D-72): текст настройки, запись на
+     * строку. Сохраняется только разобранный ([SplitSites.format]); пусто —
+     * по умолчанию.
+     */
+    var splitSitesText: String
+        get() = prefs.getString(SPLIT_SITES, "").orEmpty()
+        set(value) {
+            prefs.edit().putString(SPLIT_SITES, value).apply()
+        }
+
+    /** Список в силе. Сохранённый текст всегда разбирается: его записал [SplitSites.format]. */
+    fun splitSites(): SplitSites = SplitSites.parse(splitSitesText).valueOrNull() ?: SplitSites.NONE
+
     var tab: Int
         get() = prefs.getInt(TAB, 0)
         set(value) {
@@ -79,5 +94,6 @@ class AppPrefs(context: Context) {
         const val AUTO_SWITCH = "auto_switch"
         const val CHECK_ON_CHANGE = "check_on_network_change"
         const val SPLIT_CLIENT_HELLO = "split_client_hello"
+        const val SPLIT_SITES = "split_sites"
     }
 }
