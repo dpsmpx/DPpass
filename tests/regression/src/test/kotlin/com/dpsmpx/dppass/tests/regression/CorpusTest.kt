@@ -59,14 +59,14 @@ import com.dpsmpx.dppass.subscriptions.SubscriptionSource
 import com.dpsmpx.dppass.subscriptions.SubscriptionUpdater
 import com.dpsmpx.dppass.subscriptions.UpdateResult
 import com.dpsmpx.dppass.tunnel.PlatformTraits
+import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.DynamicTest
+import org.junit.jupiter.api.TestFactory
 import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.fail
-import kotlinx.coroutines.runBlocking
-import org.junit.jupiter.api.DynamicTest
-import org.junit.jupiter.api.TestFactory
 
 /**
  * Корпус регрессий (`docs/TESTING.md`): каждый файл в `tests/data/` с
