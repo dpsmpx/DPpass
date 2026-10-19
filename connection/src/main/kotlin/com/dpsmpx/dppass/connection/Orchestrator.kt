@@ -134,6 +134,16 @@ class ConnectionOrchestrator(
                 }
                 is Try.Fail -> t.reason
             }
+            // Ядро ещё держит прежний сеанс — отказ этого телефона, а не сервера:
+            // следующие кандидаты упрутся в то же, а пауза наказала бы исправные
+            // серверы (журнал 19.10.2026: четыре попытки подряд, все — «уже запущено»).
+            if (failure.code == DiagCode.BACKEND_ALREADY_RUNNING) {
+                val busy = Diagnostic.error(DiagCode.BACKEND_ALREADY_RUNNING, "ядро ещё занято прежним подключением — серверы не пробовались")
+                    .withCause(failure)
+                log.diagnostic(busy)
+                records += AttemptRecord(p.id, reasons, false, busy)
+                return ConnectionReport.Failed(busy, records, plan)
+            }
             book.recordFailure(p.id, failure.code, clock.nowMillis())
             observe(p, startedAt, success = false, stalled = failure.code == DiagCode.PAYLOAD_STALLED)
             log.diagnostic(failure)

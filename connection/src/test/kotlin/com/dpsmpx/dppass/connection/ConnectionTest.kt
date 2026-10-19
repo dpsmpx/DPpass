@@ -435,6 +435,32 @@ class OrchestratorTest {
         assertTrue(again.attempts.none { it.failure?.code == DiagCode.BACKEND_ALREADY_RUNNING }, again.attempts.toString())
     }
 
+    /**
+     * Ядро ещё держит прежний сеанс (журнал 19.10.2026: переподключение
+     * началось, пока прежнее стояло в пробе здоровья) — отказ телефона, а не
+     * серверов: план прерывается сразу, никто не встаёт на паузу.
+     */
+    @Test
+    fun busyEngineStopsThePlanWithoutBlamingServers() = runBlocking {
+        val clock = ManualClock(0)
+        val multi = ir("valid-multi.json")
+        val book = HealthBook()
+        val plan = CandidatePlanner.plan(multi, MockBackend.FULL, null, book, null, 0)
+        val engine = MockProxyEngine()
+        val older = com.dpsmpx.dppass.engine.CompilePlan(plan.attempts.last().profile.id, false)
+        val previous = (MockBackendCompiler().compile(multi, older) as Outcome.Success).value
+        assertIs<Outcome.Success<EngineSession>>(engine.start(previous, null))
+        val log = Logger("t", MemoryLogSink(), clock::nowMillis)
+        val pauses = mutableListOf<Long>()
+        val report = ConnectionOrchestrator(MockBackendCompiler(), engine, { _, _ -> Outcome.Success(Unit) }, book, clock, log) { pauses += it }
+            .connect(multi, plan, null)
+        val failed = assertIs<ConnectionReport.Failed>(report)
+        assertEquals(DiagCode.BACKEND_ALREADY_RUNNING, failed.reason.code)
+        assertEquals(1, report.attempts.size, "следующие кандидаты упёрлись бы в то же")
+        assertTrue(pauses.isEmpty())
+        assertTrue(plan.attempts.all { book.of(it.profile.id).state == HealthState.UNKNOWN }, "ни один сервер не наказан")
+    }
+
     /** Ядро, у которого вход раздачи не встаёт (адрес пропал, порт занят): запуск с входами раздачи — отказ. */
     private class ShareCannotBind : ProxyEngine {
         override val capabilities = XrayBackend.CAPABILITIES

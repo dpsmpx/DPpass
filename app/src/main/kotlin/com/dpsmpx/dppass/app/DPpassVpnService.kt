@@ -60,6 +60,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.Collections
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Сервис туннеля в процессе приложения (D-17, D-30): foreground с типом
@@ -108,6 +109,23 @@ class DPpassVpnService : VpnService() {
 
     /** Состояние туннеля меняется только под этим замком: запуск и остановка не пересекаются. */
     private val state = Mutex()
+
+    /**
+     * Остановка и запуск — по очереди, целиком: следующее переподключение
+     * начинается, когда прежнее закончилось. Журнал 19.10.2026: пользователь
+     * выбирал серверы один за другим, новое подключение начиналось, пока
+     * прежнее ещё стояло в пробе здоровья, — и все его попытки получили
+     * «ядро уже запущено». Порядок замков: этот — снаружи, [state] — внутри.
+     */
+    private val lifecycle = Mutex()
+
+    /**
+     * Переподключения в очереди [lifecycle]: пока ждут, новых выборов может
+     * прийти несколько — подключается только последний, промежуточные лишь
+     * останавливают прежнее.
+     */
+    private val restarts = AtomicInteger()
+
     private var connecting: Job? = null
     private var session: EngineSession? = null
     private var tunnel: TunnelHandle? = null
@@ -149,6 +167,7 @@ class DPpassVpnService : VpnService() {
                 ServerSwitch.clear(this)
                 val to = intent.getStringExtra(EXTRA_PROFILE)?.takeIf(Ids::isValid)?.let(::ProfileId)
                 if (!startInForeground(TunnelStatus.Connecting(null))) return START_NOT_STICKY
+                restarts.incrementAndGet()
                 scope.launch {
                     val core = AppGraph.core(this@DPpassVpnService)
                     if (core.activation.state.activeConfig == null) core.restore()
@@ -160,8 +179,7 @@ class DPpassVpnService : VpnService() {
                     } else {
                         core.log.info("server_switch_stale")
                     }
-                    shutdown()
-                    start()
+                    restart()
                 }
                 return START_STICKY
             }
@@ -181,7 +199,7 @@ class DPpassVpnService : VpnService() {
                 TunnelState.set(TunnelStatus.Stopping)
                 announce()
                 scope.launch {
-                    shutdown()
+                    lifecycle.withLock { shutdown() }
                     TunnelState.set(TunnelStatus.Idle)
                     announce()
                     stopSelf()
@@ -191,18 +209,24 @@ class DPpassVpnService : VpnService() {
             ACTION_RECONNECT -> {
                 DeviceLog.log.info("service_reconnect")
                 if (!startInForeground(TunnelStatus.Connecting(null))) return START_NOT_STICKY
-                scope.launch {
-                    shutdown()
-                    start()
-                }
+                restarts.incrementAndGet()
+                scope.launch { restart() }
                 return START_STICKY
             }
         }
         // Свой запуск, always-on (действие VpnService) или перезапуск после гибели процесса (интента нет).
         DeviceLog.log.info("service_start", "by" to Safe(if (intent == null) "restart" else intent.action ?: "app"))
         if (!startInForeground(TunnelStatus.Connecting(null))) return START_NOT_STICKY
-        scope.launch { start() }
+        scope.launch { lifecycle.withLock { start() } }
         return START_STICKY
+    }
+
+    /** Остановить прежнее и подключиться заново — если за этим запросом не ждёт ещё один. */
+    private suspend fun restart() {
+        lifecycle.withLock {
+            shutdown()
+            if (restarts.decrementAndGet() == 0) start() else DeviceLog.log.info("service_reconnect_superseded")
+        }
     }
 
     private suspend fun start() {
@@ -674,7 +698,12 @@ class DPpassVpnService : VpnService() {
         startInForeground(status)
     }
 
-    /** Ядро — потом TUN; повторный вызов ничего не делает. */
+    /**
+     * Ядро — потом TUN; повторный вызов ничего не делает. Прежнее подключение
+     * отменяется и дожидается: его проба здоровья — блокирующий вызов ядра
+     * (до срока пробы), и запущенный им сеанс останавливается, только когда
+     * она вернётся. Вызывается под [lifecycle].
+     */
     private suspend fun shutdown() {
         supervisor?.cancel()
         supervisor = null
@@ -686,13 +715,15 @@ class DPpassVpnService : VpnService() {
             ticker = null
             unwatchNetwork()
             sessionRegime = null
-            connecting?.cancel()
+            val pending = connecting
             connecting = null
+            pending?.cancel()
             session?.stop()
             session = null
             tunnel?.close()
             tunnel = null
-        }
+            pending
+        }?.join()
         // Опыт адаптивной модели — на диск, чтобы пережил остановку (D-44).
         withContext(NonCancellable) { AppGraph.graph(this@DPpassVpnService).core.persistStability() }
     }
@@ -701,7 +732,7 @@ class DPpassVpnService : VpnService() {
         // Пользователь отозвал разрешение или включил другой VPN.
         DeviceLog.log.info("service_revoked")
         scope.launch {
-            shutdown()
+            lifecycle.withLock { shutdown() }
             TunnelState.set(TunnelStatus.Idle)
             announce()
             stopSelf()
@@ -710,7 +741,7 @@ class DPpassVpnService : VpnService() {
 
     override fun onDestroy() {
         // Сервис уходит: уборка — в области процесса, она переживёт этот объект.
-        AppGraph.scope.launch { shutdown() }
+        AppGraph.scope.launch { lifecycle.withLock { shutdown() } }
         // Без туннеля вопрос о сбое сервера (D-58) ни к чему.
         ServerSwitch.clear(this)
         // Отказ остаётся на экране; всё остальное без сервиса — «не подключено».
