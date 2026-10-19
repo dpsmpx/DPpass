@@ -17,8 +17,9 @@ import kotlinx.coroutines.withContext
 
 /**
  * «Серверы»: серверы активной конфигурации, выбор пользователя (D-34),
- * здоровье с запуска процесса (D-15) и задержка по замеру (D-41). Поиск
- * по имени и порядок — «как у поставщика» или «по задержке».
+ * здоровье с запуска процесса (D-15) и задержка по замеру (D-41) — по
+ * кнопке или протяжкой списка вниз (D-70). Поиск по имени и порядок —
+ * «как у поставщика» или «по задержке».
  */
 class ServersScreen(host: Host) : Screen(host) {
     private val count = Ui.text(context, R.style.Text_DPpass_Secondary)
@@ -42,30 +43,36 @@ class ServersScreen(host: Host) : Screen(host) {
     }
     private var lastStatus: TunnelStatus = TunnelStatus.Idle
 
-    override val view: View = scroll(
-        Ui.column(context, 12).apply {
-            addView(
-                header(
-                    context.getString(R.string.tab_servers),
-                    measureButton,
-                    Ui.iconButton(context, R.drawable.ic_lan, context.getString(R.string.relays_entry)) { host.push(RelaysScreen(host)) },
-                    Ui.iconButton(context, R.drawable.ic_add, context.getString(R.string.add_title)) { ImportFlow.menu(host) },
-                ),
-            )
-            addView(count)
-            addView(relayNote, Ui.matchWidth())
-            addView(search, Ui.matchWidth())
-            addView(sortRow, Ui.matchWidth())
-            addView(list, Ui.matchWidth())
-            addView(empty, Ui.matchWidth())
-            addView(
-                Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.latency_note)).apply {
-                    setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0)
-                },
-            )
-        },
-        topDp = 4,
-    )
+    /** Протяжка вниз — тот же замер, что и кнопкой (D-70). */
+    private val pull = PullToRefresh(
+        context,
+        scroll(
+            Ui.column(context, 12).apply {
+                addView(
+                    header(
+                        context.getString(R.string.tab_servers),
+                        measureButton,
+                        Ui.iconButton(context, R.drawable.ic_lan, context.getString(R.string.relays_entry)) { host.push(RelaysScreen(host)) },
+                        Ui.iconButton(context, R.drawable.ic_add, context.getString(R.string.add_title)) { ImportFlow.menu(host) },
+                    ),
+                )
+                addView(count)
+                addView(relayNote, Ui.matchWidth())
+                addView(search, Ui.matchWidth())
+                addView(sortRow, Ui.matchWidth())
+                addView(list, Ui.matchWidth())
+                addView(empty, Ui.matchWidth())
+                addView(
+                    Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.latency_note)).apply {
+                        setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0)
+                    },
+                )
+            },
+            topDp = 4,
+        ),
+    ) { measure() }
+
+    override val view: View = pull
 
     override fun render(status: TunnelStatus) {
         lastStatus = status
@@ -191,11 +198,15 @@ class ServersScreen(host: Host) : Screen(host) {
         host.changed()
     }
 
-    /** Задержка (D-41): только по нажатию, по одному серверу, с паузой; итоги — по мере замеров. */
-    private fun measure() {
-        val core = host.graph?.core ?: return
+    /**
+     * Задержка (D-41): по кнопке или протяжке (D-70), по одному серверу, с
+     * паузой; итоги — по мере замеров. false — замер не начат: серверов нет
+     * или он уже идёт.
+     */
+    private fun measure(): Boolean {
+        val core = host.graph?.core ?: return false
         val profiles = core.activation.state.activeConfig?.profiles.orEmpty()
-        if (profiles.isEmpty() || measuring?.isActive == true) return
+        if (profiles.isEmpty() || measuring?.isActive == true) return false
         measured = 0
         total = minOf(profiles.size, com.dpsmpx.dppass.connection.LatencyBook.MAX_PER_RUN)
         measuring = host.scope.launch {
@@ -210,8 +221,10 @@ class ServersScreen(host: Host) : Screen(host) {
             }
             measuring = null
             byLatency = true
+            pull.finish()
             render(lastStatus)
         }
+        return true
     }
 
     private companion object {

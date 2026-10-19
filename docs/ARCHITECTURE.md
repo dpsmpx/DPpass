@@ -638,7 +638,9 @@ TCP-потока, если режутся TLS или крупные переда
 адреса — `InetAddress.getByAddress` (без DNS). `MainActivity` —
 интерфейс (D-34): одна `Activity` с `FLAG_SECURE`, экраны — классы
 `Screen` пакета `app.ui` на встроенных Views, логика экранов без Android —
-`ui/Presentation.kt` и `ui/Explain.kt` (тесты на хосте в `app/src/test`).
+`ui/Presentation.kt`, `ui/Explain.kt` и `ui/PullGesture.kt` (тесты на
+хосте в `app/src/test`). В «Серверах» протяжка вниз — тот же замер
+задержки, что по кнопке (`PullToRefresh`, D-70).
 Экраны «почему» (этап 4): «Почему этот сервер» — план D-15 последнего
 подключения с исходами попыток (сервис кладёт его в `TunnelState.plan`) и
 план следующего (`DPpassCore.plan`); «Почему этот маршрут» — ответ
