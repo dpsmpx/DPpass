@@ -75,7 +75,7 @@
     <string name="server_connected">Подключён</string>
     <string name="a11y_selected">Выбрано</string>
     <string name="servers_empty">Серверов нет. Добавьте подписку или вставьте ссылки на серверы.</string>
-    <string name="servers_search">Поиск серверов</string>
+    <string name="servers_search">Поиск: имя или код из журнала</string>
     <string name="servers_not_found">Ничего не найдено</string>
     <string name="sort_provider">По порядку</string>
     <string name="sort_latency">По задержке</string>
@@ -434,6 +434,7 @@
     <string name="plan_next_relay">Подключение — через устройство раздачи «%1$s»: в плане один кандидат.</string>
     <string name="plan_next_note">План на сейчас: при подключении правила те же, но пауза после отказа к тому времени может закончиться.</string>
     <string name="plan_attempt">%1$d. %2$s</string>
+    <string name="plan_journal_id">Код в журнале: %1$s</string>
     <string name="plan_connected">Подключён</string>
     <string name="plan_excluded">Исключены из плана</string>
     <string name="history_title">История активаций</string>

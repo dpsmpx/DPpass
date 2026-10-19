@@ -194,6 +194,13 @@ class PresentationTest {
         assertEquals(listOf("c"), ServerList.filter(rows, "quic").map { it.id.value }, "поиск и по описанию")
         assertEquals(listOf("a", "b", "c", "d"), ServerList.filter(rows, "  ").map { it.id.value })
         assertEquals(listOf("b"), ServerList.filter(rows, "СЕРВЕР B").map { it.id.value }, "без учёта регистра")
+
+        // Код из журнала (19.10.2026: в журнале — код, в списке — имя).
+        val logged = reality.copy(id = ProfileId("s1.0123abcdef45"), name = "Сервер X")
+        val withCode = ServerList.rows(listOf(reality, logged, trojanWs), { CandidateHealth() }, null, null, 0) { null }
+        assertEquals(listOf("s1.0123abcdef45"), ServerList.filter(withCode, "0123AB").map { it.id.value }, "поиск по коду из журнала")
+        assertEquals(listOf("s1.0123abcdef45"), ServerList.filter(withCode, "s1.0123abcdef45").map { it.id.value })
+        assertTrue(ServerList.filter(withCode, "s1.").isEmpty(), "короткий запрос по коду не ищет")
     }
 
     @Test

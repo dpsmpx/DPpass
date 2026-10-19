@@ -127,12 +127,20 @@ object ServerList {
         }
     }
 
-    /** Поиск: подстрока имени или описания, без учёта регистра. */
+    /**
+     * Поиск: подстрока имени или описания, без учёта регистра. И код из
+     * журнала (`s1.7ed0…`): в журнале у сервера код, а не имя, — 19.10.2026
+     * автор не смог найти сервер из журнала в списке. Код — от
+     * [ID_SEARCH_FROM] символов: короткий запрос совпадал бы с кодами почти
+     * у всех.
+     */
     fun filter(rows: List<ServerRow>, query: String): List<ServerRow> {
         val q = query.trim().lowercase()
         if (q.isEmpty()) return rows
-        return rows.filter { q in it.name.lowercase() || q in it.summary.lowercase() }
+        return rows.filter { q in it.name.lowercase() || q in it.summary.lowercase() || (q.length >= ID_SEARCH_FROM && q in it.id.value.lowercase()) }
     }
+
+    const val ID_SEARCH_FROM: Int = 4
 
     /** По задержке: измеренные — по возрастанию, остальные — после, в прежнем порядке. */
     fun byLatency(rows: List<ServerRow>): List<ServerRow> = rows.withIndex()

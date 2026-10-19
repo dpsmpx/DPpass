@@ -133,8 +133,15 @@ class PlanScreen(host: Host) : SubScreen(host, R.string.plan_title) {
                     R.drawable.ic_block to context.getString(R.string.error_with_reason, context.getString(Ui.kind(x.reason.kind)), x.reason.message)
                 PlanResult.Planned -> R.drawable.ic_servers to null
             }
-            val lines = listOfNotNull(result, r.reasons.joinToString(ServerList.SEPARATOR).ifEmpty { null })
-            addView(Ui.ListRow(context, icon, context.getString(R.string.plan_attempt, i + 1, r.name)).subtitle(lines.joinToString("\n")), Ui.matchWidth())
+            // Код из журнала: в журнале у сервера код, а не имя (19.10.2026 автор не нашёл сервер из журнала).
+            val lines = listOfNotNull(
+                result,
+                r.reasons.joinToString(ServerList.SEPARATOR).ifEmpty { null },
+                context.getString(R.string.plan_journal_id, r.profileId.value),
+            )
+            val row = Ui.ListRow(context, icon, context.getString(R.string.plan_attempt, i + 1, r.name)).subtitle(lines.joinToString("\n"))
+            row.subtitle.setTextIsSelectable(true)
+            addView(row, Ui.matchWidth())
         }
     }
 

@@ -76,7 +76,7 @@
     <string name="server_connected">Connected</string>
     <string name="a11y_selected">Selected</string>
     <string name="servers_empty">No servers. Add a subscription or paste server links.</string>
-    <string name="servers_search">Search servers</string>
+    <string name="servers_search">Search: name or log code</string>
     <string name="servers_not_found">Nothing found</string>
     <string name="sort_provider">In order</string>
     <string name="sort_latency">By latency</string>
@@ -419,6 +419,7 @@
     <string name="plan_next_relay">The connection goes through the sharing device “%1$s”: the plan has this one candidate.</string>
     <string name="plan_next_note">The plan for now: at connect time the rules are the same, but a pause after a failure may be over by then.</string>
     <string name="plan_attempt">%1$d. %2$s</string>
+    <string name="plan_journal_id">Log code: %1$s</string>
     <string name="plan_connected">Connected</string>
     <string name="plan_excluded">Excluded from the plan</string>
     <string name="history_title">Activation history</string>
