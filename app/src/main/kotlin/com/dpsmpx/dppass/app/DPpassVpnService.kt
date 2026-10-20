@@ -261,8 +261,10 @@ class DPpassVpnService : VpnService() {
         }
         // Без сервера (D-73): серверов нет, устройство раздачи не выбрано, а сайтам списка нужен туннель.
         val prefs = AppPrefs(this)
-        if (core.serverlessReady(prefs.splitSites(), prefs.serverless, relaySelected = relay != null)) {
-            connectServerless(graph, prefs.splitSites(), prefs.serverless)
+        val sites = prefs.splitSites()
+        val serverless = prefs.serverless
+        if (core.serverlessReady(sites, serverless, relaySelected = relay != null)) {
+            connectServerless(graph, sites, serverless)
             return
         }
         val ir = if (relay != null && target != null) core.relayConfig(relay, target.address) else core.activation.state.activeConfig
@@ -319,7 +321,6 @@ class DPpassVpnService : VpnService() {
                 val split = prefs.splitClientHello
                 core.log.info("client_hello_split", "on" to split)
                 // Сайты напрямую с разбиением (D-72): в журнал — число записей, не сами сайты.
-                val sites = prefs.splitSites()
                 core.log.info("split_sites", "n" to sites.size)
                 core.connect(null, checker, tun, preferred, share, regime, split, sites) { delay(it) }
             }
