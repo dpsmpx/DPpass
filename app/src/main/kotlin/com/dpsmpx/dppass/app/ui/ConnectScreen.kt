@@ -11,6 +11,7 @@ import com.dpsmpx.dppass.app.Traffic
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.TunnelStatus
 import com.dpsmpx.dppass.connection.RoutingMode
+import com.dpsmpx.dppass.connection.ServerlessSettings
 import com.dpsmpx.dppass.core.Clock
 import com.dpsmpx.dppass.diagnostics.Outcome
 import kotlinx.coroutines.Job
@@ -119,6 +120,12 @@ class ConnectScreen(host: Host) : Screen(host) {
     /** Вопрос, на который отвечают кнопки карточки (D-58). */
     private var offer: ServerOffer? = null
 
+    /** Без сервера (D-73): серверов нет, а туннель для сайтов списка поднимается. */
+    private val serverlessRow = Ui.ListRow(context, R.drawable.ic_shield, context.getString(R.string.serverless_name))
+        .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+        .onClick { host.showTab(Host.TAB_SETTINGS) }
+    private val serverlessCard = Ui.listCard(context).apply { addView(serverlessRow, Ui.matchWidth()) }
+
     private val emptyCard = Ui.card(context, 12).apply {
         gravity = Gravity.CENTER_HORIZONTAL
         addView(
@@ -170,6 +177,7 @@ class ConnectScreen(host: Host) : Screen(host) {
             addView(offerCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 16) })
             addView(serverCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 16) })
             addView(failureCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 16) })
+            addView(serverlessCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 16) })
             addView(emptyCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 24) })
         },
         topDp = 4,
@@ -193,6 +201,11 @@ class ConnectScreen(host: Host) : Screen(host) {
         // Выбрано устройство раздачи (D-55) — подключаться есть к чему и без подписки.
         val relay = host.prefs.selectedRelay?.let { id -> core?.relays?.find(id) }
         val hasServers = relay != null || (ir != null && ir.profiles.isNotEmpty())
+        // Без сервера (D-73): серверов нет, но сайтам списка туннель нужен — кнопка доступна.
+        val sites = host.prefs.splitSites()
+        val serverless = host.prefs.serverless
+        val serverlessReady = core?.serverlessReady(sites, serverless, relaySelected = relay != null) == true
+        val canConnect = hasServers || serverlessReady
 
         source.text = when (val s = ConfigSource.of(core?.activation?.state?.active?.source)) {
             ConfigSource.None -> context.getString(R.string.source_none)
@@ -209,8 +222,8 @@ class ConnectScreen(host: Host) : Screen(host) {
             when {
                 status is TunnelStatus.Connected -> PowerButton.Mode.CONNECTED
                 status is TunnelStatus.Connecting -> PowerButton.Mode.CONNECTING
-                status is TunnelStatus.Failed && hasServers -> PowerButton.Mode.FAILED
-                status == TunnelStatus.Stopping || !hasServers -> PowerButton.Mode.DISABLED
+                status is TunnelStatus.Failed && canConnect -> PowerButton.Mode.FAILED
+                status == TunnelStatus.Stopping || !canConnect -> PowerButton.Mode.DISABLED
                 else -> PowerButton.Mode.OFF
             },
         )
@@ -263,6 +276,14 @@ class ConnectScreen(host: Host) : Screen(host) {
         } else {
             failureCard.visibility = View.GONE
         }
+        serverlessCard.visibility = if (serverlessReady) View.VISIBLE else View.GONE
+        serverlessRow.subtitle(
+            if (serverless.rest == ServerlessSettings.Rest.SPLIT) {
+                context.getString(R.string.serverless_summary_split, sites.size)
+            } else {
+                context.getString(R.string.serverless_summary_direct, sites.size)
+            },
+        )
         emptyCard.visibility = if (graph != null && !hasServers) View.VISIBLE else View.GONE
         renderOffer(TunnelState.offer.value)
     }

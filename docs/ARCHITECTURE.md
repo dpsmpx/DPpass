@@ -349,6 +349,12 @@ Xray так, чтобы смысл IR сохранился, а где Xray по�
   разбиением» (D-72, `CompilePlan.splitSites`) — `dppass:direct-split`
   (`freedom` с тем же `fragment` и той же `domainStrategy`, что у
   `direct`);
+- без сервера (D-73, `compileServerless`, `ServerlessPlan`; конфигурацию
+  для TUN строит `connection.ServerlessMode`, когда серверов нет):
+  исходящего к серверу нет, `proxy` — прямой с `fragment` (по его
+  счётчикам — трафик сеанса, через него — проба DoH напрямую), правила
+  списка D-72 ведут TCP на `proxy`, по умолчанию — `direct` или `proxy`;
+  DNS — только напрямую (`https+local` или `localhost`);
 - правила: с раздачей (D-51) первым — `dppass:share-guard` (на входы
   раздачи только из подсетей раздачи и не с адресов телефона, остальное
   — `block`); перехват DNS из TUN (адрес `172.19.0.2:53` → `dns-out`),

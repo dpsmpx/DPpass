@@ -15,7 +15,6 @@ import android.widget.LinearLayout
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.TunnelStatus
 import com.dpsmpx.dppass.connection.AppMode
-import com.dpsmpx.dppass.connection.UserPolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -27,12 +26,19 @@ data class AppEntry(val packageName: String, val label: String, val icon: Drawab
  * Раздельное туннелирование (D-38): все приложения; все, кроме
  * выбранных; только выбранные. Список — приложения с ярлыком запуска
  * (`<queries>`), без `QUERY_ALL_PACKAGES`; сам DPpass в туннель не
- * входит никогда (D-17). Выбор применяется кнопкой «Готово» одной
- * сменой политики.
+ * входит никогда (D-17). Выбор применяется кнопкой «Готово» одним
+ * вызовом [apply]: сменой политики или, без сервера (D-73), своим выбором
+ * режима.
  */
-class AppsScreen(host: Host, private val apply: (UserPolicy) -> Unit) : SubScreen(host, R.string.settings_apps) {
-    private var mode: AppMode = AppMode.ALL
-    private val chosen = LinkedHashSet<String>()
+class AppsScreen(
+    host: Host,
+    title: Int,
+    initialMode: AppMode,
+    initialApps: Set<String>,
+    private val apply: (AppMode, Set<String>) -> Unit,
+) : SubScreen(host, title) {
+    private var mode: AppMode = initialMode
+    private val chosen = LinkedHashSet(initialApps)
     private var apps: List<AppEntry> = emptyList()
     private var query = ""
     private val modes = LinearLayout(context)
@@ -44,12 +50,6 @@ class AppsScreen(host: Host, private val apply: (UserPolicy) -> Unit) : SubScree
         renderList()
     }
 
-    init {
-        val p = host.graph?.core?.userPolicy?.currentOrDefault() ?: UserPolicy.DEFAULT
-        mode = p.appMode
-        chosen += p.apps
-    }
-
     override fun content(): View = Ui.column(context, 12).apply {
         addView(modes, Ui.matchWidth())
         addView(hint.apply { setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0) })
@@ -59,12 +59,11 @@ class AppsScreen(host: Host, private val apply: (UserPolicy) -> Unit) : SubScree
         addView(
             Ui.button(context, R.string.action_done, Ui.Style.PRIMARY, R.drawable.ic_check).apply {
                 setOnClickListener {
-                    val base = host.graph?.core?.userPolicy?.currentOrDefault() ?: UserPolicy.DEFAULT
                     if (mode == AppMode.ONLY && chosen.isEmpty()) {
                         host.toast(context.getString(R.string.apps_only_empty))
                         return@setOnClickListener
                     }
-                    apply(base.copy(appMode = mode, apps = chosen.toSet()))
+                    apply(mode, chosen.toSet())
                     host.pop()
                 }
             },

@@ -8,9 +8,11 @@ import com.dpsmpx.dppass.config.VlessFlow
 import com.dpsmpx.dppass.core.Cidr
 import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.core.ProfileId
+import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Secret
+import com.dpsmpx.dppass.routing.DnsPolicy
 import com.dpsmpx.dppass.routing.RouteDecision
 import com.dpsmpx.dppass.routing.RouteEvaluator
 import com.dpsmpx.dppass.routing.RouteQuery
@@ -100,6 +102,24 @@ data class CompilePlan(
 )
 
 /**
+ * Без сервера (D-73): только прямые выходы. Сайты [splitSites] — с
+ * разбиением начала TLS, UDP 443 к ним закрыт; остальное — напрямую или,
+ * если [splitRest], тоже с разбиением. Имена — по [dns] (DoH напрямую или
+ * системный резолвер); у сервера DNS нет маршрута через туннель.
+ */
+data class ServerlessPlan(
+    val dns: DnsPolicy,
+    val splitSites: SplitSites,
+    val splitRest: Boolean,
+    val withTun: Boolean = true,
+) {
+    companion object {
+        /** Сеанс без сервера в `CompiledConfig.profileId`: не профиль документа — в id профиля нет двоеточий. */
+        val PROFILE_ID: ProfileId = ProfileId("dppass:serverless")
+    }
+}
+
+/**
  * Раздача туннеля другим устройствам (D-51): вход прокси с логином и
  * паролем — только на адресах [endpoints] (частные IPv4 интерфейсов
  * раздачи: точка доступа, USB- и Bluetooth-модем), на порту [port].
@@ -185,6 +205,10 @@ interface BackendCompiler {
     fun checkSplitSites(sites: SplitSites): List<Diagnostic> = emptyList()
 
     fun compile(ir: ConfigIr, plan: CompilePlan): Outcome<CompiledConfig>
+
+    /** Конфигурация без сервера (D-73); ядро, которое так не умеет, — отказ, а не подмена (D-05). */
+    fun compileServerless(plan: ServerlessPlan): Outcome<CompiledConfig> =
+        Outcome.failure(DiagCode.CAPABILITY_FEATURE_UNSUPPORTED, "${capabilities.backendId}: режима без сервера нет")
 }
 
 /**

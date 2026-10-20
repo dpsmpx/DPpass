@@ -158,20 +158,38 @@ def check_config_dirs():
             xr = e.get("xray")
             if xr is None and ld.get("outcome") == "ok":
                 bad(path, "нет ожидания xray: разбираемая конфигурация корпуса компилируется и для Xray (этап 2)")
-            if xr is not None and keys(path, xr, {"outcome", "codes", "geodata", "split_client_hello", "split_sites"}, ("outcome",)):
+            if xr is not None and keys(path, xr, {"outcome", "codes", "geodata", "split_client_hello", "split_sites", "serverless"}, ("outcome",)):
                 one_of(path, "xray.outcome", xr.get("outcome"), {"compiled", "rejected"})
                 if not isinstance(xr.get("split_client_hello", False), bool):
                     bad(path, "xray.split_client_hello — true или false (разбиение ClientHello, D-68)")
                 sites = xr.get("split_sites")
                 if "split_sites" in xr and not (isinstance(sites, list) and sites and all(isinstance(x, str) and x for x in sites)):
                     bad(path, "xray.split_sites — непустой список строк: домены и geosite:… (сайты напрямую с разбиением, D-72)")
+                variants = serverless_variants(path, xr["serverless"]) if "serverless" in xr else []
                 codes(path, xr)
                 if "geodata" in xr:
                     check_geodata_ref(path, xr["geodata"])
                 if ld.get("outcome") != "ok":
                     bad(path, "xray есть, а load.outcome не ok — компиляция не дойдёт до проверки")
-                check_xray_golden(d, n, os.path.join(root, n + ".json"), xr.get("outcome") == "compiled")
+                check_xray_golden(d, n, os.path.join(root, n + ".json"), xr.get("outcome") == "compiled", variants)
         check_xray_orphans(d, expects & inputs)
+
+
+def serverless_variants(path, items):
+    """xray.serverless — варианты режима без сервера (D-73): {"rest": direct|split, "dns": doh|system}; эталон — на вариант."""
+    names = []
+    if not isinstance(items, list) or not items:
+        bad(path, "xray.serverless — непустой список вариантов")
+        return names
+    for v in items:
+        if not isinstance(v, dict) or set(v) != {"rest", "dns"} or v.get("rest") not in ("direct", "split") or v.get("dns") not in ("doh", "system"):
+            bad(path, "xray.serverless: вариант — {\"rest\": direct|split, \"dns\": doh|system} (без сервера, D-73)")
+            continue
+        name = f"_serverless-{v['rest']}-{v['dns']}.json"
+        if name in names:
+            bad(path, f"xray.serverless: вариант {v} повторяется")
+        names.append(name)
+    return names
 
 
 def check_geodata_ref(path, ref):
@@ -192,15 +210,16 @@ def profile_ids(config_path):
     return {p.get("id") for p in doc.get("profiles", []) if isinstance(p, dict) and isinstance(p.get("id"), str)}
 
 
-def check_xray_golden(d, name, config_path, compiled):
-    """Эталоны одной конфигурации: по файлу на профиль — ровно когда компиляция ожидается."""
+def check_xray_golden(d, name, config_path, compiled, serverless=()):
+    """Эталоны одной конфигурации: по файлу на профиль и на вариант без сервера (D-73) — ровно когда компиляция ожидается."""
     gdir = os.path.join(XRAY, d, name)
     have = sorted(os.listdir(gdir)) if os.path.isdir(gdir) else []
     if not compiled:
         if have:
             bad(gdir, "эталоны Xray у конфигурации, компиляция которой ожидается с отказом")
         return
-    want = {f"{pid}.json" for pid in profile_ids(config_path)}
+    # Имя эталона без сервера начинается с «_»: id профиля так не начинается (`Ids`).
+    want = {f"{pid}.json" for pid in profile_ids(config_path)} | set(serverless)
     for f in sorted(want - set(have)):
         bad(os.path.join(gdir, f), "нет эталона Xray для профиля (CorpusTest с -Ddppass.golden.update=true)")
     for f in sorted(set(have) - want):

@@ -24,6 +24,7 @@ import com.dpsmpx.dppass.connection.ConnectionReport
 import com.dpsmpx.dppass.connection.DPpassCore
 import com.dpsmpx.dppass.connection.Degradation
 import com.dpsmpx.dppass.connection.HealthChecker
+import com.dpsmpx.dppass.connection.ServerlessSettings
 import com.dpsmpx.dppass.connection.SessionSupervisor
 import com.dpsmpx.dppass.connection.StabilityObservation
 import com.dpsmpx.dppass.connection.toTunInput
@@ -35,6 +36,7 @@ import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Safe
 import com.dpsmpx.dppass.engine.EngineSession
+import com.dpsmpx.dppass.engine.ServerlessPlan
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.SocketProtector
 import com.dpsmpx.dppass.engine.xray.Ipv6Egress
@@ -42,6 +44,7 @@ import com.dpsmpx.dppass.network.NetworkAssessment
 import com.dpsmpx.dppass.network.NetworkChangeChecks
 import com.dpsmpx.dppass.network.NetworkType
 import com.dpsmpx.dppass.network.RestrictionClass
+import com.dpsmpx.dppass.routing.SplitSites
 import com.dpsmpx.dppass.tunnel.Ipv6Mode
 import com.dpsmpx.dppass.tunnel.TunnelHandle
 import kotlinx.coroutines.CancellationException
@@ -256,6 +259,12 @@ class DPpassVpnService : VpnService() {
                 is Outcome.Success -> t.value.also { core.log.info("relay_found", "medium" to Safe(it.medium.name), "auto" to (d.address == null)) }
             }
         }
+        // Без сервера (D-73): серверов нет, устройство раздачи не выбрано, а сайтам списка нужен туннель.
+        val prefs = AppPrefs(this)
+        if (core.serverlessReady(prefs.splitSites(), prefs.serverless, relaySelected = relay != null)) {
+            connectServerless(graph, prefs.splitSites(), prefs.serverless)
+            return
+        }
         val ir = if (relay != null && target != null) core.relayConfig(relay, target.address) else core.activation.state.activeConfig
         val spec = ir?.let(core::tunnelSpecFor)
         if (ir == null || spec == null) {
@@ -307,7 +316,6 @@ class DPpassVpnService : VpnService() {
                 core.connectVia(relay, target.address, checker, tun, share) { delay(it) }
             } else {
                 // Разбиение ClientHello к серверу (D-68) — выбор пользователя; к устройству раздачи — нет.
-                val prefs = AppPrefs(this@DPpassVpnService)
                 val split = prefs.splitClientHello
                 core.log.info("client_hello_split", "on" to split)
                 // Сайты напрямую с разбиением (D-72): в журнал — число записей, не сами сайты.
@@ -379,6 +387,71 @@ class DPpassVpnService : VpnService() {
             null -> {
                 handle.close()
                 fail(Diagnostic.error(DiagCode.PROFILES_EMPTY, "нет активной конфигурации — подключаться не к чему"))
+            }
+        }
+    }
+
+    /**
+     * Без сервера (D-73): TUN по выбору приложений режима, ядро только с
+     * прямыми выходами, проба DoH напрямую. Наблюдатель сессии (D-44),
+     * вопрос о смене сервера (D-58) и проба IPv6 через сервер (D-66) не
+     * запускаются: сервера нет.
+     */
+    private suspend fun connectServerless(graph: AppGraph.Graph, sites: SplitSites, settings: ServerlessSettings) {
+        val core = graph.core
+        val name = getString(R.string.serverless_name)
+        val tunSpec = when (val spec = core.tunnelSpecFor(core.serverlessConfig(settings))) {
+            is Outcome.Failure -> {
+                fail(spec.errors.first())
+                return
+            }
+            is Outcome.Success -> spec.value
+        }
+        val handle = when (val t = AndroidTunnelProvider(this).establish(tunSpec)) {
+            is Outcome.Failure -> {
+                t.errors.drop(1).forEach(core.log::diagnostic)
+                fail(t.errors.first())
+                return
+            }
+            is Outcome.Success -> t.value
+        }
+        core.log.info("tunnel_up", "routes" to tunSpec.routes.size, "apps" to Safe(tunSpec.apps::class.simpleName ?: "?"))
+        progress(TunnelStatus.Connecting(name))
+        val probeTimeout = (core.policy.healthTimeoutMillis - PROBE_MARGIN_MILLIS).toInt()
+        val job = currentCoroutineContext().job
+        val result = try {
+            core.connectServerless(handle.toTunInput(), sites, settings) { _, dns ->
+                withContext(Dispatchers.IO) { graph.engine.probeServerless(dns, probeTimeout) }
+            }
+        } catch (e: CancellationException) {
+            handle.close()
+            throw e
+        }
+        when (result) {
+            is Outcome.Failure -> {
+                handle.close()
+                fail(result.errors.first())
+            }
+            is Outcome.Success -> withContext(NonCancellable) {
+                val session = result.value
+                val accepted = state.withLock {
+                    if (job.isCancelled) {
+                        false
+                    } else {
+                        this@DPpassVpnService.session = session
+                        tunnel = handle
+                        true
+                    }
+                }
+                if (accepted) {
+                    core.log.info("connected", "profile" to Safe(ServerlessPlan.PROFILE_ID.value), "attempts" to 1)
+                    progress(TunnelStatus.Connected(ServerlessPlan.PROFILE_ID, name, core.clock.nowMillis(), Clock.MONOTONIC.nowMillis()))
+                    watchNetwork()
+                    startTicker(session)
+                } else {
+                    session.stop()
+                    handle.close()
+                }
             }
         }
     }

@@ -15,6 +15,8 @@ import com.dpsmpx.dppass.connection.Exclusion
 import com.dpsmpx.dppass.connection.PlannedAttempt
 import com.dpsmpx.dppass.connection.PolicyBuilder
 import com.dpsmpx.dppass.connection.RoutingMode
+import com.dpsmpx.dppass.connection.ServerlessMode
+import com.dpsmpx.dppass.connection.ServerlessSettings
 import com.dpsmpx.dppass.connection.UserPolicy
 import com.dpsmpx.dppass.core.Endpoint
 import com.dpsmpx.dppass.core.Host
@@ -179,5 +181,21 @@ class ExplainTest {
         // Незнакомый источник — как есть, а не «своя конфигурация» (D-05).
         assertEquals(HistorySource.Other("future:x"), ActivationHistory.source("future:x"))
         assertEquals("0123456789ab", ActivationHistory.shortChecksum("0123456789abcdef0123"))
+    }
+
+    @Test
+    fun serverlessAnswersAreAlwaysDirectWithTheReason() {
+        // D-73: сервера нет — всё напрямую; вопрос только, с разбиением ли и почему.
+        val policy = ServerlessMode.config(
+            ServerlessSettings(apps = ServerlessSettings.Apps.OWN, ownMode = AppMode.EXCEPT, ownApps = setOf("com.example.bank")),
+            UserPolicy.DEFAULT,
+        ).routing
+        val site = RouteQuery(domain = "video.example.com")
+        assertEquals(RouteAnswer(RouteVerdict.DIRECT, RouteWhy.SplitSites), RouteExplain.serverless(site, policy, inList = true, splitRest = false))
+        assertEquals(RouteAnswer(RouteVerdict.DIRECT, RouteWhy.ServerlessDirect), RouteExplain.serverless(site, policy, inList = false, splitRest = false))
+        assertEquals(RouteAnswer(RouteVerdict.DIRECT, RouteWhy.ServerlessSplit), RouteExplain.serverless(site, policy, inList = false, splitRest = true))
+        // Приложение вне туннеля режима и локальная сеть — их ядро не видит вовсе.
+        assertEquals(RouteWhy.AppOutside, RouteExplain.serverless(site.copy(packageName = "com.example.bank"), policy, inList = true, splitRest = true).why)
+        assertEquals(RouteWhy.LocalNetwork, RouteExplain.serverless(RouteQuery(ip = IpAddress.parse("192.168.1.1")), policy, inList = false, splitRest = true).why)
     }
 }

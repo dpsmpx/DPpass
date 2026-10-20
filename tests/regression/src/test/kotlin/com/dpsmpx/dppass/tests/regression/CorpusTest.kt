@@ -9,7 +9,10 @@ import com.dpsmpx.dppass.connection.ConnectionReport
 import com.dpsmpx.dppass.connection.DPpassCore
 import com.dpsmpx.dppass.connection.EngineProfileFilter
 import com.dpsmpx.dppass.connection.HealthBook
+import com.dpsmpx.dppass.connection.ServerlessMode
+import com.dpsmpx.dppass.connection.ServerlessSettings
 import com.dpsmpx.dppass.connection.SimulatedHealthChecker
+import com.dpsmpx.dppass.connection.UserPolicy
 import com.dpsmpx.dppass.core.Cidr
 import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.core.Json
@@ -25,6 +28,7 @@ import com.dpsmpx.dppass.core.SubscriptionId
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Secret
+import com.dpsmpx.dppass.diagnostics.Severity
 import com.dpsmpx.dppass.engine.CompilePlan
 import com.dpsmpx.dppass.engine.EngineCapabilities
 import com.dpsmpx.dppass.engine.mock.MockBackend
@@ -46,6 +50,7 @@ import com.dpsmpx.dppass.network.ProbeTarget
 import com.dpsmpx.dppass.network.simulation.NetworkCondition
 import com.dpsmpx.dppass.network.simulation.SimulatedNetwork
 import com.dpsmpx.dppass.routing.AppLowering
+import com.dpsmpx.dppass.routing.DnsTransport
 import com.dpsmpx.dppass.routing.RouteEvaluator
 import com.dpsmpx.dppass.routing.RouteQuery
 import com.dpsmpx.dppass.routing.SplitSites
@@ -80,6 +85,9 @@ import kotlin.test.fail
 class CorpusTest {
     private val data = File(System.getProperty("dppass.repoRoot"), "tests/data")
     private val goldens = File(data, "xray")
+
+    /** DoH без сервера (D-73) в эталонах: адрес из документационного диапазона. */
+    private val syntheticDoh = DnsTransport.Https("https://192.0.2.53/dns-query")
 
     /** Перезапись эталонов вместо сверки — только намеренно, с обзором разницы в git. */
     private val updateGoldens = System.getProperty("dppass.golden.update") == "true"
@@ -140,7 +148,9 @@ class CorpusTest {
      * как на устройстве (D-27); без него — не сверяются, как на хосте.
      * `split_client_hello` — компиляция с разбиением ClientHello (D-68).
      * `split_sites` — список «Напрямую с разбиением» (D-72): записи настройки
-     * телефона, разбираются как на телефоне.
+     * телефона, разбираются как на телефоне. `serverless` — варианты режима
+     * без сервера (D-73) с тем же списком: эталон `_serverless-<rest>-<dns>.json`
+     * на вариант (с «_» id профиля не начинается).
      */
     private fun checkXray(where: String, ir: ConfigIr, expect: JsonObject) {
         val geodata = str(expect, "geodata")?.let { rel ->
@@ -167,6 +177,18 @@ class CorpusTest {
         val unexpected = got - codes(expect).toSet()
         assertTrue(unexpected.isEmpty(), "Xray, $where: неожиданные находки $unexpected")
         for ((id, outcome) in results) golden(File(dir, "$id.json"), outcome.valueOrNull()!!.payloadForEngine())
+        for (v in (expect["serverless"] as? JsonArray)?.items.orEmpty()) {
+            val rest = str(v as JsonObject, "rest")!!
+            val dns = str(v, "dns")!!
+            val settings = ServerlessSettings.of(rest, dns, null, null, emptySet())
+            // DoH политики — настоящий резолвер; в корпусе адреса только синтетические (`check_fixtures.py`).
+            val plan = ServerlessMode.plan(settings, sites, UserPolicy.DEFAULT).let { p ->
+                p.copy(dns = p.dns.copy(servers = p.dns.servers.map { s -> if (s.transport is DnsTransport.Https) s.copy(transport = syntheticDoh) else s }))
+            }
+            val r = compiler.compileServerless(plan)
+            assertTrue(r.isSuccess && r.diagnostics.none { it.severity > Severity.INFO }, "Xray без сервера, $where, $rest/$dns: ${r.diagnostics.map { it.render() }}")
+            golden(File(dir, "_serverless-$rest-$dns.json"), r.valueOrNull()!!.payloadForEngine())
+        }
     }
 
     /** Эталон совпадает с тем, что выдал компилятор; в режиме перезаписи — записывается. */

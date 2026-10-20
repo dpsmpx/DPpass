@@ -15,6 +15,7 @@ import com.dpsmpx.dppass.core.Json
 import com.dpsmpx.dppass.core.JsonObject
 import com.dpsmpx.dppass.core.JsonString
 import com.dpsmpx.dppass.core.JsonValue
+import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
@@ -23,6 +24,7 @@ import com.dpsmpx.dppass.engine.CapabilityChecker
 import com.dpsmpx.dppass.engine.CompilePlan
 import com.dpsmpx.dppass.engine.CompiledConfig
 import com.dpsmpx.dppass.engine.EngineCapabilities
+import com.dpsmpx.dppass.engine.ServerlessPlan
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.routing.AppLowering
 import com.dpsmpx.dppass.routing.Conditions
@@ -35,6 +37,7 @@ import com.dpsmpx.dppass.routing.DomainMatcher
 import com.dpsmpx.dppass.routing.DomainResolution
 import com.dpsmpx.dppass.routing.RouteAction
 import com.dpsmpx.dppass.routing.RouteEvaluator
+import com.dpsmpx.dppass.routing.RoutingPolicy
 import com.dpsmpx.dppass.routing.SplitSites
 import com.dpsmpx.dppass.routing.TransportProtocol
 import java.util.Base64
@@ -118,24 +121,56 @@ class XrayCompiler(
             build.directSplitOutbound(ir.dns.strategy).takeIf { !plan.splitSites.isEmpty },
         )
 
-        val doc = Json.obj(
-            "log" to Json.obj("loglevel" to Json.str("none"), "dnsLog" to Json.bool(false)),
-            "dns" to dns,
-            "routing" to routing,
-            "inbounds" to Json.arr(listOfNotNull(tunInbound().takeIf { plan.withTun }) + plan.share?.let(::shareInbounds).orEmpty()),
-            "outbounds" to Json.arr(outbounds),
-            // Счётчики исходящих (`outbound>>>proxy>>>traffic>>>…`): по ним мост отдаёт
-            // TrafficStats сессии (D-25); без них запуск отвергается, а не врёт нулями.
-            "stats" to Json.obj(),
-            "policy" to Json.obj(
-                "system" to Json.obj("statsOutboundUplink" to Json.bool(true), "statsOutboundDownlink" to Json.bool(true)),
-            ),
-        )
+        val inbounds = listOfNotNull(tunInbound().takeIf { plan.withTun }) + plan.share?.let(::shareInbounds).orEmpty()
+        return Outcome.Success(compiled(profile.id, document(dns, routing, inbounds, outbounds)), problems)
+    }
+
+    /**
+     * Без сервера (D-73): исходящего к серверу нет. `proxy` — прямой выход с
+     * разбиением: по его счётчикам мост отдаёт трафик сеанса, и через него
+     * идут проба DNS и замер скорости (D-25, D-32, D-61) — в этом режиме это
+     * путь с разбиением. Сайты списка — на него (TCP) или в `block` (UDP
+     * 443), как в D-72; остальное — `direct` или, если [ServerlessPlan.splitRest],
+     * тоже `proxy`. Сервер DNS через туннель здесь не к кому вести — отказ.
+     */
+    override fun compileServerless(plan: ServerlessPlan): Outcome<CompiledConfig> {
+        val problems = mutableListOf<Diagnostic>()
+        val build = Build(problems, geodata)
+        for ((i, server) in plan.dns.servers.withIndex()) {
+            if (server.route == DnsRoute.TUNNEL) {
+                build.reject(DiagCode.CAPABILITY_FEATURE_UNSUPPORTED, "без сервера DNS-сервер «${server.id}» через туннель вести некуда", "$.dns.servers[$i]")
+            }
+        }
+        val ir = ConfigIr(name = null, profiles = emptyList(), routing = RoutingPolicy(defaultAction = RouteAction.DIRECT), dns = plan.dns)
+        val dns = build.dns(plan.dns)
+        val routing = build.routing(ir, plan.withTun, splitSites = plan.splitSites, splitTag = XrayBackend.TAG_PROXY)
+        if (problems.any { it.isError }) return Outcome.Failure(problems)
+        val split = build.directSplitOutbound(plan.dns.strategy, XrayBackend.TAG_PROXY)
+        val direct = build.directOutbound(plan.dns.strategy)
+        // Первый исходящий — для соединений, которых не взяло ни одно правило (см. KDoc класса).
+        val outbounds = (if (plan.splitRest) listOf(split, direct) else listOf(direct, split)) +
+            listOfNotNull(blockOutbound(), dnsOutbound().takeIf { plan.withTun })
+        val inbounds = listOfNotNull(tunInbound().takeIf { plan.withTun })
+        return Outcome.Success(compiled(ServerlessPlan.PROFILE_ID, document(dns, routing, inbounds, outbounds)), problems)
+    }
+
+    private fun document(dns: JsonObject, routing: JsonObject, inbounds: List<JsonObject>, outbounds: List<JsonObject>): JsonObject = Json.obj(
+        "log" to Json.obj("loglevel" to Json.str("none"), "dnsLog" to Json.bool(false)),
+        "dns" to dns,
+        "routing" to routing,
+        "inbounds" to Json.arr(inbounds),
+        "outbounds" to Json.arr(outbounds),
+        // Счётчики исходящих (`outbound>>>proxy>>>traffic>>>…`): по ним мост отдаёт
+        // TrafficStats сессии (D-25); без них запуск отвергается, а не врёт нулями.
+        "stats" to Json.obj(),
+        "policy" to Json.obj(
+            "system" to Json.obj("statsOutboundUplink" to Json.bool(true), "statsOutboundDownlink" to Json.bool(true)),
+        ),
+    )
+
+    private fun compiled(profileId: ProfileId, doc: JsonObject): CompiledConfig {
         val payload = Json.write(doc, pretty = true) + "\n"
-        return Outcome.Success(
-            CompiledConfig(capabilities.backendId, capabilities.backendVersion, profile.id, payload, Checksums.sha256(payload)),
-            problems,
-        )
+        return CompiledConfig(capabilities.backendId, capabilities.backendVersion, profileId, payload, Checksums.sha256(payload))
     }
 
     /** Одна компиляция: находки копятся в [problems] — отказ виден весь, а не первой ошибкой. */
@@ -385,7 +420,13 @@ class XrayCompiler(
 
         // ---- маршрутизация ----
 
-        fun routing(ir: ConfigIr, withTun: Boolean, share: ShareSpec? = null, splitSites: SplitSites = SplitSites.NONE): JsonObject {
+        fun routing(
+            ir: ConfigIr,
+            withTun: Boolean,
+            share: ShareSpec? = null,
+            splitSites: SplitSites = SplitSites.NONE,
+            splitTag: String = XrayBackend.TAG_DIRECT_SPLIT,
+        ): JsonObject {
             val lowered = AppLowering.lower(ir.routing)
             val rules = mutableListOf<JsonValue>()
             if (share != null) {
@@ -421,7 +462,7 @@ class XrayCompiler(
                     "outboundTag" to Json.str(if (s.route == DnsRoute.TUNNEL) XrayBackend.TAG_PROXY else XrayBackend.TAG_DIRECT),
                 )
             }
-            rules += splitSiteRules(splitSites, withTun)
+            rules += splitSiteRules(splitSites, withTun, splitTag)
             val user = mutableListOf<JsonObject>()
             for ((i, rule) in lowered.engineRules.withIndex()) {
                 val at = "$.routing.rules[${ir.routing.rules.indexOf(rule).takeIf { it >= 0 } ?: i}]"
@@ -488,8 +529,10 @@ class XrayCompiler(
          * целиком, а `fragment` режет только TLS поверх TCP; приложения
          * переходят на TCP. Только вход TUN: клиенты раздачи — без разбиения,
          * как в D-68. Имя ядро знает из распознавания у входа TUN (`sniffing`).
+         * TCP — на [splitTag]: с сервером — `dppass:direct-split`, без сервера —
+         * `proxy` (D-73).
          */
-        fun splitSiteRules(sites: SplitSites, withTun: Boolean): List<JsonObject> {
+        fun splitSiteRules(sites: SplitSites, withTun: Boolean, splitTag: String = XrayBackend.TAG_DIRECT_SPLIT): List<JsonObject> {
             if (sites.isEmpty) return emptyList()
             checkGeo(sites.geoSites, emptyList(), SplitSites.PATH)
             val names = sites.domains.map { "domain:$it" } + sites.geoSites.map { "geosite:$it" }
@@ -508,7 +551,7 @@ class XrayCompiler(
                     "inboundTag" to inbound,
                     "domain" to Json.strings(names),
                     "network" to Json.str("tcp"),
-                    "outboundTag" to Json.str(XrayBackend.TAG_DIRECT_SPLIT),
+                    "outboundTag" to Json.str(splitTag),
                 ),
             )
         }
@@ -653,9 +696,9 @@ class XrayCompiler(
          * выхода разбиения к серверу (D-68): части по [SPLIT_LENGTH] байт, пауза
          * [SPLIT_INTERVAL] мс.
          */
-        fun directSplitOutbound(s: DnsStrategy): JsonObject = JsonObject(
+        fun directSplitOutbound(s: DnsStrategy, tag: String = XrayBackend.TAG_DIRECT_SPLIT): JsonObject = JsonObject(
             directOutbound(s).fields + mapOf(
-                "tag" to JsonString(XrayBackend.TAG_DIRECT_SPLIT),
+                "tag" to JsonString(tag),
                 "settings" to fragmentSettings(),
             ),
         )

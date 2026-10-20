@@ -88,6 +88,20 @@ class XrayProxyEngine(private val runtime: Outcome<XrayRuntime>) : ProxyEngine {
     }
 
     /**
+     * Без сервера (D-73): отвечает ли сервер DNS напрямую — запрос через
+     * `proxy` (прямой выход с разбиением). Системный резолвер не пробуется:
+     * успех без пробы. Блокирует поток не дольше [timeoutMillis].
+     */
+    fun probeServerless(dns: DnsPolicy, timeoutMillis: Int): Outcome<Unit> {
+        val rt = when (runtime) {
+            is Outcome.Failure -> return unavailable()
+            is Outcome.Success -> runtime.value
+        }
+        val (server, target) = XrayHealth.serverlessTarget(dns) ?: return Outcome.Success(Unit)
+        return XrayHealth.outcome(server, rt.probeDns(target, timeoutMillis), via = XrayHealth.VIA_DIRECT)
+    }
+
+    /**
      * Выпускает ли сервер запущенной сессии IPv6 (D-66, [XrayIpv6]): не больше
      * трёх проб DNS по [XrayIpv6.TIMEOUT_MILLIS]. Блокирует поток.
      */

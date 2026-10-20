@@ -1,0 +1,195 @@
+{
+  "log": {
+    "loglevel": "none",
+    "dnsLog": false
+  },
+  "dns": {
+    "tag": "dppass:dns",
+    "servers": [
+      {
+        "address": "localhost",
+        "tag": "dns:local",
+        "domains": [
+          "domain:example.ru"
+        ],
+        "skipFallback": true,
+        "finalQuery": true
+      },
+      {
+        "address": "https://dns.example.net/dns-query",
+        "tag": "dns:remote",
+        "finalQuery": true
+      }
+    ],
+    "queryStrategy": "UseIP",
+    "disableFallbackIfMatch": true
+  },
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "ruleTag": "dppass:dns-hijack",
+        "inboundTag": [
+          "tun-in"
+        ],
+        "ip": [
+          "172.19.0.2"
+        ],
+        "port": "53",
+        "outboundTag": "dns-out"
+      },
+      {
+        "ruleTag": "dppass:dns:remote",
+        "inboundTag": [
+          "dns:remote"
+        ],
+        "outboundTag": "proxy"
+      },
+      {
+        "ruleTag": "dppass:split-quic",
+        "inboundTag": [
+          "tun-in"
+        ],
+        "domain": [
+          "domain:example.org",
+          "geosite:example-a"
+        ],
+        "port": "443",
+        "network": "udp",
+        "outboundTag": "block"
+      },
+      {
+        "ruleTag": "dppass:split-sites",
+        "inboundTag": [
+          "tun-in"
+        ],
+        "domain": [
+          "domain:example.org",
+          "geosite:example-a"
+        ],
+        "network": "tcp",
+        "outboundTag": "dppass:direct-split"
+      },
+      {
+        "ruleTag": "ads-block",
+        "domain": [
+          "domain:ads.example.com"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "ruleTag": "ru-direct",
+        "domain": [
+          "domain:example.ru"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "ruleTag": "lan-ip-direct",
+        "ip": [
+          "198.18.0.0/15"
+        ],
+        "outboundTag": "direct"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "tag": "tun-in",
+      "protocol": "tun",
+      "settings": {
+        "name": "dppass0",
+        "mtu": 1500
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "routeOnly": true
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "proxy",
+      "protocol": "vless",
+      "settings": {
+        "address": "203.0.113.10",
+        "port": 443,
+        "id": "00000000-0000-4000-8000-000000000001",
+        "encryption": "none",
+        "flow": "xtls-rprx-vision"
+      },
+      "streamSettings": {
+        "network": "raw",
+        "security": "reality",
+        "realitySettings": {
+          "serverName": "www.example.com",
+          "password": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+          "shortId": "01234567",
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "tag": "direct",
+      "protocol": "freedom",
+      "streamSettings": {
+        "sockopt": {
+          "domainStrategy": "ForceIPv4v6"
+        }
+      }
+    },
+    {
+      "tag": "block",
+      "protocol": "blackhole",
+      "settings": {
+        "response": {
+          "type": "none"
+        }
+      }
+    },
+    {
+      "tag": "dns-out",
+      "protocol": "dns",
+      "settings": {
+        "rules": [
+          {
+            "action": "hijack",
+            "qType": "1,28"
+          },
+          {
+            "action": "return",
+            "rCode": 0
+          }
+        ]
+      }
+    },
+    {
+      "tag": "dppass:direct-split",
+      "protocol": "freedom",
+      "streamSettings": {
+        "sockopt": {
+          "domainStrategy": "ForceIPv4v6"
+        }
+      },
+      "settings": {
+        "fragment": {
+          "packets": "tlshello",
+          "length": "40-80",
+          "interval": "1-3"
+        }
+      }
+    }
+  ],
+  "stats": {},
+  "policy": {
+    "system": {
+      "statsOutboundUplink": true,
+      "statsOutboundDownlink": true
+    }
+  }
+}

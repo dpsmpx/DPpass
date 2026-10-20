@@ -21,9 +21,14 @@ import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Secret
 import com.dpsmpx.dppass.engine.CompilePlan
 import com.dpsmpx.dppass.engine.CompiledConfig
+import com.dpsmpx.dppass.engine.ServerlessPlan
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.capabilityDiff
 import com.dpsmpx.dppass.engine.mock.MockBackend
+import com.dpsmpx.dppass.routing.DnsPolicy
+import com.dpsmpx.dppass.routing.DnsRoute
+import com.dpsmpx.dppass.routing.DnsServer
+import com.dpsmpx.dppass.routing.DnsTransport
 import com.dpsmpx.dppass.routing.RouteAction
 import com.dpsmpx.dppass.routing.SplitSites
 import java.io.File
@@ -775,5 +780,54 @@ class XrayCompilerTest {
         )
         val rejected = compiler.compile(doc, CompilePlan(doc.profiles[0].id, withTun = true, splitSites = unknown))
         assertEquals(DiagCode.GEO_CODE_UNKNOWN, rejected.errors.single().code)
+    }
+
+    @Test
+    fun serverlessDialsOnlyDirectOutbounds() {
+        // D-73: исходящего к серверу нет; `proxy` — прямой с разбиением (по нему — счётчики моста и проба).
+        val sites = SplitSites.parse("example.com\ngeosite:example-a").valueOrNull()!!
+        val doh = DnsPolicy(listOf(DnsServer("serverless", DnsTransport.Https("https://192.0.2.53/dns-query"), DnsRoute.DIRECT)), "serverless", leakProtection = false)
+        fun compileServerless(plan: ServerlessPlan): JsonObject {
+            val r = XrayCompiler().compileServerless(plan)
+            assertTrue(r.diagnostics.none { it.isError }, "${r.diagnostics}")
+            assertEquals(ServerlessPlan.PROFILE_ID, r.valueOrNull()!!.profileId)
+            return Json.parse(r.valueOrNull()!!.payloadForEngine()) as JsonObject
+        }
+        val p = compileServerless(ServerlessPlan(doh, sites, splitRest = false))
+        val tags = p["outbounds"].items.map { it["tag"].text }
+        assertEquals(listOf(XrayBackend.TAG_DIRECT, XrayBackend.TAG_PROXY, XrayBackend.TAG_BLOCK, XrayBackend.TAG_DNS_OUT), tags, "остальное — напрямую: direct первым")
+        val proxy = outbound(p, XrayBackend.TAG_PROXY)
+        assertEquals("freedom", proxy["protocol"].text)
+        assertEquals("tlshello", proxy["settings"]["fragment"]["packets"].text)
+        assertEquals(outbound(p, XrayBackend.TAG_DIRECT)["streamSettings"], proxy["streamSettings"])
+        assertTrue(p["outbounds"].items.none { it["protocol"].text !in setOf("freedom", "blackhole", "dns") }, "к серверу — ни одного исходящего")
+
+        val rules = rules(p)
+        val quic = rules.single { it["ruleTag"].text == XrayBackend.RULE_SPLIT_QUIC }
+        val tcp = rules.single { it["ruleTag"].text == XrayBackend.RULE_SPLIT_SITES }
+        assertEquals(XrayBackend.TAG_BLOCK, quic["outboundTag"].text)
+        assertEquals(XrayBackend.TAG_PROXY, tcp["outboundTag"].text, "сайты списка — на прямой с разбиением")
+        assertTrue(rules.none { it["outboundTag"].text == XrayBackend.TAG_DIRECT_SPLIT })
+        assertEquals(listOf(XrayBackend.TAG_TUN_IN), p["inbounds"].items.map { it["tag"].text })
+        // DoH — напрямую, мимо диспетчера (`https+local`), и только он.
+        assertEquals(listOf("https+local://192.0.2.53/dns-query"), p["dns"]["servers"].items.map { it["address"].text })
+
+        // «Остальные сайты — с разбиением»: первым — proxy; системный DNS — `localhost`.
+        val system = DnsPolicy(listOf(DnsServer("serverless", DnsTransport.System, DnsRoute.DIRECT)), "serverless", leakProtection = false)
+        val all = compileServerless(ServerlessPlan(system, SplitSites.NONE, splitRest = true))
+        assertEquals(XrayBackend.TAG_PROXY, all["outbounds"].items.first()["tag"].text)
+        assertTrue(ruleTags(all).none { it.startsWith("${XrayBackend.SYSTEM_PREFIX}split") }, "без списка — правил списка нет")
+        assertEquals(listOf("localhost"), all["dns"]["servers"].items.map { it["address"].text })
+
+        // DNS через туннель без сервера вести некуда — отказ с путём, а не молча напрямую (D-05).
+        val tunnel = DnsPolicy(listOf(DnsServer("remote", DnsTransport.Https("https://192.0.2.53/dns-query"), DnsRoute.TUNNEL)), "remote")
+        assertEquals(
+            listOf(DiagCode.CAPABILITY_FEATURE_UNSUPPORTED to "$.dns.servers[0]"),
+            errors(XrayCompiler().compileServerless(ServerlessPlan(tunnel, sites, splitRest = false))),
+        )
+        // geosite списка — против набора (D-27), как с сервером.
+        val set = GeodataManifest("v0.0.0-20260101000000-0123456789ab", "0123456789ab", "2026-01", emptyList(), emptySet(), emptyMap())
+        val unknown = XrayCompiler(geodata = GeodataCodes.Installed(set)).compileServerless(ServerlessPlan(doh, sites, splitRest = false))
+        assertEquals(DiagCode.GEO_CODE_UNKNOWN, unknown.errors.single().code)
     }
 }

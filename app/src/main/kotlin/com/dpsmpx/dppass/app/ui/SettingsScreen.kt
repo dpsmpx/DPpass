@@ -16,8 +16,10 @@ import com.dpsmpx.dppass.connection.AppMode
 import com.dpsmpx.dppass.connection.DnsProvider
 import com.dpsmpx.dppass.connection.PolicyService
 import com.dpsmpx.dppass.connection.RoutingMode
+import com.dpsmpx.dppass.connection.ServerlessSettings
 import com.dpsmpx.dppass.connection.UserPolicy
 import com.dpsmpx.dppass.diagnostics.Outcome
+import com.dpsmpx.dppass.diagnostics.Safe
 import com.dpsmpx.dppass.network.NetworkChangeChecks
 import com.dpsmpx.dppass.routing.SplitSites
 import kotlinx.coroutines.Dispatchers
@@ -109,7 +111,14 @@ class SettingsScreen(host: Host) : Screen(host) {
                     Ui.ListRow(context, R.drawable.ic_apps, context.getString(R.string.settings_apps))
                         .subtitle(appsSummary(policy))
                         .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
-                        .onClick { host.push(AppsScreen(host) { change(it) }) },
+                        .onClick {
+                            host.push(
+                                AppsScreen(host, R.string.settings_apps, policy.appMode, policy.apps) { mode, apps ->
+                                    val base = host.graph?.core?.userPolicy?.currentOrDefault() ?: UserPolicy.DEFAULT
+                                    change(base.copy(appMode = mode, apps = apps))
+                                },
+                            )
+                        },
                     Ui.matchWidth(),
                 )
                 addView(Ui.divider(context))
@@ -233,6 +242,63 @@ class SettingsScreen(host: Host) : Screen(host) {
             Ui.matchWidth(),
         )
 
+        // ---- без сервера (D-73) ----
+        body.addView(Ui.section(context, context.getString(R.string.settings_serverless)))
+        val serverless = host.prefs.serverless
+        body.addView(
+            Ui.listCard(context).apply {
+                addView(
+                    choiceRow(
+                        R.drawable.ic_route,
+                        R.string.serverless_rest,
+                        listOf(R.string.serverless_rest_direct, R.string.serverless_rest_split),
+                        serverless.rest.ordinal,
+                    ) { i -> setServerless(host.prefs.serverless.copy(rest = ServerlessSettings.Rest.entries[i])) },
+                    Ui.matchWidth(),
+                )
+                addView(Ui.divider(context))
+                addView(
+                    choiceRow(
+                        R.drawable.ic_dns,
+                        R.string.serverless_dns,
+                        listOf(R.string.serverless_dns_doh, R.string.serverless_dns_system),
+                        serverless.dns.ordinal,
+                    ) { i -> setServerless(host.prefs.serverless.copy(dns = ServerlessSettings.Dns.entries[i])) },
+                    Ui.matchWidth(),
+                )
+                addView(Ui.divider(context))
+                addView(
+                    choiceRow(
+                        R.drawable.ic_apps,
+                        R.string.serverless_apps,
+                        listOf(R.string.serverless_apps_same, R.string.serverless_apps_own, R.string.serverless_apps_all),
+                        serverless.apps.ordinal,
+                        subtitle = serverlessAppsSummary(serverless, policy),
+                    ) { i ->
+                        val apps = ServerlessSettings.Apps.entries[i]
+                        if (apps == ServerlessSettings.Apps.OWN) {
+                            // Свой выбор — тем же экраном, что с сервером; сохраняется кнопкой «Готово».
+                            val now = host.prefs.serverless
+                            host.push(
+                                AppsScreen(host, R.string.serverless_apps, now.ownMode, now.ownApps) { mode, packages ->
+                                    setServerless(host.prefs.serverless.copy(apps = apps, ownMode = mode, ownApps = packages))
+                                },
+                            )
+                        } else {
+                            setServerless(host.prefs.serverless.copy(apps = apps))
+                        }
+                    },
+                    Ui.matchWidth(),
+                )
+            },
+            Ui.matchWidth(),
+        )
+        body.addView(
+            Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.settings_serverless_note)).apply {
+                setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0)
+            },
+        )
+
         // ---- оформление ----
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val ui = context.getSystemService(UiModeManager::class.java)
@@ -335,6 +401,41 @@ class SettingsScreen(host: Host) : Screen(host) {
             }
             host.changed()
         }
+    }
+
+    /** Строка выбора: подпись — выбранный вариант (или [subtitle]); нажатие — окно с вариантами. */
+    private fun choiceRow(icon: Int, title: Int, options: List<Int>, selected: Int, subtitle: String? = null, pick: (Int) -> Unit): Ui.ListRow =
+        Ui.ListRow(context, icon, context.getString(title))
+            .subtitle(subtitle ?: context.getString(options[selected]))
+            .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+            .onClick {
+                AlertDialog.Builder(context)
+                    .setTitle(title)
+                    .setSingleChoiceItems(options.map(context::getString).toTypedArray(), selected) { d, which ->
+                        d.dismiss()
+                        pick(which)
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+            }
+
+    private fun serverlessAppsSummary(s: ServerlessSettings, policy: UserPolicy): String = when (s.apps) {
+        ServerlessSettings.Apps.SAME -> context.getString(R.string.serverless_apps_same_summary, appsSummary(policy))
+        ServerlessSettings.Apps.OWN -> context.getString(R.string.serverless_apps_own_summary, appsSummary(policy.copy(appMode = s.ownMode, apps = s.ownApps)))
+        ServerlessSettings.Apps.ALL -> context.getString(R.string.serverless_apps_all)
+    }
+
+    /**
+     * Выбор без сервера (D-73) — настройка телефона. Туннель без сервера
+     * (серверов нет) переподключается сразу; с серверами выбор подождёт.
+     */
+    private fun setServerless(next: ServerlessSettings) {
+        if (next == host.prefs.serverless) return
+        host.prefs.serverless = next
+        val core = host.graph?.core
+        core?.log?.info("serverless_set", "rest" to Safe(next.rest.wire), "dns" to Safe(next.dns.wire), "apps" to Safe(next.apps.wire))
+        if (core?.activation?.state?.activeConfig == null) host.reconnectIfBusy()
+        host.changed()
     }
 
     private fun splitSitesSummary(sites: SplitSites): String =

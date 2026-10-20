@@ -81,14 +81,17 @@ class DPpassTileService : TileService() {
         }
         val s = scope ?: return
         s.launch {
-            val hasServers = withContext(Dispatchers.IO) {
+            val canConnect = withContext(Dispatchers.IO) {
                 val core = AppGraph.core(this@DPpassTileService)
                 if (core.activation.state.activeConfig == null) core.restore()
+                val prefs = AppPrefs(this@DPpassTileService)
                 // Устройство раздачи (D-55) — подключаться есть к чему и без подписки.
-                core.activation.state.activeConfig?.profiles?.isNotEmpty() == true ||
-                    AppPrefs(this@DPpassTileService).selectedRelay?.let(core.relays::find) != null
+                val relay = prefs.selectedRelay?.let(core.relays::find) != null
+                // Без сервера (D-73) — туннель для сайтов списка, когда серверов нет.
+                core.activation.state.activeConfig?.profiles?.isNotEmpty() == true || relay ||
+                    core.serverlessReady(prefs.splitSites(), prefs.serverless, relaySelected = relay)
             }
-            if (hasServers) DPpassVpnService.start(this@DPpassTileService) else openApp()
+            if (canConnect) DPpassVpnService.start(this@DPpassTileService) else openApp()
         }
     }
 

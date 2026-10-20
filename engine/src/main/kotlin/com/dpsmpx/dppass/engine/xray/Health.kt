@@ -24,9 +24,18 @@ import com.dpsmpx.dppass.routing.DnsTransport
  */
 object XrayHealth {
     /** Сервер и цель пробы для моста (`https://…`, `udp://хост:порт`, `tcp://хост:порт`); null — проверить не через что. */
-    fun target(dns: DnsPolicy): Pair<DnsServer, String>? {
-        val tunnel = dns.servers.filter { it.route == DnsRoute.TUNNEL && wire(it.transport) != null }
-        val chosen = tunnel.firstOrNull { it.id == dns.defaultServerId } ?: tunnel.firstOrNull() ?: return null
+    fun target(dns: DnsPolicy): Pair<DnsServer, String>? = target(dns, DnsRoute.TUNNEL)
+
+    /**
+     * Без сервера (D-73) — сервер DNS напрямую: проба через `proxy` (прямой
+     * выход с разбиением) проверяет, что он отвечает мимо резолвера
+     * оператора. Системный резолвер ядро не пробует — null.
+     */
+    fun serverlessTarget(dns: DnsPolicy): Pair<DnsServer, String>? = target(dns, DnsRoute.DIRECT)
+
+    private fun target(dns: DnsPolicy, route: DnsRoute): Pair<DnsServer, String>? {
+        val usable = dns.servers.filter { it.route == route && wire(it.transport) != null }
+        val chosen = usable.firstOrNull { it.id == dns.defaultServerId } ?: usable.firstOrNull() ?: return null
         return chosen to wire(chosen.transport)!!
     }
 
@@ -40,23 +49,25 @@ object XrayHealth {
     /**
      * Исход пробы → результат проверки здоровья. Текст моста — причина
      * после [Redactor]: в нём может быть адрес сервера DoH с личным путём.
+     * [via] — каким путём шла проба: через сервер профиля или, без сервера
+     * (D-73), напрямую.
      */
-    fun outcome(server: DnsServer, r: DnsProbeResult, redactor: Redactor = Redactor()): Outcome<Unit> {
+    fun outcome(server: DnsServer, r: DnsProbeResult, redactor: Redactor = Redactor(), via: String = VIA_SERVER): Outcome<Unit> {
         val who = "DNS-сервер «${server.id}»"
         val (code, message) = when (r.outcome) {
             DnsProbeOutcome.OK -> return Outcome.Success(Unit)
             DnsProbeOutcome.UNREACHABLE ->
                 DiagCode.ENDPOINT_UNREACHABLE to
-                    "через сервер профиля за ${r.elapsedMillis} мс не пришло ни байта ($who): сервер недоступен или отверг соединение"
+                    "$via за ${r.elapsedMillis} мс не пришло ни байта ($who): сервер недоступен или отверг соединение"
             DnsProbeOutcome.TLS ->
                 DiagCode.TLS_HANDSHAKE_FAILED to
-                    "TLS с $who через сервер профиля не установлен"
+                    "TLS с $who $via не установлен"
             DnsProbeOutcome.STALLED ->
                 DiagCode.PAYLOAD_STALLED to
-                    "соединение через сервер есть (${r.receivedBytes} байт), но ответа ($who) за ${r.elapsedMillis} мс нет"
+                    "соединение $via есть (${r.receivedBytes} байт), но ответа ($who) за ${r.elapsedMillis} мс нет"
             DnsProbeOutcome.BAD_ANSWER ->
                 DiagCode.HEALTH_CHECK_FAILED to
-                    "$who ответил через сервер профиля не ответом DNS"
+                    "$who ответил $via не ответом DNS"
             DnsProbeOutcome.NOT_RUNNING -> DiagCode.HEALTH_CHECK_FAILED to "ядро не запущено — проверять нечего"
             DnsProbeOutcome.CONTRACT -> DiagCode.HEALTH_CHECK_FAILED to "мост не понял цель пробы ($who)"
         }
@@ -69,6 +80,9 @@ object XrayHealth {
             },
         )
     }
+
+    const val VIA_SERVER: String = "через сервер профиля"
+    const val VIA_DIRECT: String = "напрямую"
 
     /** Через туннель нет DNS-сервера, который годится для пробы. */
     fun skipped(): Outcome<Unit> = Outcome.Success(

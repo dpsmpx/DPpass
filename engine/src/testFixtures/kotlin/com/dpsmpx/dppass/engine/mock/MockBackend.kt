@@ -25,6 +25,7 @@ import com.dpsmpx.dppass.engine.EngineFeature
 import com.dpsmpx.dppass.engine.EngineSession
 import com.dpsmpx.dppass.engine.EngineState
 import com.dpsmpx.dppass.engine.ProxyEngine
+import com.dpsmpx.dppass.engine.ServerlessPlan
 import com.dpsmpx.dppass.engine.TrafficStats
 import com.dpsmpx.dppass.engine.TunInput
 import com.dpsmpx.dppass.routing.AppLowering
@@ -127,6 +128,21 @@ class MockBackendCompiler(override val capabilities: EngineCapabilities = MockBa
         val payload = Json.write(doc, pretty = false)
         val compiled = CompiledConfig(capabilities.backendId, capabilities.backendVersion, profile.id, payload, Checksums.sha256(payload))
         return Outcome.Success(compiled, problems + listOfNotNull(notSplit))
+    }
+
+    /** Без сервера (D-73): только прямые выходы — что ушло бы в ядро, видно по полям. */
+    override fun compileServerless(plan: ServerlessPlan): Outcome<CompiledConfig> {
+        val doc = Json.obj(
+            "backend" to Json.str(capabilities.backendId),
+            "version" to Json.str(capabilities.backendVersion),
+            "profile" to Json.str(ServerlessPlan.PROFILE_ID.value),
+            "tun" to Json.bool(plan.withTun),
+            "split_sites" to Json.strings(plan.splitSites.domains + plan.splitSites.geoSites.map { "geosite:$it" }),
+            "split_rest" to Json.bool(plan.splitRest),
+            "dns" to Json.arr(plan.dns.servers.map { Json.obj("id" to Json.str(it.id), "transport" to Json.str(dnsTransport(it.transport))) }),
+        )
+        val payload = Json.write(doc, pretty = false)
+        return Outcome.Success(CompiledConfig(capabilities.backendId, capabilities.backendVersion, ServerlessPlan.PROFILE_ID, payload, Checksums.sha256(payload)))
     }
 
     private fun domainText(m: DomainMatcher): String = when (m) {

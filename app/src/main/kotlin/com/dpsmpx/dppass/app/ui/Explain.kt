@@ -83,6 +83,12 @@ sealed interface RouteWhy {
     /** Список «Напрямую с разбиением» (D-72): выбор на телефоне, раньше правил документа. */
     data object SplitSites : RouteWhy
 
+    /** Без сервера (D-73): сайт не из списка, «остальные сайты» — напрямую. */
+    data object ServerlessDirect : RouteWhy
+
+    /** Без сервера (D-73): сайт не из списка, «остальные сайты» — с разбиением. */
+    data object ServerlessSplit : RouteWhy
+
     /** Ни одно правило не сработало — действие по умолчанию. */
     data object Default : RouteWhy
 
@@ -122,6 +128,23 @@ object RouteExplain {
         val ip = query.ip ?: return null
         if (!policy.bypassLan || TunnelSpecBuilder.LAN.none { ip in it }) return null
         return RouteAnswer(RouteVerdict.DIRECT, RouteWhy.LocalNetwork)
+    }
+
+    /**
+     * Без сервера (D-73): всё идёт напрямую — вопрос только, с разбиением ли.
+     * [policy] — маршрутизация режима (выбор приложений и локальных сетей);
+     * [inList] — сайт из списка D-72 (по геоданным ядра); [splitRest] —
+     * «остальные сайты — с разбиением».
+     */
+    fun serverless(query: RouteQuery, policy: RoutingPolicy, inList: Boolean, splitRest: Boolean): RouteAnswer {
+        localBypass(query, policy)?.let { return it }
+        val why = when {
+            query.packageName?.let { !policy.apps.includes(it) } == true -> RouteWhy.AppOutside
+            inList -> RouteWhy.SplitSites
+            splitRest -> RouteWhy.ServerlessSplit
+            else -> RouteWhy.ServerlessDirect
+        }
+        return RouteAnswer(RouteVerdict.DIRECT, why)
     }
 
     /** Решение ядра → ответ: правила политики — по их постоянным id (D-38). */

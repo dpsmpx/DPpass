@@ -112,6 +112,13 @@ object PolicyBuilder {
         return out
     }
 
+    /** Выбор приложений (D-38; свой выбор без сервера — D-73) → уровень VpnService. */
+    fun apps(mode: AppMode, packages: Set<String>): AppPolicy = when (mode) {
+        AppMode.ALL -> AppPolicy.AllApps
+        AppMode.EXCEPT -> if (packages.isEmpty()) AppPolicy.AllApps else AppPolicy.ExceptApps(packages)
+        AppMode.ONLY -> AppPolicy.OnlyApps(packages)
+    }
+
     /** Отечественное идёт напрямую: явными правилами (RU_DIRECT) или автосплитом (AUTO). */
     private fun domesticDirect(p: UserPolicy): Boolean = p.mode == RoutingMode.RU_DIRECT || p.mode == RoutingMode.AUTO
 
@@ -124,17 +131,12 @@ object PolicyBuilder {
             rules += Rule(RuleId(RULE_RU_SITES), Conditions(geoSites = listOf(GEOSITE_RU)), RouteAction.DIRECT)
             rules += Rule(RuleId(RULE_RU_IP), Conditions(geoIps = listOf(GEOIP_RU)), RouteAction.DIRECT)
         }
-        val apps = when (p.appMode) {
-            AppMode.ALL -> AppPolicy.AllApps
-            AppMode.EXCEPT -> if (p.apps.isEmpty()) AppPolicy.AllApps else AppPolicy.ExceptApps(p.apps)
-            AppMode.ONLY -> AppPolicy.OnlyApps(p.apps)
-        }
         // AUTO (D-45): отечественное уводит напрямую запасное правило автосплита,
         // само, без выбора сайтов и приложений.
         return RoutingPolicy(
             rules = rules,
             defaultAction = RouteAction.PROXY,
-            apps = apps,
+            apps = apps(p.appMode, p.apps),
             bypassLan = p.bypassLan,
             automaticDomestic = p.mode == RoutingMode.AUTO,
         )

@@ -2,14 +2,17 @@ package com.dpsmpx.dppass.app
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.dpsmpx.dppass.connection.ServerlessSettings
 import com.dpsmpx.dppass.core.Ids
 import com.dpsmpx.dppass.core.ProfileId
+import com.dpsmpx.dppass.routing.RoutingValidator
 import com.dpsmpx.dppass.routing.SplitSites
 
 /**
  * Настройки интерфейса (D-34): выбранный сервер или устройство раздачи
  * (D-55), автопереключение (D-58), проверка сети при её смене (D-67),
- * разбиение ClientHello к серверу (D-68) и открытый экран. Не
+ * разбиение ClientHello к серверу (D-68), сайты напрямую с разбиением
+ * (D-72), режим без сервера (D-73) и открытый экран. Не
  * секреты — id профиля подписки не раскрывает ссылку (`CONFIG_FORMAT.md`,
  * §6); резервных копий у приложения нет (`allowBackup=false`).
  */
@@ -80,6 +83,29 @@ class AppPrefs(context: Context) {
     /** Список в силе. Сохранённый текст всегда разбирается: его записал [SplitSites.format]. */
     fun splitSites(): SplitSites = SplitSites.parse(splitSitesText).valueOrNull() ?: SplitSites.NONE
 
+    /**
+     * Без сервера (D-73): остальные сайты, DNS, приложения и свой выбор
+     * приложений. Незнакомое значение — выбор по умолчанию
+     * ([ServerlessSettings.of]).
+     */
+    var serverless: ServerlessSettings
+        get() = ServerlessSettings.of(
+            prefs.getString(SERVERLESS_REST, null),
+            prefs.getString(SERVERLESS_DNS, null),
+            prefs.getString(SERVERLESS_APPS, null),
+            prefs.getString(SERVERLESS_OWN_MODE, null),
+            prefs.getStringSet(SERVERLESS_OWN_APPS, null).orEmpty().filterTo(LinkedHashSet(), RoutingValidator::isValidPackage),
+        )
+        set(value) {
+            prefs.edit()
+                .putString(SERVERLESS_REST, value.rest.wire)
+                .putString(SERVERLESS_DNS, value.dns.wire)
+                .putString(SERVERLESS_APPS, value.apps.wire)
+                .putString(SERVERLESS_OWN_MODE, value.ownMode.wire)
+                .putStringSet(SERVERLESS_OWN_APPS, value.ownApps)
+                .apply()
+        }
+
     var tab: Int
         get() = prefs.getInt(TAB, 0)
         set(value) {
@@ -95,5 +121,10 @@ class AppPrefs(context: Context) {
         const val CHECK_ON_CHANGE = "check_on_network_change"
         const val SPLIT_CLIENT_HELLO = "split_client_hello"
         const val SPLIT_SITES = "split_sites"
+        const val SERVERLESS_REST = "serverless_rest"
+        const val SERVERLESS_DNS = "serverless_dns"
+        const val SERVERLESS_APPS = "serverless_apps"
+        const val SERVERLESS_OWN_MODE = "serverless_own_mode"
+        const val SERVERLESS_OWN_APPS = "serverless_own_apps"
     }
 }

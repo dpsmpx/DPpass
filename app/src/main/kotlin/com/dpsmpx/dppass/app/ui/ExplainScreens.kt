@@ -15,10 +15,13 @@ import com.dpsmpx.dppass.connection.ActivationStep
 import com.dpsmpx.dppass.connection.ConnectionPlan
 import com.dpsmpx.dppass.connection.DPpassCore
 import com.dpsmpx.dppass.connection.RelayDevice
+import com.dpsmpx.dppass.connection.ServerlessSettings
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.core.SubscriptionId
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.engine.xray.Ipv6Egress
+import com.dpsmpx.dppass.routing.RouteQuery
+import com.dpsmpx.dppass.routing.SplitSites
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -340,9 +343,16 @@ class RouteCheckScreen(host: Host) : SubScreen(host, R.string.route_title) {
             host.toast(context.getString(R.string.route_bad_input))
             return
         }
+        val sites = host.prefs.splitSites()
+        val serverless = host.prefs.serverless
         val policy = core.activation.state.activeConfig?.routing
         if (policy == null) {
-            host.toast(context.getString(R.string.route_no_config))
+            // Без сервера (D-73): серверов нет, но туннель поднимается — объяснить его.
+            if (core.serverlessReady(sites, serverless, relaySelected = host.prefs.selectedRelay != null)) {
+                checkServerless(query, sites, serverless)
+            } else {
+                host.toast(context.getString(R.string.route_no_config))
+            }
             return
         }
         RouteExplain.localBypass(query, policy)?.let {
@@ -353,7 +363,6 @@ class RouteCheckScreen(host: Host) : SubScreen(host, R.string.route_title) {
         job = host.scope.launch {
             try {
                 // Список «Напрямую с разбиением» (D-72) сильнее документа — его ядро проверяет первым.
-                val sites = host.prefs.splitSites()
                 when (val s = withContext(Dispatchers.IO) { core.matchesSplitSites(query, sites) }) {
                     is Outcome.Failure -> {
                         host.problem(context.getString(R.string.route_failed), s.errors.first())
@@ -369,6 +378,24 @@ class RouteCheckScreen(host: Host) : SubScreen(host, R.string.route_title) {
                     null -> host.toast(context.getString(R.string.route_no_config))
                     is Outcome.Success -> showAnswer(RouteExplain.answer(r.value, query, policy))
                     is Outcome.Failure -> host.problem(context.getString(R.string.route_failed), r.errors.first())
+                }
+            } finally {
+                checkButton.isEnabled = true
+                job = null
+            }
+        }
+    }
+
+    /** Без сервера (D-73): список — по геоданным ядра (D-27), остальное — по выбору «Остальные сайты». */
+    private fun checkServerless(query: RouteQuery, sites: SplitSites, settings: ServerlessSettings) {
+        val core = host.graph?.core ?: return
+        val policy = core.serverlessConfig(settings).routing
+        checkButton.isEnabled = false
+        job = host.scope.launch {
+            try {
+                when (val s = withContext(Dispatchers.IO) { core.matchesSplitSites(query, sites, policy.apps) }) {
+                    is Outcome.Failure -> host.problem(context.getString(R.string.route_failed), s.errors.first())
+                    is Outcome.Success -> showAnswer(RouteExplain.serverless(query, policy, s.value, settings.rest == ServerlessSettings.Rest.SPLIT))
                 }
             } finally {
                 checkButton.isEnabled = true
@@ -393,6 +420,8 @@ class RouteCheckScreen(host: Host) : SubScreen(host, R.string.route_title) {
             RouteWhy.AppOutside -> context.getString(R.string.route_why_app)
             RouteWhy.LocalNetwork -> context.getString(R.string.route_why_lan)
             RouteWhy.SplitSites -> context.getString(R.string.route_why_split_sites)
+            RouteWhy.ServerlessDirect -> context.getString(R.string.route_why_serverless_direct)
+            RouteWhy.ServerlessSplit -> context.getString(R.string.route_why_serverless_split)
             RouteWhy.Default -> context.getString(R.string.route_why_default)
             is RouteWhy.DocumentRule -> context.getString(R.string.route_why_rule, w.id)
         }

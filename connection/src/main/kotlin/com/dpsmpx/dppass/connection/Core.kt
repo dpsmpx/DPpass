@@ -22,11 +22,14 @@ import com.dpsmpx.dppass.diagnostics.map
 import com.dpsmpx.dppass.engine.BackendCompiler
 import com.dpsmpx.dppass.engine.CapabilityChecker
 import com.dpsmpx.dppass.engine.EngineCapabilities
+import com.dpsmpx.dppass.engine.EngineSession
 import com.dpsmpx.dppass.engine.ProxyEngine
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.SocketProtector
 import com.dpsmpx.dppass.engine.TunInput
 import com.dpsmpx.dppass.network.NetworkAssessment
+import com.dpsmpx.dppass.routing.AppPolicy
+import com.dpsmpx.dppass.routing.DnsPolicy
 import com.dpsmpx.dppass.routing.RouteAction
 import com.dpsmpx.dppass.routing.RouteDecision
 import com.dpsmpx.dppass.routing.RouteQuery
@@ -45,6 +48,9 @@ import com.dpsmpx.dppass.tunnel.PlatformTraits
 import com.dpsmpx.dppass.tunnel.TunnelHandle
 import com.dpsmpx.dppass.tunnel.TunnelSpec
 import com.dpsmpx.dppass.tunnel.TunnelSpecBuilder
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 /**
  * Поднятый TUN → вход ядра: fd, MTU спецификации и защита сокетов ядра
@@ -339,14 +345,70 @@ class DPpassCore(
      * наборе геоданных ядра (D-27). Для «Проверить маршрут»: список сильнее
      * документа и проверяется раньше него.
      */
-    fun matchesSplitSites(query: RouteQuery, sites: SplitSites): Outcome<Boolean> {
+    fun matchesSplitSites(query: RouteQuery, sites: SplitSites, apps: AppPolicy? = activation.state.activeConfig?.routing?.apps): Outcome<Boolean> {
         if (sites.isEmpty || query.domain == null) return Outcome.Success(false)
         // Приложение вне туннеля до ядра не доходит — списку там нечего решать.
         val pkg = query.packageName
-        val apps = activation.state.activeConfig?.routing?.apps
         if (pkg != null && apps != null && !apps.includes(pkg)) return Outcome.Success(false)
         val probe = RoutingPolicy(rules = listOf(Rule(SPLIT_SITES_RULE, sites.conditions(), RouteAction.DIRECT)), defaultAction = RouteAction.PROXY)
         return engine.explain(probe, query.copy(packageName = null)).map { it.ruleId == SPLIT_SITES_RULE }
+    }
+
+    /**
+     * Без сервера (D-73): серверов нет (ни подписки, ни своего документа),
+     * устройство раздачи не выбрано, и туннелю есть что делать. Есть
+     * серверы — подключение только через них: их отказ на этот режим не
+     * переключает (D-05).
+     */
+    fun serverlessReady(sites: SplitSites, settings: ServerlessSettings, relaySelected: Boolean): Boolean =
+        activation.state.activeConfig == null && !relaySelected && ServerlessMode.useful(sites, settings)
+
+    /** Конфигурация режима без сервера — для TUN и «Проверить маршрут». */
+    fun serverlessConfig(settings: ServerlessSettings): ConfigIr = ServerlessMode.config(settings, userPolicy.currentOrDefault())
+
+    /**
+     * Подключение без сервера (D-73): компиляция, проверка ядром, запуск и
+     * [check] — проба DNS напрямую (с системным резолвером пробовать
+     * нечего). Отказ пробы останавливает ядро: туннель, в котором имена не
+     * резолвятся, хуже, чем его отсутствие. Отмена посреди пробы — тоже.
+     */
+    suspend fun connectServerless(
+        tun: TunInput?,
+        sites: SplitSites,
+        settings: ServerlessSettings,
+        check: suspend (EngineSession, DnsPolicy) -> Outcome<Unit>,
+    ): Outcome<EngineSession> {
+        val plan = ServerlessMode.plan(settings, sites, userPolicy.currentOrDefault())
+        log.info(
+            "serverless",
+            "rest" to Safe(settings.rest.wire),
+            "dns" to Safe(settings.dns.wire),
+            "apps" to Safe(settings.apps.wire),
+            "n" to sites.size,
+        )
+        val compiled = when (val c = compiler.compileServerless(plan.copy(withTun = tun != null))) {
+            is Outcome.Failure -> return c
+            is Outcome.Success -> c.also { it.diagnostics.forEach(log::diagnostic) }.value
+        }
+        (engine.validate(compiled) as? Outcome.Failure)?.let { return it }
+        val session = when (val s = engine.start(compiled, tun)) {
+            is Outcome.Failure -> return s
+            is Outcome.Success -> s.value
+        }
+        val checked = try {
+            check(session, plan.dns)
+        } catch (e: CancellationException) {
+            withContext(NonCancellable) { session.stop() }
+            throw e
+        }
+        val failure = (checked as? Outcome.Failure)?.errors?.first() ?: return Outcome.Success(session)
+        session.stop()
+        return Outcome.failure(
+            Diagnostic.error(
+                failure.code,
+                "без сервера DoH напрямую не ответил — имена не резолвятся; можно выбрать системный DNS: «Настройки» → «Без сервера» → «DNS»",
+            ).withCause(failure),
+        )
     }
 
     fun subscriptionNotes(result: UpdateResult): List<Diagnostic> = result.diagnostics.also { it.forEach(log::diagnostic) }

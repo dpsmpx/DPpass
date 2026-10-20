@@ -155,13 +155,18 @@ DNS-over-TLS, без него — открыто в DNS сети. Это сво�
 переключателем. Список «Напрямую с разбиением» (D-72) ведёт соединения
 к выбранным сайтам мимо сервера, имя назначения резолвит DNS ядра по
 DnsPolicy, как у `direct`; это назначение списка, оно написано у поля
-ввода; подписка его не задаёт и не меняет (D-11). Пустой список «только эти приложения» — отказ
+ввода; подписка его не задаёт и не меняет (D-11). Без сервера (D-73)
+туннеля к серверу нет: имена спрашиваются напрямую — DoH из «DNS»
+(мимо резолвера оператора) или системным резолвером, по выбору у
+настройки; DNS через туннель в этом режиме — отказ компиляции, а не
+молчаливая замена. Пустой список «только эти приложения» — отказ
 `APP_POLICY_CONFLICT`, а не туннель для всех (иначе выбор пользователя
 молча расширился бы). **Проверка:** `TunnelSpecBuilderTest`,
 `TunnelAppPolicyTest.emptyOnlyAppsIsRejectedNotWidenedToAll`, `PolicyBuilderTest`,
 `DnsValidatorTest`, `XrayCompilerTest.dnsQueriesFollowTheirRouteBeforeUserRules`,
 `XrayCompilerTest.dnsRulesFirstMatchWinsWithoutFallback`,
 `XrayCompilerTest.splitSitesGoDirectThroughFragmentAndQuicIsBlocked`,
+`XrayCompilerTest.serverlessDialsOnlyDirectOutbounds`,
 `XrayCompilerTest.serverNameIsLeftToTheSystemResolver`, `XrayTunnelContractTest`,
 эталоны Xray (`docs/TESTING.md`, «Эталоны Xray»), `go test` моста и
 `XrayJniTest` (защитник видит каждый сокет ядра, отказ и исключение в
