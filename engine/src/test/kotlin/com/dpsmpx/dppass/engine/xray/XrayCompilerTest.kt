@@ -786,7 +786,8 @@ class XrayCompilerTest {
     fun serverlessDialsOnlyDirectOutbounds() {
         // D-73: исходящего к серверу нет; `proxy` — прямой с разбиением (по нему — счётчики моста и проба).
         val sites = SplitSites.parse("example.com\ngeosite:example-a").valueOrNull()!!
-        val doh = DnsPolicy(listOf(DnsServer("serverless", DnsTransport.Https("https://192.0.2.53/dns-query"), DnsRoute.DIRECT)), "serverless", leakProtection = false)
+        val dohServer = DnsServer("serverless", DnsTransport.Https("https://192.0.2.53/dns-query"), DnsRoute.DIRECT)
+        val doh = DnsPolicy(listOf(dohServer), "serverless", leakProtection = false)
         fun compileServerless(plan: ServerlessPlan): JsonObject {
             val r = XrayCompiler().compileServerless(plan)
             assertTrue(r.diagnostics.none { it.isError }, "${r.diagnostics}")
@@ -795,7 +796,11 @@ class XrayCompilerTest {
         }
         val p = compileServerless(ServerlessPlan(doh, sites, splitRest = false))
         val tags = p["outbounds"].items.map { it["tag"].text }
-        assertEquals(listOf(XrayBackend.TAG_DIRECT, XrayBackend.TAG_PROXY, XrayBackend.TAG_BLOCK, XrayBackend.TAG_DNS_OUT), tags, "остальное — напрямую: direct первым")
+        assertEquals(
+            listOf(XrayBackend.TAG_DIRECT, XrayBackend.TAG_PROXY, XrayBackend.TAG_BLOCK, XrayBackend.TAG_DNS_OUT),
+            tags,
+            "остальное — напрямую: direct первым",
+        )
         val proxy = outbound(p, XrayBackend.TAG_PROXY)
         assertEquals("freedom", proxy["protocol"].text)
         assertEquals("tlshello", proxy["settings"]["fragment"]["packets"].text)

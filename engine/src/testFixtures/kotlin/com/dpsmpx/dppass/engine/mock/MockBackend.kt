@@ -142,7 +142,8 @@ class MockBackendCompiler(override val capabilities: EngineCapabilities = MockBa
             "dns" to Json.arr(plan.dns.servers.map { Json.obj("id" to Json.str(it.id), "transport" to Json.str(dnsTransport(it.transport))) }),
         )
         val payload = Json.write(doc, pretty = false)
-        return Outcome.Success(CompiledConfig(capabilities.backendId, capabilities.backendVersion, ServerlessPlan.PROFILE_ID, payload, Checksums.sha256(payload)))
+        val compiled = CompiledConfig(capabilities.backendId, capabilities.backendVersion, ServerlessPlan.PROFILE_ID, payload, Checksums.sha256(payload))
+        return Outcome.Success(compiled)
     }
 
     private fun domainText(m: DomainMatcher): String = when (m) {

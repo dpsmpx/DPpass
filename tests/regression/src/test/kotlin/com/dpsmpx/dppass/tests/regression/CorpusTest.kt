@@ -186,7 +186,10 @@ class CorpusTest {
                 p.copy(dns = p.dns.copy(servers = p.dns.servers.map { s -> if (s.transport is DnsTransport.Https) s.copy(transport = syntheticDoh) else s }))
             }
             val r = compiler.compileServerless(plan)
-            assertTrue(r.isSuccess && r.diagnostics.none { it.severity > Severity.INFO }, "Xray без сервера, $where, $rest/$dns: ${r.diagnostics.map { it.render() }}")
+            assertTrue(
+                r.isSuccess && r.diagnostics.none { it.severity > Severity.INFO },
+                "Xray без сервера, $where, $rest/$dns: ${r.diagnostics.map { it.render() }}",
+            )
             golden(File(dir, "_serverless-$rest-$dns.json"), r.valueOrNull()!!.payloadForEngine())
         }
     }

@@ -196,6 +196,7 @@ class ExplainTest {
         assertEquals(RouteAnswer(RouteVerdict.DIRECT, RouteWhy.ServerlessSplit), RouteExplain.serverless(site, policy, inList = false, splitRest = true))
         // Приложение вне туннеля режима и локальная сеть — их ядро не видит вовсе.
         assertEquals(RouteWhy.AppOutside, RouteExplain.serverless(site.copy(packageName = "com.example.bank"), policy, inList = true, splitRest = true).why)
-        assertEquals(RouteWhy.LocalNetwork, RouteExplain.serverless(RouteQuery(ip = IpAddress.parse("192.168.1.1")), policy, inList = false, splitRest = true).why)
+        val lan = RouteQuery(ip = IpAddress.parse("192.168.1.1"))
+        assertEquals(RouteWhy.LocalNetwork, RouteExplain.serverless(lan, policy, inList = false, splitRest = true).why)
     }
 }

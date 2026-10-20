@@ -76,7 +76,14 @@ class ServerlessModeTest {
     @Test
     fun settingsFromThePhoneAreStrictButNeverBreak() {
         val s = ServerlessSettings.of("split", "system", "own", "except", setOf("com.example.a"))
-        assertEquals(ServerlessSettings(ServerlessSettings.Rest.SPLIT, ServerlessSettings.Dns.SYSTEM, ServerlessSettings.Apps.OWN, AppMode.EXCEPT, setOf("com.example.a")), s)
+        val want = ServerlessSettings(
+            ServerlessSettings.Rest.SPLIT,
+            ServerlessSettings.Dns.SYSTEM,
+            ServerlessSettings.Apps.OWN,
+            AppMode.EXCEPT,
+            setOf("com.example.a"),
+        )
+        assertEquals(want, s)
         // Значение будущего выпуска или порча — выбор по умолчанию, а не падение.
         assertEquals(ServerlessSettings.DEFAULT, ServerlessSettings.of(null, "dot", "some", null, emptySet()))
         for (r in ServerlessSettings.Rest.entries) assertEquals(r, ServerlessSettings.of(r.wire, null, null, null, emptySet()).rest)
@@ -87,7 +94,8 @@ class ServerlessModeTest {
     @Test
     fun connectsWithTheListAndStopsWhenDnsDoesNotAnswer() = runBlocking<Unit> {
         val core = core()
-        val session = assertIs<Outcome.Success<EngineSession>>(core.connectServerless(null, sites, ServerlessSettings.DEFAULT) { _, _ -> Outcome.Success(Unit) }).value
+        val ok = core.connectServerless(null, sites, ServerlessSettings.DEFAULT) { _, _ -> Outcome.Success(Unit) }
+        val session = assertIs<Outcome.Success<EngineSession>>(ok).value
         assertEquals(ServerlessPlan.PROFILE_ID, session.compiled.profileId)
         val payload = Json.parse(session.compiled.payloadForEngine()) as JsonObject
         assertEquals(Json.strings(listOf("example.com", "geosite:example-a")), payload["split_sites"])
