@@ -9,7 +9,7 @@ pkgdesc='DPpass для Linux: окно и туннель TUN через свои
 arch=('x86_64')
 license=('LicenseRef-DPpass')
 depends=('java-runtime>=17' 'iproute2' 'polkit' 'util-linux' 'glibc')
-source=("dppass-desktop-${_ver}.tar")
+source=("dppass-desktop-${_ver}.tar.gz")
 sha256sums=('@SHA256@')
 # Библиотека ядра — как собрана и сверена (native.py desktop): без strip и отладочного пакета.
 options=('!strip' '!debug')

@@ -4,13 +4,15 @@
     python3 tools/desktop/package.py ARCHIVE OUT_DIR
 
 ARCHIVE — `desktop/build/distributions/dppass-desktop-<версия>.tar`
-(`./gradlew :desktop:distTar`). В OUT_DIR кладутся архив, PKGBUILD (из
-`desktop/package/PKGBUILD.in`: версия и SHA-256 архива) и SHA256SUMS. Состав
-архива сверяется с тем, что ставит PKGBUILD: недостающий файл — отказ, а не
-пакет, который не установится.
+(`./gradlew :desktop:distTar`). В OUT_DIR кладутся архив, сжатый gzip
+(`.tar.gz`, без даты и имени внутри — сумма воспроизводится), PKGBUILD (из
+`desktop/package/PKGBUILD.in`: версия и SHA-256 сжатого архива) и SHA256SUMS.
+Состав архива сверяется с тем, что ставит PKGBUILD: недостающий файл — отказ,
+а не пакет, который не установится.
 
 Код возврата: 0 — готово; 1 — архив не тот; 2 — неверный вызов.
 """
+import gzip
 import hashlib
 import os
 import re
@@ -54,9 +56,10 @@ def main(argv):
         print(f"✗ {archive}: нет {', '.join(missing)} в {top}/", file=sys.stderr)
         return 1
     os.makedirs(out, exist_ok=True)
-    target = os.path.join(out, os.path.basename(archive))
-    if os.path.abspath(target) != os.path.abspath(archive):
-        shutil.copyfile(archive, target)
+    target = os.path.join(out, os.path.basename(archive) + ".gz")
+    with open(archive, "rb") as src, open(target, "wb") as raw:
+        with gzip.GzipFile(filename="", mode="wb", compresslevel=9, fileobj=raw, mtime=0) as gz:
+            shutil.copyfileobj(src, gz, 1 << 20)
     digest = sha256(target)
     # pkgver в Arch — без «-»: 0.1.0-dev → 0.1.0dev (младше 0.1.0, как и должно быть).
     with open(TEMPLATE, encoding="utf-8") as f:
