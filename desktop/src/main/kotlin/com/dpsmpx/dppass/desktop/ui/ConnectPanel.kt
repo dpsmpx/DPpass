@@ -37,7 +37,7 @@ class ConnectPanel(
         }
         fun center(c: javax.swing.JComponent) = c.also { it.alignmentX = Component.CENTER_ALIGNMENT }
         column.add(center(rights))
-        column.add(javax.swing.Box.createVerticalStrut(Widgets.STEP * 4))
+        column.add(javax.swing.Box.createVerticalGlue())
         column.add(center(power))
         column.add(javax.swing.Box.createVerticalStrut(Widgets.STEP * 4))
         column.add(center(state))
@@ -46,6 +46,7 @@ class ConnectPanel(
         column.add(center(details))
         column.add(javax.swing.Box.createVerticalStrut(Widgets.STEP * 4))
         column.add(center(reason))
+        column.add(javax.swing.Box.createVerticalGlue())
         add(column, BorderLayout.CENTER)
         val actions = JPanel(FlowLayout(FlowLayout.CENTER, Widgets.STEP * 2, 0)).apply {
             isOpaque = false

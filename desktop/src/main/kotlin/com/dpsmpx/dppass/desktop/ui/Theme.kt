@@ -95,6 +95,9 @@ object Theme {
         val keys = mapOf(
             "Panel.background" to p.bg, "TabbedPane.selected" to p.surface, "TabbedPane.contentAreaColor" to p.bg,
             "TabbedPane.background" to p.surfaceVariant, "TabbedPane.foreground" to p.text, "TabbedPane.unselectedBackground" to p.surfaceVariant,
+            "TabbedPane.tabAreaBackground" to p.bg, "TabbedPane.borderHightlightColor" to p.outline,
+            "TabbedPane.highlight" to p.outline, "TabbedPane.light" to p.outline, "TabbedPane.darkShadow" to p.outline,
+            "TabbedPane.selectHighlight" to p.outline, "TabbedPane.shadow" to p.outline, "TabbedPane.focus" to p.primary,
             "OptionPane.background" to p.bg, "OptionPane.messageForeground" to p.text, "ScrollPane.background" to p.bg,
             "Viewport.background" to p.surface, "Button.background" to p.surfaceVariant, "Button.foreground" to p.text,
             "List.selectionBackground" to p.primaryContainer, "List.selectionForeground" to p.text,

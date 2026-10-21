@@ -43,6 +43,9 @@ class DesktopWindow(private val graph: DesktopGraph, private val session: Deskto
         servers = ServersPanel(graph, prefs, scope) { session.status.value }
         val log = LogPanel(graph)
         val tabs = JTabbedPane().apply {
+            // Без своего фона за ярлыками вкладок видна светлая подложка окна.
+            isOpaque = true
+            background = Theme.palette.bg
             addTab("Подключение", connect)
             addTab("Серверы", servers)
             addTab("Подписки", subscriptions)
