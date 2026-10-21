@@ -43,7 +43,7 @@ class DesktopLaunchTest {
         assertTrue("umask 077" in c, "файлы данных — только владельцу (T7)")
         // Ничего не исполняется из аргументов и окружения вызвавшего.
         assertFalse("eval" in c)
-        assertFalse(Regex("""\$\{?(HOME|XDG_|JAVA_HOME|LD_)""").containsMatchIn(c), "окружение вызвавшего в скрипте root")
+        assertFalse(Regex("""\$\{?(HOME|XDG_|JAVA_HOME|LD_|_JAVA_)""").containsMatchIn(c), "окружение вызвавшего в скрипте root")
     }
 
     @Test
@@ -54,12 +54,34 @@ class DesktopLaunchTest {
         assertTrue("'' | *[!A-Za-z0-9._-]*) wayland= ;;" in c)
         assertTrue("*..*) xauth= ;;" in c)
         assertTrue("\"\$runtime\"/* | \"\$home\"/.Xauthority) ;;" in c)
+        // Рабочий стол — только имена через «:»; иначе отбрасывается.
+        assertTrue("*[!A-Za-z0-9:._-]*) desktop= ;;" in c)
+    }
+
+    /**
+     * Окно Java под Wayland без перерамливающего менеджера (Hyprland, sway) —
+     * серое без `_JAVA_AWT_WM_NONREPARENTING`. Ставит её скрипт root, а не
+     * окружение вызвавшего: переменная — только `=1`, решение — по проверенным
+     * аргументам. Как это работает на деле — `tools/desktop/netns_check.py`.
+     */
+    @Test
+    fun nonReparentingWindowManagersGetTheJavaVariable() {
+        val c = code("dppass-launch")
+        assertTrue("if [ -n \"\$nonreparenting\" ]; then\n    nonreparenting=1\nelif [ -n \"\$wayland\" ]; then" in c, c)
+        assertTrue("*:KDE:* | *:GNOME:* | *:X-Cinnamon:*) ;;\n    *) nonreparenting=1 ;;" in c)
+        assertTrue("if [ -n \"\$nonreparenting\" ]; then set -- \"\$@\" _JAVA_AWT_WM_NONREPARENTING=1; fi" in c)
+        assertTrue("if [ -n \"\$desktop\" ]; then set -- \"\$@\" XDG_CURRENT_DESKTOP=\"\$desktop\"; fi" in c)
     }
 
     @Test
     fun userCommandAndPolicyPointAtTheInstalledLauncher() {
         val launcher = "/usr/lib/dppass/dppass-launch"
-        assertTrue(code("dppass").trim().endsWith("exec /usr/bin/pkexec $launcher \"\${DISPLAY-}\" \"\${WAYLAND_DISPLAY-}\" \"\${XAUTHORITY-}\""))
+        assertTrue(
+            code("dppass").trim().endsWith(
+                "exec /usr/bin/pkexec $launcher \"\${DISPLAY-}\" \"\${WAYLAND_DISPLAY-}\" \"\${XAUTHORITY-}\" \\\n" +
+                    "    \"\${XDG_CURRENT_DESKTOP-}\" \"\${_JAVA_AWT_WM_NONREPARENTING-}\"",
+            ),
+        )
         val policy = text("com.dpsmpx.dppass.policy")
         assertTrue("<action id=\"com.dpsmpx.dppass.launch\">" in policy)
         assertTrue("<annotate key=\"org.freedesktop.policykit.exec.path\">$launcher</annotate>" in policy)

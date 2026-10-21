@@ -1,5 +1,7 @@
 #!/bin/sh
 # DPpass для Linux (D-74): окно с туннелем TUN. Процессу окна нужна одна
 # возможность CAP_NET_ADMIN — её даёт dppass-launch через pkexec (пароль
-# администратора). Передаются только переменные окна; проверяет их dppass-launch.
-exec /usr/bin/pkexec /usr/lib/dppass/dppass-launch "${DISPLAY-}" "${WAYLAND_DISPLAY-}" "${XAUTHORITY-}"
+# администратора). Передаются только переменные окна и рабочего стола; проверяет
+# их dppass-launch.
+exec /usr/bin/pkexec /usr/lib/dppass/dppass-launch "${DISPLAY-}" "${WAYLAND_DISPLAY-}" "${XAUTHORITY-}" \
+    "${XDG_CURRENT_DESKTOP-}" "${_JAVA_AWT_WM_NONREPARENTING-}"

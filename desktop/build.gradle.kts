@@ -6,7 +6,7 @@ plugins {
 }
 
 // Версия оболочки — своя (D-74): в имени пакета и в `User-Agent` подписки (D-33), из манифеста jar.
-version = "0.1.0-dev"
+version = "0.1.1-dev"
 
 tasks.jar { manifest { attributes("Implementation-Version" to project.version) } }
 

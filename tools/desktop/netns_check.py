@@ -21,7 +21,9 @@ setpriv), iproute2 и Java 17+; без них — код 3 с причиной, 
    от пользователя nobody, CapEff, CapAmb и CapBnd — только CAP_NET_ADMIN,
    NoNewPrivs, окружение — только разрешённое; DISPLAY не локальный и
    XAUTHORITY вне каталога сеанса отбрасываются; без PKEXEC_UID и с uid 0 —
-   отказ.
+   отказ. _JAVA_AWT_WM_NONREPARENTING=1 — под Wayland, кроме KDE, GNOME и
+   Cinnamon, и по выбору пользователя (иначе окно Java под Hyprland и sway
+   серое); XDG_CURRENT_DESKTOP — только имена через «:».
 
 Код возврата: 0 — всё сошлось; 1 — расхождение; 3 — нечем проверить.
 """
@@ -178,6 +180,32 @@ def check_launch(problems):
         env2 = dict(line.split("=", 1) for line in out.partition("---\n")[2].splitlines() if "=" in line)
         if code != 0 or "DISPLAY" in env2 or "WAYLAND_DISPLAY" in env2:
             problems.append(f"не локальный DISPLAY или путь в WAYLAND_DISPLAY приняты (код {code})")
+        # Рабочий стол и _JAVA_AWT_WM_NONREPARENTING: (WAYLAND_DISPLAY, XDG_CURRENT_DESKTOP,
+        # выбор пользователя) → (XDG_CURRENT_DESKTOP в окне, задана ли переменная).
+        for wayland, desktop, chosen, want_desktop, want_var in (
+            ("wayland-1", "Hyprland", "", "Hyprland", True),
+            ("wayland-1", "sway", "", "sway", True),
+            ("wayland-1", "", "", None, True),
+            ("wayland-1", "KDE", "", "KDE", False),
+            ("wayland-1", "ubuntu:GNOME", "", "ubuntu:GNOME", False),
+            ("wayland-1", "X-Cinnamon", "", "X-Cinnamon", False),
+            ("", "Hyprland", "", "Hyprland", False),
+            ("", "", "", None, False),
+            ("wayland-1", "KDE", "1", "KDE", True),
+            ("", "", "yes", None, True),
+            ("wayland-1", "Hypr$(id)", "", None, True),
+        ):
+            code, out, _ = run_launch(launcher, [":0", wayland, "", desktop, chosen], dict(base, PKEXEC_UID=uid))
+            env3 = dict(line.split("=", 1) for line in out.partition("---\n")[2].splitlines() if "=" in line)
+            case = f"WAYLAND_DISPLAY={wayland!r} XDG_CURRENT_DESKTOP={desktop!r} выбор={chosen!r}"
+            if code != 0:
+                problems.append(f"dppass-launch, {case}: код {code}")
+                continue
+            if env3.get("XDG_CURRENT_DESKTOP") != want_desktop:
+                problems.append(f"{case}: XDG_CURRENT_DESKTOP в окне {env3.get('XDG_CURRENT_DESKTOP')!r}, ждали {want_desktop!r}")
+            got = env3.get("_JAVA_AWT_WM_NONREPARENTING")
+            if (got == "1") != want_var or (got is not None and got != "1"):
+                problems.append(f"{case}: _JAVA_AWT_WM_NONREPARENTING={got!r}, ждали {'1' if want_var else 'нет'}")
         for bad_env, what in ((base, "без PKEXEC_UID"), (dict(base, PKEXEC_UID="0"), "с uid 0"), (dict(base, PKEXEC_UID="1x"), "с PKEXEC_UID не числом")):
             code, _, _ = run_launch(launcher, [], bad_env)
             if code != 2:
