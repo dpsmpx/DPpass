@@ -1,0 +1,67 @@
+import com.dpsmpx.dppass.build.XrayGeodataTask
+
+// Оболочка Linux (D-74): окно Swing и туннель TUN над теми же модулями, что у Android.
+plugins {
+    id("dppass.kotlin-application")
+}
+
+// Версия оболочки — своя (D-74): в имени пакета и в `User-Agent` подписки (D-33), из манифеста jar.
+version = "0.1.0-dev"
+
+tasks.jar { manifest { attributes("Implementation-Version" to project.version) } }
+
+dependencies {
+    implementation(project(":connection"))
+    implementation(libs.kotlinx.coroutines.core)
+    testImplementation(libs.kotlinx.coroutines.test)
+}
+
+application {
+    mainClass.set("com.dpsmpx.dppass.desktop.MainKt")
+    applicationName = "dppass-desktop"
+    // Вывод и имена файлов — UTF-8 при любой локали; сглаживание шрифтов — как в системе.
+    applicationDefaultJvmArgs = listOf("-Dfile.encoding=UTF-8", "-Dsun.jnu.encoding=UTF-8", "-Dawt.useSystemAAFontSettings=on")
+}
+
+val xray = rootProject.layout.projectDirectory.dir("tools/xray")
+
+// Библиотека ядра для ПК (D-74): tools/xray/native.py desktop — без тестового входа,
+// экспорт JNI сверяется с XrayJni и LinuxNative. Без Go сборка падает: пакет без ядра бесполезен.
+val xrayNative = tasks.register<Exec>("xrayNativeDesktop") {
+    description = "libdppassxray.so для ПК: tools/xray/native.py desktop"
+    val out = layout.buildDirectory.dir("xray-native")
+    inputs.files(
+        xray.asFileTree.matching {
+            include("jni/**/*.go", "bridge/**/*.go", "go.mod", "go.sum", "native.py", "goenv.py")
+            exclude("**/*_test.go")
+        },
+        rootProject.layout.projectDirectory.file("engine/src/main/kotlin/com/dpsmpx/dppass/engine/xray/XrayRuntime.kt"),
+        layout.projectDirectory.file("src/main/kotlin/com/dpsmpx/dppass/desktop/LinuxNative.kt"),
+    ).withPathSensitivity(PathSensitivity.RELATIVE)
+    outputs.dir(out)
+    commandLine("python3", xray.file("native.py").asFile.path, "desktop", "--out", out.get().asFile.path)
+}
+
+// Набор геоданных (D-27) — тот же сборщик, что для APK.
+val geodata = tasks.register<XrayGeodataTask>("xrayGeodataDesktop") {
+    description = "набор геоданных для ПК: tools/xray/geodata.py"
+    sources.from(
+        xray.asFileTree.matching {
+            include("geodata/**", "go.mod", "go.sum", "geodata.py", "goenv.py")
+            exclude("**/*_test.go")
+        },
+        rootProject.layout.projectDirectory.file("gradle/libs.versions.toml"),
+        rootProject.layout.projectDirectory.file("docs/PROVENANCE.md"),
+    )
+    script.set(xray.file("geodata.py"))
+    outputDir.set(layout.buildDirectory.dir("geodata"))
+}
+
+// Пакет: bin/, lib/ (jar), native/libdppassxray.so, geodata/, package/ (запуск, polkit, ярлык).
+distributions.named("main") {
+    contents {
+        from(xrayNative) { into("native") }
+        from(geodata)
+        from(layout.projectDirectory.dir("package")) { into("package") }
+    }
+}

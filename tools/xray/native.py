@@ -14,6 +14,12 @@
         dppass_testinbound, заголовки JNI из JDK — в build/xray/host/.
         Её загружает тест JNI на хосте (XrayJniTest).
 
+    python3 tools/xray/native.py desktop --out DIR
+        библиотека для оболочки Linux (D-74): linux/amd64 этой машины,
+        без тестового входа, без таблиц отладки; кроме XrayJni — функции
+        LinuxNative (TUN, метка SO_MARK, резолвер с меткой). Результат —
+        DIR/libdppassxray.so.
+
     python3 tools/xray/native.py android --out DIR [--abi ABI ...]
         библиотека для APK: NDK версии `android-ndk` из
         gradle/libs.versions.toml, ABI arm64-v8a, armeabi-v7a, x86_64,
@@ -23,7 +29,8 @@
 
 Каждая собранная библиотека проверяется: машина ELF, выравнивание
 сегментов PT_LOAD (для Android ≥ 16 КБ), экспортированы ровно функции
-`external` объекта `XrayJni` (Kotlin) — договор JNI не разойдётся молча.
+`external` объекта `XrayJni` (Kotlin) и, в сборке для Linux, объекта
+`LinuxNative` оболочки `desktop` — договор JNI не разойдётся молча.
 
 Код возврата: 0 — собрано и проверено; 1 — ошибка сборки или проверки;
 3 — нет Go, NDK или заголовков JNI (без них библиотеку не собрать, D-25).
@@ -47,6 +54,11 @@ KOTLIN_JNI = os.path.join(PROJ, "engine", "src", "main", "kotlin", "com", "dpsmp
 HOST_OUT = os.path.join(PROJ, "build", "xray", "host")
 LIBRARY = "libdppassxray.so"
 JNI_PREFIX = "Java_com_dpsmpx_dppass_engine_xray_XrayJni_"
+# Функции оболочки Linux (D-74): в библиотеке для Linux, не для Android.
+KOTLIN_DESKTOP_JNI = os.path.join(PROJ, "desktop", "src", "main", "kotlin", "com", "dpsmpx", "dppass", "desktop", "LinuxNative.kt")
+DESKTOP_JNI_PREFIX = "Java_com_dpsmpx_dppass_desktop_LinuxNative_"
+DESKTOP_OUT = os.path.join(PROJ, "build", "xray", "desktop")
+LDFLAGS_DESKTOP = "-s -w -buildid="
 PAGE_16K = 16384
 
 # ABI Android → (GOARCH, доп. окружение Go, префикс clang из NDK, машина ELF, 64-бит)
@@ -174,29 +186,37 @@ def elf_info(path):
     return machine, is64, aligns, exported
 
 
-def kotlin_externals():
-    """Имена `external fun` объекта XrayJni — договор с экспортом JNI."""
-    with open(KOTLIN_JNI, encoding="utf-8") as f:
+def _externals(path, prefix):
+    with open(path, encoding="utf-8") as f:
         text = f.read()
     names = set(re.findall(r"\bexternal\s+fun\s+(\w+)\s*\(", text))
     if not names:
-        raise RuntimeError(f"{os.path.relpath(KOTLIN_JNI, PROJ)}: не найдено ни одной external fun")
-    return {JNI_PREFIX + n for n in names}
+        raise RuntimeError(f"{os.path.relpath(path, PROJ)}: не найдено ни одной external fun")
+    return {prefix + n for n in names}
 
 
-def check_library(path, machine, is64, min_align):
+def kotlin_externals(linux):
+    """Имена `external fun` объекта XrayJni и, для Linux, LinuxNative — договор с экспортом JNI."""
+    names = _externals(KOTLIN_JNI, JNI_PREFIX)
+    if linux:
+        names |= _externals(KOTLIN_DESKTOP_JNI, DESKTOP_JNI_PREFIX)
+    return names
+
+
+def check_library(path, machine, is64, min_align, linux):
     got_machine, got64, aligns, exported = elf_info(path)
     rel = os.path.relpath(path, PROJ)
     if got_machine != machine or got64 != is64:
         raise RuntimeError(f"{rel}: машина ELF {got_machine} ({'64' if got64 else '32'} бит), ожидалась {machine}")
     if not aligns or min(aligns) < min_align:
         raise RuntimeError(f"{rel}: выравнивание сегментов PT_LOAD {aligns}, нужно ≥ {min_align}")
-    want = kotlin_externals()
+    want = kotlin_externals(linux)
     jni = {s for s in exported if s.startswith("Java_")}
     if jni != want:
         missing = ", ".join(sorted(want - jni)) or "—"
         extra = ", ".join(sorted(jni - want)) or "—"
-        raise RuntimeError(f"{rel}: экспорт JNI не совпадает с XrayJni (Kotlin): нет {missing}; лишние {extra}")
+        objects = "XrayJni и LinuxNative" if linux else "XrayJni"
+        raise RuntimeError(f"{rel}: экспорт JNI не совпадает с {objects} (Kotlin): нет {missing}; лишние {extra}")
     return os.path.getsize(path), min(aligns), len(jni)
 
 
@@ -234,10 +254,31 @@ def host(race):
     out = os.path.join(HOST_OUT, LIBRARY)
     run(["go", "build", *BUILD_FLAGS, "-tags", "dppass_testinbound", "-o", out, "./jni"], env, "сборка библиотеки для хоста")
     _remove_header(out)
-    size, align, n = check_library(out, machine, True, 1)
+    size, align, n = check_library(out, machine, True, 1, linux=True)
     race_note = " (и с -race)" if race else ""
     print(f"✓ мост Xray: go vet и go test{race_note} в обеих сборках; библиотека хоста "
-          f"{os.path.relpath(out, PROJ)} {mib(size)}, экспорт JNI — {n} функций XrayJni")
+          f"{os.path.relpath(out, PROJ)} {mib(size)}, экспорт JNI — {n} функций XrayJni и LinuxNative")
+    return 0
+
+
+# ---- оболочка Linux (D-74) ----
+
+def desktop(out_dir):
+    """Библиотека для пакета ПК: без тестового входа (T11) и без таблиц отладки."""
+    env = base_env()
+    machine = HOST_MACHINES.get(os.uname().machine)
+    if os.uname().machine != "x86_64":
+        raise Missing(f"хост {os.uname().machine}: оболочка Linux собирается для x86_64 (D-74)")
+    env["CGO_CFLAGS"] = " ".join(f"-I{h}" for h in jni_headers())
+    check_library_packages(env)
+    run(["go", "vet", "./bridge", "./jni"], env, "go vet")
+    os.makedirs(out_dir, exist_ok=True)
+    out = os.path.join(out_dir, LIBRARY)
+    run(["go", "build", *BUILD_FLAGS, f"-ldflags={LDFLAGS_DESKTOP}", "-o", out, "./jni"], env, "сборка библиотеки для ПК")
+    _remove_header(out)
+    size, align, n = check_library(out, machine, True, 1, linux=True)
+    print(f"✓ libdppassxray для ПК (linux/amd64, без тестового входа): {os.path.relpath(out, PROJ)} {mib(size)}, "
+          f"экспорт JNI — {n} функций XrayJni и LinuxNative")
     return 0
 
 
@@ -284,7 +325,7 @@ def android(out_dir, abis):
         out = os.path.join(target_dir, LIBRARY)
         run(["go", "build", *BUILD_FLAGS, f"-ldflags={LDFLAGS_ANDROID}", "-o", out, "./jni"], env, f"сборка {abi}")
         _remove_header(out)
-        size, align, n = check_library(out, machine, is64, PAGE_16K)
+        size, align, n = check_library(out, machine, is64, PAGE_16K, linux=False)
         built.append(f"{abi} {mib(size)}")
     print(f"✓ libdppassxray (NDK {ndk_version}, API {api}): {', '.join(built)}; "
           f"сегменты ELF выровнены по 16 КБ, экспорт JNI совпадает с XrayJni")
@@ -303,6 +344,8 @@ def main(argv):
     sub = ap.add_subparsers(dest="cmd", required=True)
     h = sub.add_parser("host", help="go vet, go test и библиотека для JVM хоста")
     h.add_argument("--race", action="store_true", help="go test ещё и с -race")
+    d = sub.add_parser("desktop", help="библиотека для оболочки Linux (D-74)")
+    d.add_argument("--out", default=DESKTOP_OUT, help="каталог для libdppassxray.so")
     a = sub.add_parser("android", help="библиотеки для APK")
     a.add_argument("--out", required=True, help="каталог: <ABI>/libdppassxray.so")
     a.add_argument("--abi", action="append", choices=sorted(ABIS), help="ABI (по умолчанию — все три)")
@@ -310,6 +353,8 @@ def main(argv):
     try:
         if args.cmd == "host":
             return host(args.race)
+        if args.cmd == "desktop":
+            return desktop(os.path.abspath(args.out))
         return android(os.path.abspath(args.out), args.abi or list(ABIS))
     except Missing as e:
         print(f"✗ {e}")

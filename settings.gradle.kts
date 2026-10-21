@@ -33,6 +33,8 @@ include(
     ":tunnel",
     ":connection",
     ":cli",
+    // Оболочка Linux (D-74): окно Swing и туннель TUN.
+    ":desktop",
 )
 
 // Межмодульные тесты.

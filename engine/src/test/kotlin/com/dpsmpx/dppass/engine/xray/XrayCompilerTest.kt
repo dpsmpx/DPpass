@@ -244,6 +244,27 @@ class XrayCompilerTest {
     }
 
     @Test
+    fun dnsHijackAnyAddressOnLinux() {
+        val config = ir()
+        fun hijack(compiler: XrayCompiler, withTun: Boolean = true): JsonValue? {
+            val c = compiler.compile(config, CompilePlan(config.profiles[0].id, withTun)).valueOrNull()!!
+            return rules(Json.parse(c.payloadForEngine()) as JsonObject).firstOrNull { it["ruleTag"].text == "dppass:dns-hijack" }
+        }
+        // По умолчанию (Android) — только адрес TUN: его даёт приложениям VpnService.
+        val tunOnly = hijack(XrayCompiler())!!
+        assertEquals(listOf(XrayBackend.TUN_DNS4), tunOnly["ip"].items.map { it.text })
+        assertEquals("53", tunOnly["port"].text)
+        // На Linux (D-74) — порт 53 любого адреса из TUN: резолвер роутера не уходит мимо туннеля.
+        val any = hijack(XrayCompiler(dnsHijackAnyAddress = true))!!
+        assertNull(any["ip"])
+        assertEquals("53", any["port"].text)
+        assertEquals(listOf(XrayBackend.TAG_TUN_IN), any["inboundTag"].items.map { it.text })
+        assertEquals(XrayBackend.TAG_DNS_OUT, any["outboundTag"].text)
+        // Без TUN перехватывать нечего — и флаг правила не добавляет.
+        assertNull(hijack(XrayCompiler(dnsHijackAnyAddress = true), withTun = false))
+    }
+
+    @Test
     fun dnsQueriesFollowTheirRouteBeforeUserRules() {
         val p = payload(
             ir(

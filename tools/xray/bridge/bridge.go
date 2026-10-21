@@ -161,16 +161,23 @@ func Start(config []byte, tun Tun, p Protector) error {
 	if current != nil {
 		return fail(KindRunning, "ядро уже запущено; сначала Stop")
 	}
+	// fd для ядра — на Linux копия (tunfd_desktop.go), на Android тот же.
+	coreFD := -1
 	if tun.FD >= 0 {
-		err = os.Setenv(platform.TunFdKey, strconv.Itoa(tun.FD))
+		if coreFD, err = coreTun(tun.FD); err != nil {
+			return &Error{Kind: KindStart, Err: err}
+		}
+		err = os.Setenv(platform.TunFdKey, strconv.Itoa(coreFD))
 	} else {
 		err = os.Unsetenv(platform.TunFdKey)
 	}
 	if err != nil {
+		releaseCoreTun(coreFD, tun.FD)
 		return &Error{Kind: KindStart, Err: err}
 	}
 	inst, err := core.New(cfg)
 	if err != nil {
+		releaseCoreTun(coreFD, tun.FD)
 		return &Error{Kind: KindConfig, Err: err}
 	}
 	sm, _ := inst.GetFeature(stats.ManagerType()).(stats.Manager)
@@ -180,6 +187,7 @@ func Start(config []byte, tun Tun, p Protector) error {
 	}
 	if up == nil || down == nil {
 		_ = inst.Close()
+		releaseCoreTun(coreFD, tun.FD)
 		return fail(KindConfig, "нет счётчиков исходящего proxy (stats и policy.system.statsOutbound*): конфигурация собрана не компилятором DPpass")
 	}
 	// Защитник — до Start: исходящие соединения могут начаться сразу.
@@ -191,6 +199,7 @@ func Start(config []byte, tun Tun, p Protector) error {
 	if err := inst.Start(); err != nil {
 		_ = inst.Close()
 		setGuard(denyAll{})
+		releaseCoreTun(coreFD, tun.FD)
 		return &Error{Kind: KindStart, Err: err}
 	}
 	current, uplink, downlink = inst, up, down
@@ -198,8 +207,9 @@ func Start(config []byte, tun Tun, p Protector) error {
 }
 
 // Stop останавливает ядро; без запущенного — ничего не делает. fd TUN
-// ядро не закрывает (BACKEND_STRATEGY.md, §6): платформа закрывает его
-// после Stop.
+// платформы ядро не закрывает: на Android вход TUN его не трогает
+// (BACKEND_STRATEGY.md, §6), на Linux ядро закрывает свою копию
+// (tunfd_desktop.go). Платформа закрывает свой fd после Stop.
 func Stop() error {
 	mu.Lock()
 	defer mu.Unlock()

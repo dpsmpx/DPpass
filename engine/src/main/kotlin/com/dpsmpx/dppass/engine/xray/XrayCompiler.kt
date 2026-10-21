@@ -73,16 +73,23 @@ import java.util.Base64
  * Несколько атрибутов сверяются сочетанием: ни у одного правила списка
  * нет их всех сразу — тоже отказ (`docs/CONFIG_FORMAT.md`, §4).
  *
+ * Перехват DNS из TUN — запросы к адресу TUN ([XrayBackend.TUN_DNS4]: его
+ * Android даёт приложениям). На Linux ([dnsHijackAnyAddress], D-74)
+ * резолвер системы не перенастраивается, и запрос на порт 53 любого
+ * адреса правилами `ip rule` приходит в TUN — ядро перехватывает его
+ * весь, иначе запрос к резолверу роутера ушёл бы `direct` мимо туннеля.
+ *
  * Конфигурация содержит секреты: наружу — только через
  * [CompiledConfig.payloadForEngine].
  */
 class XrayCompiler(
     override val capabilities: EngineCapabilities = XrayBackend.CAPABILITIES,
     private val geodata: GeodataCodes = GeodataCodes.Unchecked,
+    private val dnsHijackAnyAddress: Boolean = false,
 ) : BackendCompiler {
     override fun checkSplitSites(sites: SplitSites): List<Diagnostic> {
         val problems = mutableListOf<Diagnostic>()
-        Build(problems, geodata).splitSiteRules(sites, withTun = true)
+        Build(problems, geodata, dnsHijackAnyAddress).splitSiteRules(sites, withTun = true)
         return problems
     }
 
@@ -91,7 +98,7 @@ class XrayCompiler(
         if (problems.any { it.isError }) return Outcome.Failure(problems)
         val index = ir.profiles.indexOfFirst { it.id == plan.profileId }
         val profile = ir.profiles[index]
-        val build = Build(problems, geodata)
+        val build = Build(problems, geodata, dnsHijackAnyAddress)
 
         // Разбиение ClientHello (D-68): только где он есть и идёт по TCP; иначе — сказать, а не молча (D-05).
         val split = plan.splitClientHello && splittable(profile)
@@ -135,7 +142,7 @@ class XrayCompiler(
      */
     override fun compileServerless(plan: ServerlessPlan): Outcome<CompiledConfig> {
         val problems = mutableListOf<Diagnostic>()
-        val build = Build(problems, geodata)
+        val build = Build(problems, geodata, dnsHijackAnyAddress)
         for ((i, server) in plan.dns.servers.withIndex()) {
             if (server.route == DnsRoute.TUNNEL) {
                 build.reject(DiagCode.CAPABILITY_FEATURE_UNSUPPORTED, "без сервера DNS-сервер «${server.id}» через туннель вести некуда", "$.dns.servers[$i]")
@@ -174,7 +181,11 @@ class XrayCompiler(
     }
 
     /** Одна компиляция: находки копятся в [problems] — отказ виден весь, а не первой ошибкой. */
-    private class Build(private val problems: MutableList<Diagnostic>, private val geodata: GeodataCodes) {
+    private class Build(
+        private val problems: MutableList<Diagnostic>,
+        private val geodata: GeodataCodes,
+        private val dnsHijackAnyAddress: Boolean,
+    ) {
         fun reject(code: DiagCode, message: String, path: String) {
             problems += Diagnostic.error(code, "${XrayBackend.ID} ${XrayBackend.VERSION}: $message", path)
         }
@@ -443,11 +454,12 @@ class XrayCompiler(
                 )
             }
             if (withTun) {
-                // Приложения в туннеле спрашивают DNS у адреса TUN; ответ — по DnsPolicy.
+                // Приложения в туннеле спрашивают DNS у адреса TUN (на Linux — у любого
+                // адреса, см. KDoc класса); ответ — по DnsPolicy.
                 rules += Json.obj(
                     "ruleTag" to Json.str("${XrayBackend.SYSTEM_PREFIX}dns-hijack"),
                     "inboundTag" to Json.strings(listOf(XrayBackend.TAG_TUN_IN)),
-                    "ip" to Json.strings(listOf(XrayBackend.TUN_DNS4)),
+                    "ip" to Json.strings(listOf(XrayBackend.TUN_DNS4)).takeUnless { dnsHijackAnyAddress },
                     "port" to Json.str("53"),
                     "outboundTag" to Json.str(XrayBackend.TAG_DNS_OUT),
                 )
