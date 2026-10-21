@@ -6,7 +6,7 @@ plugins {
 }
 
 // Версия оболочки — своя (D-74): в имени пакета и в `User-Agent` подписки (D-33), из манифеста jar.
-version = "0.1.1-dev"
+version = "0.1.2-dev"
 
 tasks.jar { manifest { attributes("Implementation-Version" to project.version) } }
 
@@ -20,7 +20,14 @@ application {
     mainClass.set("com.dpsmpx.dppass.desktop.MainKt")
     applicationName = "dppass-desktop"
     // Вывод и имена файлов — UTF-8 при любой локали; сглаживание шрифтов — как в системе.
-    applicationDefaultJvmArgs = listOf("-Dfile.encoding=UTF-8", "-Dsun.jnu.encoding=UTF-8", "-Dawt.useSystemAAFontSettings=on")
+    // Нативная библиотека ядра грузится `System.load` (D-74): JDK 24+ без разрешения
+    // предупреждает об этом при каждом запуске (JEP 472); флаг понимают и JDK 17–23.
+    applicationDefaultJvmArgs = listOf(
+        "-Dfile.encoding=UTF-8",
+        "-Dsun.jnu.encoding=UTF-8",
+        "-Dawt.useSystemAAFontSettings=on",
+        "--enable-native-access=ALL-UNNAMED",
+    )
 }
 
 val xray = rootProject.layout.projectDirectory.dir("tools/xray")
