@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=DPpass
+GenericName=Туннель через свои серверы
+Comment=Подключение через серверы подписки или свои серверы
+Exec=dppass
+Icon=dppass
+Terminal=false
+Categories=Network;
+StartupWMClass=com-dpsmpx-dppass-desktop-MainKt

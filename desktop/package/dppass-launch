@@ -1,0 +1,56 @@
+#!/bin/sh
+# Запуск DPpass для Linux от имени пользователя с одной возможностью
+# CAP_NET_ADMIN (D-74, T17). Вызывается только через pkexec (действие polkit
+# com.dpsmpx.dppass.launch): pkexec даёт root и PKEXEC_UID — кто попросил.
+# Из окружения и аргументов вызвавшего берутся только переменные окна, и те —
+# после проверки; всё остальное — по пользователю из /etc/passwd.
+set -eu
+PATH=/usr/bin:/bin
+export PATH
+
+die() {
+    echo "dppass-launch: $*" >&2
+    exit 2
+}
+
+uid=${PKEXEC_UID:-}
+case $uid in
+'' | *[!0-9]*) die "запуск только через pkexec (нет PKEXEC_UID)" ;;
+esac
+[ "$uid" -ne 0 ] || die "от root DPpass не запускается — запустите его от своего пользователя"
+entry=$(getent passwd "$uid") || die "нет пользователя $uid"
+gid=$(printf '%s\n' "$entry" | cut -d: -f4)
+home=$(printf '%s\n' "$entry" | cut -d: -f6)
+runtime=/run/user/$uid
+
+# Окно: DISPLAY — только локальный (:N или :N.M), WAYLAND_DISPLAY — имя сокета
+# без пути, XAUTHORITY — файл в каталоге сеанса или ~/.Xauthority.
+display=${1-}
+wayland=${2-}
+xauth=${3-}
+case $display in
+:[0-9] | :[0-9][0-9] | :[0-9].[0-9] | :[0-9][0-9].[0-9]) ;;
+*) display= ;;
+esac
+case $wayland in
+'' | *[!A-Za-z0-9._-]*) wayland= ;;
+esac
+case $xauth in
+*..*) xauth= ;;
+"$runtime"/* | "$home"/.Xauthority) ;;
+*) xauth= ;;
+esac
+
+set -- XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime/bus"
+if [ -n "$display" ]; then set -- "$@" DISPLAY="$display"; fi
+if [ -n "$wayland" ]; then set -- "$@" WAYLAND_DISPLAY="$wayland"; fi
+if [ -n "$xauth" ]; then set -- "$@" XAUTHORITY="$xauth"; fi
+# Java — системная по умолчанию (archlinux-java), а не первая в PATH.
+if [ -d /usr/lib/jvm/default ]; then set -- "$@" JAVA_HOME=/usr/lib/jvm/default; fi
+
+umask 077
+cd "$home" 2>/dev/null || cd /
+exec /usr/bin/setpriv --reuid="$uid" --regid="$gid" --init-groups \
+    --inh-caps=-all,+net_admin --ambient-caps=-all,+net_admin --bounding-set=-all,+net_admin \
+    --no-new-privs --reset-env \
+    /usr/bin/env "$@" /usr/lib/dppass/bin/dppass-desktop

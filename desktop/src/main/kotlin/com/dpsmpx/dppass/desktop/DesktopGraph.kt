@@ -75,7 +75,7 @@ class DesktopGraph(
                     Triple(paths.geodata, GeodataCodes.Missing(g.errors.first().message), "none")
                 }
             }
-            val runtime = JniXrayRuntime.load({ System.load(paths.library.path) }, assetDir.path)
+            val runtime = JniXrayRuntime.load({ loadLibrary(paths) }, assetDir.path)
             when (runtime) {
                 is Outcome.Success -> {
                     logger.info("engine_loaded", "backend" to Safe(XrayBackend.ID), "version" to Safe(runtime.value.version()))
@@ -112,6 +112,9 @@ class DesktopGraph(
                 problems = problems,
             )
         }
+
+        /** Библиотека ядра и функций Linux — из пакета, по абсолютному пути (не из `java.library.path`). */
+        fun loadLibrary(paths: DesktopPaths) = System.load(paths.library.path)
 
         private const val LOG_CAPACITY = 2000
     }

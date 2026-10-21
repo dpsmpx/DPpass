@@ -57,11 +57,16 @@ val geodata = tasks.register<XrayGeodataTask>("xrayGeodataDesktop") {
     outputDir.set(layout.buildDirectory.dir("geodata"))
 }
 
-// Пакет: bin/, lib/ (jar), native/libdppassxray.so, geodata/, package/ (запуск, polkit, ярлык).
+// Пакет: bin/, lib/ (jar), native/libdppassxray.so, geodata/, package/ (запуск, polkit, ярлык, значок),
+// LICENSE. PKGBUILD с суммой архива пишет tools/desktop/package.py.
 distributions.named("main") {
     contents {
         from(xrayNative) { into("native") }
         from(geodata)
-        from(layout.projectDirectory.dir("package")) { into("package") }
+        from(layout.projectDirectory.dir("package")) {
+            into("package")
+            exclude("PKGBUILD.in")
+        }
+        from(rootProject.layout.projectDirectory.file("LICENSE"))
     }
 }

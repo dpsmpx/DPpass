@@ -53,7 +53,8 @@ private class FakePlatform(
         calls += "ip " + args.joinToString(" ")
         // Удалять «повторно, пока удаляется»: второе удаление того же правила — уже нечего.
         if (args.getOrNull(1) == "rule" && args.getOrNull(2) == "del") {
-            return if (calls.count { it == "ip " + args.joinToString(" ") } == 1) CommandResult(0, "") else CommandResult(2, "RTNETLINK answers: No such file or directory")
+            val first = calls.count { it == "ip " + args.joinToString(" ") } == 1
+            return if (first) CommandResult(0, "") else CommandResult(2, "RTNETLINK answers: No such file or directory")
         }
         return if (failOn(args)) CommandResult(2, "RTNETLINK answers: Operation not permitted") else CommandResult(0, "")
     }

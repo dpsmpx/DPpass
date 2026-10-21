@@ -203,6 +203,21 @@ python3 tools/xray/native.py host
 Выбор сервера для пробы и коды её исходов проверяют `XrayHealthTest` и
 `XrayProxyEngineTest`.
 
+### Туннель Linux
+
+Оболочка `desktop` (D-74). Без прав — `LinuxRoutesTest` (команды `ip` из
+`TunnelSpec`, порядок правил, уборка и откат на подделке платформы),
+`DesktopStorageTest` (каталоги 0700, ключ данных без обёртки),
+`DesktopLaunchTest` (скрипты пакета, polkit, PKGBUILD и ярлык
+согласованы), `go test` моста (`TestResolverUpstream`, метка резолвера,
+копия fd TUN). На настоящем ядре — `tools/desktop/netns_check.py` от root:
+в своём сетевом пространстве имён пакет `:desktop:installDist` поднимает
+туннель (`dppass-desktop --self-check`), ядро Linux отвечает `ip route get`
+о путях пакетов, ядро Xray дважды запускается на TUN и звонит серверу через
+защитника; затем `dppass-launch` проверяется от пользователя nobody. Без
+root, iproute2 или Java — код 3 с причиной; IPv6, которого нет в ядре
+машины, — громкая пометка, а не молчание.
+
 ### Набор геоданных
 
 Набор (D-27, D-31) собирает свой сборщик `tools/xray/geodata` из
@@ -357,3 +372,6 @@ HTTPS-серверу с заданным объёмом ответа (`TestSpeed
   устройства — `TODO.md`, «На устройстве».
 - Производительность на устройстве — `docs/PERFORMANCE_BUDGET.md`
   (на хосте — только ориентиры).
+- ПК с Linux (D-74): окно Swing на Wayland (через XWayland), запуск через
+  pkexec и polkit, подключение через настоящий сервер, IPv6 — `TODO.md`,
+  «Linux — этап 6».

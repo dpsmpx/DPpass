@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Запуск DPpass для Linux с одной возможностью CAP_NET_ADMIN (D-74, T17):
+     только в активном локальном сеансе, с паролем администратора. -->
+<policyconfig>
+  <vendor>DPpass</vendor>
+  <action id="com.dpsmpx.dppass.launch">
+    <description>Запуск DPpass с правом настройки сети</description>
+    <message>DPpass поднимет туннель: окну нужна одна возможность — настройка сети (CAP_NET_ADMIN).</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/dppass/dppass-launch</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+</policyconfig>
