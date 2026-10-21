@@ -233,6 +233,10 @@ CI нет: GitHub Actions в DPpass не используется и не зап
    коммит, на котором он сделан.
 3. Если Android SDK нет, прогон частичный и так и называется; слияние —
    после полного прогона, а не вместо него.
+4. Исключение — правка только Linux-оболочки (`dppass/desktop/`,
+   `dppass/tools/desktop/`, документы): `--full` не нужен. Нужны
+   `:ktlintCheck`, `:desktop:test`, `tools/desktop/netns_check.py` от
+   root и `--quick` (`DPmetaApp:D-32`).
 
 Правила, которые остаются в силе без CI:
 
