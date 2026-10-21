@@ -195,7 +195,7 @@ def _externals(path, prefix):
     return {prefix + n for n in names}
 
 
-def kotlin_externals(linux):
+def kotlin_externals(linux=False):
     """Имена `external fun` объекта XrayJni и, для Linux, LinuxNative — договор с экспортом JNI."""
     names = _externals(KOTLIN_JNI, JNI_PREFIX)
     if linux:
@@ -203,7 +203,9 @@ def kotlin_externals(linux):
     return names
 
 
-def check_library(path, machine, is64, min_align, linux):
+def check_library(path, machine, is64, min_align, linux=False):
+    """Машина, выравнивание и экспорт JNI библиотеки; [linux] — сборка для Linux (D-74) с функциями
+    LinuxNative. По умолчанию — Android: так её зовёт и check_apk.py."""
     got_machine, got64, aligns, exported = elf_info(path)
     rel = os.path.relpath(path, PROJ)
     if got_machine != machine or got64 != is64:
