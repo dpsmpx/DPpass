@@ -212,6 +212,8 @@ python3 tools/xray/native.py host
 `DesktopLaunchTest` (скрипты пакета, polkit, PKGBUILD и ярлык
 согласованы), `SubscriptionAutoUpdateTest` (D-77: срок, переподключение
 только при смене подключённого сервера, отказ без переподключения),
+`SessionWatchTest` (D-78: одиночные отказы, как в журнале автора, не
+переподключают; череда — план, вопрос или замена с согласием),
 `go test` моста (`TestResolverUpstream`, метка резолвера,
 копия fd TUN). На настоящем ядре — `tools/desktop/netns_check.py` от root:
 в своём сетевом пространстве имён пакет `:desktop:installDist` поднимает

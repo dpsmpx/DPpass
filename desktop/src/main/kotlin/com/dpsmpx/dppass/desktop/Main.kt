@@ -24,8 +24,10 @@ fun main(args: Array<String>) {
     val paths = DesktopPaths(DesktopPaths.dataDir(System.getenv(), home), install)
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val graph = DesktopGraph.build(paths)
-    val session = DesktopSession(graph, scope)
+    // Одни настройки на окно и сеанс: оба их пишут (DesktopPrefs).
+    val prefs = DesktopPrefs(File(paths.data, "settings.properties"))
+    val session = DesktopSession(graph, scope, prefs)
     // Выход — ядро и правила маршрутизации убираются и при закрытии окна, и по сигналу.
     Runtime.getRuntime().addShutdownHook(Thread(session::shutdownNow, "dppass-shutdown"))
-    SwingUtilities.invokeLater { DesktopWindow(graph, session, scope).show() }
+    SwingUtilities.invokeLater { DesktopWindow(graph, session, prefs, scope).show() }
 }

@@ -4,6 +4,7 @@ import com.dpsmpx.dppass.core.Clock
 import com.dpsmpx.dppass.desktop.DesktopGraph
 import com.dpsmpx.dppass.desktop.DesktopPrefs
 import com.dpsmpx.dppass.desktop.DesktopSession
+import com.dpsmpx.dppass.desktop.ServerNotice
 import com.dpsmpx.dppass.desktop.SessionStatus
 import java.awt.BorderLayout
 import java.awt.Component
@@ -12,7 +13,11 @@ import javax.swing.BoxLayout
 import javax.swing.JPanel
 import javax.swing.Timer
 
-/** «Подключение»: кнопка питания, состояние, сервер, время и трафик сеанса, причина отказа. */
+/**
+ * «Подключение»: кнопка питания, состояние, сервер, время и трафик сеанса,
+ * причина отказа; сбой выбранного сервера (D-58, D-78) — вопрос с кнопками
+ * «Перейти» и «Остаться» или сообщение об автопереключении.
+ */
 class ConnectPanel(
     private val graph: DesktopGraph,
     private val session: DesktopSession,
@@ -25,6 +30,11 @@ class ConnectPanel(
     private val details = Widgets.caption()
     private val reason = Widgets.Banner(error = true)
     private val rights = Widgets.Banner(error = false)
+    private val offerText = Widgets.Banner(error = false)
+    private val offerButtons = JPanel(FlowLayout(FlowLayout.CENTER, Widgets.STEP * 2, 0)).apply {
+        isOpaque = false
+        isVisible = false
+    }
     private var last: SessionStatus = SessionStatus.Disconnected
     private val ticker = Timer(TICK_MILLIS) { renderDetails() }
 
@@ -37,6 +47,9 @@ class ConnectPanel(
         }
         fun center(c: javax.swing.JComponent) = c.also { it.alignmentX = Component.CENTER_ALIGNMENT }
         column.add(center(rights))
+        column.add(javax.swing.Box.createVerticalStrut(Widgets.STEP))
+        column.add(center(offerText))
+        column.add(center(offerButtons))
         column.add(javax.swing.Box.createVerticalGlue())
         column.add(center(power))
         column.add(javax.swing.Box.createVerticalStrut(Widgets.STEP * 4))
@@ -83,6 +96,31 @@ class ConnectPanel(
         state.text = title
         reason.show((s as? SessionStatus.Failed)?.reason?.let(Widgets::describe))
         renderDetails()
+    }
+
+    /** Сбой выбранного сервера (D-58): вопрос — с ответами; сообщение об автопереключении — с «Понятно». */
+    fun renderNotice(n: ServerNotice?) {
+        offerButtons.removeAll()
+        if (n == null) {
+            offerText.show(null)
+            offerButtons.isVisible = false
+            return
+        }
+        val why = n.reason.message
+        if (n.asked) {
+            offerText.show(
+                "Сервер «${n.from.name}» перестал отвечать: $why\n\n" +
+                    "Перейти на «${n.to.name}»? Пока ответа нет, DPpass переподключается к «${n.from.name}».",
+            )
+            offerButtons.add(Widgets.button("Перейти на «${n.to.name}»") { session.acceptSwitch() })
+            offerButtons.add(Widgets.button("Остаться") { session.keepServer() })
+        } else {
+            offerText.show("DPpass перешёл с «${n.from.name}» на «${n.to.name}» (автопереключение): $why")
+            offerButtons.add(Widgets.button("Понятно") { session.dismissNotice() })
+        }
+        offerButtons.isVisible = true
+        revalidate()
+        repaint()
     }
 
     private fun renderDetails() {

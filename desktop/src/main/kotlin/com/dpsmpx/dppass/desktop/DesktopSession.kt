@@ -1,6 +1,8 @@
 package com.dpsmpx.dppass.desktop
 
+import com.dpsmpx.dppass.config.ServerProfile
 import com.dpsmpx.dppass.connection.ConnectionReport
+import com.dpsmpx.dppass.connection.Degradation
 import com.dpsmpx.dppass.connection.HealthChecker
 import com.dpsmpx.dppass.connection.toTunInput
 import com.dpsmpx.dppass.core.ProfileId
@@ -23,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.Collections
 
 /** Состояние туннеля для окна. */
 sealed interface SessionStatus {
@@ -38,15 +41,35 @@ sealed interface SessionStatus {
 }
 
 /**
+ * Сбой сервера сеанса (D-58, D-78): [asked] — вопрос, перейти ли с [from] на
+ * [to]; иначе — сообщение, что DPpass перешёл сам (автопереключение).
+ */
+data class ServerNotice(val from: ServerProfile, val to: ServerProfile, val reason: Diagnostic, val asked: Boolean)
+
+/**
  * Сеанс туннеля на Linux (D-74) — путь `DPpassVpnService` без Android:
  * спецификация → TUN → план кандидатов с пробой здоровья (D-15, D-32) →
- * сеанс ядра; отключение — ядро, затем TUN и правила. Раздачи, устройства
- * раздачи, режима без сервера и наблюдателя сеанса в первой версии нет;
- * переподключение к новым серверам подписки — [reconnect] (D-77).
+ * сеанс ядра; отключение — ядро, затем TUN и правила. Переподключение к
+ * новым серверам подписки — [reconnect] (D-77). Пока сеанс идёт, его
+ * наблюдает [SessionWatch] (D-78): подтверждённый сбой — переподключение,
+ * вопрос о замене выбранного сервера ([notice]) или замена с согласием
+ * заранее. Раздачи, устройства раздачи и режима без сервера в первой
+ * версии нет.
  */
-class DesktopSession(private val graph: DesktopGraph, private val scope: CoroutineScope) {
+class DesktopSession(private val graph: DesktopGraph, private val scope: CoroutineScope, private val prefs: DesktopPrefs) {
     private val state = MutableStateFlow<SessionStatus>(SessionStatus.Disconnected)
     val status: StateFlow<SessionStatus> = state
+
+    private val noticeState = MutableStateFlow<ServerNotice?>(null)
+
+    /** Вопрос о замене сервера или сообщение о ней (D-58); null — нечего показывать. */
+    val notice: StateFlow<ServerNotice?> = noticeState
+
+    /** Серверы, о которых пользователь ответил «Остаться» (D-58): до отключения. */
+    private val declined: MutableSet<ProfileId> = Collections.synchronizedSet(HashSet())
+
+    @Volatile
+    private var watch: Job? = null
 
     private val lock = Mutex()
 
@@ -89,7 +112,37 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
         }
     }
 
+    /** «Перейти» (D-58): замена — только из действующей конфигурации, иначе — с прежним выбором. */
+    fun acceptSwitch() {
+        val n = noticeState.value?.takeIf { it.asked } ?: return
+        noticeState.value = null
+        val core = graph.core
+        if (core.activation.state.activeConfig?.profiles?.any { it.id == n.to.id } == true) {
+            prefs.selectedServer = n.to.id
+            core.log.info("server_switched", "from" to Safe(n.from.id.value), "to" to Safe(n.to.id.value), "by" to Safe("user"))
+        } else {
+            core.log.info("server_switch_stale")
+        }
+        if (session != null) reconnect(prefs.selectedServer) else connect(prefs.selectedServer)
+    }
+
+    /** «Остаться» (D-58): о сбоях этого сервера не спрашивать до отключения. */
+    fun keepServer() {
+        val n = noticeState.value?.takeIf { it.asked } ?: return
+        noticeState.value = null
+        declined += n.from.id
+        graph.core.log.info("server_switch_declined", "profile" to Safe(n.from.id.value))
+    }
+
+    /** Сообщение об автопереключении прочитано. */
+    fun dismissNotice() {
+        if (noticeState.value?.asked == false) noticeState.value = null
+    }
+
     fun disconnect() {
+        // Ответ «Остаться» и вопрос — до отключения (D-58).
+        declined.clear()
+        noticeState.value = null
         val running = job
         scope.launch {
             running?.cancel()
@@ -103,10 +156,13 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
      * Ядро останавливается мостом напрямую, затем TUN и правила.
      */
     fun shutdownNow() {
+        watch?.cancel()
         if (session != null) graph.runtime?.stop()
         tunnel?.close()
         session = null
         tunnel = null
+        // Опыт адаптивной модели — на диск (D-44).
+        graph.core.persistStability()
     }
 
     private suspend fun connectNow(preferred: ProfileId?) {
@@ -147,6 +203,17 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
                 val name = ir.profiles.firstOrNull { it.id == report.profileId }?.name ?: report.profileId.value
                 core.log.info("connected", "profile" to Safe(report.profileId.value), "attempts" to report.attempts.size)
                 state.value = SessionStatus.Connected(report.profileId, name, core.clock.nowMillis())
+                val profile = ir.profiles.firstOrNull { it.id == report.profileId }
+                val w = SessionWatch(
+                    core,
+                    report.profileId,
+                    profile,
+                    { graph.engine.probeHealth(ir.dns, probeTimeout) },
+                    { prefs.selectedServer },
+                    { prefs.autoSwitch },
+                    { synchronized(declined) { declined.toSet() } },
+                )
+                watch = scope.launch { onDegraded(withContext(Dispatchers.IO) { w.run { delay(it) } }) }
             }
             is ConnectionReport.Failed -> {
                 withContext(Dispatchers.IO) { handle.close() }
@@ -159,7 +226,28 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
         }
     }
 
+    /** Сбой подтверждён (D-58): вопрос или замена — и переподключение по выбору, как он есть теперь. */
+    private fun onDegraded(d: Degradation) {
+        val log = graph.core.log
+        when (d) {
+            is Degradation.Reconnect -> Unit
+            is Degradation.Ask -> {
+                noticeState.value = ServerNotice(d.from, d.to, d.reason, asked = true)
+                log.info("server_switch_offered", "from" to Safe(d.from.id.value), "to" to Safe(d.to.id.value))
+            }
+            is Degradation.Switch -> {
+                prefs.selectedServer = d.to.id
+                noticeState.value = ServerNotice(d.from, d.to, d.reason, asked = false)
+                log.info("server_switched", "from" to Safe(d.from.id.value), "to" to Safe(d.to.id.value), "by" to Safe("auto"))
+            }
+        }
+        // Пока на вопрос нет ответа — к прежнему выбору, как на Android.
+        reconnect(prefs.selectedServer)
+    }
+
     private suspend fun stopNow() {
+        watch?.cancel()
+        watch = null
         val s = session ?: run {
             if (state.value !is SessionStatus.Failed) state.value = SessionStatus.Disconnected
             return
@@ -171,6 +259,7 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
         }
         session = null
         tunnel = null
+        withContext(NonCancellable + Dispatchers.IO) { graph.core.persistStability() }
         graph.core.log.info("disconnected")
         state.value = SessionStatus.Disconnected
     }

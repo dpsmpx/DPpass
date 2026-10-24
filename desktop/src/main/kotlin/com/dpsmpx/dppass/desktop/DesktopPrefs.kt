@@ -10,8 +10,9 @@ import java.util.Properties
 
 /**
  * Настройки окна ПК — не документ конфигурации (D-06) и не то, что задаёт
- * подписка (D-11): выбранный сервер (D-34) и тема. Файл в каталоге данных
- * (0700); запись — заменой файла целиком.
+ * подписка (D-11): выбранный сервер (D-34), автопереключение (D-58, D-78) и
+ * тема. Файл в каталоге данных (0700); запись — заменой файла целиком. Один
+ * объект на процесс: окно и сеанс пишут через него.
  */
 class DesktopPrefs(private val file: File) {
     private val props = Properties().also { p ->
@@ -25,6 +26,11 @@ class DesktopPrefs(private val file: File) {
     var selectedServer: ProfileId?
         get() = props.getProperty(SERVER)?.let(::ProfileId)
         set(value) = put(SERVER, value?.value)
+
+    /** «Автопереключение сервера» (D-58): согласие заранее заменять выбранный сервер, когда он перестал отвечать. */
+    var autoSwitch: Boolean
+        get() = props.getProperty(AUTO_SWITCH) == "true"
+        set(value) = put(AUTO_SWITCH, value.toString())
 
     var theme: ThemeChoice
         get() = props.getProperty(THEME)?.let { v -> ThemeChoice.entries.firstOrNull { it.name == v } } ?: ThemeChoice.AUTO
@@ -45,5 +51,6 @@ class DesktopPrefs(private val file: File) {
     private companion object {
         const val SERVER = "server"
         const val THEME = "theme"
+        const val AUTO_SWITCH = "auto_switch"
     }
 }

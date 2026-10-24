@@ -9,7 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.awt.Dimension
 import java.awt.event.KeyEvent
-import java.io.File
+import javax.swing.JCheckBoxMenuItem
 import javax.swing.JFrame
 import javax.swing.JMenu
 import javax.swing.JMenuBar
@@ -22,12 +22,17 @@ import javax.swing.WindowConstants
 
 /**
  * Окно DPpass для Linux (D-74): «Подключение», «Серверы», «Подписки»,
- * «Журнал»; меню «Импорт» — буфер обмена и файл (D-42). Пока окно открыто,
+ * «Журнал»; меню «Импорт» — буфер обмена и файл (D-42), «Подключение» —
+ * автопереключение сервера (D-78). Пока окно открыто,
  * применённая подписка обновляется по сроку (D-77). Закрытие окна — выход:
  * ядро и правила маршрутизации убирает `DesktopSession.shutdownNow`.
  */
-class DesktopWindow(private val graph: DesktopGraph, private val session: DesktopSession, private val scope: CoroutineScope) {
-    private val prefs = DesktopPrefs(File(graph.paths.data, "settings.properties"))
+class DesktopWindow(
+    private val graph: DesktopGraph,
+    private val session: DesktopSession,
+    private val prefs: DesktopPrefs,
+    private val scope: CoroutineScope,
+) {
     private val frame = JFrame("DPpass")
 
     fun show() {
@@ -80,6 +85,7 @@ class DesktopWindow(private val graph: DesktopGraph, private val session: Deskto
                 changed()
             }
         }.start(scope)
+        scope.launch(Edt) { session.notice.collect(connect::renderNotice) }
         scope.launch(Edt) {
             session.status.collect { s ->
                 connect.render(s)
@@ -96,6 +102,20 @@ class DesktopWindow(private val graph: DesktopGraph, private val session: Deskto
             JMenu("Импорт").apply {
                 add(item("Из буфера обмена", KeyEvent.VK_V) { import.fromClipboard() })
                 add(item("Из файла…", KeyEvent.VK_O) { import.fromFile() })
+            },
+        )
+        add(
+            JMenu("Подключение").apply {
+                // Согласие заранее заменять выбранный сервер, когда он перестал отвечать (D-58, D-78).
+                add(
+                    JCheckBoxMenuItem("Автопереключение сервера", prefs.autoSwitch).apply {
+                        toolTipText = "Если выбранный сервер перестал отвечать, перейти на лучший другой без вопроса"
+                        addActionListener {
+                            prefs.autoSwitch = isSelected
+                            graph.core.log.info("auto_switch", "on" to isSelected)
+                        }
+                    },
+                )
             },
         )
         add(
