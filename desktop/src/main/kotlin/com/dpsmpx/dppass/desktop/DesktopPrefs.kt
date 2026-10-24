@@ -1,5 +1,6 @@
 package com.dpsmpx.dppass.desktop
 
+import com.dpsmpx.dppass.connection.ServerlessSettings
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.desktop.ui.ThemeChoice
 import com.dpsmpx.dppass.routing.SplitSites
@@ -13,7 +14,7 @@ import java.util.Properties
  * Настройки окна ПК — не документ конфигурации (D-06) и не то, что задаёт
  * подписка (D-11): выбранный сервер (D-34), автопереключение (D-58, D-78),
  * проверка сети при её смене (D-80), разбиение ClientHello (D-81), сайты
- * напрямую с разбиением (D-82) и тема. Файл в каталоге данных (0700); запись — заменой файла целиком. Один
+ * напрямую с разбиением (D-82), без сервера (D-83) и тема. Файл в каталоге данных (0700); запись — заменой файла целиком. Один
  * объект на процесс: окно и сеанс пишут через него.
  */
 class DesktopPrefs(private val file: File) {
@@ -58,6 +59,17 @@ class DesktopPrefs(private val file: File) {
     /** Список в силе. Сохранённый текст разбирается всегда: его записал [SplitSites.format]; испорчен — пустой. */
     fun splitSites(): SplitSites = SplitSites.parse(splitSitesText).valueOrNull() ?: SplitSites.NONE
 
+    /**
+     * Без сервера (D-73, D-83): остальные сайты и DNS. Выбора приложений на
+     * ПК нет — программы не различаются (D-74): туннель для всех.
+     */
+    var serverless: ServerlessSettings
+        get() = ServerlessSettings.of(props.getProperty(SERVERLESS_REST), props.getProperty(SERVERLESS_DNS), null, null, emptySet())
+        set(value) {
+            put(SERVERLESS_REST, value.rest.wire)
+            put(SERVERLESS_DNS, value.dns.wire)
+        }
+
     var theme: ThemeChoice
         get() = props.getProperty(THEME)?.let { v -> ThemeChoice.entries.firstOrNull { it.name == v } } ?: ThemeChoice.AUTO
         set(value) = put(THEME, value.name)
@@ -81,5 +93,7 @@ class DesktopPrefs(private val file: File) {
         const val CHECK_ON_CHANGE = "check_on_network_change"
         const val SPLIT_CLIENT_HELLO = "split_client_hello"
         const val SPLIT_SITES = "split_sites"
+        const val SERVERLESS_REST = "serverless_rest"
+        const val SERVERLESS_DNS = "serverless_dns"
     }
 }

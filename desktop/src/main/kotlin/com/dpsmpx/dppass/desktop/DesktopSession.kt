@@ -4,6 +4,7 @@ import com.dpsmpx.dppass.config.ServerProfile
 import com.dpsmpx.dppass.connection.ConnectionReport
 import com.dpsmpx.dppass.connection.Degradation
 import com.dpsmpx.dppass.connection.HealthChecker
+import com.dpsmpx.dppass.connection.ServerlessSettings
 import com.dpsmpx.dppass.connection.toTunInput
 import com.dpsmpx.dppass.core.Clock
 import com.dpsmpx.dppass.core.ProfileId
@@ -12,9 +13,11 @@ import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Safe
 import com.dpsmpx.dppass.engine.EngineSession
+import com.dpsmpx.dppass.engine.ServerlessPlan
 import com.dpsmpx.dppass.engine.TrafficStats
 import com.dpsmpx.dppass.network.NetworkAssessment
 import com.dpsmpx.dppass.network.NetworkChangeChecks
+import com.dpsmpx.dppass.routing.SplitSites
 import com.dpsmpx.dppass.tunnel.TunnelHandle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -57,8 +60,9 @@ data class ServerNotice(val from: ServerProfile, val to: ServerProfile, val reas
  * наблюдает [SessionWatch] (D-78): подтверждённый сбой — переподключение,
  * вопрос о замене выбранного сервера ([notice]) или замена с согласием
  * заранее; сменилась сеть — режим сессии заново и проверка новой сети
- * ([NetworkWatch], D-80). Раздачи, устройства раздачи и режима без сервера
- * в первой версии нет.
+ * ([NetworkWatch], D-80). Серверов нет, а список «Напрямую с разбиением»
+ * есть — туннель без сервера (D-83). Раздачи и устройства раздачи в первой
+ * версии нет.
  */
 class DesktopSession(private val graph: DesktopGraph, private val scope: CoroutineScope, private val prefs: DesktopPrefs) {
     private val state = MutableStateFlow<SessionStatus>(SessionStatus.Disconnected)
@@ -192,8 +196,16 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
         if (session != null) return
         val core = graph.core
         state.value = SessionStatus.Connecting(null)
+        // Без сервера (D-73, D-83): серверов нет, а сайтам списка (или всем, с разбиением) нужен туннель.
+        val serverless = prefs.serverless
+        if (core.serverlessReady(prefs.splitSites(), serverless, relaySelected = false)) return connectServerlessNow(prefs.splitSites(), serverless)
         val ir = core.activation.state.activeConfig
-            ?: return fail(Diagnostic.error(DiagCode.PROFILES_EMPTY, "нет активной конфигурации — добавьте подписку или импортируйте серверы"))
+            ?: return fail(
+                Diagnostic.error(
+                    DiagCode.PROFILES_EMPTY,
+                    "нет активной конфигурации — добавьте подписку или импортируйте серверы; без сервера туннелю нужны «Сайты напрямую с разбиением»",
+                ),
+            )
         val spec = when (val s = core.tunnelSpecFor(ir)) {
             is Outcome.Failure -> return fail(s.errors.first())
             is Outcome.Success -> s.value
@@ -278,6 +290,60 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
         }
     }
 
+    /**
+     * Без сервера (D-73, D-83): TUN для всех программ, ядро только с прямыми
+     * выходами, проба DoH напрямую. Наблюдателя (D-78) нет — сервера нет;
+     * смена сети (D-80) — как с сервером.
+     */
+    private suspend fun connectServerlessNow(sites: SplitSites, settings: ServerlessSettings) {
+        val core = graph.core
+        state.value = SessionStatus.Connecting(SERVERLESS_NAME)
+        val spec = when (val s = core.tunnelSpecFor(core.serverlessConfig(settings))) {
+            is Outcome.Failure -> return fail(s.errors.first())
+            is Outcome.Success -> s.value
+        }
+        val handle = when (val t = withContext(Dispatchers.IO) { graph.tunnels.establish(spec) }) {
+            is Outcome.Failure -> {
+                t.errors.drop(1).forEach(core.log::diagnostic)
+                return fail(t.errors.first())
+            }
+            is Outcome.Success -> t.value
+        }
+        core.log.info("split_sites", "n" to sites.size)
+        val probeTimeout = (core.policy.healthTimeoutMillis - PROBE_MARGIN_MILLIS).toInt()
+        val result = try {
+            core.connectServerless(handle.toTunInput(), sites, settings) { _, dns ->
+                withContext(Dispatchers.IO) { graph.engine.probeServerless(dns, probeTimeout) }
+            }
+        } catch (e: CancellationException) {
+            withContext(NonCancellable + Dispatchers.IO) { handle.close() }
+            state.value = SessionStatus.Disconnected
+            throw e
+        }
+        when (result) {
+            is Outcome.Failure -> {
+                withContext(Dispatchers.IO) { handle.close() }
+                fail(result.errors.first())
+            }
+            is Outcome.Success -> {
+                session = result.value
+                tunnel = handle
+                core.log.info("connected", "profile" to Safe(ServerlessPlan.PROFILE_ID.value), "attempts" to 1)
+                // Режима сессии без сервера нет: опыт не копится — его не у кого.
+                sessionRegime = null
+                state.value = SessionStatus.Connected(ServerlessPlan.PROFILE_ID, SERVERLESS_NAME, core.clock.nowMillis())
+                val net = NetworkWatch(
+                    core.log,
+                    graph.networkCheck,
+                    changes ?: NetworkChangeChecks(Clock.MONOTONIC).also { changes = it },
+                    { prefs.checkOnNetworkChange },
+                    { sessionRegime = it },
+                )
+                networkWatch = scope.launch(Dispatchers.IO) { net.run { delay(it) } }
+            }
+        }
+    }
+
     /** Сбой подтверждён (D-58): вопрос или замена — и переподключение по выбору, как он есть теперь. */
     private fun onDegraded(d: Degradation) {
         val log = graph.core.log
@@ -325,5 +391,8 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
 
     private companion object {
         const val PROBE_MARGIN_MILLIS = 2_000L
+
+        /** Имя сеанса без сервера в окне (D-83), как на телефоне. */
+        const val SERVERLESS_NAME = "Без сервера"
     }
 }

@@ -1,5 +1,6 @@
 package com.dpsmpx.dppass.desktop.ui
 
+import com.dpsmpx.dppass.connection.SubscriptionRun
 import com.dpsmpx.dppass.core.SubscriptionId
 import com.dpsmpx.dppass.desktop.DesktopGraph
 import com.dpsmpx.dppass.diagnostics.Outcome
@@ -36,6 +37,12 @@ class SubscriptionsPanel(
     private val scope: CoroutineScope,
     /** После применения: серверы и состояние в окне — заново. */
     private val changed: () -> Unit,
+    /**
+     * Обновление применено: подключённого сервера в нём нет или он изменился —
+     * переподключить (D-39); туннель без сервера (D-83) с первыми серверами —
+     * тоже: дальше подключение через них.
+     */
+    private val applied: (SubscriptionRun) -> Unit = {},
 ) : JPanel(BorderLayout()) {
     private val model = DefaultListModel<Subscription>()
     private val list = JList(model)
@@ -114,6 +121,7 @@ class SubscriptionsPanel(
                 is Outcome.Failure -> problem("«$name» не обновлена", Widgets.describe(r.errors.first()))
                 is Outcome.Success -> {
                     val run = r.value
+                    applied(run)
                     val failed = run.diagnostics.firstOrNull { it.isError }
                     note.text = when {
                         run.applied -> "«$name»: серверов — ${run.after?.profiles?.size ?: 0}, применено."

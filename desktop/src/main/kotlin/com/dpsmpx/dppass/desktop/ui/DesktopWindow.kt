@@ -1,14 +1,18 @@
 package com.dpsmpx.dppass.desktop.ui
 
+import com.dpsmpx.dppass.connection.ServerlessSettings
 import com.dpsmpx.dppass.desktop.DesktopGraph
 import com.dpsmpx.dppass.desktop.DesktopPrefs
 import com.dpsmpx.dppass.desktop.DesktopSession
 import com.dpsmpx.dppass.desktop.SessionStatus
 import com.dpsmpx.dppass.desktop.SubscriptionAutoUpdate
+import com.dpsmpx.dppass.diagnostics.Safe
+import com.dpsmpx.dppass.engine.ServerlessPlan
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.awt.Dimension
 import java.awt.event.KeyEvent
+import javax.swing.ButtonGroup
 import javax.swing.JCheckBoxMenuItem
 import javax.swing.JFrame
 import javax.swing.JMenu
@@ -46,7 +50,9 @@ class DesktopWindow(
             servers.refresh()
             connect.render(session.status.value)
         }
-        subscriptions = SubscriptionsPanel(graph, scope, changed)
+        subscriptions = SubscriptionsPanel(graph, scope, changed) { run ->
+            if (run.needsReconnect(session.connectedProfile())) session.reconnectIfConnected()
+        }
         val import = ImportFlow(graph, scope, { frame }, subscriptions, changed)
         connect = ConnectPanel(graph, session, prefs, import::fromClipboard)
         servers = ServersPanel(graph, prefs, scope) { session.status.value }
@@ -135,6 +141,8 @@ class DesktopWindow(
                 )
                 // Сайты напрямую с разбиением (D-72, D-82): список ПК; действует сразу.
                 add(JMenuItem("Сайты напрямую с разбиением…").apply { addActionListener { SplitSitesDialog.show(frame, graph, prefs, session) } })
+                // Без сервера (D-73, D-83): остальные сайты и DNS; приложения — все (Linux их не различает).
+                add(serverlessMenu())
                 // Проверка новой сети при поднятом туннеле (D-80): выключено — только по кнопке на «Сети».
                 add(
                     JCheckBoxMenuItem("Проверять сеть при её смене", prefs.checkOnNetworkChange).apply {
@@ -162,6 +170,50 @@ class DesktopWindow(
                     )
                 }
             },
+        )
+    }
+
+    /**
+     * «Без сервера» (D-83): когда серверов нет, а в «Сайтах напрямую с
+     * разбиением» есть записи (или остальные сайты — с разбиением),
+     * «Подключить» поднимает туннель без сервера. Смена выбора при туннеле
+     * без сервера — переподключение.
+     */
+    private fun serverlessMenu(): JMenu = JMenu("Без сервера").apply {
+        toolTipText = "Есть серверы — подключение только через них. Без сервера помогает только против фильтров, " +
+            "которые ищут имя сайта: закрытый адрес так не открыть"
+        /** Группа выбора: каждый пункт меняет только своё поле нынешней настройки — на момент нажатия. */
+        fun group(title: String, options: List<Pair<String, (ServerlessSettings) -> ServerlessSettings>>) {
+            add(JMenuItem(title).apply { isEnabled = false })
+            val g = ButtonGroup()
+            for ((label, change) in options) {
+                val current = prefs.serverless
+                val item = JRadioButtonMenuItem(label, change(current) == current).apply {
+                    addActionListener {
+                        val next = change(prefs.serverless)
+                        prefs.serverless = next
+                        graph.core.log.info("serverless_set", "rest" to Safe(next.rest.wire), "dns" to Safe(next.dns.wire))
+                        if (session.connectedProfile() == ServerlessPlan.PROFILE_ID) session.reconnectIfConnected()
+                    }
+                }
+                g.add(item)
+                add(item)
+            }
+        }
+        group(
+            "Остальные сайты",
+            listOf(
+                "Напрямую, как без VPN" to { s -> s.copy(rest = ServerlessSettings.Rest.DIRECT) },
+                "С разбиением" to { s -> s.copy(rest = ServerlessSettings.Rest.SPLIT) },
+            ),
+        )
+        addSeparator()
+        group(
+            "DNS",
+            listOf(
+                "DoH напрямую — мимо резолвера оператора" to { s -> s.copy(dns = ServerlessSettings.Dns.DOH) },
+                "Системный — как резолвит Linux" to { s -> s.copy(dns = ServerlessSettings.Dns.SYSTEM) },
+            ),
         )
     }
 
