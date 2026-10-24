@@ -21,6 +21,7 @@ class DesktopPrefsTest {
         assertFalse(p.autoSwitch, "автопереключение — только с согласия (D-58)")
         assertTrue(p.checkOnNetworkChange, "проверка сети при её смене — включена, как выбрал автор (D-67, D-80)")
         assertFalse(p.splitClientHello, "разбиение ClientHello — выключено (D-68, D-81)")
+        assertTrue(p.splitSites().isEmpty, "сайты напрямую с разбиением — пусто (D-72, D-82)")
     }
 
     @Test
@@ -30,11 +31,20 @@ class DesktopPrefsTest {
             autoSwitch = true
             checkOnNetworkChange = false
             splitClientHello = true
+            splitSitesText = "example.com\ngeosite:youtube"
         }
         val again = DesktopPrefs(file)
         assertEquals(ProfileId("s1"), again.selectedServer)
         assertTrue(again.autoSwitch)
         assertFalse(again.checkOnNetworkChange)
         assertTrue(again.splitClientHello)
+        assertEquals(listOf("example.com"), again.splitSites().domains, "многострочный список переживает перезапуск")
+        assertEquals(listOf("youtube"), again.splitSites().geoSites)
+    }
+
+    @Test
+    fun damagedListIsEmptyNotHalfApplied() {
+        DesktopPrefs(file).splitSitesText = "example.com\nне домен"
+        assertTrue(DesktopPrefs(file).splitSites().isEmpty)
     }
 }

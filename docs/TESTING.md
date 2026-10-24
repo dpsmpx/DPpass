@@ -219,6 +219,7 @@ python3 tools/xray/native.py host
 а не туннель; белый список — только для своей сети), `NetworkWatchTest`
 (D-80: что считать сменой сети, проверка после паузы, предел за час),
 `DesktopPrefsTest` (умолчания настроек ПК — как в решениях),
+`SplitSitesDialogTest` (D-82: неверная строка и неизвестный geosite — отказ),
 `go test` моста (`TestResolverUpstream`, метка резолвера,
 копия fd TUN). На настоящем ядре — `tools/desktop/netns_check.py` от root:
 в своём сетевом пространстве имён пакет `:desktop:installDist` поднимает

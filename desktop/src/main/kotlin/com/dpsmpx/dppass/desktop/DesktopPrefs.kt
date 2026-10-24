@@ -2,6 +2,7 @@ package com.dpsmpx.dppass.desktop
 
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.desktop.ui.ThemeChoice
+import com.dpsmpx.dppass.routing.SplitSites
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
@@ -11,7 +12,8 @@ import java.util.Properties
 /**
  * Настройки окна ПК — не документ конфигурации (D-06) и не то, что задаёт
  * подписка (D-11): выбранный сервер (D-34), автопереключение (D-58, D-78),
- * проверка сети при её смене (D-80), разбиение ClientHello (D-81) и тема. Файл в каталоге данных (0700); запись — заменой файла целиком. Один
+ * проверка сети при её смене (D-80), разбиение ClientHello (D-81), сайты
+ * напрямую с разбиением (D-82) и тема. Файл в каталоге данных (0700); запись — заменой файла целиком. Один
  * объект на процесс: окно и сеанс пишут через него.
  */
 class DesktopPrefs(private val file: File) {
@@ -45,6 +47,17 @@ class DesktopPrefs(private val file: File) {
         get() = props.getProperty(SPLIT_CLIENT_HELLO) == "true"
         set(value) = put(SPLIT_CLIENT_HELLO, value.toString())
 
+    /**
+     * Список «Напрямую с разбиением» (D-72, D-82): текст настройки, запись на
+     * строку. Сохраняется только разобранный ([SplitSites.format]).
+     */
+    var splitSitesText: String
+        get() = props.getProperty(SPLIT_SITES).orEmpty()
+        set(value) = put(SPLIT_SITES, value.ifEmpty { null })
+
+    /** Список в силе. Сохранённый текст разбирается всегда: его записал [SplitSites.format]; испорчен — пустой. */
+    fun splitSites(): SplitSites = SplitSites.parse(splitSitesText).valueOrNull() ?: SplitSites.NONE
+
     var theme: ThemeChoice
         get() = props.getProperty(THEME)?.let { v -> ThemeChoice.entries.firstOrNull { it.name == v } } ?: ThemeChoice.AUTO
         set(value) = put(THEME, value.name)
@@ -67,5 +80,6 @@ class DesktopPrefs(private val file: File) {
         const val AUTO_SWITCH = "auto_switch"
         const val CHECK_ON_CHANGE = "check_on_network_change"
         const val SPLIT_CLIENT_HELLO = "split_client_hello"
+        const val SPLIT_SITES = "split_sites"
     }
 }

@@ -218,8 +218,11 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
         // Разбиение ClientHello к серверу (D-68, D-81) — выбор пользователя; отказ сервера — повтор без него (D-69, ядро).
         val split = prefs.splitClientHello
         core.log.info("client_hello_split", "on" to split)
+        // Сайты напрямую с разбиением (D-72, D-82): в журнал — число записей, не сами сайты.
+        val sites = prefs.splitSites()
+        core.log.info("split_sites", "n" to sites.size)
         val report = try {
-            core.connect(null, checker, handle.toTunInput(), preferred, regime = regime, splitClientHello = split) { delay(it) }
+            core.connect(null, checker, handle.toTunInput(), preferred, regime = regime, splitClientHello = split, splitSites = sites) { delay(it) }
         } catch (e: CancellationException) {
             // Сеанс, запущенный посреди проверки, оркестратор уже остановил; остаётся TUN.
             withContext(NonCancellable + Dispatchers.IO) { handle.close() }
