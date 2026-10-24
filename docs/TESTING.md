@@ -221,6 +221,9 @@ python3 tools/xray/native.py host
 `DesktopPrefsTest` (умолчания настроек ПК — как в решениях),
 `SplitSitesDialogTest` (D-82: неверная строка и неизвестный geosite — отказ),
 `DesktopServerlessTest` (D-83: когда без сервера, что Linux выражает, переход к серверу),
+`LinuxShareInterfacesTest` (D-84: раздача — только общие сети NetworkManager; сомнение — не раздавать),
+`ShareWatchTest` (D-84: смена точки доступа — одно переподключение),
+`SystemCommandTest` (T17: программа по абсолютному пути, без shell, с пределом времени),
 `go test` моста (`TestResolverUpstream`, метка резолвера,
 копия fd TUN). На настоящем ядре — `tools/desktop/netns_check.py` от root:
 в своём сетевом пространстве имён пакет `:desktop:installDist` поднимает

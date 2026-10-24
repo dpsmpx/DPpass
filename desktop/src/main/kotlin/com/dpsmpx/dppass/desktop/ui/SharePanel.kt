@@ -1,0 +1,259 @@
+package com.dpsmpx.dppass.desktop.ui
+
+import com.dpsmpx.dppass.connection.ShareSettings
+import com.dpsmpx.dppass.desktop.DesktopGraph
+import com.dpsmpx.dppass.desktop.DesktopSession
+import com.dpsmpx.dppass.desktop.LinuxShareInterfaces
+import com.dpsmpx.dppass.desktop.SessionStatus
+import com.dpsmpx.dppass.desktop.ShareStatus
+import com.dpsmpx.dppass.diagnostics.Outcome
+import com.dpsmpx.dppass.engine.ServerlessPlan
+import java.awt.BorderLayout
+import java.awt.Component
+import java.awt.Dimension
+import java.awt.FlowLayout
+import java.awt.GridBagConstraints
+import java.awt.GridBagLayout
+import java.awt.Insets
+import java.awt.Rectangle
+import java.awt.Toolkit
+import java.awt.datatransfer.StringSelection
+import javax.swing.Box
+import javax.swing.BoxLayout
+import javax.swing.JCheckBox
+import javax.swing.JComponent
+import javax.swing.JLabel
+import javax.swing.JOptionPane
+import javax.swing.JPanel
+import javax.swing.JPasswordField
+import javax.swing.JScrollPane
+import javax.swing.JTextArea
+import javax.swing.JTextField
+import javax.swing.Scrollable
+import javax.swing.SwingConstants
+import javax.swing.text.DefaultCaret
+
+/**
+ * «Раздача» (D-84, к D-51): вход прокси SOCKS5 и HTTP с паролем на адресах
+ * точки доступа ПК — для других устройств в ней. Включить, адреса, порт,
+ * логин и пароль, новые логин, пароль и порт. Включение и смена входа
+ * действуют сразу: туннель переподключается. Пароль скрыт, пока его не
+ * показали: на ПК нет запрета снимка экрана, как `FLAG_SECURE` на Android.
+ */
+class SharePanel(private val graph: DesktopGraph, private val session: DesktopSession) : JPanel(BorderLayout()) {
+    private val enabled = JCheckBox("Раздавать туннель").apply {
+        isOpaque = false
+        foreground = Theme.palette.text
+        addActionListener { switch(isSelected) }
+    }
+    private val where = still(Widgets.note())
+    private val problem = Widgets.Banner(error = false)
+    private val address = field()
+    private val port = field()
+    private val user = field()
+    private val password = JPasswordField().apply { isEditable = false }
+    private val masked = password.echoChar
+    private var last: SessionStatus = SessionStatus.Disconnected
+    private var lastShare: ShareStatus? = null
+
+    /** Последнее несохранённое изменение — до следующего удачного. */
+    private var failure: String? = null
+
+    init {
+        background = Theme.palette.bg
+        border = Widgets.pad(4)
+        val column = Column().apply {
+            isOpaque = false
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        }
+        fun left(c: JComponent) = c.also { it.alignmentX = Component.LEFT_ALIGNMENT }
+        column.add(left(Widgets.title("Раздача туннеля").also { it.border = Widgets.pad(1) }))
+        column.add(left(still(Widgets.note()).apply { text = INTRO }))
+        column.add(Box.createVerticalStrut(Widgets.STEP * 2))
+        column.add(left(enabled))
+        column.add(left(Widgets.caption("Только пока DPpass подключён и в NetworkManager включена точка доступа")))
+        column.add(Box.createVerticalStrut(Widgets.STEP * 2))
+        column.add(left(where))
+        column.add(left(problem))
+        column.add(Box.createVerticalStrut(Widgets.STEP * 2))
+        column.add(left(credentials()))
+        column.add(Box.createVerticalStrut(Widgets.STEP * 2))
+        column.add(
+            left(
+                JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+                    isOpaque = false
+                    add(Widgets.button("Новые логин, пароль и порт") { regenerate() })
+                },
+            ),
+        )
+        column.add(left(Widgets.caption("Другим устройствам понадобятся новые настройки")))
+        column.add(Box.createVerticalStrut(Widgets.STEP * 4))
+        column.add(left(Widgets.title("Важно знать").also { it.border = Widgets.pad(1) }))
+        column.add(left(still(Widgets.note()).apply { text = LIMITS }))
+        val scroll = JScrollPane(column).apply {
+            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+            border = null
+            isOpaque = false
+            viewport.isOpaque = false
+        }
+        add(scroll, BorderLayout.CENTER)
+        reload()
+    }
+
+    /** Состояние сеанса и его раздачи — из потоков `DesktopSession`, на потоке EDT. */
+    fun render(status: SessionStatus, share: ShareStatus?) {
+        last = status
+        lastShare = share
+        val read = graph.core.share.current()
+        val settings = read.valueOrNull()
+        val on = settings?.enabled == true
+        val connected = status as? SessionStatus.Connected
+        val (text, warning) = when {
+            read is Outcome.Failure -> " " to "Настройки раздачи не прочитаны: ${read.errors.first().message}"
+            !on -> "Раздача выключена." to null
+            connected == null -> "Адреса появятся, когда DPpass подключится." to null
+            connected.profileId == ServerlessPlan.PROFILE_ID -> " " to "Без сервера раздачи нет: она — вход в туннель через сервер."
+            share == null -> "Адреса появятся после переподключения." to null
+            share.refused -> " " to REFUSED
+            share.endpoints.isEmpty() -> " " to noHotspot(share.source)
+            else -> "Адрес прокси — для другого устройства (SOCKS5 или HTTP):" to null
+        }
+        where.text = text
+        problem.show(warning ?: failure)
+        address.text = share?.takeIf { on && connected != null && !it.refused }?.endpoints.orEmpty().joinToString("  ") { "${it.address}:${settings?.port}" }
+        revalidate()
+        repaint()
+    }
+
+    /** Настройки раздачи с диска: переключатель и вход. */
+    fun reload() {
+        graph.core.share.current().valueOrNull()?.let(::show)
+        render(last, lastShare)
+    }
+
+    private fun show(s: ShareSettings) {
+        enabled.isSelected = s.enabled
+        port.text = s.port.toString()
+        user.text = s.user.reveal()
+        password.text = s.password.reveal()
+    }
+
+    private fun credentials(): JPanel = JPanel(GridBagLayout()).apply {
+        isOpaque = false
+        val reveal = JCheckBox("Показать").apply {
+            isOpaque = false
+            foreground = Theme.palette.text
+            addActionListener { password.echoChar = if (isSelected) '\u0000' else masked }
+        }
+        val rows = listOf<Triple<String, JComponent, () -> String>>(
+            Triple("Адрес", address) { address.text },
+            Triple("Порт", port) { port.text },
+            Triple("Логин", user) { user.text },
+            Triple("Пароль", password) { String(password.password) },
+        )
+        for ((i, row) in rows.withIndex()) {
+            val (label, value, copy) = row
+            add(JLabel(label).apply { foreground = Theme.palette.textSecondary }, cell(0, i))
+            add(value, cell(1, i).apply { fill = GridBagConstraints.HORIZONTAL; weightx = 1.0 })
+            add(Widgets.button("Скопировать") { copy(copy()) }, cell(2, i))
+            if (value === password) add(reveal, cell(3, i))
+        }
+    }
+
+    private fun switch(on: Boolean) {
+        when (val r = graph.core.share.setEnabled(on)) {
+            is Outcome.Failure -> {
+                enabled.isSelected = !on
+                failure = "Настройки раздачи не сохранены: ${r.errors.first().message}"
+            }
+            is Outcome.Success -> {
+                failure = null
+                show(r.value)
+                graph.core.log.info("share_set", "on" to on)
+                session.reconnectIfConnected()
+            }
+        }
+        render(last, lastShare)
+    }
+
+    private fun regenerate() {
+        val answer = JOptionPane.showConfirmDialog(
+            this,
+            "Сменить логин, пароль и порт? Устройства со старыми настройками перестанут работать через ПК.",
+            "Новые логин, пароль и порт",
+            JOptionPane.OK_CANCEL_OPTION,
+            JOptionPane.WARNING_MESSAGE,
+        )
+        if (answer != JOptionPane.OK_OPTION) return
+        when (val r = graph.core.share.regenerate()) {
+            is Outcome.Failure -> failure = "Настройки раздачи не сохранены: ${r.errors.first().message}"
+            is Outcome.Success -> {
+                failure = null
+                show(r.value)
+                graph.core.log.info("share_regenerated")
+                if (r.value.enabled) session.reconnectIfConnected()
+            }
+        }
+        render(last, lastShare)
+    }
+
+    private fun copy(text: String) {
+        if (text.isBlank()) return
+        Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null)
+    }
+
+    /** Колонка во всю ширину вкладки: длинный текст переносится по словам, а не уходит вправо. */
+    private class Column : JPanel(), Scrollable {
+        override fun getPreferredScrollableViewportSize(): Dimension = preferredSize
+
+        override fun getScrollableUnitIncrement(visible: Rectangle, orientation: Int, direction: Int): Int = Widgets.STEP * 4
+
+        override fun getScrollableBlockIncrement(visible: Rectangle, orientation: Int, direction: Int): Int =
+            if (orientation == SwingConstants.VERTICAL) visible.height else visible.width
+
+        override fun getScrollableTracksViewportWidth(): Boolean = true
+
+        override fun getScrollableTracksViewportHeight(): Boolean = false
+    }
+
+    private companion object {
+        fun field() = JTextField(FIELD_COLUMNS).apply { isEditable = false }
+
+        /** Новый текст не прокручивает вкладку к себе: каретка текста только для чтения не двигается. */
+        fun still(note: JTextArea): JTextArea = note.also { (it.caret as? DefaultCaret)?.updatePolicy = DefaultCaret.NEVER_UPDATE }
+
+        fun cell(x: Int, y: Int) = GridBagConstraints().apply {
+            gridx = x
+            gridy = y
+            anchor = GridBagConstraints.WEST
+            insets = Insets(Widgets.STEP, 0, Widgets.STEP, Widgets.STEP * 2)
+        }
+
+        fun noHotspot(source: LinuxShareInterfaces.Source): String = when (source) {
+            LinuxShareInterfaces.Source.NO_NMCLI -> "Нет nmcli: точку доступа ПК DPpass узнаёт только от NetworkManager. Раздачи нет."
+            LinuxShareInterfaces.Source.FAILED -> "NetworkManager не ответил — раздачи нет. Он запущен?"
+            LinuxShareInterfaces.Source.UNPARSED -> "Ответ NetworkManager не разобран — раздачи нет: лучше не раздавать, чем открыть вход не в той сети."
+            LinuxShareInterfaces.Source.OK ->
+                "Нет точки доступа. Включите в NetworkManager «Точку доступа Wi-Fi» или «Общий доступ с другими компьютерами» " +
+                    "у проводного соединения — DPpass заметит это за несколько секунд и переподключится. Другие сети ПК для " +
+                    "раздачи не годятся: вход прокси встал бы в чужую сеть."
+        }
+
+        const val FIELD_COLUMNS = 18
+
+        const val INTRO = "Ваши другие устройства могут ходить в интернет через туннель DPpass: ПК открывает прокси с паролем " +
+            "на адресе своей точки доступа, а другое устройство указывает его у себя."
+
+        const val REFUSED = "Прокси не открылся на адресе точки доступа: её выключили во время подключения, или порт занят " +
+            "другой программой. Туннель работает без раздачи. Включите точку доступа заново или нажмите «Новые логин, пароль и порт»."
+
+        const val LIMITS = "• На другом устройстве нужна программа, которая умеет работать через прокси. Надёжнее всего — " +
+            "клиент SOCKS5 с паролем; HTTP-прокси в настройках Wi-Fi пароль не передаёт: браузер спросит его сам, остальные " +
+            "программы могут не работать.\n" +
+            "• Через прокси идёт только то, что программа другого устройства в него направила, и её DNS тоже.\n" +
+            "• Маршрутизация и блокировка — те же, что у ПК.\n" +
+            "• Межсетевой экран ПК (firewalld, ufw) может закрывать порт — тогда откройте его для интерфейса точки доступа.\n" +
+            "• Пока раздача включена, открытый порт видят устройства в точке доступа и программы ПК — это примета прокси. " +
+            "Выключайте раздачу, когда она не нужна."
+    }
+}

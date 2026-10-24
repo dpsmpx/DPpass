@@ -26,8 +26,15 @@ data class IpCommand(val args: List<String>, val cleanup: Boolean = false, val u
  * - Таблица [DNS_TABLE]: только «всё через [DEVICE]» — запрос DNS на порт 53
  *   любого адреса, в том числе резолвера роутера, уходит в туннель, а ядро
  *   перехватывает его (`XrayCompiler(dnsHijackAnyAddress = true)`).
- * - Правила по приоритету: сокеты ядра с меткой [MARK] → `main` (мимо
- *   туннеля, T4); DNS → [DNS_TABLE]; остальное → [TABLE].
+ * - Правила по приоритету: к подсетям раздачи → `main` (D-84); сокеты
+ *   ядра с меткой [MARK] → `main` (мимо туннеля, T4); DNS → [DNS_TABLE];
+ *   остальное → [TABLE].
+ *
+ * Подсети раздачи — не из спецификации: их называет сеанс, когда раздаёт
+ * туннель на точке доступа ПК. На Android вход раздачи — сокет самого
+ * приложения, а оно вне туннеля; на Linux программы не различаются, и без
+ * этого правила ответы входа гостям (при `bypass_lan = false`) ушли бы в
+ * туннель.
  */
 object LinuxRoutes {
     const val DEVICE: String = XrayBackend.TUN_NAME
@@ -37,12 +44,13 @@ object LinuxRoutes {
     /** Метка сокетов ядра и резолвера моста; договор с мостом — только значение, передаётся из Kotlin. */
     const val MARK: Int = 0x7350
 
+    const val PRIORITY_SHARE: Int = 7349
     const val PRIORITY_MARK: Int = 7350
     const val PRIORITY_DNS_UDP: Int = 7351
     const val PRIORITY_DNS_TCP: Int = 7352
     const val PRIORITY_TUNNEL: Int = 7353
 
-    private val PRIORITIES = listOf(PRIORITY_MARK, PRIORITY_DNS_UDP, PRIORITY_DNS_TCP, PRIORITY_TUNNEL)
+    private val PRIORITIES = listOf(PRIORITY_SHARE, PRIORITY_MARK, PRIORITY_DNS_UDP, PRIORITY_DNS_TCP, PRIORITY_TUNNEL)
 
     /**
      * Политика приложений на Linux не выразима: программы не различаются.
@@ -66,8 +74,11 @@ object LinuxRoutes {
         is AppPolicy.OnlyApps -> "только ${apps.packages.size}"
     }
 
-    /** Поднять: адреса и MTU, затем маршруты, затем правила — пока правил нет, туннелю ничего не уходит. */
-    fun up(spec: TunnelSpec, ipv6: Boolean): List<IpCommand> {
+    /**
+     * Поднять: адреса и MTU, затем маршруты, затем правила — пока правил нет,
+     * туннелю ничего не уходит. [share] — подсети раздачи (D-84), только IPv4.
+     */
+    fun up(spec: TunnelSpec, ipv6: Boolean, share: List<Cidr> = emptyList()): List<IpCommand> {
         val out = mutableListOf<IpCommand>()
         out += ip("link", "set", "dev", DEVICE, "mtu", spec.mtu.toString())
         out += ip("-4", "addr", "add", spec.address4.toString(), "dev", DEVICE)
@@ -78,6 +89,9 @@ object LinuxRoutes {
             for (r in spec.routes.filter { it.isV4 == v4 }) out += ip(f, "route", "add", r.toString(), "dev", DEVICE, "table", "$TABLE")
             for (r in spec.excludedRoutes.filter { it.isV4 == v4 }) out += ip(f, "route", "add", "throw", r.toString(), "table", "$TABLE")
             out += ip(f, "route", "add", (if (v4) Cidr.ALL_V4 else Cidr.ALL_V6).toString(), "dev", DEVICE, "table", "$DNS_TABLE")
+            if (v4) {
+                for (subnet in share.filter { it.isV4 }) out += ip(f, "rule", "add", "to", subnet.toString(), "lookup", "main", "priority", "$PRIORITY_SHARE")
+            }
             out += ip(f, "rule", "add", "fwmark", "0x" + MARK.toString(16), "lookup", "main", "priority", "$PRIORITY_MARK")
             out += ip(f, "rule", "add", "ipproto", "udp", "dport", "53", "lookup", "$DNS_TABLE", "priority", "$PRIORITY_DNS_UDP")
             out += ip(f, "rule", "add", "ipproto", "tcp", "dport", "53", "lookup", "$DNS_TABLE", "priority", "$PRIORITY_DNS_TCP")

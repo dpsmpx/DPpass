@@ -26,7 +26,7 @@ import javax.swing.WindowConstants
 
 /**
  * Окно DPpass для Linux (D-74): «Подключение», «Серверы», «Подписки»,
- * «Сеть» (проверка сети, D-79), «Журнал». Меню «Импорт» — буфер обмена и
+ * «Сеть» (проверка сети, D-79), «Раздача» (точка доступа ПК, D-84), «Журнал». Меню «Импорт» — буфер обмена и
  * файл (D-42); «Подключение» — автопереключение сервера (D-78), разбиение
  * ClientHello к серверу (D-81), сайты напрямую с разбиением (D-82) и
  * проверка сети при её смене (D-80). Пока окно открыто, применённая подписка
@@ -58,6 +58,7 @@ class DesktopWindow(
         servers = ServersPanel(graph, prefs, scope) { session.status.value }
         val log = LogPanel(graph)
         val network = NetworkPanel(graph.networkCheck, scope)
+        val share = SharePanel(graph, session)
         val tabs = JTabbedPane().apply {
             // Без своего фона за ярлыками вкладок видна светлая подложка окна.
             isOpaque = true
@@ -66,12 +67,14 @@ class DesktopWindow(
             addTab("Серверы", servers)
             addTab("Подписки", subscriptions)
             addTab("Сеть", network)
+            addTab("Раздача", share)
             addTab("Журнал", log)
             addChangeListener {
                 when (selectedComponent) {
                     servers -> servers.refresh()
                     subscriptions -> subscriptions.reload()
                     log -> log.reload()
+                    share -> share.reload()
                 }
             }
         }
@@ -96,9 +99,11 @@ class DesktopWindow(
             }
         }.start(scope)
         scope.launch(Edt) { session.notice.collect(connect::renderNotice) }
+        scope.launch(Edt) { session.share.collect { share.render(session.status.value, it) } }
         scope.launch(Edt) {
             session.status.collect { s ->
                 connect.render(s)
+                share.render(s, session.share.value)
                 servers.refresh()
                 // Подключение или его отказ мог сменить «последний удачный» и паузы серверов (D-15).
                 if (s is SessionStatus.Failed) log.reload()

@@ -1,5 +1,6 @@
 package com.dpsmpx.dppass.desktop
 
+import com.dpsmpx.dppass.core.Cidr
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.ErrorSummary
@@ -46,7 +47,10 @@ class LinuxTunnelProvider(
     private val selfPackage: String,
     private val log: Logger,
 ) : TunnelProvider {
-    override suspend fun establish(spec: TunnelSpec): Outcome<TunnelHandle> {
+    override suspend fun establish(spec: TunnelSpec): Outcome<TunnelHandle> = establish(spec, emptyList())
+
+    /** С подсетями раздачи (D-84): трафик к гостям точки доступа — мимо туннеля ([LinuxRoutes]). */
+    fun establish(spec: TunnelSpec, share: List<Cidr>): Outcome<TunnelHandle> {
         if (!platform.hasNetAdmin()) {
             return Outcome.failure(
                 DiagCode.TUN_ESTABLISH_FAILED,
@@ -62,12 +66,19 @@ class LinuxTunnelProvider(
             return Outcome.failure(DiagCode.TUN_ESTABLISH_FAILED, "TUN ${LinuxRoutes.DEVICE} не открыт: errno ${-fd}$hint")
         }
         val ipv6 = platform.ipv6Enabled()
-        apply(LinuxRoutes.up(spec, ipv6))?.let { failed ->
+        apply(LinuxRoutes.up(spec, ipv6, share))?.let { failed ->
             apply(LinuxRoutes.down())
             platform.closeFd(fd)
             return Outcome.failure(failed)
         }
-        log.info("linux_tunnel_up", "device" to Safe(LinuxRoutes.DEVICE), "ipv6" to ipv6, "routes" to spec.routes.size, "excluded" to spec.excludedRoutes.size)
+        log.info(
+            "linux_tunnel_up",
+            "device" to Safe(LinuxRoutes.DEVICE),
+            "ipv6" to ipv6,
+            "routes" to spec.routes.size,
+            "excluded" to spec.excludedRoutes.size,
+            "share" to share.size,
+        )
         return Outcome.Success(LinuxTunnel(fd, spec))
     }
 
@@ -129,23 +140,7 @@ class SystemLinuxPlatform(private val proc: File = File("/proc")) : LinuxPlatfor
 
     override fun markSocket(fd: Int, mark: Int): Int = LinuxNative.nativeMarkSocket(fd, mark)
 
-    override fun ip(args: List<String>): CommandResult {
-        val binary = IP_BINARIES.map(::File).firstOrNull { it.canExecute() }
-            ?: return CommandResult(NOT_FOUND, "нет iproute2: ни одного из ${IP_BINARIES.joinToString()}")
-        return try {
-            val p = ProcessBuilder(listOf(binary.path) + args).redirectErrorStream(true).start()
-            p.outputStream.close()
-            val output = p.inputStream.bufferedReader().use { it.readText() }
-            if (!p.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                p.destroyForcibly()
-                CommandResult(TIMED_OUT, "не завершилась за $TIMEOUT_SECONDS с")
-            } else {
-                CommandResult(p.exitValue(), output)
-            }
-        } catch (e: IOException) {
-            CommandResult(NOT_FOUND, e.message ?: e.javaClass.simpleName)
-        }
-    }
+    override fun ip(args: List<String>): CommandResult = SystemCommand.run(IP_BINARIES, "iproute2", args)
 
     private fun readOrNull(f: File): String? = try {
         f.readText()
@@ -154,11 +149,40 @@ class SystemLinuxPlatform(private val proc: File = File("/proc")) : LinuxPlatfor
     }
 
     private companion object {
-        /** Не из PATH: процесс с CAP_NET_ADMIN не запускает то, что подложили в PATH (T17). */
         val IP_BINARIES = listOf("/usr/bin/ip", "/usr/sbin/ip", "/sbin/ip", "/bin/ip")
-        const val TIMEOUT_SECONDS = 10L
-        const val NOT_FOUND = 127
-        const val TIMED_OUT = 124
+    }
+}
+
+/**
+ * Системная программа (`ip`, `nmcli`): первая исполняемая из [binaries] —
+ * по абсолютному пути, не из PATH: процесс с CAP_NET_ADMIN не запускает то,
+ * что подложили в PATH (T17). Аргументы — списком, без shell.
+ */
+object SystemCommand {
+    const val TIMEOUT_SECONDS: Long = 10
+    const val NOT_FOUND: Int = 127
+    const val TIMED_OUT: Int = 124
+
+    /**
+     * Вывод читается после выхода: у этих команд он мал, меньше буфера
+     * канала. Зависшая программа (или вывод больше буфера) упирается в
+     * [timeoutSeconds] и прерывается, а не держит поток.
+     */
+    fun run(binaries: List<String>, what: String, args: List<String>, timeoutSeconds: Long = TIMEOUT_SECONDS): CommandResult {
+        val binary = binaries.map(::File).firstOrNull { it.canExecute() }
+            ?: return CommandResult(NOT_FOUND, "нет $what: ни одного из ${binaries.joinToString()}")
+        return try {
+            val p = ProcessBuilder(listOf(binary.path) + args).redirectErrorStream(true).start()
+            p.outputStream.close()
+            if (!p.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
+                p.destroyForcibly()
+                CommandResult(TIMED_OUT, "не завершилась за $timeoutSeconds с")
+            } else {
+                CommandResult(p.exitValue(), p.inputStream.bufferedReader().use { it.readText() })
+            }
+        } catch (e: IOException) {
+            CommandResult(NOT_FOUND, e.message ?: e.javaClass.simpleName)
+        }
     }
 }
 

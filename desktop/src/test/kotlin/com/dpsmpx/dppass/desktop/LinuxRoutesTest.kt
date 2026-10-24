@@ -102,6 +102,17 @@ class LinuxRoutesTest {
     }
 
     @Test
+    fun shareSubnetsGoToMainBeforeEverythingElse() {
+        // Без обхода локальных сетей ответы входа раздачи гостям ушли бы в туннель (D-84).
+        val share = listOf(Cidr.parse("10.42.0.0/24")!!.cidr)
+        val cmds = text(LinuxRoutes.up(spec(bypassLan = false), ipv6 = true, share))
+        val rules = cmds.filter { " rule add " in " $it " }
+        assertEquals("-4 rule add to 10.42.0.0/24 lookup main priority 7349", rules.first { it.startsWith("-4") })
+        assertTrue(rules.none { it.startsWith("-6") && "7349" in it }, "раздача — только IPv4")
+        assertTrue(text(LinuxRoutes.up(spec(), ipv6 = true)).none { "7349" in it }, "без раздачи правила нет")
+    }
+
+    @Test
     fun withoutLanBypassNothingIsThrown() {
         assertTrue(text(LinuxRoutes.up(spec(bypassLan = false), ipv6 = true)).none { "throw" in it })
     }
@@ -121,7 +132,8 @@ class LinuxRoutesTest {
             val fam = text(down).filter { it.startsWith("$f ") }
             assertEquals(
                 listOf(
-                    "$f rule del priority 7350", "$f rule del priority 7351", "$f rule del priority 7352", "$f rule del priority 7353",
+                    "$f rule del priority 7349", "$f rule del priority 7350", "$f rule del priority 7351", "$f rule del priority 7352",
+                    "$f rule del priority 7353",
                     "$f route flush table 7350", "$f route flush table 7351",
                 ),
                 fam,
