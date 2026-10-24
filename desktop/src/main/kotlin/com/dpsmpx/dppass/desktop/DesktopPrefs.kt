@@ -14,8 +14,9 @@ import java.util.Properties
  * Настройки окна ПК — не документ конфигурации (D-06) и не то, что задаёт
  * подписка (D-11): выбранный сервер (D-34), автопереключение (D-58, D-78),
  * проверка сети при её смене (D-80), разбиение ClientHello (D-81), сайты
- * напрямую с разбиением (D-82), без сервера (D-83) и тема. Файл в каталоге данных (0700); запись — заменой файла целиком. Один
- * объект на процесс: окно и сеанс пишут через него.
+ * напрямую с разбиением (D-82), без сервера (D-83), выбранное устройство
+ * раздачи (D-85) и тема. Файл в каталоге данных (0700); запись — заменой
+ * файла целиком. Один объект на процесс: окно и сеанс пишут через него.
  */
 class DesktopPrefs(private val file: File) {
     private val props = Properties().also { p ->
@@ -29,6 +30,14 @@ class DesktopPrefs(private val file: File) {
     var selectedServer: ProfileId?
         get() = props.getProperty(SERVER)?.let(::ProfileId)
         set(value) = put(SERVER, value?.value)
+
+    /**
+     * Устройство раздачи (D-55, D-85): выбрано — подключение только через
+     * него; null — серверы, как обычно. Выбор сервера его снимает.
+     */
+    var selectedRelay: String?
+        get() = props.getProperty(RELAY)
+        set(value) = put(RELAY, value)
 
     /** «Автопереключение сервера» (D-58): согласие заранее заменять выбранный сервер, когда он перестал отвечать. */
     var autoSwitch: Boolean
@@ -88,6 +97,7 @@ class DesktopPrefs(private val file: File) {
 
     private companion object {
         const val SERVER = "server"
+        const val RELAY = "relay"
         const val THEME = "theme"
         const val AUTO_SWITCH = "auto_switch"
         const val CHECK_ON_CHANGE = "check_on_network_change"

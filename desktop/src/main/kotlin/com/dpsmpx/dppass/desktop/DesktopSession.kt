@@ -71,7 +71,7 @@ data class ShareStatus(val endpoints: List<ShareSpec.Endpoint>, val refused: Boo
  * ([NetworkWatch], D-80). Серверов нет, а список «Напрямую с разбиением»
  * есть — туннель без сервера (D-83). Раздача туннеля — на точке доступа
  * ПК (D-84): вход прокси на её адресах, смена набора — переподключение.
- * Устройства раздачи в первой версии нет.
+ * Выбрано устройство раздачи — подключение только через него (D-85).
  */
 class DesktopSession(
     private val graph: DesktopGraph,
@@ -220,10 +220,20 @@ class DesktopSession(
         if (session != null) return
         val core = graph.core
         state.value = SessionStatus.Connecting(null)
-        // Без сервера (D-73, D-83): серверов нет, а сайтам списка (или всем, с разбиением) нужен туннель.
+        // Устройство раздачи (D-55, D-85): выбрано — подключение только через него, по адресу, где оно ответило.
+        val relay = prefs.selectedRelay?.let(core.relays::find)
+        val target = relay?.let { d ->
+            when (val t = withContext(Dispatchers.IO) { graph.relayNetworks.locate(d) }) {
+                is Outcome.Failure -> return fail(t.errors.first())
+                is Outcome.Success -> t.value.also { core.log.info("relay_found", "medium" to Safe(it.medium.name), "auto" to (d.address == null)) }
+            }
+        }
+        // Без сервера (D-73, D-83): серверов нет, устройство не выбрано, а сайтам списка (или всем, с разбиением) нужен туннель.
         val serverless = prefs.serverless
-        if (core.serverlessReady(prefs.splitSites(), serverless, relaySelected = false)) return connectServerlessNow(prefs.splitSites(), serverless)
-        val ir = core.activation.state.activeConfig
+        if (core.serverlessReady(prefs.splitSites(), serverless, relaySelected = relay != null)) {
+            return connectServerlessNow(prefs.splitSites(), serverless)
+        }
+        val ir = (if (relay != null && target != null) core.relayConfig(relay, target.address) else core.activation.state.activeConfig)
             ?: return fail(
                 Diagnostic.error(
                     DiagCode.PROFILES_EMPTY,
@@ -254,17 +264,23 @@ class DesktopSession(
             withContext(Dispatchers.IO) { graph.engine.probeHealth(ir.dns, probeTimeout) }
         }
         // Белый список по свежей проверке в этой сети (D-64, D-79): порядок плана и опыт попыток — его.
-        val regime = graph.networkCheck.regime()
+        // Через устройство раздачи путь идёт по своей сети — режим оператора ни при чём (D-55).
+        val regime = if (relay == null) graph.networkCheck.regime() else null
         regime?.let { core.log.info("network_regime", "class" to it.restriction) }
         val failingUnderRegime = regime?.let(core::failingUnder).orEmpty()
-        // Разбиение ClientHello к серверу (D-68, D-81) — выбор пользователя; отказ сервера — повтор без него (D-69, ядро).
-        val split = prefs.splitClientHello
-        core.log.info("client_hello_split", "on" to split)
-        // Сайты напрямую с разбиением (D-72, D-82): в журнал — число записей, не сами сайты.
-        val sites = prefs.splitSites()
-        core.log.info("split_sites", "n" to sites.size)
         val report = try {
-            core.connect(null, checker, handle.toTunInput(), preferred, share, regime, split, sites) { delay(it) }
+            if (relay != null && target != null) {
+                core.connectVia(relay, target.address, checker, handle.toTunInput(), share) { delay(it) }
+            } else {
+                // Разбиение ClientHello к серверу (D-68, D-81) — выбор пользователя; отказ сервера — повтор без него (D-69, ядро).
+                // К устройству раздачи — нет.
+                val split = prefs.splitClientHello
+                core.log.info("client_hello_split", "on" to split)
+                // Сайты напрямую с разбиением (D-72, D-82): в журнал — число записей, не сами сайты.
+                val sites = prefs.splitSites()
+                core.log.info("split_sites", "n" to sites.size)
+                core.connect(null, checker, handle.toTunInput(), preferred, share, regime, split, sites) { delay(it) }
+            }
         } catch (e: CancellationException) {
             // Сеанс, запущенный посреди проверки, оркестратор уже остановил; остаётся TUN.
             withContext(NonCancellable + Dispatchers.IO) { handle.close() }
@@ -300,14 +316,18 @@ class DesktopSession(
                     graph.networkCheck::probesQuiet,
                 )
                 watch = scope.launch { onDegraded(withContext(Dispatchers.IO) { w.run { delay(it) } }) }
-                val net = NetworkWatch(
-                    core.log,
-                    graph.networkCheck,
-                    changes ?: NetworkChangeChecks(Clock.MONOTONIC).also { changes = it },
-                    { prefs.checkOnNetworkChange },
-                    { sessionRegime = it },
-                )
-                networkWatch = scope.launch(Dispatchers.IO) { net.run { delay(it) } }
+                // Через устройство раздачи режим сети не берётся (D-55): смена сети ПК ему не повод; пропала
+                // сеть устройства — сбой ловит наблюдатель.
+                if (relay == null) {
+                    val net = NetworkWatch(
+                        core.log,
+                        graph.networkCheck,
+                        changes ?: NetworkChangeChecks(Clock.MONOTONIC).also { changes = it },
+                        { prefs.checkOnNetworkChange },
+                        { sessionRegime = it },
+                    )
+                    networkWatch = scope.launch(Dispatchers.IO) { net.run { delay(it) } }
+                }
                 if (scan != null) {
                     val offered = share?.endpoints.orEmpty()
                     val refused = report.shareRefused != null

@@ -26,7 +26,8 @@ import javax.swing.WindowConstants
 
 /**
  * Окно DPpass для Linux (D-74): «Подключение», «Серверы», «Подписки»,
- * «Сеть» (проверка сети, D-79), «Раздача» (точка доступа ПК, D-84), «Журнал». Меню «Импорт» — буфер обмена и
+ * «Сеть» (проверка сети, D-79), «Раздача» (точка доступа ПК, D-84),
+ * «Устройства раздачи» (подключение через телефон, D-85), «Журнал». Меню «Импорт» — буфер обмена и
  * файл (D-42); «Подключение» — автопереключение сервера (D-78), разбиение
  * ClientHello к серверу (D-81), сайты напрямую с разбиением (D-82) и
  * проверка сети при её смене (D-80). Пока окно открыто, применённая подписка
@@ -46,6 +47,8 @@ class DesktopWindow(
         lateinit var servers: ServersPanel
         lateinit var subscriptions: SubscriptionsPanel
         lateinit var connect: ConnectPanel
+        lateinit var relays: RelaysPanel
+        lateinit var tabs: JTabbedPane
         val changed = {
             servers.refresh()
             connect.render(session.status.value)
@@ -53,13 +56,20 @@ class DesktopWindow(
         subscriptions = SubscriptionsPanel(graph, scope, changed) { run ->
             if (run.needsReconnect(session.connectedProfile())) session.reconnectIfConnected()
         }
-        val import = ImportFlow(graph, scope, { frame }, subscriptions, changed)
+        val import = ImportFlow(graph, scope, { frame }, subscriptions, changed) {
+            relays.reload()
+            tabs.selectedComponent = relays
+        }
         connect = ConnectPanel(graph, session, prefs, import::fromClipboard)
-        servers = ServersPanel(graph, prefs, scope) { session.status.value }
+        servers = ServersPanel(graph, prefs, scope, { session.status.value }) {
+            session.reconnectIfConnected()
+            relays.render()
+        }
         val log = LogPanel(graph)
         val network = NetworkPanel(graph.networkCheck, scope)
         val share = SharePanel(graph, session)
-        val tabs = JTabbedPane().apply {
+        relays = RelaysPanel(graph, session, prefs, scope, import::fromClipboard)
+        tabs = JTabbedPane().apply {
             // Без своего фона за ярлыками вкладок видна светлая подложка окна.
             isOpaque = true
             background = Theme.palette.bg
@@ -68,6 +78,7 @@ class DesktopWindow(
             addTab("Подписки", subscriptions)
             addTab("Сеть", network)
             addTab("Раздача", share)
+            addTab("Устройства раздачи", relays)
             addTab("Журнал", log)
             addChangeListener {
                 when (selectedComponent) {
@@ -75,6 +86,7 @@ class DesktopWindow(
                     subscriptions -> subscriptions.reload()
                     log -> log.reload()
                     share -> share.reload()
+                    relays -> relays.reload()
                 }
             }
         }
@@ -104,6 +116,7 @@ class DesktopWindow(
             session.status.collect { s ->
                 connect.render(s)
                 share.render(s, session.share.value)
+                relays.render()
                 servers.refresh()
                 // Подключение или его отказ мог сменить «последний удачный» и паузы серверов (D-15).
                 if (s is SessionStatus.Failed) log.reload()

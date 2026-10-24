@@ -3,6 +3,7 @@ package com.dpsmpx.dppass.desktop.ui
 import com.dpsmpx.dppass.connection.ActivationResult
 import com.dpsmpx.dppass.connection.ImportClassifier
 import com.dpsmpx.dppass.connection.ImportKind
+import com.dpsmpx.dppass.connection.RelayLink
 import com.dpsmpx.dppass.desktop.DesktopGraph
 import com.dpsmpx.dppass.diagnostics.Outcome
 import kotlinx.coroutines.CoroutineScope
@@ -29,6 +30,8 @@ class ImportFlow(
     private val parent: () -> Component,
     private val subscriptions: SubscriptionsPanel,
     private val changed: () -> Unit,
+    /** Устройство раздачи добавлено ссылкой (D-85): показать его в списке. */
+    private val relaysChanged: () -> Unit,
 ) {
     fun fromClipboard() {
         val text = try {
@@ -72,7 +75,7 @@ class ImportFlow(
                     confirm(question) -> addInline(text)
                 }
             }
-            is ImportKind.Relay -> info("Вход устройства раздачи (D-55) в DPpass для Linux пока не поддерживается.")
+            is ImportKind.Relay -> addRelay(kind.link)
             is ImportKind.Unrecognized -> {
                 val why = kind.reason?.let { "\n\n" + it.message }.orEmpty()
                 info("Не распознано: ни документ DPpass, ни адрес подписки, ни ссылки.$why")
@@ -109,6 +112,25 @@ class ImportFlow(
         }
     }
 
+    /**
+     * Вход устройства раздачи (D-55, D-85) — ссылка «Поделиться входом» с того
+     * телефона: с согласия и под выбранным именем — в доверенные. Адрес
+     * берётся из сети, через которую ПК к нему подключён, а не из ссылки.
+     */
+    private fun addRelay(link: RelayLink) {
+        val question = note(
+            "Добавить раздачу туннеля другого телефона (порт ${link.port})? Адрес берётся из сети, через которую ПК к нему подключён.\n\nИмя:",
+        )
+        val name = JOptionPane.showInputDialog(parent(), question, link.draft(RELAY_NAME).name) ?: return
+        when (val r = graph.core.relays.add(link.draft(RELAY_NAME).copy(name = name))) {
+            is Outcome.Failure -> info("Не добавлено:\n\n" + Widgets.describe(r.errors.first()))
+            is Outcome.Success -> {
+                relaysChanged()
+                info("Устройство «${r.value.name}» добавлено: выберите его на вкладке «Устройства раздачи».")
+            }
+        }
+    }
+
     private fun confirm(question: String): Boolean =
         JOptionPane.showConfirmDialog(parent(), note(question), "Импорт", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE) == JOptionPane.YES_OPTION
 
@@ -122,5 +144,6 @@ class ImportFlow(
     private companion object {
         const val PROBLEMS_SHOWN = 5
         const val COLUMNS = 48
+        const val RELAY_NAME = "Устройство раздачи"
     }
 }

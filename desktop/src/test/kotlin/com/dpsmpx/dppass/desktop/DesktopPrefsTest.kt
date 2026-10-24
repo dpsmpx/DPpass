@@ -22,6 +22,7 @@ class DesktopPrefsTest {
         assertTrue(p.checkOnNetworkChange, "проверка сети при её смене — включена, как выбрал автор (D-67, D-80)")
         assertFalse(p.splitClientHello, "разбиение ClientHello — выключено (D-68, D-81)")
         assertTrue(p.splitSites().isEmpty, "сайты напрямую с разбиением — пусто (D-72, D-82)")
+        assertNull(p.selectedRelay, "устройство раздачи — не выбрано: серверы, как обычно (D-55, D-85)")
     }
 
     @Test
@@ -32,6 +33,7 @@ class DesktopPrefsTest {
             checkOnNetworkChange = false
             splitClientHello = true
             splitSitesText = "example.com\ngeosite:youtube"
+            selectedRelay = "a1b2c3"
         }
         val again = DesktopPrefs(file)
         assertEquals(ProfileId("s1"), again.selectedServer)
@@ -40,6 +42,7 @@ class DesktopPrefsTest {
         assertTrue(again.splitClientHello)
         assertEquals(listOf("example.com"), again.splitSites().domains, "многострочный список переживает перезапуск")
         assertEquals(listOf("youtube"), again.splitSites().geoSites)
+        assertEquals("a1b2c3", again.selectedRelay)
     }
 
     @Test

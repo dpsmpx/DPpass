@@ -9,29 +9,20 @@ import com.dpsmpx.dppass.desktop.ShareStatus
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.engine.ServerlessPlan
 import java.awt.BorderLayout
-import java.awt.Component
-import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
-import java.awt.Rectangle
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 import javax.swing.Box
-import javax.swing.BoxLayout
 import javax.swing.JCheckBox
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JOptionPane
 import javax.swing.JPanel
 import javax.swing.JPasswordField
-import javax.swing.JScrollPane
-import javax.swing.JTextArea
 import javax.swing.JTextField
-import javax.swing.Scrollable
-import javax.swing.SwingConstants
-import javax.swing.text.DefaultCaret
 
 /**
  * «Раздача» (D-84, к D-51): вход прокси SOCKS5 и HTTP с паролем на адресах
@@ -46,7 +37,7 @@ class SharePanel(private val graph: DesktopGraph, private val session: DesktopSe
         foreground = Theme.palette.text
         addActionListener { switch(isSelected) }
     }
-    private val where = still(Widgets.note())
+    private val where = Widgets.still(Widgets.note())
     private val problem = Widgets.Banner(error = false)
     private val address = field()
     private val port = field()
@@ -62,41 +53,29 @@ class SharePanel(private val graph: DesktopGraph, private val session: DesktopSe
     init {
         background = Theme.palette.bg
         border = Widgets.pad(4)
-        val column = Column().apply {
-            isOpaque = false
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        }
-        fun left(c: JComponent) = c.also { it.alignmentX = Component.LEFT_ALIGNMENT }
-        column.add(left(Widgets.title("Раздача туннеля").also { it.border = Widgets.pad(1) }))
-        column.add(left(still(Widgets.note()).apply { text = INTRO }))
+        val column = Widgets.Column()
+        column.line(Widgets.title("Раздача туннеля").also { it.border = Widgets.pad(1) })
+        column.line(Widgets.still(Widgets.note()).apply { text = INTRO })
         column.add(Box.createVerticalStrut(Widgets.STEP * 2))
-        column.add(left(enabled))
-        column.add(left(Widgets.caption("Только пока DPpass подключён и в NetworkManager включена точка доступа")))
+        column.line(enabled)
+        column.line(Widgets.caption("Только пока DPpass подключён и в NetworkManager включена точка доступа"))
         column.add(Box.createVerticalStrut(Widgets.STEP * 2))
-        column.add(left(where))
-        column.add(left(problem))
+        column.line(where)
+        column.line(problem)
         column.add(Box.createVerticalStrut(Widgets.STEP * 2))
-        column.add(left(credentials()))
+        column.line(credentials())
         column.add(Box.createVerticalStrut(Widgets.STEP * 2))
-        column.add(
-            left(
-                JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
-                    isOpaque = false
-                    add(Widgets.button("Новые логин, пароль и порт") { regenerate() })
-                },
-            ),
+        column.line(
+            JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+                isOpaque = false
+                add(Widgets.button("Новые логин, пароль и порт") { regenerate() })
+            },
         )
-        column.add(left(Widgets.caption("Другим устройствам понадобятся новые настройки")))
+        column.line(Widgets.caption("Другим устройствам понадобятся новые настройки"))
         column.add(Box.createVerticalStrut(Widgets.STEP * 4))
-        column.add(left(Widgets.title("Важно знать").also { it.border = Widgets.pad(1) }))
-        column.add(left(still(Widgets.note()).apply { text = LIMITS }))
-        val scroll = JScrollPane(column).apply {
-            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
-            border = null
-            isOpaque = false
-            viewport.isOpaque = false
-        }
-        add(scroll, BorderLayout.CENTER)
+        column.line(Widgets.title("Важно знать").also { it.border = Widgets.pad(1) })
+        column.line(Widgets.still(Widgets.note()).apply { text = LIMITS })
+        add(column.scroll(), BorderLayout.CENTER)
         reload()
     }
 
@@ -202,25 +181,8 @@ class SharePanel(private val graph: DesktopGraph, private val session: DesktopSe
         Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null)
     }
 
-    /** Колонка во всю ширину вкладки: длинный текст переносится по словам, а не уходит вправо. */
-    private class Column : JPanel(), Scrollable {
-        override fun getPreferredScrollableViewportSize(): Dimension = preferredSize
-
-        override fun getScrollableUnitIncrement(visible: Rectangle, orientation: Int, direction: Int): Int = Widgets.STEP * 4
-
-        override fun getScrollableBlockIncrement(visible: Rectangle, orientation: Int, direction: Int): Int =
-            if (orientation == SwingConstants.VERTICAL) visible.height else visible.width
-
-        override fun getScrollableTracksViewportWidth(): Boolean = true
-
-        override fun getScrollableTracksViewportHeight(): Boolean = false
-    }
-
     private companion object {
         fun field() = JTextField(FIELD_COLUMNS).apply { isEditable = false }
-
-        /** Новый текст не прокручивает вкладку к себе: каретка текста только для чтения не двигается. */
-        fun still(note: JTextArea): JTextArea = note.also { (it.caret as? DefaultCaret)?.updatePolicy = DefaultCaret.NEVER_UPDATE }
 
         fun cell(x: Int, y: Int) = GridBagConstraints().apply {
             gridx = x

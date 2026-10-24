@@ -9,16 +9,22 @@ import java.awt.Dimension
 import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
+import java.awt.Rectangle
 import java.awt.RenderingHints
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.BorderFactory
+import javax.swing.BoxLayout
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
+import javax.swing.JScrollPane
 import javax.swing.JTextArea
+import javax.swing.Scrollable
+import javax.swing.SwingConstants
 import javax.swing.border.Border
+import javax.swing.text.DefaultCaret
 
 /** Общие элементы окна: отступы по шагу 4 (D-34), текст, плашки, круглая кнопка. */
 object Widgets {
@@ -43,6 +49,45 @@ object Widgets {
         isOpaque = false
         foreground = Theme.palette.text
         border = null
+    }
+
+    /** Новый текст не прокручивает вкладку к себе: каретка текста только для чтения не двигается. */
+    fun still(note: JTextArea): JTextArea = note.also { (it.caret as? DefaultCaret)?.updatePolicy = DefaultCaret.NEVER_UPDATE }
+
+    /**
+     * Колонка вкладки с прокруткой — во всю ширину: длинный текст переносится
+     * по словам, а не уходит вправо. Элементы — по левому краю.
+     */
+    class Column : JPanel(), Scrollable {
+        init {
+            isOpaque = false
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        }
+
+        override fun getPreferredScrollableViewportSize(): Dimension = preferredSize
+
+        override fun getScrollableUnitIncrement(visible: Rectangle, orientation: Int, direction: Int): Int = STEP * 4
+
+        override fun getScrollableBlockIncrement(visible: Rectangle, orientation: Int, direction: Int): Int =
+            if (orientation == SwingConstants.VERTICAL) visible.height else visible.width
+
+        override fun getScrollableTracksViewportWidth(): Boolean = true
+
+        override fun getScrollableTracksViewportHeight(): Boolean = false
+
+        /** Добавить по левому краю. */
+        fun line(c: JComponent): JComponent = c.also {
+            it.alignmentX = java.awt.Component.LEFT_ALIGNMENT
+            add(it)
+        }
+
+        /** Прокрутка без своей рамки и горизонтальной полосы. */
+        fun scroll(): JScrollPane = JScrollPane(this).apply {
+            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+            border = null
+            isOpaque = false
+            viewport.isOpaque = false
+        }
     }
 
     /** Плашка предупреждения или ошибки — с текстом, который можно выделить. */

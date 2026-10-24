@@ -224,6 +224,8 @@ python3 tools/xray/native.py host
 `LinuxShareInterfacesTest` (D-84: раздача — только общие сети NetworkManager; сомнение — не раздавать),
 `ShareWatchTest` (D-84: смена точки доступа — одно переподключение),
 `SystemCommandTest` (T17: программа по абсолютному пути, без shell, с пределом времени),
+`LinuxRelayNetworksTest` (D-85: устройство раздачи — шлюзы сетей ПК, вход SOCKS5, сокеты мимо туннеля),
+`RelayPairingTest` (D-85: сопряжение ПК-гостя с настоящим ходом хозяина по loopback),
 `go test` моста (`TestResolverUpstream`, метка резолвера,
 копия fd TUN). На настоящем ядре — `tools/desktop/netns_check.py` от root:
 в своём сетевом пространстве имён пакет `:desktop:installDist` поднимает

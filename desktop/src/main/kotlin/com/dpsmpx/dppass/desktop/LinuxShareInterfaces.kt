@@ -105,7 +105,8 @@ class LinuxShareInterfaces(
             .distinctBy { it.address }
             .sortedBy { it.address.toString() }
 
-        private fun systemInterfaces(): List<Iface>? = try {
+        /** Интерфейсы ПК с их IPv4; не узнать — null. */
+        fun systemInterfaces(): List<Iface>? = try {
             NetworkInterface.getNetworkInterfaces()?.toList().orEmpty().mapNotNull(::describe)
         } catch (e: SocketException) {
             null

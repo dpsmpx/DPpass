@@ -36,6 +36,8 @@ class ServersPanel(
     private val prefs: DesktopPrefs,
     private val scope: CoroutineScope,
     private val status: () -> SessionStatus,
+    /** Выбор сервера снял устройство раздачи (D-85): окно переподключает туннель и обновляет список устройств. */
+    private val onRelayDropped: () -> Unit,
 ) : JPanel(BorderLayout()) {
     private data class Row(val id: ProfileId?, val title: String, val summary: String, val latency: String, val selected: Boolean, val connected: Boolean)
 
@@ -96,9 +98,14 @@ class ServersPanel(
         measureButton.isEnabled = profiles.isNotEmpty() && measuring?.isActive != true && s !is SessionStatus.Connected && s !is SessionStatus.Connecting
     }
 
+    /** Выбор сервера — и отказ от устройства раздачи (D-55, D-85): через него подключён — переподключение к серверам. */
     private fun choose() {
         val row = list.selectedValue ?: return
         prefs.selectedServer = row.id
+        if (prefs.selectedRelay != null) {
+            prefs.selectedRelay = null
+            onRelayDropped()
+        }
         refresh()
     }
 

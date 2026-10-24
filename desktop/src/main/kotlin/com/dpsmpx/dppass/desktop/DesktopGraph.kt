@@ -44,6 +44,8 @@ class DesktopGraph(
     val paths: DesktopPaths,
     /** Проверка сети (D-79): пробы мимо туннеля, память режима (D-64). */
     val networkCheck: DesktopNetworkCheck,
+    /** Поиск устройства раздачи и сопряжение (D-85): сокеты мимо туннеля, как у проб. */
+    val relayNetworks: LinuxRelayNetworks,
     /** Что не поднялось при сборке: показывается в окне. */
     val problems: List<Diagnostic>,
 ) {
@@ -129,6 +131,7 @@ class DesktopGraph(
                 logger = logger,
                 paths = paths,
                 networkCheck = DesktopNetworkCheck(core.log, probeNetwork),
+                relayNetworks = LinuxRelayNetworks(probeNetwork::tcpSocket),
                 problems = problems,
             )
         }

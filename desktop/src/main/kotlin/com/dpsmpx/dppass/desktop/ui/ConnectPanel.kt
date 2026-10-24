@@ -128,7 +128,7 @@ class ConnectPanel(
         server.text = when (s) {
             is SessionStatus.Connected -> "Сервер: ${s.server}"
             is SessionStatus.Connecting -> s.server?.let { "Пробую: $it" } ?: "Готовлю туннель"
-            else -> "Сервер: " + (selectedName() ?: "авто — лучший по плану")
+            else -> relayName()?.let { "Через устройство раздачи: $it" } ?: ("Сервер: " + (selectedName() ?: "авто — лучший по плану"))
         }
         details.text = if (s is SessionStatus.Connected) {
             val t = session.traffic()
@@ -138,6 +138,9 @@ class ConnectPanel(
             " "
         }
     }
+
+    /** Выбранное устройство раздачи (D-85): подключение пойдёт только через него. */
+    private fun relayName(): String? = prefs.selectedRelay?.let(graph.core.relays::find)?.name
 
     private fun selectedName(): String? {
         val id = prefs.selectedServer ?: return null
