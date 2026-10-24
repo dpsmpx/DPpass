@@ -5,6 +5,8 @@ import com.dpsmpx.dppass.desktop.DesktopGraph
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.subscriptions.Subscription
 import com.dpsmpx.dppass.subscriptions.SubscriptionSource
+import com.dpsmpx.dppass.subscriptions.UpdatePolicy
+import com.dpsmpx.dppass.subscriptions.UpdateSchedule
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -26,7 +28,8 @@ import javax.swing.ListSelectionModel
 /**
  * «Подписки» (D-36): список, добавление по адресу `https://…`, обновление
  * (оно же применяет серверы подписки), удаление. Свои серверы (D-42) —
- * через импорт. Автообновления по расписанию в первой версии нет (D-74).
+ * через импорт. Автообновление применённой подписки (D-77): интервал —
+ * кнопкой «Автообновление…», у применённой — когда следующее.
  */
 class SubscriptionsPanel(
     private val graph: DesktopGraph,
@@ -55,6 +58,7 @@ class SubscriptionsPanel(
                     isOpaque = false
                     add(Widgets.button("Добавить по адресу…") { addByUrl() })
                     add(Widgets.button("Обновить и применить") { list.selectedValue?.let { refresh(it.id, it.name) } })
+                    add(Widgets.button("Автообновление…") { chooseInterval() })
                     add(Widgets.button("Удалить…") { remove() })
                 },
                 BorderLayout.CENTER,
@@ -121,6 +125,31 @@ class SubscriptionsPanel(
         }
     }
 
+    /** Интервал автообновления (D-39, D-77): выкл, 6, 12 или 24 часа, как на Android. */
+    private fun chooseInterval() {
+        val s = list.selectedValue ?: return
+        if (s.source !is SubscriptionSource.Url) {
+            problem("Автообновление", "«${s.name}» — свои серверы: загружать их неоткуда, автообновление им не нужно.")
+            return
+        }
+        val choices = UpdatePolicy.CHOICES_MINUTES
+        val labels = choices.map(::interval).toTypedArray()
+        val current = labels[choices.indexOf(s.updatePolicy.intervalMinutes).coerceAtLeast(0)]
+        val picked = JOptionPane.showInputDialog(
+            this,
+            "Как часто обновлять «${s.name}», пока открыто окно DPpass (только применённую подписку):",
+            "Автообновление",
+            JOptionPane.PLAIN_MESSAGE,
+            null,
+            labels,
+            current,
+        ) ?: return
+        when (val r = graph.core.subscriptions.setUpdateInterval(s.id, choices[labels.indexOf(picked)])) {
+            is Outcome.Failure -> problem("Не сохранено", Widgets.describe(r.errors.first()))
+            is Outcome.Success -> reload()
+        }
+    }
+
     private fun remove() {
         val s = list.selectedValue ?: return
         val ok = JOptionPane.showConfirmDialog(this, "Удалить подписку «${s.name}»?", "Удаление", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION
@@ -151,6 +180,7 @@ class SubscriptionsPanel(
                 s.lastSuccessful?.let { add("серверов: ${it.profileCount}") }
                 (s.lastCheckedMillis ?: s.lastSuccessful?.fetchedAtMillis)?.let { add("проверена ${Format.date(it)}") }
                 s.lastFailed?.let { add("ошибка: ${it.reason.message}") }
+                if (s.source is SubscriptionSource.Url) add(autoUpdate(s))
             }
             val active = if (s.id == activeId) " — применена" else ""
             text = "<html><b>${esc(s.name)}</b>${esc(active)}<br><span>${esc(parts.joinToString(" · "))}</span></html>"
@@ -159,8 +189,20 @@ class SubscriptionsPanel(
         }
     }
 
+    /** Автообновление подписки: выключено, когда следующее у применённой — или что оно только у применённой (D-77). */
+    private fun autoUpdate(s: Subscription): String {
+        val every = s.updatePolicy.intervalMinutes ?: return "автообновление выключено"
+        val now = graph.core.clock.nowMillis()
+        val next = if (s.id == activeId) UpdateSchedule.waitMillis(s, now) else null
+        val note = if (next != null) "следующее — ${Format.date(now + next)}" else "только у применённой"
+        return "автообновление ${interval(every)}, $note"
+    }
+
     private companion object {
         const val FIELD_COLUMNS = 40
+
+        fun interval(minutes: Long?): String = if (minutes == null) "выключено" else "каждые ${minutes / 60} ч"
+
         fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     }
 }

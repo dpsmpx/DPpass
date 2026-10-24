@@ -210,7 +210,9 @@ python3 tools/xray/native.py host
 `TunnelSpec`, порядок правил, уборка и откат на подделке платформы),
 `DesktopStorageTest` (каталоги 0700, ключ данных без обёртки),
 `DesktopLaunchTest` (скрипты пакета, polkit, PKGBUILD и ярлык
-согласованы), `go test` моста (`TestResolverUpstream`, метка резолвера,
+согласованы), `SubscriptionAutoUpdateTest` (D-77: срок, переподключение
+только при смене подключённого сервера, отказ без переподключения),
+`go test` моста (`TestResolverUpstream`, метка резолвера,
 копия fd TUN). На настоящем ядре — `tools/desktop/netns_check.py` от root:
 в своём сетевом пространстве имён пакет `:desktop:installDist` поднимает
 туннель (`dppass-desktop --self-check`), ядро Linux отвечает `ip route get`

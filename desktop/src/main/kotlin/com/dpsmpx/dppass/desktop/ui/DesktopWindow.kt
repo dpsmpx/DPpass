@@ -4,6 +4,7 @@ import com.dpsmpx.dppass.desktop.DesktopGraph
 import com.dpsmpx.dppass.desktop.DesktopPrefs
 import com.dpsmpx.dppass.desktop.DesktopSession
 import com.dpsmpx.dppass.desktop.SessionStatus
+import com.dpsmpx.dppass.desktop.SubscriptionAutoUpdate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.awt.Dimension
@@ -21,8 +22,9 @@ import javax.swing.WindowConstants
 
 /**
  * Окно DPpass для Linux (D-74): «Подключение», «Серверы», «Подписки»,
- * «Журнал»; меню «Импорт» — буфер обмена и файл (D-42). Закрытие окна —
- * выход: ядро и правила маршрутизации убирает `DesktopSession.shutdownNow`.
+ * «Журнал»; меню «Импорт» — буфер обмена и файл (D-42). Пока окно открыто,
+ * применённая подписка обновляется по сроку (D-77). Закрытие окна — выход:
+ * ядро и правила маршрутизации убирает `DesktopSession.shutdownNow`.
  */
 class DesktopWindow(private val graph: DesktopGraph, private val session: DesktopSession, private val scope: CoroutineScope) {
     private val prefs = DesktopPrefs(File(graph.paths.data, "settings.properties"))
@@ -66,6 +68,18 @@ class DesktopWindow(private val graph: DesktopGraph, private val session: Deskto
         frame.setLocationRelativeTo(null)
         subscriptions.reload()
         servers.refresh()
+        SubscriptionAutoUpdate(
+            graph.core,
+            graph.fetcher,
+            DesktopGraph.VERSION,
+            session::connectedProfile,
+            { session.reconnect(prefs.selectedServer) },
+        ) {
+            scope.launch(Edt) {
+                subscriptions.reload()
+                changed()
+            }
+        }.start(scope)
         scope.launch(Edt) {
             session.status.collect { s ->
                 connect.render(s)

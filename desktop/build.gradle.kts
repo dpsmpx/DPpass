@@ -6,7 +6,7 @@ plugins {
 }
 
 // Версия оболочки — своя (D-74): в имени пакета и в `User-Agent` подписки (D-33), из манифеста jar.
-version = "0.1.2-dev"
+version = "0.1.3-dev"
 
 tasks.jar { manifest { attributes("Implementation-Version" to project.version) } }
 
@@ -14,6 +14,8 @@ dependencies {
     implementation(project(":connection"))
     implementation(libs.kotlinx.coroutines.core)
     testImplementation(libs.kotlinx.coroutines.test)
+    // Фиктивное ядро и хранилище в памяти — для автообновления подписок (D-77).
+    testImplementation(testFixtures(project(":connection")))
 }
 
 application {

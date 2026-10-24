@@ -41,13 +41,17 @@ sealed interface SessionStatus {
  * Сеанс туннеля на Linux (D-74) — путь `DPpassVpnService` без Android:
  * спецификация → TUN → план кандидатов с пробой здоровья (D-15, D-32) →
  * сеанс ядра; отключение — ядро, затем TUN и правила. Раздачи, устройства
- * раздачи, режима без сервера и наблюдателя сеанса в первой версии нет.
+ * раздачи, режима без сервера и наблюдателя сеанса в первой версии нет;
+ * переподключение к новым серверам подписки — [reconnect] (D-77).
  */
 class DesktopSession(private val graph: DesktopGraph, private val scope: CoroutineScope) {
     private val state = MutableStateFlow<SessionStatus>(SessionStatus.Disconnected)
     val status: StateFlow<SessionStatus> = state
 
     private val lock = Mutex()
+
+    // Окно зовёт с потока EDT, автообновление (D-77) — из фона.
+    @Volatile
     private var job: Job? = null
 
     @Volatile
@@ -62,6 +66,27 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
     fun connect(preferred: ProfileId?) {
         if (job?.isActive == true) return
         job = scope.launch { lock.withLock { connectNow(preferred) } }
+    }
+
+    /** Подключённый сервер; null — туннеля нет. */
+    fun connectedProfile(): ProfileId? = (state.value as? SessionStatus.Connected)?.profileId
+
+    /**
+     * Переподключить к новым серверам подписки (D-77): сеанс — стоп, затем
+     * план заново, начиная с [preferred]. Пока ждали блокировку, отключились —
+     * переподключать нечего.
+     */
+    fun reconnect(preferred: ProfileId?) {
+        val running = job
+        job = scope.launch {
+            running?.cancel()
+            running?.join()
+            lock.withLock {
+                if (session == null) return@withLock
+                stopNow()
+                connectNow(preferred)
+            }
+        }
     }
 
     fun disconnect() {
