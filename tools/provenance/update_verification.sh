@@ -43,4 +43,8 @@ XML
 # машина, новая сессия) упала бы на проверке (18 октября 2026, junit-bom и др.).
 ./gradlew --console=plain --warning-mode=summary --refresh-dependencies --write-verification-metadata sha256 \
   build :cli:installDist :build-logic:test ktlintCheck :app:lint :app:assembleRelease -Pdppass.abiSplit=true
+# Экраны на JVM (D-86, шаг project.android-screens): Robolectric и образ Android — только по свойству;
+# второй вызов дописывает их суммы в тот же файл.
+./gradlew --console=plain --warning-mode=summary --refresh-dependencies --write-verification-metadata sha256 \
+  -Pdppass.robolectric -Pandroid.useAndroidX=true :app:testDebugUnitTest
 python3 tools/provenance/check_dependencies.py

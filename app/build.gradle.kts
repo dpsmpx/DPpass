@@ -19,6 +19,17 @@ val stableIdentity = providers.gradleProperty("dppass.stableIdentity").map(Strin
 val identitySeed = AppIdentity.seedOf(providers.gradleProperty("dppass.identitySeed").orNull)
 val releaseIdentity = if (stableIdentity) AppIdentity.STABLE else AppIdentity.random(identitySeed)
 
+// Тесты экранов на JVM (D-86): Robolectric — только по свойству dppass.robolectric
+// (шаг проверки «Android: экраны на JVM»). Обычная сборка, в том числе в Termux,
+// его не тянет: «Android целиком» — 213 МБ.
+val robolectric = providers.gradleProperty("dppass.robolectric").isPresent
+
+/** Образ «Android целиком» для Robolectric — через Gradle, с проверкой суммы (аудит A-7), а не загрузкой из теста. */
+val robolectricAndroid: Configuration by configurations.creating {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+
 android {
     namespace = "com.dpsmpx.dppass"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
@@ -78,6 +89,13 @@ android {
             // что проверено (check_apk.py).
             keepDebugSymbols += "**/libdppassxray.so"
         }
+    }
+
+    // Экраны на JVM (D-86): ресурсы и манифест приложения — тестам; наборы тестов
+    // телефона (D-75, src/androidTest) идут теми же руками и глазами, что на телефоне.
+    if (robolectric) {
+        testOptions.unitTests.isIncludeAndroidResources = true
+        sourceSets["test"].kotlin.directories += listOf("src/robolectric/kotlin", "src/androidTest/kotlin")
     }
 
     lint {
@@ -178,10 +196,25 @@ dependencies {
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
+    if (robolectric) {
+        testImplementation(libs.robolectric)
+        testImplementation(libs.junit4)
+        testRuntimeOnly(libs.junit.vintage.engine)
+        robolectricAndroid(libs.robolectric.android.all)
+    }
 }
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
     // Тест, который JUnit не смог запустить, — ошибка прогона (как в модулях ядра).
     systemProperty("junit.platform.discovery.issue.severity.critical", "WARNING")
+    if (robolectric) {
+        // Robolectric ничего не скачивает сам: образ уже проверен Gradle (D-86).
+        val image: FileCollection = robolectricAndroid.incoming.artifacts.artifactFiles
+        inputs.files(image)
+        systemProperty("robolectric.offline", "true")
+        // Образ Android 16 заводит общую память через внутренности FileDescriptor JDK — только в JVM тестов.
+        jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
+        jvmArgumentProviders.add(CommandLineArgumentProvider { listOf("-Drobolectric.dependency.dir=" + image.singleFile.parentFile.path) })
+    }
 }

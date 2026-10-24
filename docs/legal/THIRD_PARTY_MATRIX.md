@@ -48,9 +48,16 @@
 | `org.junit:junit-bom` | 6.1.3 | EPL-2.0 | тесты | разрешён | только выравнивает версии JUnit |
 | `org.junit.jupiter:junit-jupiter` | 6.1.3 | EPL-2.0 | тесты | разрешён | JUnit Jupiter: тесты, динамические тесты корпуса |
 | `org.junit.platform:junit-platform-launcher` | 6.1.3 | EPL-2.0 | тесты | разрешён | запуск JUnit Platform из Gradle |
+| `org.junit.vintage:junit-vintage-engine` | 6.1.3 | EPL-2.0 | тесты экранов на JVM (`app`, только по свойству `dppass.robolectric`) | разрешён | запуск тестов JUnit 4 (Robolectric) на JUnit Platform (D-86) |
+| `junit:junit` | 4.13.2 | EPL-1.0 | тесты экранов на JVM (`app`, только по свойству `dppass.robolectric`) | разрешён | API тестов Robolectric: его запускатель — JUnit 4 (D-86) |
+| `org.robolectric:robolectric` | 4.17 | MIT | тесты экранов на JVM (`app`, только по свойству `dppass.robolectric`) | разрешён | тесты экранов телефона (D-75) на JVM (D-86). Транзитивно — около сорока артефактов, в том числе AndroidX только в тестах (`androidx.test:monitor`, `espresso-idling-resource`, к D-34); лицензии — в PROVENANCE |
+| `org.robolectric:android-all-instrumented` | 16-robolectric-13921718-i7 | Apache-2.0 | тесты экранов на JVM (образ Android 16 для Robolectric) | разрешён | образ SDK 36, который ждёт Robolectric 4.17; через Gradle с суммой, без загрузки из тестов (D-86) |
 
 EPL-2.0 — слабый копилефт на уровне модуля; тестовые библиотеки не
-распространяются вместе с DPpass, обязательств для APK нет.
+распространяются вместе с DPpass, обязательств для APK нет. То же у
+EPL-1.0 (JUnit 4) и у транзитивных зависимостей Robolectric (D-86), в том
+числе `javax.annotation-api` (CDDL-1.1 или GPL-2.0 с classpath
+exception): только тесты, не распространяются.
 
 ### 1.3. Сборка
 

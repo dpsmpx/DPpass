@@ -17,8 +17,12 @@ import com.dpsmpx.dppass.app.MainActivity
  * Руки и глаза тестов на телефоне (D-75): запуск экрана, обход видов,
  * ожидание, жесты. Тесты только смотрят: нажимать можно только то, что
  * ведёт по экранам ([tap]), — это держит `check_device_tests.py`.
+ *
+ * Те же тесты идут на JVM под Robolectric (D-86); где телефон и JVM
+ * расходятся — время, касания, «Назад», открыт ли лист, — действуют
+ * [Hands].
  */
-class Device(private val instrumentation: Instrumentation) {
+class Device(private val instrumentation: Instrumentation, private val hands: Hands = PhoneHands(instrumentation)) {
     val context: Context = instrumentation.targetContext
     private val opened = mutableListOf<Activity>()
 
@@ -58,11 +62,10 @@ class Device(private val instrumentation: Instrumentation) {
 
     /** Ждать [condition] (на главном потоке) не дольше [timeoutMillis]; не дождался — отказ теста с [what]. */
     fun waitUntil(what: String, timeoutMillis: Long = 5_000, condition: () -> Boolean) {
-        val deadline = SystemClock.uptimeMillis() + timeoutMillis
+        val deadline = hands.now() + timeoutMillis
         while (!main(condition)) {
-            if (SystemClock.uptimeMillis() > deadline) throw AssertionError("за $timeoutMillis мс не дождался: $what")
-            // Тест ждёт приложение на телефоне — по-другому только опрос (правило blocking — для src/main).
-            SystemClock.sleep(POLL_MILLIS)
+            if (hands.now() > deadline) throw AssertionError("за $timeoutMillis мс не дождался: $what")
+            hands.pause(POLL_MILLIS)
         }
     }
 
@@ -109,9 +112,12 @@ class Device(private val instrumentation: Instrumentation) {
     }
 
     fun back() {
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        hands.back()
         idle()
     }
+
+    /** Открыт ли поверх экрана [activity] лист (диалог). */
+    fun sheetShown(activity: Activity): Boolean = main { hands.sheetShown(activity) }
 
     /**
      * Провести пальцем по [view] по вертикали (пиксели от верха вида): от
@@ -128,7 +134,7 @@ class Device(private val instrumentation: Instrumentation) {
         var t = down
         fun send(action: Int, y: Float) {
             val e = MotionEvent.obtain(down, t, action, x, top + y, 0)
-            instrumentation.sendPointerSync(e)
+            hands.pointer(view, e)
             e.recycle()
             t += STEP_MILLIS
         }
@@ -148,6 +154,33 @@ class Device(private val instrumentation: Instrumentation) {
     }
 
     fun dp(value: Float): Float = value * context.resources.displayMetrics.density
+
+    /** Где телефон и JVM (Robolectric) расходятся: время, касание, «Назад», открыт ли лист. */
+    interface Hands {
+        fun now(): Long
+
+        fun pause(millis: Long)
+
+        fun pointer(view: View, event: MotionEvent)
+
+        fun back()
+
+        fun sheetShown(activity: Activity): Boolean
+    }
+
+    /** Телефон: часы системы, касания и «Назад» — системой ввода, лист — отдельное окно, у экрана нет фокуса. */
+    class PhoneHands(private val instrumentation: Instrumentation) : Hands {
+        override fun now(): Long = SystemClock.uptimeMillis()
+
+        // Тест ждёт приложение на телефоне — по-другому только опрос (правило blocking — для src/main).
+        override fun pause(millis: Long) = SystemClock.sleep(millis)
+
+        override fun pointer(view: View, event: MotionEvent) = instrumentation.sendPointerSync(event)
+
+        override fun back() = instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+
+        override fun sheetShown(activity: Activity): Boolean = !activity.hasWindowFocus()
+    }
 
     private companion object {
         const val POLL_MILLIS = 50L

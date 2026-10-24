@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Тесты на телефоне (D-75): все запускаются и ничего не меняют.
+"""Тесты экранов (D-75, D-86): все запускаются и ничего не меняют.
 
 Тесты `app/src/androidTest` идут на настоящих данных приложения на
-телефоне автора. Проверяет:
+телефоне автора, они же — на JVM под Robolectric (`app/src/robolectric`,
+D-86). Проверяет:
 
   * запускатель в `app/build.gradle.kts` — `DeviceTestRunner`;
   * каждый набор (`object … : DeviceSuite`) — в `DeviceTests.ALL`: набор
     вне списка не запустился бы никогда, и этого никто бы не заметил;
   * в тестах нет действий, которые меняют данные приложения или телефона:
     нажатий мимо `Device.tap` (он пускает только переходы по экранам),
-    настроек, импорта, подключения туннеля, буфера обмена, служб.
+    настроек, импорта, подключения туннеля, буфера обмена, служб — и в
+    тестах телефона, и в запуске на JVM;
+  * запуск на JVM берёт все наборы — `DeviceTests.ALL`, а не свой список.
 
     python3 tools/hostcheck/check_device_tests.py
 
@@ -21,6 +24,7 @@ import sys
 
 PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TESTS = os.path.join(PROJ, "app", "src", "androidTest")
+JVM = os.path.join(PROJ, "app", "src", "robolectric")
 GRADLE = os.path.join(PROJ, "app", "build.gradle.kts")
 RUNNER = "com.dpsmpx.dppass.app.device.DeviceTestRunner"
 # Единственное место, где тест нажимает: Device.tap — только вкладки, «Добавить», «Назад».
@@ -40,8 +44,8 @@ FORBIDDEN = [
 ]
 
 
-def kotlin_files():
-    for root, _, files in os.walk(TESTS):
+def kotlin_files(top):
+    for root, _, files in sorted(os.walk(top)):
         for f in sorted(files):
             if f.endswith(".kt"):
                 yield os.path.join(root, f)
@@ -59,14 +63,23 @@ def main():
     if f'testInstrumentationRunner = "{RUNNER}"' not in gradle:
         problems.append(f"app/build.gradle.kts: testInstrumentationRunner — не {RUNNER} (D-75)")
 
-    files = list(kotlin_files())
+    files = list(kotlin_files(TESTS))
     if not files:
         problems.append("нет тестов app/src/androidTest (D-75)")
+    jvm = list(kotlin_files(JVM))
+    if not any("DeviceTests.ALL" in strip_comments(open(p, encoding="utf-8").read()) for p in jvm):
+        problems.append("app/src/robolectric: запуск на JVM не берёт DeviceTests.ALL — часть наборов не пошла бы (D-86)")
     suites, listed = [], None
-    for path in files:
+    for path in files + jvm:
         rel = os.path.relpath(path, PROJ)
         raw = open(path, encoding="utf-8").read()
         code = strip_comments(raw)
+        if path in jvm:
+            for n, line in enumerate(code.splitlines(), 1):
+                for pattern, what, allowed in FORBIDDEN:
+                    if rel not in allowed and re.search(pattern, line):
+                        problems.append(f"{rel}:{n}: {what} — тесты экранов только смотрят (D-75, D-86)")
+            continue
         suites += [(m.group(1), rel) for m in re.finditer(r"^\s*object\s+(\w+)\s*:\s*DeviceSuite\b", code, re.M)]
         m = re.search(r"val\s+ALL\s*:\s*List<DeviceSuite>\s*=\s*listOf\(([^)]*)\)", code)
         if m:
@@ -86,11 +99,11 @@ def main():
             problems.append(f"DeviceTests.ALL: {name} — не набор DeviceSuite")
 
     if problems:
-        print("✗ Тесты на телефоне:")
+        print("✗ Тесты экранов:")
         for p in problems:
             print("    " + p)
         return 1
-    print(f"✓ Тесты на телефоне: наборов {len(suites)}, все в DeviceTests.ALL; действий, меняющих данные, нет")
+    print(f"✓ Тесты экранов: наборов {len(suites)}, все в DeviceTests.ALL и на JVM; действий, меняющих данные, нет")
     return 0
 
 

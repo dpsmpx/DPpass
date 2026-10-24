@@ -97,7 +97,7 @@ definition = '^#{1,6}\s+Этап\s+(\d+)'
 [[checks."docs.refs".kind]]
 name = "test-class"
 ref = '`([A-Z]\w*Test)(?:\.\w+)?`'
-defined_in = ["**/src/test/**/*.kt", "**/src/xrayJni/**/*.kt"]
+defined_in = ["**/src/test/**/*.kt", "**/src/xrayJni/**/*.kt", "**/src/robolectric/**/*.kt"]
 definition = '^class\s+(\w+Test)\b'
 
 # ---- необязательные встроенные ----
@@ -251,6 +251,17 @@ paths = ["module:app", "**/src/main/**/*.kt", "tools/xray/**"]
 requires = ["jdk", "go", "android-sdk", "android-ndk"]
 timeout = "40m"
 # итог Gradle — строка BUILD SUCCESSFUL, а не последняя строка вывода
+summary = '^BUILD SUCCESSFUL.*'
+
+[[command]]
+id = "project.android-screens"
+# экраны телефона на JVM (D-86): тесты D-75 под Robolectric, вместе с остальными тестами app.
+# Robolectric и AndroidX — только по этим свойствам: сборка без них (в том числе в Termux) их не тянет
+run = ["./gradlew", "--console=plain", "--warning-mode=summary", "-Pdppass.robolectric", "-Pandroid.useAndroidX=true", ":app:testDebugUnitTest"]
+paths = ["module:app"]
+requires = ["jdk", "android-sdk"]
+after = ["project.android"]
+timeout = "20m"
 summary = '^BUILD SUCCESSFUL.*'
 
 [[command]]

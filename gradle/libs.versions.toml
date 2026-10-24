@@ -14,6 +14,13 @@ junit = "6.1.3"
 ktlint = "1.8.0"
 # Распознавание QR с картинки (D-65): только в app, только формат QR.
 zxing = "3.5.4"
+# Тесты экранов Android на JVM (D-86): только по свойству dppass.robolectric, в APK
+# не попадает. «Android целиком» — образ SDK 36 (Android 16), который ждёт эта
+# версия Robolectric (DefaultSdkProvider).
+robolectric = "4.17"
+# JUnit 4 — API тестов Robolectric (его запускатель — JUnit 4); та же версия, что тянет Robolectric.
+junit4 = "4.13.2"
+robolectric-android-all = "16-robolectric-13921718-i7"
 
 # Ядро прокси (D-24): версия Xray и Go-модуль той же версии (тег v26.9.30
 # upstream XTLS/Xray-core). Из него tools/xray собирает ядро для проверки
@@ -45,6 +52,11 @@ kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-t
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+# Запуск тестов JUnit 4 (Robolectric, D-86) на платформе JUnit — версия из junit-bom.
+junit-vintage-engine = { module = "org.junit.vintage:junit-vintage-engine" }
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+junit4 = { module = "junit:junit", version.ref = "junit4" }
+robolectric-android-all = { module = "org.robolectric:android-all-instrumented", version.ref = "robolectric-android-all" }
 
 # ZXing core: распознавание QR (D-65), без зависимостей; в app и тесты app.
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }

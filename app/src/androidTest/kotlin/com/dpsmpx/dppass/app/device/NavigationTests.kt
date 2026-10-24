@@ -15,10 +15,9 @@ object NavigationTests : DeviceSuite {
             d.waitUntil("граф приложения собран") { (a as Host).graph != null }
             d.tap(a, d.context.getString(R.string.tab_servers))
             d.tap(a, d.context.getString(R.string.add_title))
-            // Лист — отдельное окно: пока он открыт, у экрана нет фокуса.
-            d.waitUntil("открылся лист «Добавить»") { !a.hasWindowFocus() }
+            d.waitUntil("открылся лист «Добавить»") { d.sheetShown(a) }
             d.back()
-            d.waitUntil("лист «Добавить» закрылся по «Назад»") { a.hasWindowFocus() }
+            d.waitUntil("лист «Добавить» закрылся по «Назад»") { !d.sheetShown(a) }
         },
         DeviceCase("pullDownAndBackDoesNotStartMeasuring") { d ->
             val a = d.launch()

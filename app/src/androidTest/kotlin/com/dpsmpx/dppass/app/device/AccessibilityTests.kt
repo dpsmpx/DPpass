@@ -19,16 +19,20 @@ object AccessibilityTests : DeviceSuite {
     override val cases = listOf(
         DeviceCase("everyTappableElementIsLabeledAndLargeEnough") { d ->
             val problems = mutableListOf<String>()
+            var checked = 0
             onEachTab(d) { a, tab ->
                 val min = d.dp(Ui.TOUCH_DP.toFloat()) - 1f
                 for (v in d.views(a).filter { d.main { it.isClickable || it.isLongClickable } }) {
                     val (w, h, kind) = d.main { Triple(v.width, v.height, v.javaClass.simpleName) }
                     if (w == 0 && h == 0) continue
+                    checked++
                     val label = d.label(v)
                     if (label.isBlank()) problems += "«$tab»: $kind без подписи для TalkBack"
                     if (w < min || h < min) problems += "«$tab»: «${label.take(30)}» ($kind) — ${dpOf(d, w)}×${dpOf(d, h)} dp, меньше ${Ui.TOUCH_DP}"
                 }
             }
+            // Ни одного элемента с размером — экраны не разложились, и проверять было нечего.
+            expect(checked > 0) { "ни одного нажимаемого элемента с размером: экраны не разложились" }
             expect(problems.isEmpty()) { problems.take(MAX_LISTED).joinToString("; ") + more(problems) }
         },
         DeviceCase("tabTitlesAreHeadings") { d ->
