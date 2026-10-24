@@ -547,4 +547,40 @@
     <!-- Срок следующего автообновления (D-39) -->
     <string name="subs_next">next %1$s</string>
     <string name="subs_next_soon">next within an hour</string>
+    <!-- Напоминание о конце подписки (D-76) -->
+    <string name="expiry_settings_title">Subscription end</string>
+    <string name="expiry_enable">Remind before a subscription ends</string>
+    <string name="expiry_enable_note">The end date comes from the subscription provider; a subscription without a date has nothing to remind about. Everything is counted on the phone, without the network.</string>
+    <string name="expiry_way">How</string>
+    <string name="expiry_way_notification">Notification</string>
+    <string name="expiry_way_notification_note">A regular notification, within an hour after the chosen time</string>
+    <string name="expiry_way_alarm">Alarm with sound</string>
+    <string name="expiry_way_alarm_note">The phone’s alarm sound exactly at the chosen time, with “Dismiss” and “Snooze 10 min” buttons. If the phone was off at that time, the reminder comes later as a regular notification.</string>
+    <string name="expiry_when">When</string>
+    <string name="expiry_remove">Remove “%1$s”</string>
+    <string name="expiry_add">Add a reminder day</string>
+    <string name="expiry_add_button">Add</string>
+    <string name="expiry_days_hint">Days before the end, 0 — on the last day</string>
+    <string name="expiry_days_error">A number from 0 to %1$d; no more than five reminder days</string>
+    <string name="expiry_time">Time of day</string>
+    <string name="expiry_note">A reminder that would come after the end itself is skipped: if a subscription ends at 03:00, “On the last day” at 10:00 does not sound, “A day before” does. After a subscription update the reminders are recalculated: the provider may change the date. Reminder days that have already passed when you change the setting do not sound.</string>
+    <string name="expiry_next">Next reminder: %1$s, “%2$s”</string>
+    <string name="expiry_next_no_date">No subscription has an end date from its provider — nothing to remind about yet.</string>
+    <string name="expiry_next_none">No reminders ahead: the reminder days for the current dates have passed.</string>
+    <string name="expiry_problem_notifications">Notifications for DPpass are off in Android settings — reminders will not be shown</string>
+    <string name="expiry_problem_exact">No “Alarms &amp; reminders” permission: the alarm sounds within an hour, not exactly. Allow</string>
+    <string name="expiry_day_of">On the last day</string>
+    <string name="expiry_day_before">A day before</string>
+    <string name="expiry_days_before">%1$s before</string>
+    <string name="expiry_off">Off</string>
+    <string name="expiry_summary">%1$s · %2$s · %3$s</string>
+    <string name="expiry_title">Subscription is ending</string>
+    <string name="expiry_public">A subscription will end soon</string>
+    <string name="expiry_text_today">“%1$s” ends today at %2$s</string>
+    <string name="expiry_text_tomorrow">“%1$s” ends tomorrow at %2$s</string>
+    <string name="expiry_text_days">“%1$s” ends in %2$s, %3$s</string>
+    <string name="expiry_dismiss">Dismiss</string>
+    <string name="expiry_snooze">Snooze 10 min</string>
+    <string name="expiry_channel">Subscription end</string>
+    <string name="expiry_alarm_channel">Subscription end: alarm</string>
 </resources>

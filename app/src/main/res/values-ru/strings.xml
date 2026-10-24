@@ -570,4 +570,40 @@
     <!-- Срок следующего автообновления (D-39) -->
     <string name="subs_next">следующее %1$s</string>
     <string name="subs_next_soon">следующее — в течение часа</string>
+    <!-- Напоминание о конце подписки (D-76) -->
+    <string name="expiry_settings_title">Конец подписки</string>
+    <string name="expiry_enable">Напоминать о конце подписки</string>
+    <string name="expiry_enable_note">Срок сообщает поставщик подписки; у подписки без срока напоминать не о чем. Всё считает телефон, без сети.</string>
+    <string name="expiry_way">Как напомнить</string>
+    <string name="expiry_way_notification">Уведомление</string>
+    <string name="expiry_way_notification_note">Обычное уведомление — в течение часа после выбранного времени</string>
+    <string name="expiry_way_alarm">Будильник со звуком</string>
+    <string name="expiry_way_alarm_note">Звук будильника телефона точно в выбранное время, кнопки «Закрыть» и «Отложить на 10 минут». Если телефон в это время был выключен, напоминание придёт позже обычным уведомлением.</string>
+    <string name="expiry_when">Когда</string>
+    <string name="expiry_remove">Убрать «%1$s»</string>
+    <string name="expiry_add">Добавить день напоминания</string>
+    <string name="expiry_add_button">Добавить</string>
+    <string name="expiry_days_hint">Дней до окончания, 0 — в день окончания</string>
+    <string name="expiry_days_error">Число от 0 до %1$d; дней напоминания — не больше пяти</string>
+    <string name="expiry_time">Время суток</string>
+    <string name="expiry_note">Напоминание, которое пришлось бы на время после самого окончания, пропускается: подписка кончается в 03:00 — «В день окончания» в 10:00 не прозвучит, прозвучит «За день». После обновления подписки напоминания пересчитываются: срок может сменить поставщик. Дни, уже прошедшие на момент смены настройки, не звучат.</string>
+    <string name="expiry_next">Ближайшее напоминание: %1$s, «%2$s»</string>
+    <string name="expiry_next_no_date">Ни у одной подписки поставщик не сообщил срок — напоминать пока не о чем.</string>
+    <string name="expiry_next_none">Впереди напоминаний нет: дни напоминания для нынешних сроков уже прошли.</string>
+    <string name="expiry_problem_notifications">Уведомления DPpass выключены в настройках Android — напоминания не появятся</string>
+    <string name="expiry_problem_exact">Нет разрешения «Будильники и напоминания»: будильник прозвучит в течение часа, а не точно. Разрешить</string>
+    <string name="expiry_day_of">В день окончания</string>
+    <string name="expiry_day_before">За день</string>
+    <string name="expiry_days_before">За %1$s</string>
+    <string name="expiry_off">Выключено</string>
+    <string name="expiry_summary">%1$s · %2$s · %3$s</string>
+    <string name="expiry_title">Подписка заканчивается</string>
+    <string name="expiry_public">Подписка скоро закончится</string>
+    <string name="expiry_text_today">«%1$s» закончится сегодня в %2$s</string>
+    <string name="expiry_text_tomorrow">«%1$s» закончится завтра в %2$s</string>
+    <string name="expiry_text_days">«%1$s» закончится через %2$s, %3$s</string>
+    <string name="expiry_dismiss">Закрыть</string>
+    <string name="expiry_snooze">Отложить на 10 минут</string>
+    <string name="expiry_channel">Конец подписки</string>
+    <string name="expiry_alarm_channel">Конец подписки: будильник</string>
 </resources>

@@ -102,7 +102,7 @@ class MainActivity : Activity(), Host {
         edgeToEdge(root)
         setContentView(root)
         DeviceLog.log.info("activity_create")
-        showTab(prefs.tab.coerceIn(0, tabs.lastIndex))
+        showTab(requestedTab(intent) ?: prefs.tab.coerceIn(0, tabs.lastIndex))
         pendingImport = sharedText(intent)
         sharedImage(intent)?.let(::readQr)
         scope.launch {
@@ -127,9 +127,13 @@ class MainActivity : Activity(), Host {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        requestedTab(intent)?.let(::showTab)
         sharedText(intent)?.let(::deliver)
         sharedImage(intent)?.let(::readQr)
     }
+
+    /** Вкладка из уведомления (D-76); чужое или неверное число — как без него. */
+    private fun requestedTab(intent: Intent?): Int? = intent?.getIntExtra(Host.EXTRA_TAB, -1)?.takeIf { it in tabs.indices }
 
     /** Граф ещё собирается — текст подождёт его (onCreate разберёт [pendingImport]). */
     private fun deliver(text: String) {
@@ -316,6 +320,8 @@ class MainActivity : Activity(), Host {
     override fun changed() {
         val status = TunnelState.status.value
         (stack.lastOrNull() ?: tabs[tab]).render(status)
+        // Подписки или их сроки могли измениться — напоминание (D-76) пересчитывается, если так.
+        graph?.let { ExpiryAlarms.syncIfChanged(this, it.core) }
     }
 
     override fun toast(text: CharSequence) {
@@ -490,8 +496,8 @@ class MainActivity : Activity(), Host {
         return out.toByteArray()
     }
 
-    /** Android 13+: без разрешения уведомление туннеля не видно; туннель работает и без него. */
-    private fun askNotifications() {
+    /** Android 13+: без разрешения не видно ни уведомления туннеля, ни напоминаний (D-76); туннель работает и без него. */
+    override fun askNotifications() {
         if (askedNotifications || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
         askedNotifications = true

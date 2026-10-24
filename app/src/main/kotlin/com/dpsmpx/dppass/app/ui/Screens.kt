@@ -62,7 +62,13 @@ interface Host {
     /** Сохранить [text] в файл, который пользователь выберет системным диалогом (экспорт, D-11). */
     fun saveDocument(name: String, text: String)
 
+    /** Разрешение на уведомления (Android 13+): спросить, если ещё не спрашивали. */
+    fun askNotifications()
+
     companion object {
+        /** Вкладка, которую открыть (уведомление напоминания, D-76); не номер вкладки — не трогать. */
+        const val EXTRA_TAB: String = "com.dpsmpx.dppass.extra.TAB"
+
         const val TAB_CONNECT: Int = 0
         const val TAB_SERVERS: Int = 1
         const val TAB_SUBSCRIPTIONS: Int = 2

@@ -7,12 +7,14 @@ import com.dpsmpx.dppass.core.Ids
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.routing.RoutingValidator
 import com.dpsmpx.dppass.routing.SplitSites
+import com.dpsmpx.dppass.subscriptions.ExpiryReminderSettings
 
 /**
  * Настройки интерфейса (D-34): выбранный сервер или устройство раздачи
  * (D-55), автопереключение (D-58), проверка сети при её смене (D-67),
  * разбиение ClientHello к серверу (D-68), сайты напрямую с разбиением
- * (D-72), режим без сервера (D-73) и открытый экран. Не
+ * (D-72), режим без сервера (D-73), напоминание о конце подписки
+ * (D-76) и открытый экран. Не
  * секреты — id профиля подписки не раскрывает ссылку (`CONFIG_FORMAT.md`,
  * §6); резервных копий у приложения нет (`allowBackup=false`).
  */
@@ -106,6 +108,31 @@ class AppPrefs(context: Context) {
                 .apply()
         }
 
+    /** Напоминание о конце подписки (D-76): одна настройка на все подписки. */
+    var expiryReminders: ExpiryReminderSettings
+        get() = ExpiryReminderSettings.of(
+            prefs.getBoolean(EXPIRY_ON, false),
+            prefs.getString(EXPIRY_WAY, null),
+            prefs.getString(EXPIRY_DAYS, null),
+            prefs.getInt(EXPIRY_MINUTE, -1).takeIf { it >= 0 },
+        )
+        set(value) {
+            prefs.edit()
+                .putBoolean(EXPIRY_ON, value.enabled)
+                .putString(EXPIRY_WAY, value.way.wire)
+                .putString(EXPIRY_DAYS, ExpiryReminderSettings.formatDays(value.daysBefore))
+                .putInt(EXPIRY_MINUTE, value.minuteOfDay)
+                .apply()
+        }
+
+    /** О чём уже напомнили (`ExpiryReminder.key`, D-76): по одному разу на порог и срок. */
+    var expiryDone: Set<String>
+        // Копия: множество из SharedPreferences менять нельзя.
+        get() = prefs.getStringSet(EXPIRY_DONE, null).orEmpty().toSet()
+        set(value) {
+            prefs.edit().putStringSet(EXPIRY_DONE, value).apply()
+        }
+
     var tab: Int
         get() = prefs.getInt(TAB, 0)
         set(value) {
@@ -126,5 +153,10 @@ class AppPrefs(context: Context) {
         const val SERVERLESS_APPS = "serverless_apps"
         const val SERVERLESS_OWN_MODE = "serverless_own_mode"
         const val SERVERLESS_OWN_APPS = "serverless_own_apps"
+        const val EXPIRY_ON = "expiry_reminders"
+        const val EXPIRY_WAY = "expiry_way"
+        const val EXPIRY_DAYS = "expiry_days"
+        const val EXPIRY_MINUTE = "expiry_minute"
+        const val EXPIRY_DONE = "expiry_done"
     }
 }

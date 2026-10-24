@@ -18,6 +18,9 @@
     VpnService под `BIND_VPN_SERVICE`, плитка под
     `BIND_QUICK_SETTINGS_TILE` и служба задач под `BIND_JOB_SERVICE`
     (D-39, D-40): каждый сервис — под своим системным разрешением;
+  * приёмники (`<receiver>`) — только утверждённые, не экспортированные,
+    с утверждёнными событиями; приёмник загрузки выключен по умолчанию и
+    включается только с напоминанием о конце подписки (D-76, D-40);
   * видимость пакетов (`<queries>`) — только приложения с ярлыком
     запуска (D-38), без `QUERY_ALL_PACKAGES`;
   * один процесс (D-30): ни у приложения, ни у компонентов нет
@@ -44,6 +47,18 @@ PERMISSIONS = {
     "android.permission.POST_NOTIFICATIONS": "постоянное уведомление, пока туннель поднят (Android 13+)",
     "android.permission.ACCESS_NETWORK_STATE": "сеть под туннелем — setUnderlyingNetworks по сети по умолчанию (D-40)",
     "android.permission.CAMERA": "QR камерой (D-71): запрос при первом нажатии, камера — только пока открыт экран сканирования",
+    "android.permission.SCHEDULE_EXACT_ALARM": "будильник о конце подписки в точное время (D-76): с Android 14 его включает пользователь; без него — окно в час",
+    "android.permission.RECEIVE_BOOT_COMPLETED": "будильник о конце подписки заново после загрузки (D-76): приёмник включён, только пока напоминание включено",
+}
+# Приёмники → (события фильтра, выключен ли по умолчанию). Все — не экспортированы:
+# события загрузки шлёт система, остальное — свои PendingIntent.
+RECEIVERS = {
+    ".app.ExpiryReceiver": (frozenset(), False),
+    ".app.ExpiryBootReceiver": (frozenset({
+        "android.intent.action.BOOT_COMPLETED",
+        "android.intent.action.MY_PACKAGE_REPLACED",
+        "android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED",
+    }), True),
 }
 # Утверждённое оборудование — всё необязательное (required="false"), с причиной.
 FEATURES = {
@@ -179,6 +194,22 @@ def main():
                 if "android.net.VpnService" in actions and el.get(A + "permission") != "android.permission.BIND_VPN_SERVICE":
                     problems.append(f"<{kind} {name}>: VpnService должен требовать BIND_VPN_SERVICE")
 
+    receivers = {el.get(A + "name"): el for el in app.findall("receiver")} if app is not None else {}
+    for name, el in receivers.items():
+        if name not in RECEIVERS:
+            problems.append(f"<receiver {name}> не утверждён (список и причины — tools/hostcheck/check_manifest.py)")
+            continue
+        actions, off = RECEIVERS[name]
+        if el.get(A + "exported") != "false":
+            problems.append(f"<receiver {name}> должен быть android:exported=\"false\": события шлёт система или свои PendingIntent")
+        got = frozenset(a.get(A + "name") for f in el.findall("intent-filter") for a in f.findall("action"))
+        if got != actions:
+            problems.append(f"<receiver {name}>: события {sorted(got)} — ожидались {sorted(actions)}")
+        if off and el.get(A + "enabled") != "false":
+            problems.append(f"<receiver {name}> должен быть выключен по умолчанию (android:enabled=\"false\"): DPpass не запускается при загрузке, пока напоминание выключено (D-40, D-76)")
+    for name in sorted(set(RECEIVERS) - set(receivers)):
+        problems.append(f"нет <receiver {name}> (D-76)")
+
     queries = root.find("queries")
     if queries is not None:
         for child in queries:
@@ -192,7 +223,7 @@ def main():
         for p in problems:
             print("    " + p)
         return 1
-    print(f"✓ Манифест: {len(PERMISSIONS)} утверждённых разрешений, оборудование — только необязательное ({len(FEATURES)}), без резервных копий и открытого HTTP, один процесс, экспорт — только {', '.join(EXPORTED_OK)} (сервисы — под системными разрешениями), видимость пакетов — только ярлыки запуска")
+    print(f"✓ Манифест: {len(PERMISSIONS)} утверждённых разрешений, оборудование — только необязательное ({len(FEATURES)}), без резервных копий и открытого HTTP, один процесс, экспорт — только {', '.join(EXPORTED_OK)} (сервисы — под системными разрешениями), приёмники — {len(RECEIVERS)} без экспорта, загрузка — выключена по умолчанию, видимость пакетов — только ярлыки запуска")
     return 0
 
 

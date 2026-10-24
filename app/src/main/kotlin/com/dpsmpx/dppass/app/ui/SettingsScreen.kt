@@ -29,7 +29,8 @@ import kotlinx.coroutines.withContext
 /**
  * «Настройки» (D-38, D-40): политика пользователя — маршрутизация, DNS,
  * приложения; постоянный VPN и уведомления — в настройках Android;
- * автопереключение сервера (D-58); проверка сети (D-60);
+ * автопереключение сервера (D-58); проверка сети (D-60); напоминание о
+ * конце подписки (D-76);
  * раздача другим устройствам (D-51); тема; журнал (D-26) и «О программе»
  * (D-43).
  *
@@ -297,6 +298,21 @@ class SettingsScreen(host: Host) : Screen(host) {
             Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.settings_serverless_note)).apply {
                 setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0)
             },
+        )
+
+        // ---- подписки: напоминание о конце (D-76) ----
+        body.addView(Ui.section(context, context.getString(R.string.tab_subscriptions)))
+        body.addView(
+            Ui.listCard(context).apply {
+                addView(
+                    Ui.ListRow(context, R.drawable.ic_clock, context.getString(R.string.expiry_settings_title))
+                        .subtitle(ExpiryReminderScreen.summary(context, host.prefs.expiryReminders))
+                        .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                        .onClick { host.push(ExpiryReminderScreen(host)) },
+                    Ui.matchWidth(),
+                )
+            },
+            Ui.matchWidth(),
         )
 
         // ---- оформление ----

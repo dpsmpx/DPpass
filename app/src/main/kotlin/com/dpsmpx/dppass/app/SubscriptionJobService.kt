@@ -21,7 +21,8 @@ import kotlinx.coroutines.launch
  * `UpdateSchedule`). Обновляется только применённая подписка.
  *
  * Туннель поднят: новые серверы активированы (D-07), переподключение —
- * только если подключённого сервера больше нет или он изменился.
+ * только если подключённого сервера больше нет или он изменился. После
+ * обновления — напоминание о конце подписки (D-76): срок мог смениться.
  */
 class SubscriptionJobService : JobService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -48,6 +49,8 @@ class SubscriptionJobService : JobService() {
                         }
                     }
                 }
+                // Срок мог смениться; заодно — пропущенное напоминание, если окно будильника Android опоздало (D-76).
+                ExpiryAlarms.sync(this@SubscriptionJobService, core)
             } finally {
                 jobFinished(params, false)
             }

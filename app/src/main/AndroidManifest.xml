@@ -14,6 +14,13 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- QR камерой (D-71): разрешение — при первом нажатии, камера для DPpass необязательна. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!--
+      Напоминание о конце подписки (D-76): будильник в точное время — с
+      согласия пользователя («Будильники и напоминания», Android 12+); после
+      загрузки телефона — будильник заново, только пока напоминание включено.
+    -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
@@ -99,6 +106,27 @@
                 android:name="android.service.quicksettings.ACTIVE_TILE"
                 android:value="true" />
         </service>
+
+        <!-- Напоминание о конце подписки (D-76): будильник Android и кнопки уведомления — только свои PendingIntent. -->
+        <receiver
+            android:name=".app.ExpiryReceiver"
+            android:exported="false" />
+
+        <!--
+          Будильник заново после загрузки, обновления DPpass и выданного
+          разрешения на точный будильник (D-76). Выключен, пока выключено
+          напоминание: иначе DPpass при загрузке не запускается (D-40).
+        -->
+        <receiver
+            android:name=".app.ExpiryBootReceiver"
+            android:enabled="false"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Автообновление подписок (D-39). Запускает только JobScheduler (BIND_JOB_SERVICE). -->
         <service
