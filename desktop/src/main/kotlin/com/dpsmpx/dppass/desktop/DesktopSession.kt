@@ -110,6 +110,11 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
     /** Подключённый сервер; null — туннеля нет. */
     fun connectedProfile(): ProfileId? = (state.value as? SessionStatus.Connected)?.profileId
 
+    /** Туннель есть — переподключить с новыми настройками (D-81); нет — ничего, они в силе со следующего подключения. */
+    fun reconnectIfConnected() {
+        if (session != null) reconnect(prefs.selectedServer)
+    }
+
     /**
      * Переподключить к новым серверам подписки (D-77): сеанс — стоп, затем
      * план заново, начиная с [preferred]. Пока ждали блокировку, отключились —
@@ -210,8 +215,11 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
         val regime = graph.networkCheck.regime()
         regime?.let { core.log.info("network_regime", "class" to it.restriction) }
         val failingUnderRegime = regime?.let(core::failingUnder).orEmpty()
+        // Разбиение ClientHello к серверу (D-68, D-81) — выбор пользователя; отказ сервера — повтор без него (D-69, ядро).
+        val split = prefs.splitClientHello
+        core.log.info("client_hello_split", "on" to split)
         val report = try {
-            core.connect(null, checker, handle.toTunInput(), preferred, regime = regime) { delay(it) }
+            core.connect(null, checker, handle.toTunInput(), preferred, regime = regime, splitClientHello = split) { delay(it) }
         } catch (e: CancellationException) {
             // Сеанс, запущенный посреди проверки, оркестратор уже остановил; остаётся TUN.
             withContext(NonCancellable + Dispatchers.IO) { handle.close() }

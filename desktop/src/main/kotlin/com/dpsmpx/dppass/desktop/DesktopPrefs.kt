@@ -11,7 +11,7 @@ import java.util.Properties
 /**
  * Настройки окна ПК — не документ конфигурации (D-06) и не то, что задаёт
  * подписка (D-11): выбранный сервер (D-34), автопереключение (D-58, D-78),
- * проверка сети при её смене (D-80) и тема. Файл в каталоге данных (0700); запись — заменой файла целиком. Один
+ * проверка сети при её смене (D-80), разбиение ClientHello (D-81) и тема. Файл в каталоге данных (0700); запись — заменой файла целиком. Один
  * объект на процесс: окно и сеанс пишут через него.
  */
 class DesktopPrefs(private val file: File) {
@@ -37,6 +37,14 @@ class DesktopPrefs(private val file: File) {
         get() = props.getProperty(CHECK_ON_CHANGE) != "false"
         set(value) = put(CHECK_ON_CHANGE, value.toString())
 
+    /**
+     * «Разбивать начало соединения с сервером» (D-68, D-81): TLS ClientHello к
+     * серверу — частями. Выключено по умолчанию, как на Android.
+     */
+    var splitClientHello: Boolean
+        get() = props.getProperty(SPLIT_CLIENT_HELLO) == "true"
+        set(value) = put(SPLIT_CLIENT_HELLO, value.toString())
+
     var theme: ThemeChoice
         get() = props.getProperty(THEME)?.let { v -> ThemeChoice.entries.firstOrNull { it.name == v } } ?: ThemeChoice.AUTO
         set(value) = put(THEME, value.name)
@@ -58,5 +66,6 @@ class DesktopPrefs(private val file: File) {
         const val THEME = "theme"
         const val AUTO_SWITCH = "auto_switch"
         const val CHECK_ON_CHANGE = "check_on_network_change"
+        const val SPLIT_CLIENT_HELLO = "split_client_hello"
     }
 }

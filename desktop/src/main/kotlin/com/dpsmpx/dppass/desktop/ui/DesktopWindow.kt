@@ -23,8 +23,8 @@ import javax.swing.WindowConstants
 /**
  * Окно DPpass для Linux (D-74): «Подключение», «Серверы», «Подписки»,
  * «Сеть» (проверка сети, D-79), «Журнал». Меню «Импорт» — буфер обмена и
- * файл (D-42); «Подключение» — автопереключение сервера (D-78) и проверка
- * сети при её смене (D-80). Пока окно открыто, применённая подписка
+ * файл (D-42); «Подключение» — автопереключение сервера (D-78), разбиение
+ * ClientHello к серверу (D-81) и проверка сети при её смене (D-80). Пока окно открыто, применённая подписка
  * обновляется по сроку (D-77). Закрытие окна — выход: ядро и правила
  * маршрутизации убирает `DesktopSession.shutdownNow`.
  */
@@ -116,6 +116,19 @@ class DesktopWindow(
                         addActionListener {
                             prefs.autoSwitch = isSelected
                             graph.core.log.info("auto_switch", "on" to isSelected)
+                        }
+                    },
+                )
+                // Разбиение ClientHello к серверу (D-68, D-81): действует сразу — туннель переподключается.
+                add(
+                    JCheckBoxMenuItem("Разбивать начало соединения с сервером", prefs.splitClientHello).apply {
+                        toolTipText = "TLS ClientHello к серверу уходит мелкими частями. Может помочь против фильтров, которые ищут там " +
+                            "имя сайта; помогает не везде и добавляет десятки миллисекунд к подключению. Только серверы с TLS или " +
+                            "REALITY поверх TCP; сервер не принял — DPpass повторяет без разбиения"
+                        addActionListener {
+                            prefs.splitClientHello = isSelected
+                            graph.core.log.info("client_hello_split_set", "on" to isSelected)
+                            session.reconnectIfConnected()
                         }
                     },
                 )
