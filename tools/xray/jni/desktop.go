@@ -13,6 +13,8 @@ import "C"
 
 import (
 	"errors"
+	"strings"
+	"time"
 
 	"github.com/dpsmpx/dppass/tools/xray/bridge"
 	"golang.org/x/sys/unix"
@@ -52,4 +54,13 @@ func Java_com_dpsmpx_dppass_desktop_LinuxNative_nativeMarkSocket(env *C.JNIEnv, 
 func Java_com_dpsmpx_dppass_desktop_LinuxNative_nativeMarkResolver(env *C.JNIEnv, _ C.jclass, mark C.jint) C.jint {
 	bridge.MarkResolver(int(mark))
 	return 0
+}
+
+//export Java_com_dpsmpx_dppass_desktop_LinuxNative_nativeResolve
+func Java_com_dpsmpx_dppass_desktop_LinuxNative_nativeResolve(env *C.JNIEnv, _ C.jclass, host C.jbyteArray, timeoutMillis C.jint) C.jbyteArray {
+	addrs, err := bridge.Resolve(string(bytesOf(env, host)), time.Duration(timeoutMillis)*time.Millisecond)
+	if err != nil {
+		return statusOf(env, err)
+	}
+	return status(env, statusOK, strings.Join(addrs, "\n"))
 }

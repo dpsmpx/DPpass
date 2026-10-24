@@ -17,4 +17,10 @@ internal object LinuxNative {
 
     /** Резолвер Go процесса — с меткой на своих сокетах (имена серверов мимо туннеля, D-29). */
     @JvmStatic external fun nativeMarkResolver(mark: Int): Int
+
+    /**
+     * Адреса имени резолвером Go процесса (проверка сети, D-79): первый байт —
+     * 0 и адреса через перевод строки, иначе — вид отказа моста и текст.
+     */
+    @JvmStatic external fun nativeResolve(host: ByteArray, timeoutMillis: Int): ByteArray
 }

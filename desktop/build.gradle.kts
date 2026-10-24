@@ -5,10 +5,15 @@ plugins {
     id("dppass.kotlin-application")
 }
 
+/** Пакет JDK с fd сокетов (D-79): тот же флаг — у пакета и у тестов. */
+val addExports = "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED"
+
 // Версия оболочки — своя (D-74): в имени пакета и в `User-Agent` подписки (D-33), из манифеста jar.
-version = "0.1.4-dev"
+version = "0.1.5-dev"
 
 tasks.jar { manifest { attributes("Implementation-Version" to project.version) } }
+
+tasks.test { jvmArgs(addExports) }
 
 dependencies {
     implementation(project(":connection"))
@@ -24,11 +29,13 @@ application {
     // Вывод и имена файлов — UTF-8 при любой локали; сглаживание шрифтов — как в системе.
     // Нативная библиотека ядра грузится `System.load` (D-74): JDK 24+ без разрешения
     // предупреждает об этом при каждом запуске (JEP 472); флаг понимают и JDK 17–23.
+    // fd сокета пробы для метки SO_MARK (D-79) — только через sun.nio.ch: другого пути у JVM нет.
     applicationDefaultJvmArgs = listOf(
         "-Dfile.encoding=UTF-8",
         "-Dsun.jnu.encoding=UTF-8",
         "-Dawt.useSystemAAFontSettings=on",
         "--enable-native-access=ALL-UNNAMED",
+        addExports,
     )
 }
 

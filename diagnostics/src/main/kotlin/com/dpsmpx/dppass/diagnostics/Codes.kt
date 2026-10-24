@@ -195,6 +195,13 @@ enum class DiagCode(val kind: FailureKind, val defaultSeverity: Severity) {
      */
     CLIENT_HELLO_SPLIT_REJECTED(FailureKind.TLS_HANDSHAKE_FAILED, Severity.WARNING),
 
+    /**
+     * Проверке сети (D-60, D-79) не пустить пробы мимо туннеля: на ПК метка
+     * `SO_MARK` на сокет пробы не поставилась. Проба через туннель мерила бы
+     * сервер, а не сеть (D-05), — проверки нет.
+     */
+    NETWORK_CHECK_UNAVAILABLE(FailureKind.NETWORK_UNREACHABLE, Severity.ERROR),
+
     // --- активация ---
     ACTIVATION_REJECTED(FailureKind.CONFIG_VALIDATION_FAILED, Severity.ERROR),
     ROLLED_BACK_TO_LAST_KNOWN_GOOD(FailureKind.HEALTH_CHECK_FAILED, Severity.WARNING),

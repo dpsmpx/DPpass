@@ -15,6 +15,7 @@ import (
 	"os"
 	"strings"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -115,4 +116,28 @@ func resolverUpstream(address string, read func(string) ([]byte, error)) string 
 		return net.JoinHostPort(f[1], port)
 	}
 	return address
+}
+
+// Resolve — адреса имени резолвером Go процесса: после MarkResolver — с
+// меткой, мимо туннеля (D-74). Им проверка сети на ПК (D-79) спрашивает
+// резолвер сети, а не DNS ядра, куда правило порта 53 увело бы запрос
+// JVM. Адреса — строками, по одному; нет ни одного — отказ.
+func Resolve(host string, timeout time.Duration) ([]string, error) {
+	if host == "" || timeout <= 0 {
+		return nil, fail(KindContract, "имя %q, срок %v", host, timeout)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		out = append(out, a.IP.String())
+	}
+	if len(out) == 0 {
+		return nil, fail(KindStart, "у имени %q нет адресов", host)
+	}
+	return out, nil
 }

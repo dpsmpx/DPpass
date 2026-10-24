@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -99,6 +100,32 @@ func TestOpenTunRejectsBadNames(t *testing.T) {
 			_ = unix.Close(fd)
 			t.Fatalf("имя %q принято", name)
 		}
+	}
+}
+
+// Проверка сети на ПК (D-79) резолвит через резолвер моста: адреса —
+// строками; пустое имя или срок — нарушение договора, а не запрос.
+func TestResolveReturnsAddressesAndRefusesBadCalls(t *testing.T) {
+	addrs, err := Resolve("localhost", 2*time.Second)
+	if err != nil {
+		t.Fatalf("localhost: %v", err)
+	}
+	for _, a := range addrs {
+		if ip := net.ParseIP(a); ip == nil || !ip.IsLoopback() {
+			t.Fatalf("localhost — %q, ждали loopback", a)
+		}
+	}
+	for _, c := range []struct {
+		host    string
+		timeout time.Duration
+	}{{"", time.Second}, {"localhost", 0}} {
+		var be *Error
+		if _, err := Resolve(c.host, c.timeout); !errors.As(err, &be) || be.Kind != KindContract {
+			t.Fatalf("Resolve(%q, %v) = %v, ждали KindContract", c.host, c.timeout, err)
+		}
+	}
+	if _, err := Resolve("name.invalid", 2*time.Second); err == nil {
+		t.Fatal("имя в .invalid резолвится")
 	}
 }
 

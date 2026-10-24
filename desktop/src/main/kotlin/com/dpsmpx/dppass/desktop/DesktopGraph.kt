@@ -14,6 +14,7 @@ import com.dpsmpx.dppass.engine.xray.XrayBackend
 import com.dpsmpx.dppass.engine.xray.XrayCompiler
 import com.dpsmpx.dppass.engine.xray.XrayProxyEngine
 import com.dpsmpx.dppass.engine.xray.XrayRuntime
+import com.dpsmpx.dppass.network.SystemProbeNetwork
 import com.dpsmpx.dppass.storage.EncryptingBlobStore
 import com.dpsmpx.dppass.storage.FileBlobStore
 import com.dpsmpx.dppass.storage.StorageReset
@@ -41,6 +42,8 @@ class DesktopGraph(
     val log: MemoryLogSink,
     val logger: Logger,
     val paths: DesktopPaths,
+    /** Проверка сети (D-79): пробы мимо туннеля, память режима (D-64). */
+    val networkCheck: DesktopNetworkCheck,
     /** Что не поднялось при сборке: показывается в окне. */
     val problems: List<Diagnostic>,
 ) {
@@ -99,6 +102,22 @@ class DesktopGraph(
                 engineDetails = listOf("geodata" to geodataSummary, "platform" to "linux"),
             )
             core.restore().filter { it.isError }.forEach { problems += it }
+            // Пробы проверки сети — мимо туннеля (D-79): метка, как у сокетов ядра, и резолвер моста с меткой.
+            val loaded = runtime is Outcome.Success
+            val probeNetwork = LinuxProbeNetwork(
+                mark = if (loaded && platform.hasNetAdmin()) { fd -> LinuxNative.nativeMarkSocket(fd, LinuxRoutes.MARK) } else null,
+                resolver = if (loaded) {
+                    { host ->
+                        LinuxProbeNetwork.parseResolve(
+                            host,
+                            LinuxNative.nativeResolve(host.toByteArray(Charsets.UTF_8), LinuxProbeNetwork.RESOLVE_TIMEOUT_MILLIS),
+                        )
+                    }
+                } else {
+                    // Ядра нет — туннеля тоже: резолвер системы и так мимо него.
+                    SystemProbeNetwork::resolve
+                },
+            )
             return DesktopGraph(
                 core = core,
                 engine = engine,
@@ -109,6 +128,7 @@ class DesktopGraph(
                 log = sink,
                 logger = logger,
                 paths = paths,
+                networkCheck = DesktopNetworkCheck(core.log, probeNetwork),
                 problems = problems,
             )
         }

@@ -22,7 +22,7 @@ import javax.swing.WindowConstants
 
 /**
  * Окно DPpass для Linux (D-74): «Подключение», «Серверы», «Подписки»,
- * «Журнал»; меню «Импорт» — буфер обмена и файл (D-42), «Подключение» —
+ * «Сеть» (проверка сети, D-79), «Журнал»; меню «Импорт» — буфер обмена и файл (D-42), «Подключение» —
  * автопереключение сервера (D-78). Пока окно открыто,
  * применённая подписка обновляется по сроку (D-77). Закрытие окна — выход:
  * ядро и правила маршрутизации убирает `DesktopSession.shutdownNow`.
@@ -49,6 +49,7 @@ class DesktopWindow(
         connect = ConnectPanel(graph, session, prefs, import::fromClipboard)
         servers = ServersPanel(graph, prefs, scope) { session.status.value }
         val log = LogPanel(graph)
+        val network = NetworkPanel(graph.networkCheck, scope)
         val tabs = JTabbedPane().apply {
             // Без своего фона за ярлыками вкладок видна светлая подложка окна.
             isOpaque = true
@@ -56,6 +57,7 @@ class DesktopWindow(
             addTab("Подключение", connect)
             addTab("Серверы", servers)
             addTab("Подписки", subscriptions)
+            addTab("Сеть", network)
             addTab("Журнал", log)
             addChangeListener {
                 when (selectedComponent) {

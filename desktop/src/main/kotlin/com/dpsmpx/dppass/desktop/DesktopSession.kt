@@ -188,8 +188,12 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
             state.value = SessionStatus.Connecting(profile.name)
             withContext(Dispatchers.IO) { graph.engine.probeHealth(ir.dns, probeTimeout) }
         }
+        // Белый список по свежей проверке в этой сети (D-64, D-79): порядок плана и опыт попыток — его.
+        val regime = graph.networkCheck.regime()
+        regime?.let { core.log.info("network_regime", "class" to it.restriction) }
+        val failingUnderRegime = regime?.let(core::failingUnder).orEmpty()
         val report = try {
-            core.connect(null, checker, handle.toTunInput(), preferred) { delay(it) }
+            core.connect(null, checker, handle.toTunInput(), preferred, regime = regime) { delay(it) }
         } catch (e: CancellationException) {
             // Сеанс, запущенный посреди проверки, оркестратор уже остановил; остаётся TUN.
             withContext(NonCancellable + Dispatchers.IO) { handle.close() }
@@ -202,6 +206,12 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
                 tunnel = handle
                 val name = ir.profiles.firstOrNull { it.id == report.profileId }?.name ?: report.profileId.value
                 core.log.info("connected", "profile" to Safe(report.profileId.value), "attempts" to report.attempts.size)
+                // Подключился сервер, который под белым списком только отказывал: список, скорее всего,
+                // выключили — режим снова неизвестен (D-64).
+                if (regime != null && report.profileId in failingUnderRegime) {
+                    graph.networkCheck.forgetRegime()
+                    core.log.info("network_regime_dropped", "reason" to Safe("contradicted"), "profile" to Safe(report.profileId.value))
+                }
                 state.value = SessionStatus.Connected(report.profileId, name, core.clock.nowMillis())
                 val profile = ir.profiles.firstOrNull { it.id == report.profileId }
                 val w = SessionWatch(
@@ -212,6 +222,8 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
                     { prefs.selectedServer },
                     { prefs.autoSwitch },
                     { synchronized(declined) { declined.toSet() } },
+                    regime.takeIf { report.profileId !in failingUnderRegime },
+                    graph.networkCheck::probesQuiet,
                 )
                 watch = scope.launch { onDegraded(withContext(Dispatchers.IO) { w.run { delay(it) } }) }
             }

@@ -32,6 +32,7 @@ class SessionWatchTest {
     private var autoSwitch = false
     private val declined = mutableSetOf<ProfileId>()
     private var monotonic = 0L
+    private var quiet = false
 
     private val first: ProfileId by lazy {
         runBlocking {
@@ -69,7 +70,8 @@ class SessionWatchTest {
             { preferred },
             { autoSwitch },
             { declined.toSet() },
-            { monotonic },
+            quiet = { quiet },
+            monotonic = { monotonic },
         )
         return w to { n }
     }
@@ -121,6 +123,16 @@ class SessionWatchTest {
         autoSwitch = true
         val switch = assertIs<Degradation.Switch>(until(watch { true }.first, 20))
         assertEquals(first, switch.from.id)
+    }
+
+    @Test
+    fun probesDuringNetworkCheckDoNotCount() {
+        // Проверка сети (D-79) идёт — пробы наблюдателя не начинаются: её нагрузка — не сбой сервера (T14).
+        quiet = true
+        val (w, probes) = watch { true }
+        assertNull(until(w, 20))
+        assertEquals(0, probes())
+        assertTrue((core.logSink as LogHistory).snapshot().any { it.event == "adaptive_probe_skipped" })
     }
 
     @Test
