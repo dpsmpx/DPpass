@@ -546,8 +546,19 @@ class DPpassVpnService : VpnService() {
                     regime,
                 )
                 if (failed) {
-                    lastFailure = result.errors.first()
-                    core.log.warning("adaptive_probe_failed", "profile" to Safe(profileId.value), "elapsed_ms" to elapsed)
+                    val reason = result.errors.first()
+                    lastFailure = reason
+                    // Причина (D-22): «ни байта», «соединение есть, ответа нет» и отказ TLS — разные беды, по одному времени их не различить.
+                    core.log.warning(
+                        "adaptive_probe_failed",
+                        *listOfNotNull(
+                            "profile" to Safe(profileId.value),
+                            "elapsed_ms" to elapsed,
+                            "code" to Safe(reason.code.name),
+                            "reason" to reason.message,
+                            reason.causes.firstNotNullOfOrNull { it.error?.message }?.let { "error" to it },
+                        ).toTypedArray(),
+                    )
                 }
                 if (++samples % PERSIST_EVERY_SAMPLES == 0 || decision == SessionSupervisor.Decision.RECONNECT) {
                     withContext(NonCancellable) { core.persistStability() }
