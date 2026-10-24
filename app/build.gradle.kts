@@ -30,12 +30,14 @@ android {
         applicationId = AppIdentity.STABLE.applicationId
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 104
-        versionName = "0.7.34-dev"
+        versionCode = 105
+        versionName = "0.7.35-dev"
         // Ярлык приложения — через placeholder: стабильный для отладки,
         // случайный для личного release (D-47). Внутреннее имя «DPpass»
         // (экран «О программе», уведомление на своём экране) — @string/app_name.
         manifestPlaceholders["appLabel"] = AppIdentity.STABLE.label
+        // Тесты на телефоне (D-75): свой Instrumentation без AndroidX Test (D-34).
+        testInstrumentationRunner = "com.dpsmpx.dppass.app.device.DeviceTestRunner"
     }
 
     buildTypes {

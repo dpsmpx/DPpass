@@ -205,6 +205,11 @@ run = ["python3", "tools/hostcheck/check_build_telemetry.py"]
 level = "static"
 
 [[command]]
+id = "project.device-tests"
+run = ["python3", "tools/hostcheck/check_device_tests.py"]
+level = "static"
+
+[[command]]
 id = "project.readme"
 run = ["python3", "tools/hostcheck/readme_progress.py", "--check"]
 level = "static"
@@ -240,7 +245,8 @@ requires = ["go"]
 
 [[command]]
 id = "project.android"
-run = ["./gradlew", "--console=plain", "--warning-mode=summary", ":app:build", ":app:lint"]
+# тестовый APK тестов на телефоне (D-75) — собирается всегда, даже пока его не запускают
+run = ["./gradlew", "--console=plain", "--warning-mode=summary", ":app:build", ":app:lint", ":app:assembleDebugAndroidTest"]
 paths = ["module:app", "**/src/main/**/*.kt", "tools/xray/**"]
 requires = ["jdk", "go", "android-sdk", "android-ndk"]
 timeout = "40m"

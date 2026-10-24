@@ -651,7 +651,8 @@ TCP-потока, если режутся TLS или крупные переда
 интерфейс (D-34): одна `Activity` с `FLAG_SECURE`, экраны — классы
 `Screen` пакета `app.ui` на встроенных Views, логика экранов без Android —
 `ui/Presentation.kt`, `ui/Explain.kt` и `ui/PullGesture.kt` (тесты на
-хосте в `app/src/test`). В «Серверах» протяжка вниз — тот же замер
+хосте в `app/src/test`); виды и TalkBack на телефоне — `app/src/androidTest`
+(`DeviceTestRunner`, свой `Instrumentation`, D-75). В «Серверах» протяжка вниз — тот же замер
 задержки, что по кнопке (`PullToRefresh`, D-70). В журнале у сервера
 код (`s1.…`), а не имя: поиск в «Серверах» находит и по коду, а в
 «Почему этот сервер» код виден у каждой попытки.
