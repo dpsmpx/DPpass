@@ -23,7 +23,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Проверка сети на ПК (D-79, к D-60 и D-64): те же пробы и бюджет D-14, что
- * на Android, — мимо туннеля ([LinuxProbeNetwork]). Одна за раз; итог — в
+ * на Android, — мимо туннеля ([LinuxProbeNetwork]); по кнопке и после смены
+ * сети (D-80, [NetworkWatch]). Одна за раз; итог — в
  * окно и в журнал без адресов, в план — только через память режима (D-64).
  * Пока идёт проверка и [QUIET_AFTER_MILLIS] после, наблюдатель сеанса (D-78)
  * пробы не начинает, а начатую не учитывает: нагрузка проверки — не
@@ -38,6 +39,9 @@ class DesktopNetworkCheck(
     clock: Clock = Clock.MONOTONIC,
     private val pause: suspend (Long) -> Unit = { delay(it) },
 ) {
+    /** Кто начал проверку — в журнал (`network_check`), без адресов. */
+    enum class Trigger { BUTTON, NETWORK_CHANGE }
+
     private val checking = AtomicBoolean(false)
 
     /** Один на процесс: две проверки подряд упираются в предел, а не дают залп (D-14). */
@@ -63,18 +67,18 @@ class DesktopNetworkCheck(
      * Проверить сеть. Отказ — проверке не пустить пробы мимо туннеля
      * (`NETWORK_CHECK_UNAVAILABLE`); null — уже идёт другая проверка.
      */
-    suspend fun run(onResult: (ProbeResult) -> Unit = {}): Outcome<NetworkAssessment>? = withContext(Dispatchers.IO) {
+    suspend fun run(trigger: Trigger = Trigger.BUTTON, onResult: (ProbeResult) -> Unit = {}): Outcome<NetworkAssessment>? = withContext(Dispatchers.IO) {
         if (!checking.compareAndSet(false, true)) return@withContext null
         quiet.begin()
         try {
-            assess(onResult)
+            assess(trigger, onResult)
         } finally {
             quiet.end()
             checking.set(false)
         }
     }
 
-    private suspend fun assess(onResult: (ProbeResult) -> Unit): Outcome<NetworkAssessment> {
+    private suspend fun assess(trigger: Trigger, onResult: (ProbeResult) -> Unit): Outcome<NetworkAssessment> {
         probeNetwork.ready()?.let {
             log.diagnostic(it)
             return Outcome.failure(it)
@@ -82,7 +86,7 @@ class DesktopNetworkCheck(
         val net = network()
         val type = net?.type ?: NetworkType.NONE
         val probes = if (net == null) Prober { ProbeResult(it, ProbeOutcome.UNREACHABLE) } else prober(probeNetwork)
-        log.info("network_check", "type" to type, "trigger" to Safe("BUTTON"))
+        log.info("network_check", "type" to type, "trigger" to trigger)
         val assessment = NetworkAssessor(probes, budget, pause).assess(type) { r ->
             log.info("network_probe", "kind" to r.request.kind, "target" to r.request.target, "outcome" to r.outcome, "ms" to r.latencyMillis)
             onResult(r)

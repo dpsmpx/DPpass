@@ -21,9 +21,10 @@ import com.dpsmpx.dppass.network.NetworkAssessment
  * ([DPpassCore.degraded]): переподключиться по плану, спросить о замене
  * выбранного сервера или заменить его с согласием заранее.
  *
- * Режим сети (D-64) — по проверке сети на ПК (D-79), взятый при
- * подключении: опыт — в его контекст, замена — по нему. Пока идёт проверка
- * сети, проба не начинается, а начатая не учитывается (T14).
+ * Режим сети (D-64) — по проверке сети на ПК (D-79): взят при подключении
+ * и заново при смене сети (D-80) — перед каждой пробой берётся нынешний.
+ * Опыт — в его контекст, замена — по нему. Пока идёт проверка сети, проба
+ * не начинается, а начатая не учитывается (T14).
  */
 class SessionWatch(
     private val core: DPpassCore,
@@ -37,13 +38,14 @@ class SessionWatch(
     private val autoSwitch: () -> Boolean,
     /** Серверы, о которых пользователь ответил «Остаться». */
     private val declined: () -> Set<ProfileId>,
-    /** Белый список по свежей проверке (D-64) при подключении; null — режим неизвестен. */
-    private val regime: NetworkAssessment? = null,
+    /** Режим сессии (D-64): белый список по свежей проверке; null — неизвестен. */
+    private val regime: () -> NetworkAssessment? = { null },
     /** Идёт проверка сети (D-79): проба мерила бы её, а не сервер. */
     private val quiet: () -> Boolean = { false },
     private val monotonic: () -> Long = Clock.MONOTONIC::nowMillis,
 ) {
-    private val supervisor: SessionSupervisor = core.supervisor(profileId, regime)
+    private var applied: NetworkAssessment? = regime()
+    private val supervisor: SessionSupervisor = core.supervisor(profileId, applied)
     private var samples = 0
     private var lastFailure: Diagnostic? = null
 
@@ -63,10 +65,16 @@ class SessionWatch(
             return null
         }
         val stalled = failed && result.errors.any { it.code == DiagCode.PAYLOAD_STALLED }
+        // Режим сессии взят заново (смена сети, D-80): следующие наблюдения — в его контекст.
+        val now = regime()
+        if (now !== applied) {
+            supervisor.changeContext(now)
+            applied = now
+        }
         val decision = supervisor.onObservation(
             StabilityObservation(success = !failed, rttMillis = elapsed, stalled = stalled, timestampMillis = core.clock.nowMillis()),
             profile,
-            regime,
+            now,
         )
         if (failed) {
             val reason = result.errors.first()
@@ -87,7 +95,7 @@ class SessionWatch(
         core.log.warning("adaptive_reconnect", "profile" to Safe(profileId.value))
         // Деградация подтверждена скачком задержки, без проваленной пробы — общая причина.
         val reason = lastFailure ?: Diagnostic.error(DiagCode.HEALTH_CHECK_FAILED, "пробы через сервер раз за разом отвечают с перебоями")
-        return core.degraded(profileId, reason, preferred(), autoSwitch(), declined(), regime)
+        return core.degraded(profileId, reason, preferred(), autoSwitch(), declined(), applied)
     }
 
     /** Пробы раз в [INTERVAL_MILLIS], пока деградация не подтвердится. Отмена — остановка сеанса. */

@@ -10,8 +10,8 @@ import java.util.Properties
 
 /**
  * Настройки окна ПК — не документ конфигурации (D-06) и не то, что задаёт
- * подписка (D-11): выбранный сервер (D-34), автопереключение (D-58, D-78) и
- * тема. Файл в каталоге данных (0700); запись — заменой файла целиком. Один
+ * подписка (D-11): выбранный сервер (D-34), автопереключение (D-58, D-78),
+ * проверка сети при её смене (D-80) и тема. Файл в каталоге данных (0700); запись — заменой файла целиком. Один
  * объект на процесс: окно и сеанс пишут через него.
  */
 class DesktopPrefs(private val file: File) {
@@ -31,6 +31,11 @@ class DesktopPrefs(private val file: File) {
     var autoSwitch: Boolean
         get() = props.getProperty(AUTO_SWITCH) == "true"
         set(value) = put(AUTO_SWITCH, value.toString())
+
+    /** «Проверять сеть при её смене» (D-67, D-80): включено по умолчанию, как на Android; выключено — только по кнопке. */
+    var checkOnNetworkChange: Boolean
+        get() = props.getProperty(CHECK_ON_CHANGE) != "false"
+        set(value) = put(CHECK_ON_CHANGE, value.toString())
 
     var theme: ThemeChoice
         get() = props.getProperty(THEME)?.let { v -> ThemeChoice.entries.firstOrNull { it.name == v } } ?: ThemeChoice.AUTO
@@ -52,5 +57,6 @@ class DesktopPrefs(private val file: File) {
         const val SERVER = "server"
         const val THEME = "theme"
         const val AUTO_SWITCH = "auto_switch"
+        const val CHECK_ON_CHANGE = "check_on_network_change"
     }
 }

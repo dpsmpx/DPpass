@@ -22,10 +22,11 @@ import javax.swing.WindowConstants
 
 /**
  * Окно DPpass для Linux (D-74): «Подключение», «Серверы», «Подписки»,
- * «Сеть» (проверка сети, D-79), «Журнал»; меню «Импорт» — буфер обмена и файл (D-42), «Подключение» —
- * автопереключение сервера (D-78). Пока окно открыто,
- * применённая подписка обновляется по сроку (D-77). Закрытие окна — выход:
- * ядро и правила маршрутизации убирает `DesktopSession.shutdownNow`.
+ * «Сеть» (проверка сети, D-79), «Журнал». Меню «Импорт» — буфер обмена и
+ * файл (D-42); «Подключение» — автопереключение сервера (D-78) и проверка
+ * сети при её смене (D-80). Пока окно открыто, применённая подписка
+ * обновляется по сроку (D-77). Закрытие окна — выход: ядро и правила
+ * маршрутизации убирает `DesktopSession.shutdownNow`.
  */
 class DesktopWindow(
     private val graph: DesktopGraph,
@@ -115,6 +116,17 @@ class DesktopWindow(
                         addActionListener {
                             prefs.autoSwitch = isSelected
                             graph.core.log.info("auto_switch", "on" to isSelected)
+                        }
+                    },
+                )
+                // Проверка новой сети при поднятом туннеле (D-80): выключено — только по кнопке на «Сети».
+                add(
+                    JCheckBoxMenuItem("Проверять сеть при её смене", prefs.checkOnNetworkChange).apply {
+                        toolTipText = "Через 20 с после смены сети — та же проверка, что на вкладке «Сеть», не больше 4 раз в час; " +
+                            "ориентиры видят адрес ПК в новой сети"
+                        addActionListener {
+                            prefs.checkOnNetworkChange = isSelected
+                            graph.core.log.info("check_on_network_change", "on" to isSelected)
                         }
                     },
                 )

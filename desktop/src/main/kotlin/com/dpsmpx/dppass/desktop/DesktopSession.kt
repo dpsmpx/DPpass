@@ -5,6 +5,7 @@ import com.dpsmpx.dppass.connection.ConnectionReport
 import com.dpsmpx.dppass.connection.Degradation
 import com.dpsmpx.dppass.connection.HealthChecker
 import com.dpsmpx.dppass.connection.toTunInput
+import com.dpsmpx.dppass.core.Clock
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
@@ -12,6 +13,8 @@ import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Safe
 import com.dpsmpx.dppass.engine.EngineSession
 import com.dpsmpx.dppass.engine.TrafficStats
+import com.dpsmpx.dppass.network.NetworkAssessment
+import com.dpsmpx.dppass.network.NetworkChangeChecks
 import com.dpsmpx.dppass.tunnel.TunnelHandle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -53,8 +56,9 @@ data class ServerNotice(val from: ServerProfile, val to: ServerProfile, val reas
  * новым серверам подписки — [reconnect] (D-77). Пока сеанс идёт, его
  * наблюдает [SessionWatch] (D-78): подтверждённый сбой — переподключение,
  * вопрос о замене выбранного сервера ([notice]) или замена с согласием
- * заранее. Раздачи, устройства раздачи и режима без сервера в первой
- * версии нет.
+ * заранее; сменилась сеть — режим сессии заново и проверка новой сети
+ * ([NetworkWatch], D-80). Раздачи, устройства раздачи и режима без сервера
+ * в первой версии нет.
  */
 class DesktopSession(private val graph: DesktopGraph, private val scope: CoroutineScope, private val prefs: DesktopPrefs) {
     private val state = MutableStateFlow<SessionStatus>(SessionStatus.Disconnected)
@@ -70,6 +74,18 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
 
     @Volatile
     private var watch: Job? = null
+
+    /** Смена сети под туннелем (D-80): опрос сети и проверка новой. */
+    @Volatile
+    private var networkWatch: Job? = null
+
+    /** Смены сети — на всё время туннеля, с переподключениями (D-67): переподключение не отменяет проверку новой сети. */
+    @Volatile
+    private var changes: NetworkChangeChecks? = null
+
+    /** Режим сессии (D-64): взят при подключении, заново — при смене сети (D-80). */
+    @Volatile
+    private var sessionRegime: NetworkAssessment? = null
 
     private val lock = Mutex()
 
@@ -140,9 +156,10 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
     }
 
     fun disconnect() {
-        // Ответ «Остаться» и вопрос — до отключения (D-58).
+        // Ответ «Остаться» и вопрос — до отключения (D-58); смены сети — тоже (D-80).
         declined.clear()
         noticeState.value = null
+        changes = null
         val running = job
         scope.launch {
             running?.cancel()
@@ -157,6 +174,7 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
      */
     fun shutdownNow() {
         watch?.cancel()
+        networkWatch?.cancel()
         if (session != null) graph.runtime?.stop()
         tunnel?.close()
         session = null
@@ -208,10 +226,13 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
                 core.log.info("connected", "profile" to Safe(report.profileId.value), "attempts" to report.attempts.size)
                 // Подключился сервер, который под белым списком только отказывал: список, скорее всего,
                 // выключили — режим снова неизвестен (D-64).
-                if (regime != null && report.profileId in failingUnderRegime) {
+                val contradicted = regime != null && report.profileId in failingUnderRegime
+                if (contradicted) {
                     graph.networkCheck.forgetRegime()
                     core.log.info("network_regime_dropped", "reason" to Safe("contradicted"), "profile" to Safe(report.profileId.value))
                 }
+                // Режим сессии — до того, как наблюдение за сетью может взять его заново (D-80).
+                sessionRegime = if (contradicted) null else regime
                 state.value = SessionStatus.Connected(report.profileId, name, core.clock.nowMillis())
                 val profile = ir.profiles.firstOrNull { it.id == report.profileId }
                 val w = SessionWatch(
@@ -222,10 +243,18 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
                     { prefs.selectedServer },
                     { prefs.autoSwitch },
                     { synchronized(declined) { declined.toSet() } },
-                    regime.takeIf { report.profileId !in failingUnderRegime },
+                    { sessionRegime },
                     graph.networkCheck::probesQuiet,
                 )
                 watch = scope.launch { onDegraded(withContext(Dispatchers.IO) { w.run { delay(it) } }) }
+                val net = NetworkWatch(
+                    core.log,
+                    graph.networkCheck,
+                    changes ?: NetworkChangeChecks(Clock.MONOTONIC).also { changes = it },
+                    { prefs.checkOnNetworkChange },
+                    { sessionRegime = it },
+                )
+                networkWatch = scope.launch(Dispatchers.IO) { net.run { delay(it) } }
             }
             is ConnectionReport.Failed -> {
                 withContext(Dispatchers.IO) { handle.close() }
@@ -260,6 +289,8 @@ class DesktopSession(private val graph: DesktopGraph, private val scope: Corouti
     private suspend fun stopNow() {
         watch?.cancel()
         watch = null
+        networkWatch?.cancel()
+        networkWatch = null
         val s = session ?: run {
             if (state.value !is SessionStatus.Failed) state.value = SessionStatus.Disconnected
             return

@@ -80,10 +80,10 @@ class NetworkPanel(private val check: DesktopNetworkCheck, private val scope: Co
         evidence.text = " "
         button.isEnabled = false
         scope.launch(Edt) {
-            val r = check.run { result -> scope.launch(Edt) { model.addElement(line(result)) } }
+            val r = check.run(onResult = { result -> scope.launch(Edt) { model.addElement(line(result)) } })
             button.isEnabled = true
             when (r) {
-                null -> verdict.text = "Проверка уже идёт"
+                null -> verdict.text = "Проверка уже идёт (после смены сети) — итог будет в «Журнале»"
                 is Outcome.Failure -> {
                     verdict.text = "Не проверено"
                     problem.show(Widgets.describe(r.errors.first()))
