@@ -36,7 +36,7 @@
 | Картинка с QR (D-65) | файл — 32 МиБ; после уменьшения — не больше 2048² пикселей (степень двойки, с запасом на округление) | `QrImage.MAX_FILE_BYTES`, `QrImage.sampleSize`, `QrPicture` | `QrImageTest.sampleSizeKeepsPixelsWithinTheLimit` (уменьшение; чтение файла с пределом — на устройстве) |
 | Приложения в политике | 1000 | `UserPolicy.MAX_APPS` | `LimitsTest.policyAppsUpTo1000` |
 | Проверка задержки | по одному серверу, пауза 150 мс, тайм-аут 3 с, не больше 128 за прогон | `LatencyBook` (D-41) | `LatencyBookTest.measuresTcpOneByOneAndSkipsUdp` |
-| Обновление уведомления туннеля | раз в 2 с и только при включённом экране | `DPpassVpnService` (D-40) | нет (на устройстве) |
+| Обновление уведомления туннеля | раз в 2 с и только при включённом экране | `NotificationPace`, `DPpassVpnService` (D-40) | `TrafficMeterTest.notificationUpdatesEveryTwoSecondsOnlyWithScreenOn` (правило; что система показывает обновления с этой частотой — на устройстве) |
 | Опрос интерфейсов раздачи | раз в 5 с, только пока раздача включена и туннель поднят; новый интерфейс — после двух опросов подряд | `DPpassVpnService.SHARE_POLL_MILLIS`, `TetherInterfaces.shouldReconnect` (D-51) | `TetherInterfacesTest.goneInterfaceReconnectsAtOnceNewOneAfterTwoPolls` (решение; период — на устройстве) |
 | История активаций | 32 записи | `ActivationStore` | `LimitsTest.activationHistoryKeepsLast32` |
 | Пробы сети | 1 на ориентир за 1,5 с; не больше 12 за 60 с; бюджет один на процесс; проверка — 11 проб (D-62), следующая — когда уложится в бюджет, отсчёт на кнопке | `ProbeBudget`, `NetworkCheck` (D-60) | `ProbeBudgetTest` (механизм — на своих параметрах) |

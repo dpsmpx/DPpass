@@ -42,6 +42,19 @@ class TrafficMeterTest {
     }
 
     @Test
+    fun notificationUpdatesEveryTwoSecondsOnlyWithScreenOn() {
+        val pace = NotificationPace()
+        // Десять секунд с включённым экраном — пять обновлений, через раз: раз в 2 с.
+        val on = (0 until 10).map { pace.tick(interactive = true) }
+        assertEquals(listOf(true, false, true, false, true, false, true, false, true, false), on)
+        assertEquals(2_000L, NotificationPace.TICK_MILLIS * NotificationPace.NOTIFY_EVERY)
+        // Экран выключен — ни одного обновления, счёт стоит.
+        assertTrue((0 until 5).none { pace.tick(interactive = false) })
+        // Снова включён — тот же шаг, без залпа.
+        assertEquals(listOf(true, false, true), (0 until 3).map { pace.tick(interactive = true) })
+    }
+
+    @Test
     fun trafficResetsWhenTunnelGoesAway() {
         TunnelState.set(TunnelStatus.Connected(ProfileId("a"), "A", 0))
         TunnelState.traffic(Traffic(1, 2, 3, 4))

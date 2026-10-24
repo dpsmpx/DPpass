@@ -75,6 +75,26 @@ class TrafficMeter {
 }
 
 /**
+ * Когда обновлять уведомление туннеля (D-40, `PERFORMANCE_BUDGET.md`):
+ * счётчики — раз в [TICK_MILLIS], пока экран включён; уведомление — каждый
+ * [NOTIFY_EVERY]-й раз: каждое обновление стоит батареи. Экран выключен —
+ * ни того, ни другого, и счёт стоит.
+ */
+class NotificationPace {
+    private var count = 0
+
+    /** Прошёл [TICK_MILLIS]; true — обновить уведомление. */
+    fun tick(interactive: Boolean): Boolean = interactive && count++ % NOTIFY_EVERY == 0
+
+    companion object {
+        const val TICK_MILLIS: Long = 1_000
+
+        /** Уведомление — раз в 2 с. */
+        const val NOTIFY_EVERY: Int = 2
+    }
+}
+
+/**
  * Вопрос о сбое выбранного сервера (D-58): «[fromName]» перестал отвечать
  * по [reason] — перейти ли на «[toName]». Пока туннель поднят и ответа нет.
  */

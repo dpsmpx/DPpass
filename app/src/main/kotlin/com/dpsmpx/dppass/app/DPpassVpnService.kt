@@ -86,8 +86,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * Пока туннель поднят: сеть под ним — `setUnderlyingNetworks` по сети без
  * VPN, выбранной [NetworkCheck.underlying] (система и приложения видят её
  * тип и тарификацию); счётчики
- * ядра раз в секунду → [TunnelState.traffic], уведомление — раз в
- * [NOTIFY_EVERY] секунды и только при включённом экране.
+ * ядра раз в секунду → [TunnelState.traffic], уведомление — реже и только
+ * при включённом экране ([NotificationPace]).
  *
  * Раздача другим устройствам (D-51), если пользователь её включил: входы
  * ядра на адресах интерфейсов раздачи ([TetherInterfaces]); пока туннель
@@ -465,19 +465,20 @@ class DPpassVpnService : VpnService() {
         ticker?.cancel()
         ticker = scope.launch {
             val meter = TrafficMeter()
+            val pace = NotificationPace()
             val power = getSystemService(PowerManager::class.java)
-            var tick = 0
             while (isActive) {
-                if (power.isInteractive) {
+                val interactive = power.isInteractive
+                val notify = pace.tick(interactive)
+                if (interactive) {
                     val traffic = meter.sample(session.stats(), Clock.MONOTONIC.nowMillis())
                     TunnelState.traffic(traffic)
-                    if (tick % NOTIFY_EVERY == 0) (TunnelState.status.value as? TunnelStatus.Connected)?.let { startInForeground(it, traffic) }
-                    tick++
+                    if (notify) (TunnelState.status.value as? TunnelStatus.Connected)?.let { startInForeground(it, traffic) }
                 } else {
                     // Экран выключен: никто не смотрит — отсчёт скорости заново после включения.
                     meter.reset()
                 }
-                delay(1_000)
+                delay(NotificationPace.TICK_MILLIS)
             }
         }
     }
@@ -932,9 +933,6 @@ class DPpassVpnService : VpnService() {
         private const val CHANNEL = "tunnel"
         private const val NOTIFICATION_ID = 1
         private const val PROBE_MARGIN_MILLIS = 2_000L
-
-        /** Уведомление со скоростью — раз в столько секунд (только при включённом экране). */
-        private const val NOTIFY_EVERY = 2
 
         /** Наблюдатель сессии (D-44): период пробы здоровья и как часто сохранять модель. */
         private const val SUPERVISION_INTERVAL_MILLIS = 15_000L
