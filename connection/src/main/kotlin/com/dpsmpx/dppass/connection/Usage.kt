@@ -291,7 +291,7 @@ class UsageService(private val store: UsageStore, private val clock: Clock, priv
     fun record(delta: UsageBytes, network: NetworkType): UsageAlert? = synchronized(lock) {
         if (delta.up < 0 || delta.down < 0) return null
         val now = clock.nowMillis()
-        val today = LocalDate.ofInstant(Instant.ofEpochMilli(now), zone())
+        val today = dayOf(now)
         val st = current()
         val n = if (network == NetworkType.NONE) NetworkType.OTHER else network
         var next = st
@@ -318,16 +318,19 @@ class UsageService(private val store: UsageStore, private val clock: Clock, priv
     fun flush(): Outcome<Unit> = synchronized(lock) { if (dirty) save() else Outcome.Success(Unit) }
 
     fun summary(): UsageSummary = synchronized(lock) {
-        summarize(current(), LocalDate.ofInstant(Instant.ofEpochMilli(clock.nowMillis()), zone()))
+        summarize(current(), dayOf(clock.nowMillis()))
     }
 
     /** Сброс (пользователь): счёт периода и суток — с нуля с этого момента; прошлые периоды не трогаются. */
     fun reset(): Outcome<Unit> = synchronized(lock) {
         val st = current()
-        val today = LocalDate.ofInstant(Instant.ofEpochMilli(clock.nowMillis()), zone())
+        val today = dayOf(clock.nowMillis())
         val (start, _) = UsagePeriod.of(today, st.settings.periodStartDay)
         commit(st.copy(days = st.days.filterKeys { it < start }, resetAtMillis = clock.nowMillis(), alertedPeriod = null))
     }
+
+    /** Сутки момента [millis] в часовом поясе устройства (`LocalDate.ofInstant` — только с Android 14). */
+    private fun dayOf(millis: Long): LocalDate = Instant.ofEpochMilli(millis).atZone(zone()).toLocalDate()
 
     private fun summarize(st: UsageState, today: LocalDate): UsageSummary {
         val (start, end) = UsagePeriod.of(today, st.settings.periodStartDay)
@@ -336,7 +339,7 @@ class UsageService(private val store: UsageStore, private val clock: Clock, priv
             if (date < start || date >= end) continue
             for ((n, b) in byNetwork) period[n] = (period[n] ?: UsageBytes.ZERO) + b
         }
-        val resetAt = st.resetAtMillis?.takeIf { LocalDate.ofInstant(Instant.ofEpochMilli(it), zone()) >= start }
+        val resetAt = st.resetAtMillis?.takeIf { dayOf(it) >= start }
         return UsageSummary(st.days[today].orEmpty(), period, start, end, resetAt, st.settings)
     }
 
@@ -349,7 +352,7 @@ class UsageService(private val store: UsageStore, private val clock: Clock, priv
     /** Сутки старше прошлого периода не нужны: счёт — за сегодня и за период. */
     private fun save(): Outcome<Unit> {
         val st = state ?: return Outcome.Success(Unit)
-        val today = LocalDate.ofInstant(Instant.ofEpochMilli(clock.nowMillis()), zone())
+        val today = dayOf(clock.nowMillis())
         val (start, _) = UsagePeriod.of(today, st.settings.periodStartDay)
         val keepFrom = UsagePeriod.of(start.minusDays(1), st.settings.periodStartDay).first
         val pruned = st.copy(days = st.days.filterKeys { it >= keepFrom })
