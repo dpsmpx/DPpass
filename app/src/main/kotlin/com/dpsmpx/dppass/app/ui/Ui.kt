@@ -3,6 +3,9 @@ package com.dpsmpx.dppass.app.ui
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.Dialog
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Canvas
@@ -14,6 +17,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PersistableBundle
 import android.text.Editable
 import android.text.InputType
 import android.text.TextUtils
@@ -487,6 +491,20 @@ internal object Ui {
     fun <T : Dialog> secure(dialog: T): T {
         dialog.window?.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         return dialog
+    }
+
+    /**
+     * В буфер обмена (раздача D-51, прокси без VPN D-95); логин и пароль — с
+     * пометкой «чувствительное»: Android 13+ не показывает их в предпросмотре.
+     * Ложь — буфер недоступен. До Android 13 о скопированном сообщает сам
+     * вызывающий: система — только с 13.
+     */
+    fun copy(context: Context, label: CharSequence, text: String, sensitive: Boolean): Boolean {
+        val clip = ClipData.newPlainText(label, text)
+        if (sensitive && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            clip.description.extras = PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
+        }
+        return runCatching { context.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip) }.isSuccess
     }
 
     fun matchWidth(): LinearLayout.LayoutParams =

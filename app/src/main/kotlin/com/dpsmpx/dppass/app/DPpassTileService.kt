@@ -74,13 +74,15 @@ class DPpassTileService : TileService() {
             return
         }
         if (status == TunnelStatus.Stopping) return
-        // Без согласия на VPN подключиться нельзя — его даёт только экран приложения.
-        if (VpnService.prepare(this) != null) {
-            openApp()
-            return
-        }
         val s = scope ?: return
         s.launch {
+            // Без согласия на VPN подключиться нельзя — его даёт только экран приложения;
+            // без VPN (D-95) согласие не нужно.
+            val withoutVpn = withContext(Dispatchers.IO) { AppGraph.core(this@DPpassTileService).localProxy.enabled() }
+            if (!withoutVpn && VpnService.prepare(this@DPpassTileService) != null) {
+                openApp()
+                return@launch
+            }
             val canConnect = withContext(Dispatchers.IO) {
                 val core = AppGraph.core(this@DPpassTileService)
                 if (core.activation.state.activeConfig == null) core.restore()

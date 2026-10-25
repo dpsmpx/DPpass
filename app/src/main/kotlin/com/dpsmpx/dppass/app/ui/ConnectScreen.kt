@@ -11,6 +11,7 @@ import com.dpsmpx.dppass.app.Traffic
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.TunnelStatus
 import com.dpsmpx.dppass.app.UsageAlerts
+import com.dpsmpx.dppass.connection.LocalProxyOffer
 import com.dpsmpx.dppass.connection.RoutingMode
 import com.dpsmpx.dppass.connection.ServerlessSettings
 import com.dpsmpx.dppass.core.Clock
@@ -107,12 +108,24 @@ class ConnectScreen(host: Host) : Screen(host) {
 
     private val failureTitle = Ui.text(context, R.style.Text_DPpass_Title).apply { setTextColor(context.getColor(R.color.error)) }
     private val failureText = Ui.text(context, R.style.Text_DPpass_Secondary).apply { setTextIsSelectable(true) }
+
+    /** VPN не поднялся (D-95): подключиться без VPN — по нажатию. */
+    private val failureOffer = Ui.button(context, R.string.local_proxy_offer, Ui.Style.PRIMARY, R.drawable.ic_route).apply {
+        setOnClickListener { host.connectWithoutVpn() }
+    }
     private val failureCard = Ui.card(context).apply {
         setBackgroundResource(R.drawable.bg_card)
         addView(failureTitle)
         addView(failureText)
+        addView(failureOffer, Ui.matchWidth())
         addView(Ui.button(context, R.string.open_log, Ui.Style.OUTLINE, R.drawable.ic_log).apply { setOnClickListener { host.push(LogScreen(host)) } })
     }
+
+    /** Подключение без VPN (D-95): адрес прокси для приложений; по нажатию — логин, пароль и настройки. */
+    private val localProxyRow = Ui.ListRow(context, R.drawable.ic_route, context.getString(R.string.local_proxy_title))
+        .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+        .onClick { host.push(LocalProxyScreen(host)) }
+    private val localProxyCard = Ui.listCard(context).apply { addView(localProxyRow, Ui.matchWidth()) }
 
     private val offerText = Ui.text(context, R.style.Text_DPpass_Secondary)
     private val offerSwitch = Ui.button(context, R.string.action_switch, Ui.Style.PRIMARY, R.drawable.ic_bolt)
@@ -186,6 +199,7 @@ class ConnectScreen(host: Host) : Screen(host) {
             addView(usageCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 16) })
             addView(failureCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 16) })
             addView(serverlessCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 16) })
+            addView(localProxyCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 16) })
             addView(emptyCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 24) })
         },
         topDp = 4,
@@ -278,12 +292,20 @@ class ConnectScreen(host: Host) : Screen(host) {
             },
         )
 
+        val withoutVpn = core?.localProxy?.current()?.valueOrNull()?.takeIf { it.enabled }
         if (status is TunnelStatus.Failed) {
             failureTitle.setText(Ui.kind(status.reason.kind))
             failureText.text = status.reason.message
+            failureOffer.visibility = if (LocalProxyOffer.applies(status.reason, withoutVpn != null)) View.VISIBLE else View.GONE
             failureCard.visibility = View.VISIBLE
         } else {
             failureCard.visibility = View.GONE
+        }
+        localProxyCard.visibility = if (withoutVpn != null) View.VISIBLE else View.GONE
+        withoutVpn?.let { p ->
+            val port = TunnelState.localProxy.value?.port ?: p.port
+            val line = if (status is TunnelStatus.Connected) R.string.local_proxy_row_connected else R.string.local_proxy_row_on
+            localProxyRow.subtitle(context.getString(line, port))
         }
         serverlessCard.visibility = if (serverlessReady) View.VISIBLE else View.GONE
         serverlessRow.subtitle(

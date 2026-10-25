@@ -707,4 +707,22 @@
     <string name="route_why_provider_direct">Список поставщика «Напрямую»</string>
     <string name="route_why_provider_proxy">Список поставщика «Через туннель»</string>
     <string name="route_why_provider_block">Список поставщика «Блокировать»</string>
+    <string name="local_proxy_title">Подключение без VPN</string>
+    <string name="local_proxy_switch">Подключаться без VPN</string>
+    <string name="local_proxy_switch_note">Вместо VPN DPpass откроет на телефоне прокси с паролем; через сервер пойдут только приложения, где он указан</string>
+    <string name="local_proxy_note">Прокси SOCKS5 и HTTP на одном порту, только для приложений этого телефона (127.0.0.1). Приложения без настройки прокси и сама система идут мимо DPpass, как без него. Выбор приложений, IPv6 через сервер и режим без сервера работают только через VPN.</string>
+    <string name="local_proxy_credentials">Прокси для приложений</string>
+    <string name="local_proxy_address">Адрес</string>
+    <string name="local_proxy_copy_link">Скопировать ссылку socks5://</string>
+    <string name="local_proxy_copy_link_note">Для приложений, которые принимают ссылку целиком; в ней — пароль</string>
+    <string name="local_proxy_regenerate">Сменить порт и пароль</string>
+    <string name="local_proxy_regenerate_note">В приложениях, где указаны прежние, нужно указать новые</string>
+    <string name="local_proxy_regenerate_confirm">Новые порт и пароль? Приложения, где указан прокси, перестанут идти через DPpass, пока вы не укажете новые.</string>
+    <string name="local_proxy_not_saved">Не сохранено</string>
+    <string name="local_proxy_off">Выключено: подключение через VPN</string>
+    <string name="local_proxy_row_on">Включено · прокси 127.0.0.1:%1$d</string>
+    <string name="local_proxy_row_connected">Подключено · укажите прокси в приложениях: 127.0.0.1:%1$d</string>
+    <string name="local_proxy_connected">Без VPN · прокси 127.0.0.1:%1$d</string>
+    <string name="local_proxy_offer">Подключиться без VPN</string>
+    <string name="local_proxy_offer_done">Без VPN: укажите в приложениях прокси с логином и паролем — 127.0.0.1:%1$d</string>
 </resources>

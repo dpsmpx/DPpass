@@ -3,12 +3,8 @@ package com.dpsmpx.dppass.app.ui
 import android.app.AlertDialog
 import android.app.Dialog
 import android.content.ActivityNotFoundException
-import android.content.ClipData
-import android.content.ClipDescription
-import android.content.ClipboardManager
 import android.content.Intent
 import android.os.Build
-import android.os.PersistableBundle
 import android.provider.Settings
 import android.text.format.DateFormat
 import android.view.View
@@ -377,14 +373,9 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
     private fun note(text: Int): View =
         Ui.text(context, R.style.Text_DPpass_Caption, context.getString(text)).apply { setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0) }
 
-    /** В буфер обмена; логин и пароль — с пометкой «чувствительное» (Android 13+ не показывает их в предпросмотре). */
+    /** В буфер обмена ([Ui.copy]); Android 13+ сам показывает, что скопировано. */
     private fun copy(text: String, sensitive: Boolean) {
-        val clip = ClipData.newPlainText(context.getString(R.string.share_title), text)
-        if (sensitive && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            clip.description.extras = PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
-        }
-        val ok = runCatching { context.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip) }.isSuccess
-        // Android 13+ сам показывает, что скопировано.
+        val ok = Ui.copy(context, context.getString(R.string.share_title), text, sensitive)
         if (ok && Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) host.toast(context.getString(R.string.share_copied))
     }
 

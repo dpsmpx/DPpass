@@ -119,6 +119,37 @@ func TestPolicyAllowsOnlyAuthenticatedShareInbound(t *testing.T) {
 	}
 }
 
+// D-95: локальный прокси — только SOCKS с паролем на 127.0.0.1, со своим тегом и без TUN.
+func TestPolicyAllowsOnlyAuthenticatedLoopbackProxyWithoutTun(t *testing.T) {
+	setup(t)
+	local := func(tag, listen string, port int, settings string) string {
+		return fmt.Sprintf(`{"tag": %q, "protocol": "socks", "listen": %q, "port": %d, "settings": %s}`, tag, listen, port, settings)
+	}
+	auth := `{"auth": "password", "accounts": [{"user": "u", "pass": "p-0123456789"}], "udp": true, "ip": "127.0.0.1"}`
+	if full, err := Validate(cfg(local("dppass:local", "127.0.0.1", 41235, auth))); err != nil || !full {
+		t.Fatalf("локальный прокси с паролем на 127.0.0.1 должен проходить: full=%v err=%v", full, err)
+	}
+	bad := map[string][]byte{
+		"без пароля":      cfg(local("dppass:local", "127.0.0.1", 41235, `{"auth": "noauth"}`)),
+		"все интерфейсы":  cfg(local("dppass:local", "0.0.0.0", 41235, auth)),
+		"адрес сети":      cfg(local("dppass:local", "192.168.1.5", 41235, auth)),
+		"IPv6 loopback":   cfg(local("dppass:local", "::1", 41235, auth)),
+		"без адреса":      cfg(`{"tag": "dppass:local", "protocol": "socks", "port": 41235, "settings": ` + auth + `}`),
+		"порт ниже 1024":  cfg(local("dppass:local", "127.0.0.1", 980, auth)),
+		"вместе с TUN":    cfg(tunIn + "," + local("dppass:local", "127.0.0.1", 41235, auth)),
+		"чужой тег":       cfg(local("s", "127.0.0.1", 41235, auth)),
+		"два прокси":      cfg(local("dppass:local", "127.0.0.1", 41235, auth) + "," + local("dppass:local", "127.0.0.1", 41236, auth)),
+		"пустой пароль":   cfg(local("dppass:local", "127.0.0.1", 41235, `{"auth": "password", "accounts": [{"user": "u", "pass": ""}]}`)),
+		"диапазон портов": cfg(`{"tag": "dppass:local", "protocol": "socks", "listen": "127.0.0.1", "port": "40000-40010", "settings": ` + auth + `}`),
+	}
+	for name, c := range bad {
+		_, err := Validate(c)
+		if err == nil || kindOf(t, err) != KindConfig || !strings.Contains(err.Error(), "мост:") {
+			t.Errorf("%s: политика должна отвергнуть локальный прокси, получено %v", name, err)
+		}
+	}
+}
+
 func TestStartContract(t *testing.T) {
 	setup(t)
 	p := &recorder{allow: true}

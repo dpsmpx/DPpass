@@ -23,6 +23,7 @@ import com.dpsmpx.dppass.engine.BackendCompiler
 import com.dpsmpx.dppass.engine.CapabilityChecker
 import com.dpsmpx.dppass.engine.EngineCapabilities
 import com.dpsmpx.dppass.engine.EngineSession
+import com.dpsmpx.dppass.engine.LocalProxySpec
 import com.dpsmpx.dppass.engine.ProxyEngine
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.SocketProtector
@@ -145,6 +146,9 @@ class DPpassCore(
     /** Учёт трафика через сервер (D-92): сутки и расчётный период по сетям, порог мобильной сети. */
     val usage: UsageService = UsageService(UsageStore(store, quarantine), clock, zone)
 
+    /** Подключение без VPN (D-95): локальный прокси с паролем на 127.0.0.1. */
+    val localProxy: LocalProxyService = LocalProxyService(LocalProxyStore(store, quarantine))
+
     fun restore(): List<Diagnostic> = activation.restore().also { it.forEach(log::diagnostic) }
 
     /**
@@ -250,12 +254,14 @@ class DPpassCore(
         splitClientHello: Boolean = false,
         /** Сайты напрямую с разбиением (D-72): список пользователя, по умолчанию пуст. */
         splitSites: SplitSites = SplitSites.NONE,
+        /** Подключение без VPN (D-95): локальный прокси вместо [tun]; null — через VPN. */
+        local: LocalProxySpec? = null,
         pause: suspend (Long) -> Unit,
     ): ConnectionReport? {
         val ir = activation.state.activeConfig ?: return null
         val plan = plan(assessment, preferred, regime) ?: return null
         val orchestrator = ConnectionOrchestrator(compiler, engine, checker, health, clock, log, policy, stability, assessment ?: regime, splitMemory, pause)
-        return orchestrator.connect(ir, plan, tun, share, splitClientHello, splitSites)
+        return orchestrator.connect(ir, plan, tun, share, splitClientHello, splitSites, local)
     }
 
     /** Наблюдатель сессии (D-44): Android-слой кормит его пробами (D-32). */
@@ -318,6 +324,8 @@ class DPpassCore(
         checker: HealthChecker,
         tun: TunInput?,
         share: ShareSpec? = null,
+        /** Без VPN (D-95): локальный прокси вместо [tun]. */
+        local: LocalProxySpec? = null,
         pause: suspend (Long) -> Unit,
     ): ConnectionReport {
         val ir = relayConfig(device, at)
@@ -326,7 +334,7 @@ class DPpassCore(
         )
         log.info("relay_connect", "device" to Safe(device.id), "port" to device.port)
         val orchestrator = ConnectionOrchestrator(compiler, engine, checker, health, clock, log, policy, stability, null, pause = pause)
-        val report = orchestrator.connect(ir, plan, tun, share)
+        val report = orchestrator.connect(ir, plan, tun, share, local = local)
         // Вход раздачи ответил, а данные не пошли (D-59): сбоит туннель того телефона, а не сервер.
         val failure = (report as? ConnectionReport.Failed)?.attempts?.singleOrNull()?.failure
         if (report !is ConnectionReport.Failed || failure == null || failure.code !in RELAY_HEALTH_CODES) return report

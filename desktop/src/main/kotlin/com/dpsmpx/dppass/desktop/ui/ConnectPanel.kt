@@ -1,5 +1,6 @@
 package com.dpsmpx.dppass.desktop.ui
 
+import com.dpsmpx.dppass.connection.LocalProxyOffer
 import com.dpsmpx.dppass.connection.UsageAlert
 import com.dpsmpx.dppass.core.Clock
 import com.dpsmpx.dppass.desktop.DesktopGraph
@@ -7,6 +8,8 @@ import com.dpsmpx.dppass.desktop.DesktopPrefs
 import com.dpsmpx.dppass.desktop.DesktopSession
 import com.dpsmpx.dppass.desktop.ServerNotice
 import com.dpsmpx.dppass.desktop.SessionStatus
+import com.dpsmpx.dppass.diagnostics.Outcome
+import com.dpsmpx.dppass.diagnostics.Safe
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.FlowLayout
@@ -17,7 +20,9 @@ import javax.swing.Timer
 /**
  * «Подключение»: кнопка питания, состояние, сервер, время и трафик сеанса,
  * причина отказа; сбой выбранного сервера (D-58, D-78) — вопрос с кнопками
- * «Перейти» и «Остаться» или сообщение об автопереключении.
+ * «Перейти» и «Остаться» или сообщение об автопереключении. Туннель не
+ * поднять (нет CAP_NET_ADMIN, TUN не открылся) — «Подключиться без VPN»
+ * (D-95): только по нажатию.
  */
 class ConnectPanel(
     private val graph: DesktopGraph,
@@ -39,6 +44,14 @@ class ConnectPanel(
         add(Widgets.button("Понятно") { session.dismissUsageAlert() })
     }
     private val reason = Widgets.Banner(error = true)
+
+    /** Без VPN (D-95): адрес прокси для программ — режим включён или подключено через него. */
+    private val local = Widgets.caption()
+    private val localOffer = JPanel(FlowLayout(FlowLayout.CENTER, Widgets.STEP * 2, 0)).apply {
+        isOpaque = false
+        isVisible = false
+        add(Widgets.button("Подключиться без VPN") { connectWithoutVpn() })
+    }
     private val rights = Widgets.Banner(error = false)
     private val offerText = Widgets.Banner(error = false)
     private val offerButtons = JPanel(FlowLayout(FlowLayout.CENTER, Widgets.STEP * 2, 0)).apply {
@@ -70,21 +83,25 @@ class ConnectPanel(
         column.add(center(server))
         column.add(center(details))
         column.add(center(usage))
+        column.add(center(local))
         column.add(javax.swing.Box.createVerticalStrut(Widgets.STEP * 4))
         column.add(center(reason))
+        column.add(center(localOffer))
         column.add(javax.swing.Box.createVerticalGlue())
         add(column, BorderLayout.CENTER)
         val actions = JPanel(FlowLayout(FlowLayout.CENTER, Widgets.STEP * 2, 0)).apply {
             isOpaque = false
             add(Widgets.button("Импорт из буфера обмена…") { import() })
             add(Widgets.button("Трафик через сервер…") { UsageDialog.show(this@ConnectPanel, graph.core.usage).also { renderDetails() } })
+            add(Widgets.button("Без VPN…") { LocalProxyDialog.show(this@ConnectPanel, graph.core, session::reconnectIfConnected) { render(last) } })
         }
         add(actions, BorderLayout.SOUTH)
         val problems = buildList {
             if (!graph.platform.hasNetAdmin()) {
                 add(
-                    "DPpass запущен без права CAP_NET_ADMIN — подключение невозможно. Запустите его ярлыком DPpass " +
-                        "или командой dppass: пароль администратора нужен для запуска с одной этой возможностью (D-74).",
+                    "DPpass запущен без права CAP_NET_ADMIN — туннель (VPN) не поднять. Запустите его ярлыком DPpass " +
+                        "или командой dppass: пароль администратора нужен для запуска с одной этой возможностью (D-74). " +
+                        "Или подключитесь без VPN: прокси для программ, где его можно указать (D-95).",
                 )
             }
             graph.problems.forEach { add(Widgets.describe(it)) }
@@ -109,7 +126,25 @@ class ConnectPanel(
         power.isEnabled = s !is SessionStatus.Disconnecting
         state.text = title
         reason.show((s as? SessionStatus.Failed)?.reason?.let(Widgets::describe))
+        val settings = graph.core.localProxy.current().valueOrNull()
+        val on = settings?.enabled == true
+        // Предложить без VPN (D-95): туннель не поднялся — или его заведомо не поднять (нет CAP_NET_ADMIN).
+        val failed = (s as? SessionStatus.Failed)?.reason
+        localOffer.isVisible = (failed != null && LocalProxyOffer.applies(failed, on)) || (!on && !graph.platform.hasNetAdmin())
+        local.text = LocalProxyDialog.line(settings, session.localProxy.value) ?: " "
         renderDetails()
+    }
+
+    /** «Подключиться без VPN» (D-95): нажатие — согласие; режим включается и сразу подключает. */
+    private fun connectWithoutVpn() {
+        when (val r = graph.core.localProxy.setEnabled(true)) {
+            is Outcome.Failure -> reason.show("Не сохранено: ${r.errors.first().message}")
+            is Outcome.Success -> {
+                graph.core.log.info("local_proxy_switched", "enabled" to true, "from" to Safe("offer"))
+                session.connect(prefs.selectedServer)
+                render(last)
+            }
+        }
     }
 
     /** Порог мобильной сети пройден (D-92): полоса до «Понятно». */

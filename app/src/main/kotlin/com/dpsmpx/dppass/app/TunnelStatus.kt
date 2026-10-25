@@ -4,6 +4,7 @@ import com.dpsmpx.dppass.connection.AttemptRecord
 import com.dpsmpx.dppass.connection.Exclusion
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.diagnostics.Diagnostic
+import com.dpsmpx.dppass.engine.LocalProxySpec
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.TrafficStats
 import com.dpsmpx.dppass.engine.xray.Ipv6Egress
@@ -125,6 +126,7 @@ object TunnelState {
     private val offerFlow = MutableStateFlow<ServerOffer?>(null)
     private val planFlow = MutableStateFlow<PlanSnapshot?>(null)
     private val ipv6Flow = MutableStateFlow<Ipv6Note?>(null)
+    private val localProxyFlow = MutableStateFlow<LocalProxySpec?>(null)
 
     val status: StateFlow<TunnelStatus> = flow.asStateFlow()
 
@@ -148,7 +150,15 @@ object TunnelState {
             shareRefusedFlow.value = false
             offerFlow.value = null
             ipv6Flow.value = null
+            localProxyFlow.value = null
         }
+    }
+
+    /** Подключено без VPN (D-95): локальный прокси сессии; через VPN или без подключения — null. */
+    val localProxy: StateFlow<LocalProxySpec?> = localProxyFlow.asStateFlow()
+
+    fun localProxy(next: LocalProxySpec?) {
+        localProxyFlow.value = next
     }
 
     /** Выпускает ли сервер сессии IPv6 (D-66); без туннеля, до пробы и после смены сервера — null. */

@@ -90,8 +90,10 @@ class CompiledConfig(
  * Что именно компилировать: какой профиль активен, есть ли TUN,
  * раздаётся ли туннель другим устройствам ([share], D-51), разбивать ли
  * TLS ClientHello к серверу на части ([splitClientHello], D-68: выбор
- * пользователя, по умолчанию — нет) и какие сайты вести напрямую с
- * разбиением ([splitSites], D-72: список пользователя, по умолчанию пуст).
+ * пользователя, по умолчанию — нет), какие сайты вести напрямую с
+ * разбиением ([splitSites], D-72: список пользователя, по умолчанию пуст)
+ * и есть ли локальный прокси для подключения без VPN ([local], D-95:
+ * только без TUN).
  */
 data class CompilePlan(
     val profileId: ProfileId,
@@ -99,7 +101,27 @@ data class CompilePlan(
     val share: ShareSpec? = null,
     val splitClientHello: Boolean = false,
     val splitSites: SplitSites = SplitSites.NONE,
+    val local: LocalProxySpec? = null,
 )
+
+/**
+ * Подключение без VPN (D-95): вход SOCKS5 (он же HTTP-прокси) с логином и
+ * паролем — только на `127.0.0.1` и только без TUN. Приложения устройства,
+ * которым пользователь указал адрес и пароль, ходят через него; остальные —
+ * мимо DPpass, как без него. Вход без пароля был бы доступен любому
+ * приложению устройства (T11).
+ */
+data class LocalProxySpec(val port: Int, val user: Secret, val password: Secret) {
+    init {
+        require(port in ShareSpec.MIN_PORT..ShareSpec.MAX_PORT) { "порт локального прокси вне ${ShareSpec.MIN_PORT}..${ShareSpec.MAX_PORT}" }
+        require(user.reveal().isNotEmpty() && password.reveal().isNotEmpty()) { "локальный прокси — только с логином и паролем (T11)" }
+    }
+
+    companion object {
+        /** Адрес входа: только loopback IPv4 — с других устройств и из сети его не видно. */
+        const val ADDRESS: String = "127.0.0.1"
+    }
+}
 
 /**
  * Без сервера (D-73): только прямые выходы. Сайты [splitSites] — с

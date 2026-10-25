@@ -21,6 +21,7 @@ import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Secret
 import com.dpsmpx.dppass.engine.CompilePlan
 import com.dpsmpx.dppass.engine.CompiledConfig
+import com.dpsmpx.dppass.engine.LocalProxySpec
 import com.dpsmpx.dppass.engine.ServerlessPlan
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.capabilityDiff
@@ -516,6 +517,31 @@ class XrayCompilerTest {
     }
 
     /** D-51: раздача — вход SOCKS/HTTP с паролем только на адресах раздачи и только для клиентов раздачи. */
+    @Test
+    fun localProxyListensOnlyOnLoopbackWithPasswordAndOnlyWithoutTun() {
+        // D-95: подключение без VPN — вход только на 127.0.0.1, с паролем, без TUN рядом.
+        val gi = ir(routing = """{"rules": [{"id": "net", "action": "direct", "domain": ["net.example.com"]}]}""")
+        val local = LocalProxySpec(41235, Secret("u-local"), Secret("p-local-0123456789"))
+        val p = Json.parse(XrayCompiler().compile(gi, CompilePlan(gi.profiles[0].id, false, local = local)).valueOrNull()!!.payloadForEngine()) as JsonObject
+        val inb = p["inbounds"].items.single()
+        assertEquals("dppass:local", inb["tag"].text)
+        assertEquals("socks", inb["protocol"].text)
+        assertEquals("127.0.0.1", inb["listen"].text, "только loopback — не 0.0.0.0 и не адрес сети")
+        assertEquals(41235, inb["port"].int)
+        assertEquals("password", inb["settings"]["auth"].text)
+        assertEquals("u-local", inb["settings"]["accounts"].items.single()["user"].text)
+        assertEquals("p-local-0123456789", inb["settings"]["accounts"].items.single()["pass"].text)
+        assertEquals("127.0.0.1", inb["settings"]["ip"].text, "UDP ASSOCIATE — тоже на loopback")
+        // Правила пользователя действуют и для прокси; перехвата DNS у TUN — нет.
+        assertNull(rules(p).single { it["ruleTag"].text == "net" }["inboundTag"])
+        assertTrue(rules(p).none { it["ruleTag"]?.text == "dppass:dns-hijack" })
+        // С TUN — отказ: приложение вне туннеля обошло бы через прокси выбор приложений.
+        val both = XrayCompiler().compile(gi, CompilePlan(gi.profiles[0].id, true, local = local))
+        assertTrue(both is Outcome.Failure && both.errors.single().code == DiagCode.CAPABILITY_FEATURE_UNSUPPORTED, both.toString())
+        assertFailsWith<IllegalArgumentException>("без пароля входа не бывает") { LocalProxySpec(41235, Secret("u"), Secret("")) }
+        assertFailsWith<IllegalArgumentException>("порт ниже 1024") { LocalProxySpec(80, Secret("u"), Secret("p")) }
+    }
+
     @Test
     fun shareInboundsListenOnlyOnTetherAddressesWithAuth() {
         val gi = ir(routing = """{"rules": [{"id": "net", "action": "direct", "domain": ["net.example.com"]}]}""")

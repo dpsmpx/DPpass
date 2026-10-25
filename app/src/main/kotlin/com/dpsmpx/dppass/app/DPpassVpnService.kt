@@ -260,36 +260,59 @@ class DPpassVpnService : VpnService() {
                 is Outcome.Success -> t.value.also { core.log.info("relay_found", "medium" to Safe(it.medium.name), "auto" to (d.address == null)) }
             }
         }
+        // Без VPN (D-95): локальный прокси вместо TUN; порт занят — новый, свободного нет — отказ до серверов.
+        val local = when (val l = withContext(Dispatchers.IO) { core.localProxy.prepare() }) {
+            is Outcome.Failure -> {
+                fail(l.errors.first())
+                return
+            }
+            is Outcome.Success -> l.value.also { l.diagnostics.forEach(core.log::diagnostic) }
+        }
         // Без сервера (D-73): серверов нет, устройство раздачи не выбрано, а сайтам списка нужен туннель.
         val prefs = AppPrefs(this)
         val sites = prefs.splitSites()
         val serverless = prefs.serverless
         if (core.serverlessReady(sites, serverless, relaySelected = relay != null)) {
+            if (local != null) {
+                val why = "серверов нет, а режим без сервера (D-73) работает только через VPN — без VPN подключаться не к чему"
+                fail(Diagnostic.error(DiagCode.PROFILES_EMPTY, why))
+                return
+            }
             connectServerless(graph, sites, serverless)
             return
         }
         val ir = if (relay != null && target != null) core.relayConfig(relay, target.address) else core.activation.state.activeConfig
-        val spec = ir?.let(core::tunnelSpecFor)
-        if (ir == null || spec == null) {
+        if (ir == null) {
             fail(Diagnostic.error(DiagCode.PROFILES_EMPTY, "нет активной конфигурации — туннель не поднимается"))
             return
         }
-        val tunSpec = when (spec) {
-            is Outcome.Failure -> {
-                fail(spec.errors.first())
-                return
+        // Через VPN — TUN по политике приложений; без VPN (D-95) TUN нет, и выбор приложений не действует.
+        val tunSpec = if (local != null) {
+            null
+        } else {
+            when (val spec = core.tunnelSpecFor(ir)) {
+                is Outcome.Failure -> {
+                    fail(spec.errors.first())
+                    return
+                }
+                is Outcome.Success -> spec.value
             }
-            is Outcome.Success -> spec.value
         }
-        val handle = when (val t = AndroidTunnelProvider(this).establish(tunSpec)) {
-            is Outcome.Failure -> {
-                t.errors.drop(1).forEach(core.log::diagnostic)
-                fail(t.errors.first())
-                return
+        val handle = tunSpec?.let { spec ->
+            when (val t = AndroidTunnelProvider(this).establish(spec)) {
+                is Outcome.Failure -> {
+                    t.errors.drop(1).forEach(core.log::diagnostic)
+                    fail(t.errors.first())
+                    return
+                }
+                is Outcome.Success -> t.value
             }
-            is Outcome.Success -> t.value
         }
-        core.log.info("tunnel_up", "routes" to tunSpec.routes.size, "apps" to Safe(tunSpec.apps::class.simpleName ?: "?"))
+        if (tunSpec != null) {
+            core.log.info("tunnel_up", "routes" to tunSpec.routes.size, "apps" to Safe(tunSpec.apps::class.simpleName ?: "?"))
+        } else {
+            core.log.info("local_proxy_up", "port" to local?.port)
+        }
         // Проба здоровья (D-32) блокирует поток — не дольше своего срока, меньше срока плана.
         val probeTimeout = (core.policy.healthTimeoutMillis - PROBE_MARGIN_MILLIS).toInt()
         val checker = HealthChecker { _, profile ->
@@ -307,7 +330,7 @@ class DPpassVpnService : VpnService() {
         val share = if (shareSettings?.enabled == true) shareSettings.spec(tetherForConnect()) else null
         val job = currentCoroutineContext().job
         val report = try {
-            val tun = handle.toTunInput().let { base ->
+            val tun = handle?.toTunInput()?.let { base ->
                 // Сокеты ядра — в сеть устройства раздачи: с Bluetooth- и USB-модема путь к нему не по умолчанию.
                 if (target == null) {
                     base
@@ -316,20 +339,20 @@ class DPpassVpnService : VpnService() {
                 }
             }
             if (relay != null && target != null) {
-                core.connectVia(relay, target.address, checker, tun, share) { delay(it) }
+                core.connectVia(relay, target.address, checker, tun, share, local) { delay(it) }
             } else {
                 // Разбиение ClientHello к серверу (D-68) — выбор пользователя; к устройству раздачи — нет.
                 val split = prefs.splitClientHello
                 core.log.info("client_hello_split", "on" to split)
                 // Сайты напрямую с разбиением (D-72): в журнал — число записей, не сами сайты.
                 core.log.info("split_sites", "n" to sites.size)
-                core.connect(null, checker, tun, preferred, share, regime, split, sites) { delay(it) }
+                core.connect(null, checker, tun, preferred, share, regime, split, sites, local) { delay(it) }
             }
         } catch (e: CancellationException) {
             // Остановка во время подключения: сеанс, запущенный посреди проверки
             // здоровья, оркестратор уже остановил (ConnectionOrchestrator.tryOne);
             // остаётся TUN.
-            handle.close()
+            handle?.close()
             throw e
         }
         // План и исходы попыток — для «Почему этот сервер» (D-15), и при отказе тоже.
@@ -359,13 +382,15 @@ class DPpassVpnService : VpnService() {
                     // Вопрос был о другом сервере (пользователь выбрал сам, подключение через устройство) — снят.
                     TunnelState.offer.value?.takeIf { it.fromId != report.profileId }?.let { ServerSwitch.clear(this@DPpassVpnService) }
                     val name = ir.profiles.firstOrNull { it.id == report.profileId }?.name ?: report.profileId.value
+                    // Без VPN (D-95): адрес прокси — на экране подключения и в уведомлении.
+                    TunnelState.localProxy(local)
                     progress(TunnelStatus.Connected(report.profileId, name, core.clock.nowMillis(), Clock.MONOTONIC.nowMillis()))
                     // Режим сессии — до того, как колбэк сети может взять его заново (D-67).
                     sessionRegime = if (contradicted) null else regime
                     watchNetwork(target?.network)
                     startTicker(report.session)
                     // IPv6 через сервер (D-66): только когда TUN его берёт и путь — свой сервер, а не устройство раздачи.
-                    val checkIpv6 = relay == null && tunSpec.ipv6Mode == Ipv6Mode.TUNNELED
+                    val checkIpv6 = relay == null && tunSpec?.ipv6Mode == Ipv6Mode.TUNNELED
                     startSupervisor(core, graph.engine, ir, report.profileId, checkIpv6)
                     if (shareSettings?.enabled == true) {
                         // Ядро с входами раздачи не запустилось — туннель без неё (D-51).
@@ -379,15 +404,15 @@ class DPpassVpnService : VpnService() {
                     }
                 } else {
                     report.session.stop()
-                    handle.close()
+                    handle?.close()
                 }
             }
             is ConnectionReport.Failed -> {
-                handle.close()
+                handle?.close()
                 fail(report.reason)
             }
             null -> {
-                handle.close()
+                handle?.close()
                 fail(Diagnostic.error(DiagCode.PROFILES_EMPTY, "нет активной конфигурации — подключаться не к чему"))
             }
         }
@@ -935,6 +960,8 @@ class DPpassVpnService : VpnService() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(Notification.CATEGORY_SERVICE)
+        // Без VPN (D-95): куда направить приложения — адрес и порт, без логина и пароля.
+        TunnelState.localProxy.value?.takeIf { status is TunnelStatus.Connected }?.let { b.setSubText(getString(R.string.local_proxy_connected, it.port)) }
         if (status is TunnelStatus.Connected) {
             // Время с подключения считает сама шторка — без обновлений уведомления.
             b.setWhen(status.sinceMillis).setShowWhen(true).setUsesChronometer(true)

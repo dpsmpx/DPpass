@@ -13,6 +13,7 @@ import com.dpsmpx.dppass.diagnostics.Safe
 import com.dpsmpx.dppass.engine.BackendCompiler
 import com.dpsmpx.dppass.engine.CompilePlan
 import com.dpsmpx.dppass.engine.EngineSession
+import com.dpsmpx.dppass.engine.LocalProxySpec
 import com.dpsmpx.dppass.engine.ProxyEngine
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.TunInput
@@ -86,7 +87,9 @@ class ConnectionOrchestrator(
      * адресах раздачи. [splitClientHello] — разбивать ClientHello к серверу
      * (D-68), выбор пользователя; сервер, который его не принял, — без
      * разбиения (D-69). [splitSites] — сайты напрямую с разбиением (D-72),
-     * список пользователя; от отказа сервера не зависит.
+     * список пользователя; от отказа сервера не зависит. [local] —
+     * локальный прокси подключения без VPN (D-95): только без [tun]; не
+     * поднялся — отказ устройства, серверы не наказываются.
      */
     suspend fun connect(
         ir: ConfigIr,
@@ -95,6 +98,7 @@ class ConnectionOrchestrator(
         share: ShareSpec? = null,
         splitClientHello: Boolean = false,
         splitSites: SplitSites = SplitSites.NONE,
+        local: LocalProxySpec? = null,
     ): ConnectionReport {
         if (plan.attempts.isEmpty()) {
             val d = Diagnostic.error(plan.verdict ?: DiagCode.NO_VIABLE_CANDIDATE, plan.verdictMessage ?: "нет кандидатов")
@@ -121,7 +125,7 @@ class ConnectionOrchestrator(
                 shareRefused = it
                 offered = null
             }
-            var t = tryOne(ir, p, tun, offered, splitClientHello && !remembered, splitSites).also(::refuseShare)
+            var t = tryOne(ir, p, tun, offered, splitClientHello && !remembered, splitSites, local).also(::refuseShare)
             // Сервер не принял разбитый ClientHello (D-69): та же попытка без
             // разбиения, сразу; в учёт здоровья и опыта идёт только она.
             if (t is Try.Fail && t.split && SplitFallback.rejectedBy(t.reason)) {
@@ -132,7 +136,7 @@ class ConnectionOrchestrator(
                 splitMemory.reject(p.id)
                 reasons = reasons + SPLIT_REJECTED
                 startedAt = clock.nowMillis()
-                t = tryOne(ir, p, tun, offered, false, splitSites).also(::refuseShare)
+                t = tryOne(ir, p, tun, offered, false, splitSites, local).also(::refuseShare)
             }
             val failure = when (t) {
                 is Try.Ok -> {
@@ -152,6 +156,13 @@ class ConnectionOrchestrator(
                 log.diagnostic(busy)
                 records += AttemptRecord(p.id, reasons, false, busy)
                 return ConnectionReport.Failed(busy, records, plan)
+            }
+            // Локальный прокси не поднялся (D-95): порт занят на этом устройстве — у
+            // следующих кандидатов то же, а сервер ни при чём.
+            if (failure.code == DiagCode.LOCAL_PROXY_UNAVAILABLE) {
+                log.diagnostic(failure)
+                records += AttemptRecord(p.id, reasons, false, failure)
+                return ConnectionReport.Failed(failure, records, plan)
             }
             book.recordFailure(p.id, failure.code, clock.nowMillis())
             observe(p, startedAt, success = false, stalled = failure.code == DiagCode.PAYLOAD_STALLED)
@@ -192,8 +203,16 @@ class ConnectionOrchestrator(
         data class Fail(val reason: Diagnostic, override val shareRefused: Diagnostic? = null, val split: Boolean = false) : Try
     }
 
-    private suspend fun tryOne(ir: ConfigIr, p: ServerProfile, tun: TunInput?, share: ShareSpec?, split: Boolean, sites: SplitSites): Try {
-        val c = compiler.compile(ir, CompilePlan(p.id, tun != null, share, split, sites))
+    private suspend fun tryOne(
+        ir: ConfigIr,
+        p: ServerProfile,
+        tun: TunInput?,
+        share: ShareSpec?,
+        split: Boolean,
+        sites: SplitSites,
+        local: LocalProxySpec? = null,
+    ): Try {
+        val c = compiler.compile(ir, CompilePlan(p.id, tun != null, share, split, sites, local))
         val compiled = when (c) {
             is Outcome.Failure -> return Try.Fail(c.errors.first())
             is Outcome.Success -> c.value
@@ -206,13 +225,24 @@ class ConnectionOrchestrator(
         val session = when (val s = engine.start(compiled, tun)) {
             is Outcome.Failure -> {
                 val reason = s.errors.first()
+                // Локальный прокси (D-95) без раздачи: ядро проверено (validate), запуск
+                // упал — значит, не встал вход на 127.0.0.1 (порт заняли после проверки).
+                // Без входа подключение не нужно; сервер не виноват.
+                if (share == null && local != null && reason.code == DiagCode.BACKEND_START_FAILED) {
+                    return Try.Fail(
+                        Diagnostic.error(
+                            DiagCode.LOCAL_PROXY_UNAVAILABLE,
+                            "локальный прокси на ${LocalProxySpec.ADDRESS}:${local.port} не поднялся — порт, скорее всего, занят; сменить — «Сменить порт и пароль»",
+                        ).withCause(reason),
+                    )
+                }
                 // Вход раздачи не встал (адрес пропал, порт занят — D-51): это отказ
                 // запуска, а не сервера. Та же попытка без раздачи; запустилась —
                 // туннель работает без неё, и сервер не наказывается.
                 if (share == null || reason.code != DiagCode.BACKEND_START_FAILED) return Try.Fail(reason)
                 val refused = Diagnostic.warning(DiagCode.BACKEND_START_FAILED, "раздача не поднялась: ядро с её входами не запустилось — туннель без раздачи")
                     .withCause(reason)
-                return when (val t = tryOne(ir, p, tun, null, split, sites)) {
+                return when (val t = tryOne(ir, p, tun, null, split, sites, local)) {
                     is Try.Ok -> t.copy(shareRefused = refused)
                     is Try.Fail -> t.copy(shareRefused = refused)
                 }

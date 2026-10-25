@@ -42,6 +42,9 @@ class DesktopWindow(
 ) {
     private val frame = JFrame("DPpass")
 
+    /** Перерисовать «Подключение» после смены настроек из меню (без VPN, D-95). */
+    private var redrawConnect: () -> Unit = {}
+
     fun show() {
         Theme.apply(prefs.theme, System.getenv(), System.getProperty("user.home"))
         lateinit var servers: ServersPanel
@@ -61,6 +64,7 @@ class DesktopWindow(
             tabs.selectedComponent = relays
         }) { session.reconnectIfConnected() }
         connect = ConnectPanel(graph, session, prefs, import::fromClipboard)
+        redrawConnect = { connect.render(session.status.value) }
         servers = ServersPanel(graph, prefs, scope, { session.status.value }) {
             session.reconnectIfConnected()
             relays.render()
@@ -164,6 +168,12 @@ class DesktopWindow(
                 add(
                     JMenuItem("Свои списки сайтов…").apply {
                         addActionListener { SiteListsDialog.show(frame, graph.core, scope, { session.reconnectIfConnected() }) }
+                    },
+                )
+                // Подключение без VPN (D-95): локальный прокси с паролем вместо TUN.
+                add(
+                    JMenuItem("Подключение без VPN…").apply {
+                        addActionListener { LocalProxyDialog.show(frame, graph.core, { session.reconnectIfConnected() }) { redrawConnect() } }
                     },
                 )
                 // Без сервера (D-73, D-83): остальные сайты и DNS; приложения — все (Linux их не различает).

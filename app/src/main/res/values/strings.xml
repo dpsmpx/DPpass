@@ -678,4 +678,22 @@
     <string name="route_why_provider_direct">Provider list “Directly”</string>
     <string name="route_why_provider_proxy">Provider list “Via tunnel”</string>
     <string name="route_why_provider_block">Provider list “Block”</string>
+    <string name="local_proxy_title">Without VPN</string>
+    <string name="local_proxy_switch">Connect without VPN</string>
+    <string name="local_proxy_switch_note">DPpass opens a proxy with a password on this phone instead of a VPN; only apps where you set it go through the server</string>
+    <string name="local_proxy_note">SOCKS5 and HTTP proxy on one port, only for apps on this phone (127.0.0.1). Apps without proxy settings and the system itself go past DPpass, as without it. App selection, IPv6 through the server and the no-server mode work only with VPN.</string>
+    <string name="local_proxy_credentials">Proxy for apps</string>
+    <string name="local_proxy_address">Address</string>
+    <string name="local_proxy_copy_link">Copy socks5:// link</string>
+    <string name="local_proxy_copy_link_note">For apps that take the whole link; it contains the password</string>
+    <string name="local_proxy_regenerate">Change port and password</string>
+    <string name="local_proxy_regenerate_note">Apps where the old ones are set will need the new ones</string>
+    <string name="local_proxy_regenerate_confirm">New port and password? Apps where the proxy is set will stop going through DPpass until you set the new ones.</string>
+    <string name="local_proxy_not_saved">Not saved</string>
+    <string name="local_proxy_off">Off: connection through VPN</string>
+    <string name="local_proxy_row_on">On · proxy 127.0.0.1:%1$d</string>
+    <string name="local_proxy_row_connected">Connected · set the proxy in apps: 127.0.0.1:%1$d</string>
+    <string name="local_proxy_connected">Without VPN · proxy 127.0.0.1:%1$d</string>
+    <string name="local_proxy_offer">Connect without VPN</string>
+    <string name="local_proxy_offer_done">Without VPN: set the proxy with login and password in apps — 127.0.0.1:%1$d</string>
 </resources>

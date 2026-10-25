@@ -35,9 +35,11 @@ import com.dpsmpx.dppass.app.ui.SettingsScreen
 import com.dpsmpx.dppass.app.ui.StorageLost
 import com.dpsmpx.dppass.app.ui.SubscriptionsScreen
 import com.dpsmpx.dppass.app.ui.Ui
+import com.dpsmpx.dppass.connection.LocalProxyOffer
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
+import com.dpsmpx.dppass.diagnostics.Safe
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -336,7 +338,27 @@ class MainActivity : Activity(), Host {
             .setPositiveButton(android.R.string.ok, null)
         // Ключ данных утрачен (D-19): выход — сброс хранилища, только по нажатию и с подтверждением.
         if (StorageLost.isLost(reason)) dialog.setNeutralButton(R.string.storage_reset) { _, _ -> confirmStorageReset() }
+        // VPN недоступен — занят другим приложением или согласия нет (D-95): предложить без VPN.
+        if (LocalProxyOffer.applies(reason, graph?.core?.localProxy?.enabled() == true)) {
+            dialog.setNeutralButton(R.string.local_proxy_offer) { _, _ -> connectWithoutVpn() }
+        }
         Ui.secure(dialog.show())
+    }
+
+    /** «Подключиться без VPN» (D-95): включить режим — это и есть согласие — и подключиться. */
+    override fun connectWithoutVpn() {
+        val core = graph?.core ?: return
+        scope.launch {
+            when (val r = withContext(Dispatchers.IO) { core.localProxy.setEnabled(true) }) {
+                is Outcome.Failure -> problem(getString(R.string.local_proxy_not_saved), r.errors.first())
+                is Outcome.Success -> {
+                    core.log.info("local_proxy_switched", "enabled" to true, "from" to Safe("offer"))
+                    toast(getString(R.string.local_proxy_offer_done, r.value.port))
+                    DPpassVpnService.start(this@MainActivity)
+                    changed()
+                }
+            }
+        }
     }
 
     /**
@@ -369,6 +391,11 @@ class MainActivity : Activity(), Host {
 
     override fun connect() {
         askNotifications()
+        // Без VPN (D-95): локальный прокси — согласие на VPN не нужно.
+        if (graph?.core?.localProxy?.enabled() == true) {
+            DPpassVpnService.start(this)
+            return
+        }
         val consent = VpnService.prepare(this)
         if (consent != null) {
             @Suppress("DEPRECATION") // Activity Result API есть только в AndroidX, а его нет (D-34)

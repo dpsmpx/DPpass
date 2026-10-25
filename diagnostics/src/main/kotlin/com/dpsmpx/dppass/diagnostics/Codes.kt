@@ -148,6 +148,16 @@ enum class DiagCode(val kind: FailureKind, val defaultSeverity: Severity) {
      */
     GEODATA_UNAVAILABLE(FailureKind.BACKEND_START_FAILED, Severity.ERROR),
 
+    /**
+     * Локальный прокси подключения без VPN (D-95) не поднялся: порт на
+     * 127.0.0.1 занят другим приложением, свободного не нашлось. Это отказ
+     * устройства, а не сервера: серверы не наказываются.
+     */
+    LOCAL_PROXY_UNAVAILABLE(FailureKind.BACKEND_START_FAILED, Severity.ERROR),
+
+    /** Порт локального прокси был занят — выбран новый (D-95): приложения надо настроить на него. */
+    LOCAL_PROXY_PORT_CHANGED(FailureKind.BACKEND_START_FAILED, Severity.INFO),
+
     // --- подключение и здоровье ---
     NETWORK_OFFLINE(FailureKind.NETWORK_UNREACHABLE, Severity.ERROR),
     DNS_FAILED(FailureKind.DNS_RESOLUTION_FAILED, Severity.ERROR),

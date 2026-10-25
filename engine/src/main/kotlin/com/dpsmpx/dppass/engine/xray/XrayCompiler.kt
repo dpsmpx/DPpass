@@ -24,6 +24,7 @@ import com.dpsmpx.dppass.engine.CapabilityChecker
 import com.dpsmpx.dppass.engine.CompilePlan
 import com.dpsmpx.dppass.engine.CompiledConfig
 import com.dpsmpx.dppass.engine.EngineCapabilities
+import com.dpsmpx.dppass.engine.LocalProxySpec
 import com.dpsmpx.dppass.engine.ServerlessPlan
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.routing.AppLowering
@@ -101,6 +102,11 @@ class XrayCompiler(
 
     override fun compile(ir: ConfigIr, plan: CompilePlan): Outcome<CompiledConfig> {
         val problems = CapabilityChecker.check(ir, capabilities, plan).toMutableList()
+        // Локальный прокси (D-95) — вместо VPN, а не рядом с ним: при TUN приложение вне
+        // туннеля (D-38), узнав пароль, обошло бы через него выбор приложений.
+        if (plan.local != null && plan.withTun) {
+            problems += Diagnostic.error(DiagCode.CAPABILITY_FEATURE_UNSUPPORTED, "локальный прокси — только без VPN (D-95), а в плане есть TUN", "$.inbounds")
+        }
         if (problems.any { it.isError }) return Outcome.Failure(problems)
         val index = ir.profiles.indexOfFirst { it.id == plan.profileId }
         val profile = ir.profiles[index]
@@ -134,7 +140,7 @@ class XrayCompiler(
             build.directSplitOutbound(ir.dns.strategy).takeIf { !plan.splitSites.isEmpty },
         )
 
-        val inbounds = listOfNotNull(tunInbound().takeIf { plan.withTun }) + plan.share?.let(::shareInbounds).orEmpty()
+        val inbounds = listOfNotNull(tunInbound().takeIf { plan.withTun }, plan.local?.let(::localInbound)) + plan.share?.let(::shareInbounds).orEmpty()
         return Outcome.Success(compiled(profile.id, document(dns, routing, inbounds, outbounds)), problems)
     }
 
@@ -865,6 +871,29 @@ class XrayCompiler(
                 ),
             )
         }
+
+        /**
+         * Локальный прокси (D-95, T11): SOCKS5 с паролем (и HTTP-прокси на том же
+         * порту), только на `127.0.0.1`. UDP — для SOCKS5 UDP ASSOCIATE, тоже на
+         * loopback.
+         */
+        fun localInbound(local: LocalProxySpec): JsonObject = Json.obj(
+            "tag" to Json.str(XrayBackend.TAG_LOCAL),
+            "protocol" to Json.str("socks"),
+            "listen" to Json.str(LocalProxySpec.ADDRESS),
+            "port" to Json.num(local.port),
+            "settings" to Json.obj(
+                "auth" to Json.str("password"),
+                "accounts" to Json.arr(listOf(Json.obj("user" to Json.str(local.user.reveal()), "pass" to Json.str(local.password.reveal())))),
+                "udp" to Json.bool(true),
+                "ip" to Json.str(LocalProxySpec.ADDRESS),
+            ),
+            "sniffing" to Json.obj(
+                "enabled" to Json.bool(true),
+                "destOverride" to Json.strings(listOf("http", "tls", "quic")),
+                "routeOnly" to Json.bool(true),
+            ),
+        )
 
         private fun shareTags(share: ShareSpec): List<String> = share.endpoints.indices.map { XrayBackend.SHARE_TAG_PREFIX + it }
 

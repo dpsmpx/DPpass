@@ -16,6 +16,7 @@ import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Safe
 import com.dpsmpx.dppass.engine.EngineSession
+import com.dpsmpx.dppass.engine.LocalProxySpec
 import com.dpsmpx.dppass.engine.ServerlessPlan
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.TrafficStats
@@ -93,6 +94,11 @@ class DesktopSession(
 
     /** Вопрос о замене сервера или сообщение о ней (D-58); null — нечего показывать. */
     val notice: StateFlow<ServerNotice?> = noticeState
+
+    private val localState = MutableStateFlow<LocalProxySpec?>(null)
+
+    /** Подключено без VPN (D-95): локальный прокси сеанса; через VPN или без подключения — null. */
+    val localProxy: StateFlow<LocalProxySpec?> = localState
 
     private val shareState = MutableStateFlow<ShareStatus?>(null)
 
@@ -251,9 +257,18 @@ class DesktopSession(
                 is Outcome.Success -> t.value.also { core.log.info("relay_found", "medium" to Safe(it.medium.name), "auto" to (d.address == null)) }
             }
         }
+        // Без VPN (D-95): локальный прокси вместо TUN — и CAP_NET_ADMIN не нужен; порт занят — новый.
+        val local = when (val l = withContext(Dispatchers.IO) { core.localProxy.prepare() }) {
+            is Outcome.Failure -> return fail(l.errors.first())
+            is Outcome.Success -> l.value.also { l.diagnostics.forEach(core.log::diagnostic) }
+        }
         // Без сервера (D-73, D-83): серверов нет, устройство не выбрано, а сайтам списка (или всем, с разбиением) нужен туннель.
         val serverless = prefs.serverless
         if (core.serverlessReady(prefs.splitSites(), serverless, relaySelected = relay != null)) {
+            if (local != null) {
+                val why = "серверов нет, а режим без сервера (D-73) работает только через VPN — без VPN подключаться не к чему"
+                return fail(Diagnostic.error(DiagCode.PROFILES_EMPTY, why))
+            }
             return connectServerlessNow(prefs.splitSites(), serverless)
         }
         val ir = (if (relay != null && target != null) core.relayConfig(relay, target.address) else core.activation.state.activeConfig)
@@ -263,9 +278,14 @@ class DesktopSession(
                     "нет активной конфигурации — добавьте подписку или импортируйте серверы; без сервера туннелю нужны «Сайты напрямую с разбиением»",
                 ),
             )
-        val spec = when (val s = core.tunnelSpecFor(ir)) {
-            is Outcome.Failure -> return fail(s.errors.first())
-            is Outcome.Success -> s.value
+        // Через VPN — TUN и маршруты; без VPN (D-95) их нет.
+        val spec = if (local != null) {
+            null
+        } else {
+            when (val s = core.tunnelSpecFor(ir)) {
+                is Outcome.Failure -> return fail(s.errors.first())
+                is Outcome.Success -> s.value
+            }
         }
         // Раздача (D-51, D-84) — только на точке доступа ПК; включена, а точки доступа нет — туннель без неё.
         val shareSettings = core.share.current().also { r -> r.diagnostics.forEach(core.log::diagnostic) }.valueOrNull()
@@ -273,13 +293,16 @@ class DesktopSession(
         if (scan != null && scan.endpoints.isEmpty()) core.log.info("share_no_tether", "seen" to Safe(scan.seen))
         val share = if (scan != null) shareSettings?.spec(scan.endpoints) else null
         val shareSubnets = share?.endpoints.orEmpty().map { it.subnet }
-        val handle = when (val t = withContext(Dispatchers.IO) { graph.tunnels.establish(spec, shareSubnets) }) {
-            is Outcome.Failure -> {
-                t.errors.drop(1).forEach(core.log::diagnostic)
-                return fail(t.errors.first())
+        val handle = spec?.let { tunSpec ->
+            when (val t = withContext(Dispatchers.IO) { graph.tunnels.establish(tunSpec, shareSubnets) }) {
+                is Outcome.Failure -> {
+                    t.errors.drop(1).forEach(core.log::diagnostic)
+                    return fail(t.errors.first())
+                }
+                is Outcome.Success -> t.value
             }
-            is Outcome.Success -> t.value
         }
+        if (local != null) core.log.info("local_proxy_up", "port" to local.port)
         // Проба здоровья (D-32) блокирует поток — не дольше своего срока, меньше срока плана.
         val probeTimeout = (core.policy.healthTimeoutMillis - PROBE_MARGIN_MILLIS).toInt()
         val checker = HealthChecker { _, profile ->
@@ -293,7 +316,7 @@ class DesktopSession(
         val failingUnderRegime = regime?.let(core::failingUnder).orEmpty()
         val report = try {
             if (relay != null && target != null) {
-                core.connectVia(relay, target.address, checker, handle.toTunInput(), share) { delay(it) }
+                core.connectVia(relay, target.address, checker, handle?.toTunInput(), share, local) { delay(it) }
             } else {
                 // Разбиение ClientHello к серверу (D-68, D-81) — выбор пользователя; отказ сервера — повтор без него (D-69, ядро).
                 // К устройству раздачи — нет.
@@ -302,11 +325,11 @@ class DesktopSession(
                 // Сайты напрямую с разбиением (D-72, D-82): в журнал — число записей, не сами сайты.
                 val sites = prefs.splitSites()
                 core.log.info("split_sites", "n" to sites.size)
-                core.connect(null, checker, handle.toTunInput(), preferred, share, regime, split, sites) { delay(it) }
+                core.connect(null, checker, handle?.toTunInput(), preferred, share, regime, split, sites, local) { delay(it) }
             }
         } catch (e: CancellationException) {
             // Сеанс, запущенный посреди проверки, оркестратор уже остановил; остаётся TUN.
-            withContext(NonCancellable + Dispatchers.IO) { handle.close() }
+            withContext(NonCancellable + Dispatchers.IO) { handle?.close() }
             state.value = SessionStatus.Disconnected
             throw e
         }
@@ -314,6 +337,7 @@ class DesktopSession(
             is ConnectionReport.Connected -> {
                 session = report.session
                 tunnel = handle
+                localState.value = local
                 val name = ir.profiles.firstOrNull { it.id == report.profileId }?.name ?: report.profileId.value
                 core.log.info("connected", "profile" to Safe(report.profileId.value), "attempts" to report.attempts.size)
                 // Подключился сервер, который под белым списком только отказывал: список, скорее всего,
@@ -361,11 +385,11 @@ class DesktopSession(
                 }
             }
             is ConnectionReport.Failed -> {
-                withContext(Dispatchers.IO) { handle.close() }
+                withContext(Dispatchers.IO) { handle?.close() }
                 fail(report.reason)
             }
             null -> {
-                withContext(Dispatchers.IO) { handle.close() }
+                withContext(Dispatchers.IO) { handle?.close() }
                 fail(Diagnostic.error(DiagCode.PROFILES_EMPTY, "нет активной конфигурации — подключаться не к чему"))
             }
         }
@@ -490,6 +514,7 @@ class DesktopSession(
         shareWatch?.cancel()
         shareWatch = null
         shareState.value = null
+        localState.value = null
         val s = session ?: run {
             if (state.value !is SessionStatus.Failed) state.value = SessionStatus.Disconnected
             return

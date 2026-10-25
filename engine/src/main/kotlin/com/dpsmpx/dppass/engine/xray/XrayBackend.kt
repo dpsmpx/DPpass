@@ -55,6 +55,9 @@ object XrayBackend {
     const val TAG_DNS_OUT: String = "dns-out"
     const val TAG_TUN_IN: String = "tun-in"
 
+    /** Локальный прокси подключения без VPN (D-95): один вход на `127.0.0.1`, только без TUN. */
+    const val TAG_LOCAL: String = "dppass:local"
+
     /** Вход раздачи (D-51) — по одному на адрес интерфейса: `dppass:share-0`, `dppass:share-1`… */
     const val SHARE_TAG_PREFIX: String = "dppass:share-"
 
