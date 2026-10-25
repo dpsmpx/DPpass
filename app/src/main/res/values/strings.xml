@@ -633,7 +633,10 @@
     <string name="import_happ_named">Routing profile “%1$s”</string>
     <string name="import_happ_summary">Will be added to own site lists: directly %1$d, via tunnel %2$d, block %3$d.</string>
     <string name="import_happ_skipped">Not taken:</string>
-    <string name="import_happ_more">… and %1$d more</string>
+    <plurals name="import_happ_more">
+        <item quantity="one">… and %d more</item>
+        <item quantity="other">… and %d more</item>
+    </plurals>
     <string name="import_happ_note">The same entry in another own list moves to where the profile puts it. Nothing else in DPpass changes: DNS, geodata and the routing mode stay yours.</string>
     <string name="import_happ_add">Add to own lists</string>
     <string name="import_happ_done">Added to own site lists</string>

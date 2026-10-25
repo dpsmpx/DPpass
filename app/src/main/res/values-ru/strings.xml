@@ -658,7 +658,12 @@
     <string name="import_happ_named">Профиль маршрутизации «%1$s»</string>
     <string name="import_happ_summary">Добавится в свои списки сайтов: напрямую — %1$d, через туннель — %2$d, блокировать — %3$d.</string>
     <string name="import_happ_skipped">Не будет взято:</string>
-    <string name="import_happ_more">… и ещё %1$d</string>
+    <plurals name="import_happ_more">
+        <item quantity="one">… и ещё %d запись</item>
+        <item quantity="few">… и ещё %d записи</item>
+        <item quantity="many">… и ещё %d записей</item>
+        <item quantity="other">… и ещё %d записи</item>
+    </plurals>
     <string name="import_happ_note">Та же запись из другого своего списка переедет туда, куда её отнёс профиль. Больше в DPpass ничего не меняется: DNS, геоданные и режим маршрутизации — ваши.</string>
     <string name="import_happ_add">Добавить в свои списки</string>
     <string name="import_happ_done">Добавлено в свои списки сайтов</string>
