@@ -111,6 +111,7 @@ class DesktopWindow(
             }
         }.start(scope)
         scope.launch(Edt) { session.notice.collect(connect::renderNotice) }
+        scope.launch(Edt) { session.usageAlert.collect(connect::renderUsageAlert) }
         scope.launch(Edt) { session.share.collect { share.render(session.status.value, it) } }
         scope.launch(Edt) {
             session.status.collect { s ->

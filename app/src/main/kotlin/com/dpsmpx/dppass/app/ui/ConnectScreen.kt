@@ -10,6 +10,7 @@ import com.dpsmpx.dppass.app.ServerOffer
 import com.dpsmpx.dppass.app.Traffic
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.TunnelStatus
+import com.dpsmpx.dppass.app.UsageAlerts
 import com.dpsmpx.dppass.connection.RoutingMode
 import com.dpsmpx.dppass.connection.ServerlessSettings
 import com.dpsmpx.dppass.core.Clock
@@ -98,6 +99,12 @@ class ConnectScreen(host: Host) : Screen(host) {
         )
     }
 
+    /** Трафик через сервер (D-92): сегодня и за период; по нажатию — подробно и настройки. */
+    private val usageRow = Ui.ListRow(context, R.drawable.ic_down, context.getString(R.string.usage_title))
+        .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+        .onClick { host.push(UsageScreen(host)) }
+    private val usageCard = Ui.listCard(context).apply { addView(usageRow, Ui.matchWidth()) }
+
     private val failureTitle = Ui.text(context, R.style.Text_DPpass_Title).apply { setTextColor(context.getColor(R.color.error)) }
     private val failureText = Ui.text(context, R.style.Text_DPpass_Secondary).apply { setTextIsSelectable(true) }
     private val failureCard = Ui.card(context).apply {
@@ -176,6 +183,7 @@ class ConnectScreen(host: Host) : Screen(host) {
             addView(stats, Ui.matchWidth().apply { topMargin = Ui.dp(context, 24) })
             addView(offerCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 16) })
             addView(serverCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 16) })
+            addView(usageCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 16) })
             addView(failureCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 16) })
             addView(serverlessCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 16) })
             addView(emptyCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 24) })
@@ -242,6 +250,7 @@ class ConnectScreen(host: Host) : Screen(host) {
         title.setTextColor(context.getColor(if (status is TunnelStatus.Connected) R.color.primary else R.color.text))
         renderDetail(status)
         renderTraffic(TunnelState.traffic.value, status)
+        renderUsage()
 
         val chosen = ir?.let { c -> ServerList.effectiveSelection(c.profiles, host.prefs.selectedServer)?.let { id -> c.profiles.first { it.id == id } } }
         val connected = (status as? TunnelStatus.Connected)?.let { c -> ir?.profiles?.firstOrNull { it.id == c.profileId } }
@@ -312,6 +321,16 @@ class ConnectScreen(host: Host) : Screen(host) {
         detail.visibility = if (detail.text.isEmpty()) View.INVISIBLE else View.VISIBLE
     }
 
+    /** «Сегодня 120 МБ · с 1 окт. — 3,2 ГБ · мобильная 2,1 из 15 ГБ». */
+    private fun renderUsage() {
+        val core = host.graph?.core
+        usageCard.visibility = if (core == null) View.GONE else View.VISIBLE
+        val s = core?.usage?.summary() ?: return
+        val line = context.getString(R.string.usage_row, bytes(s.todayTotal.total), UsageAlerts.date(context, s.periodStart), bytes(s.periodTotal.total))
+        val limit = s.settings.mobileLimitBytes?.let { context.getString(R.string.usage_row_limit, bytes(s.mobilePeriodBytes), bytes(it)) }
+        usageRow.subtitle(listOfNotNull(line, limit).joinToString(ServerList.SEPARATOR))
+    }
+
     private fun renderTraffic(t: Traffic, status: TunnelStatus) {
         stats.visibility = if (status is TunnelStatus.Connected) View.VISIBLE else View.GONE
         downSpeed.text = speed(t.downPerSec)
@@ -325,7 +344,12 @@ class ConnectScreen(host: Host) : Screen(host) {
         ticker?.cancel()
         // Пока экран виден: время с подключения — каждую секунду, трафик — по мере прихода от сервиса.
         ticker = host.scope.launch {
-            launch { TunnelState.traffic.collect { renderTraffic(it, TunnelState.status.value) } }
+            launch {
+                TunnelState.traffic.collect {
+                    renderTraffic(it, TunnelState.status.value)
+                    renderUsage()
+                }
+            }
             launch { TunnelState.offer.collect { renderOffer(it) } }
             while (isActive) {
                 renderDetail(TunnelState.status.value)

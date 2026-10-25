@@ -105,6 +105,9 @@ enum class DiagCode(val kind: FailureKind, val defaultSeverity: Severity) {
      */
     RELAY_ADDRESS_NOT_LOCAL(FailureKind.CONFIG_VALIDATION_FAILED, Severity.ERROR),
 
+    /** Настройка учёта трафика вне допустимого (D-92): день начала периода не 1…31, порог не больше нуля или больше 1 ПиБ. */
+    USAGE_SETTING_INVALID(FailureKind.CONFIG_VALIDATION_FAILED, Severity.ERROR),
+
     // --- возможности ядра и компиляция ---
     CAPABILITY_PROTOCOL_UNSUPPORTED(FailureKind.CAPABILITY_UNSUPPORTED, Severity.ERROR),
     CAPABILITY_TRANSPORT_UNSUPPORTED(FailureKind.CAPABILITY_UNSUPPORTED, Severity.ERROR),

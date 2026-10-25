@@ -606,4 +606,34 @@
     <string name="expiry_snooze">Отложить на 10 минут</string>
     <string name="expiry_channel">Конец подписки</string>
     <string name="expiry_alarm_channel">Конец подписки: будильник</string>
+    <!-- Учёт трафика (D-92) -->
+    <string name="usage_title">Трафик через сервер</string>
+    <string name="usage_row">Сегодня %1$s · с %2$s — %3$s</string>
+    <string name="usage_row_limit">мобильная %1$s из %2$s</string>
+    <string name="usage_today">Сегодня</string>
+    <string name="usage_period">%1$s – %2$s</string>
+    <string name="usage_mobile">Мобильная сеть</string>
+    <string name="usage_wifi">Wi-Fi</string>
+    <string name="usage_other">Другие сети</string>
+    <string name="usage_bytes">%1$s · ↓ %2$s · ↑ %3$s</string>
+    <string name="usage_limit_of">Мобильная сеть: %1$s из %2$s</string>
+    <string name="usage_reset_at">Счёт — со сброса %1$s</string>
+    <string name="usage_note">Считается трафик через сервер — то, что оператор видит как зарубежный; сайты напрямую не считаются. Это счёт DPpass на этом устройстве: у оператора он другой — на накладные расходы протокола и трафик вне туннеля.</string>
+    <string name="usage_settings">Настройки</string>
+    <string name="usage_start_day">Начало периода</string>
+    <string name="usage_start_day_value">%1$d-е число месяца — как в тарифе</string>
+    <string name="usage_start_day_note">В месяце без этого числа период начинается в последний день.</string>
+    <string name="usage_limit">Порог мобильной сети</string>
+    <string name="usage_limit_off">Нет</string>
+    <string name="usage_limit_value">%1$s за период — уведомление, туннель не отключается</string>
+    <string name="usage_limit_hint">ГБ за период</string>
+    <string name="usage_limit_none">Без порога</string>
+    <string name="usage_limit_bad">Введите число гигабайт больше нуля</string>
+    <string name="usage_reset">Сбросить счётчики</string>
+    <string name="usage_reset_note">Сегодня и этот период — с нуля</string>
+    <string name="usage_reset_confirm">Сбросить счётчики за сегодня и этот период? Прошлые периоды останутся.</string>
+    <string name="usage_channel">Порог трафика</string>
+    <string name="usage_alert_title">Порог мобильного трафика пройден</string>
+    <string name="usage_alert_text">Через сервер в мобильной сети с %1$s: %2$s, порог — %3$s. Туннель работает.</string>
+    <string name="usage_alert_public">Порог мобильного трафика пройден</string>
 </resources>

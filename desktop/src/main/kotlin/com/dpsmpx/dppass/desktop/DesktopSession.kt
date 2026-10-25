@@ -5,9 +5,12 @@ import com.dpsmpx.dppass.connection.ConnectionReport
 import com.dpsmpx.dppass.connection.Degradation
 import com.dpsmpx.dppass.connection.HealthChecker
 import com.dpsmpx.dppass.connection.ServerlessSettings
+import com.dpsmpx.dppass.connection.UsageAlert
+import com.dpsmpx.dppass.connection.UsageMeter
 import com.dpsmpx.dppass.connection.toTunInput
 import com.dpsmpx.dppass.core.Clock
 import com.dpsmpx.dppass.core.ProfileId
+import com.dpsmpx.dppass.desktop.ui.UsageText
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
@@ -18,6 +21,7 @@ import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.TrafficStats
 import com.dpsmpx.dppass.network.NetworkAssessment
 import com.dpsmpx.dppass.network.NetworkChangeChecks
+import com.dpsmpx.dppass.network.NetworkType
 import com.dpsmpx.dppass.routing.SplitSites
 import com.dpsmpx.dppass.tunnel.TunnelHandle
 import kotlinx.coroutines.CancellationException
@@ -78,6 +82,9 @@ class DesktopSession(
     private val scope: CoroutineScope,
     private val prefs: DesktopPrefs,
     private val shares: LinuxShareInterfaces = LinuxShareInterfaces(),
+    private val notify: DesktopNotify = DesktopNotify(),
+    /** Сеть под туннелем для учёта трафика (D-92): маршрут по умолчанию таблицы `main`. */
+    private val network: () -> NetworkType = { LinuxNetwork.current()?.type ?: NetworkType.NONE },
 ) {
     private val state = MutableStateFlow<SessionStatus>(SessionStatus.Disconnected)
     val status: StateFlow<SessionStatus> = state
@@ -128,6 +135,22 @@ class DesktopSession(
 
     /** Трафик сеанса; null — ядро не запущено. */
     fun traffic(): TrafficStats? = session?.stats()
+
+    private val usageAlertState = MutableStateFlow<UsageAlert?>(null)
+
+    /** Порог мобильной сети пройден (D-92) — полоса в окне до «Понятно». */
+    val usageAlert: StateFlow<UsageAlert?> = usageAlertState
+
+    fun dismissUsageAlert() {
+        usageAlertState.value = null
+    }
+
+    /** Учёт трафика сеанса (D-92): опрос счётчиков и их приращения. */
+    @Volatile
+    private var usageTick: Job? = null
+
+    @Volatile
+    private var usageMeter: UsageMeter? = null
 
     fun connect(preferred: ProfileId?) {
         if (job?.isActive == true) return
@@ -303,6 +326,7 @@ class DesktopSession(
                 // Режим сессии — до того, как наблюдение за сетью может взять его заново (D-80).
                 sessionRegime = if (contradicted) null else regime
                 state.value = SessionStatus.Connected(report.profileId, name, core.clock.nowMillis())
+                startUsage(report.session)
                 val profile = ir.profiles.firstOrNull { it.id == report.profileId }
                 val w = SessionWatch(
                     core,
@@ -432,7 +456,33 @@ class DesktopSession(
         reconnect(prefs.selectedServer)
     }
 
+    /** Приращения счётчиков ядра — в учёт трафика (D-92), раз в [USAGE_TICK_MILLIS]. */
+    private fun startUsage(s: EngineSession) {
+        usageTick?.cancel()
+        val meter = UsageMeter().also { usageMeter = it }
+        usageTick = scope.launch(Dispatchers.IO) {
+            while (true) {
+                delay(USAGE_TICK_MILLIS)
+                recordUsage(s, meter)
+            }
+        }
+    }
+
+    private fun recordUsage(s: EngineSession, meter: UsageMeter) {
+        val alert = graph.core.usage.record(meter.delta(s.stats()), network()) ?: return
+        usageAlertState.value = alert
+        val shown = notify.show(UsageText.ALERT_TITLE, UsageText.alert(alert))
+        graph.core.log.info("usage_alert", "used" to alert.usedBytes, "limit" to alert.limitBytes, "desktop_notification" to shown)
+    }
+
     private suspend fun stopNow() {
+        // Учёт трафика (D-92): последние секунды сеанса — до остановки ядра, и всё — на диск.
+        usageTick?.cancel()
+        usageTick = null
+        val meter = usageMeter
+        usageMeter = null
+        session?.let { s -> meter?.let { m -> withContext(Dispatchers.IO) { recordUsage(s, m) } } }
+        withContext(NonCancellable + Dispatchers.IO) { graph.core.usage.flush().diagnostics.forEach(graph.core.log::diagnostic) }
         watch?.cancel()
         watch = null
         networkWatch?.cancel()
@@ -463,6 +513,9 @@ class DesktopSession(
 
     private companion object {
         const val PROBE_MARGIN_MILLIS = 2_000L
+
+        /** Опрос счётчиков для учёта трафика: на ПК экрана, который гаснет, нет — реже, чем окно. */
+        const val USAGE_TICK_MILLIS = 5_000L
 
         /** Имя сеанса без сервера в окне (D-83), как на телефоне. */
         const val SERVERLESS_NAME = "Без сервера"

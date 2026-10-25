@@ -1,5 +1,6 @@
 package com.dpsmpx.dppass.desktop.ui
 
+import com.dpsmpx.dppass.connection.UsageAlert
 import com.dpsmpx.dppass.core.Clock
 import com.dpsmpx.dppass.desktop.DesktopGraph
 import com.dpsmpx.dppass.desktop.DesktopPrefs
@@ -28,6 +29,15 @@ class ConnectPanel(
     private val state = Widgets.title("Отключено")
     private val server = Widgets.caption()
     private val details = Widgets.caption()
+
+    /** Учёт трафика (D-92): сегодня и за период; подробно и настройки — по кнопке. */
+    private val usage = Widgets.caption()
+    private val usageAlert = Widgets.Banner(error = false)
+    private val usageAlertButtons = JPanel(FlowLayout(FlowLayout.CENTER, Widgets.STEP * 2, 0)).apply {
+        isOpaque = false
+        isVisible = false
+        add(Widgets.button("Понятно") { session.dismissUsageAlert() })
+    }
     private val reason = Widgets.Banner(error = true)
     private val rights = Widgets.Banner(error = false)
     private val offerText = Widgets.Banner(error = false)
@@ -50,6 +60,8 @@ class ConnectPanel(
         column.add(javax.swing.Box.createVerticalStrut(Widgets.STEP))
         column.add(center(offerText))
         column.add(center(offerButtons))
+        column.add(center(usageAlert))
+        column.add(center(usageAlertButtons))
         column.add(javax.swing.Box.createVerticalGlue())
         column.add(center(power))
         column.add(javax.swing.Box.createVerticalStrut(Widgets.STEP * 4))
@@ -57,6 +69,7 @@ class ConnectPanel(
         column.add(javax.swing.Box.createVerticalStrut(Widgets.STEP))
         column.add(center(server))
         column.add(center(details))
+        column.add(center(usage))
         column.add(javax.swing.Box.createVerticalStrut(Widgets.STEP * 4))
         column.add(center(reason))
         column.add(javax.swing.Box.createVerticalGlue())
@@ -64,6 +77,7 @@ class ConnectPanel(
         val actions = JPanel(FlowLayout(FlowLayout.CENTER, Widgets.STEP * 2, 0)).apply {
             isOpaque = false
             add(Widgets.button("Импорт из буфера обмена…") { import() })
+            add(Widgets.button("Трафик через сервер…") { UsageDialog.show(this@ConnectPanel, graph.core.usage).also { renderDetails() } })
         }
         add(actions, BorderLayout.SOUTH)
         val problems = buildList {
@@ -96,6 +110,14 @@ class ConnectPanel(
         state.text = title
         reason.show((s as? SessionStatus.Failed)?.reason?.let(Widgets::describe))
         renderDetails()
+    }
+
+    /** Порог мобильной сети пройден (D-92): полоса до «Понятно». */
+    fun renderUsageAlert(a: UsageAlert?) {
+        usageAlert.show(a?.let { "${UsageText.ALERT_TITLE}. ${UsageText.alert(it)}" })
+        usageAlertButtons.isVisible = a != null
+        revalidate()
+        repaint()
     }
 
     /** Сбой выбранного сервера (D-58): вопрос — с ответами; сообщение об автопереключении — с «Понятно». */
@@ -137,6 +159,7 @@ class ConnectPanel(
         } else {
             " "
         }
+        usage.text = UsageText.line(graph.core.usage.summary())
     }
 
     /** Выбранное устройство раздачи (D-85): подключение пойдёт только через него. */

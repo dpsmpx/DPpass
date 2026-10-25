@@ -121,6 +121,9 @@ class Act : AutoCloseable {
         d.idle()
     }
 
+    /** Первый видимый вид класса [kind] в верхнем окне. */
+    fun <T : View> view(a: Activity, kind: Class<T>): T? = d.main { find(top(a)) { kind.isInstance(it) }?.let(kind::cast) }
+
     /** Цвет текста первого вида верхнего окна, где есть [part]; нет такого — null. */
     fun colorOf(a: Activity, part: String): Int? = d.main { (find(top(a)) { (it as? TextView)?.text?.contains(part) == true } as? TextView)?.currentTextColor }
 

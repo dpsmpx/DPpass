@@ -51,6 +51,7 @@ import com.dpsmpx.dppass.tunnel.TunnelSpecBuilder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import java.time.ZoneId
 
 /**
  * Поднятый TUN → вход ядра: fd, MTU спецификации и защита сокетов ядра
@@ -104,6 +105,8 @@ class DPpassCore(
      * Android — из чего собран набор геоданных (D-27).
      */
     private val engineDetails: List<Pair<String, String>> = emptyList(),
+    /** Часовой пояс суток и расчётного периода учёта трафика (D-92): у оболочки — системный. */
+    zone: () -> ZoneId = ZoneId::systemDefault,
 ) {
     val log: Logger = Logger("core", logSink, clock::nowMillis)
     private val quarantine = Quarantine(store, clock)
@@ -134,6 +137,9 @@ class DPpassCore(
 
     /** Доверенные устройства раздачи — подключение через другой DPpass (D-55). */
     val relays: RelayService = RelayService(RelayStore(store, quarantine), clock)
+
+    /** Учёт трафика через сервер (D-92): сутки и расчётный период по сетям, порог мобильной сети. */
+    val usage: UsageService = UsageService(UsageStore(store, quarantine), clock, zone)
 
     fun restore(): List<Diagnostic> = activation.restore().also { it.forEach(log::diagnostic) }
 

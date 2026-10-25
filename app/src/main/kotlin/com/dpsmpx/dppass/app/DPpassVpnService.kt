@@ -27,6 +27,7 @@ import com.dpsmpx.dppass.connection.HealthChecker
 import com.dpsmpx.dppass.connection.ServerlessSettings
 import com.dpsmpx.dppass.connection.SessionSupervisor
 import com.dpsmpx.dppass.connection.StabilityObservation
+import com.dpsmpx.dppass.connection.UsageMeter
 import com.dpsmpx.dppass.connection.toTunInput
 import com.dpsmpx.dppass.core.Clock
 import com.dpsmpx.dppass.core.Ids
@@ -467,7 +468,11 @@ class DPpassVpnService : VpnService() {
             val meter = TrafficMeter()
             val pace = NotificationPace()
             val power = getSystemService(PowerManager::class.java)
+            val core = AppGraph.core(this@DPpassVpnService)
+            // Учёт трафика (D-92) — и с выключенным экраном: приращения сеанса, сеть — та, что под туннелем.
+            val usage = UsageMeter()
             while (isActive) {
+                core.usage.record(usage.delta(session.stats()), underlyingType)?.let { UsageAlerts.show(this@DPpassVpnService, core, it) }
                 val interactive = power.isInteractive
                 val notify = pace.tick(interactive)
                 if (interactive) {
@@ -814,8 +819,12 @@ class DPpassVpnService : VpnService() {
             tunnel = null
             pending
         }?.join()
-        // Опыт адаптивной модели — на диск, чтобы пережил остановку (D-44).
-        withContext(NonCancellable) { AppGraph.graph(this@DPpassVpnService).core.persistStability() }
+        // Опыт адаптивной модели — на диск, чтобы пережил остановку (D-44); счёт трафика — тоже (D-92).
+        withContext(NonCancellable) {
+            val core = AppGraph.graph(this@DPpassVpnService).core
+            core.persistStability()
+            core.usage.flush().diagnostics.forEach(core.log::diagnostic)
+        }
     }
 
     override fun onRevoke() {
