@@ -166,7 +166,8 @@ internal object ImportFlow {
                 addView(Ui.text(c, R.style.Text_DPpass_Body, summary))
                 if (r.skipped.isNotEmpty()) {
                     val shown = r.skipped.take(SKIPPED_SHOWN).joinToString("\n") { "• ${it.field}: ${it.reason}" }
-                    val more = (r.skipped.size - SKIPPED_SHOWN).takeIf { it > 0 }?.let { "\n" + c.resources.getQuantityString(R.plurals.import_happ_more, it, it) }.orEmpty()
+                    val rest = r.skipped.size - SKIPPED_SHOWN
+                    val more = if (rest > 0) "\n" + c.resources.getQuantityString(R.plurals.import_happ_more, rest, rest) else ""
                     addView(Ui.text(c, R.style.Text_DPpass_Secondary, c.getString(R.string.import_happ_skipped)))
                     addView(Ui.text(c, R.style.Text_DPpass_Caption, shown + more).apply { setTextIsSelectable(true) })
                 }
