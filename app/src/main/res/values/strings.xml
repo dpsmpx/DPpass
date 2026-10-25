@@ -613,4 +613,31 @@
     <string name="usage_alert_title">Mobile traffic threshold reached</string>
     <string name="usage_alert_text">Via server on the mobile network since %1$s: %2$s, threshold %3$s. The tunnel keeps working.</string>
     <string name="usage_alert_public">The mobile traffic threshold is reached</string>
+    <!-- Свои списки сайтов и профиль Happ (D-93) -->
+    <string name="site_lists_title">Own site lists</string>
+    <string name="site_lists_empty">Not set: everything follows the routing mode</string>
+    <string name="site_lists_summary">Directly %1$d · via tunnel %2$d · block %3$d</string>
+    <string name="site_list_direct">Directly</string>
+    <string name="site_list_proxy">Via tunnel</string>
+    <string name="site_list_block">Block</string>
+    <string name="site_list_direct_note">Past the tunnel, even when the mode sends everything through it</string>
+    <string name="site_list_proxy_note">Through the tunnel, even Russian sites in “Russian directly”</string>
+    <string name="site_list_block_note">Connections are refused</string>
+    <plurals name="site_list_count">
+        <item quantity="one">%d entry</item>
+        <item quantity="other">%d entries</item>
+    </plurals>
+    <string name="site_lists_note">One entry per line: example.com (with subdomains), full:www.example.com (only this name), keyword:word, geosite:code, 203.0.113.7, 10.0.0.0/8, geoip:code. Lines starting with # are notes. Order: block, then via tunnel, then directly — the more careful action wins. The lists come before the routing mode and ad blocking.</string>
+    <string name="site_lists_hint">example.com</string>
+    <string name="import_happ_title">Routing profile</string>
+    <string name="import_happ_named">Routing profile “%1$s”</string>
+    <string name="import_happ_summary">Will be added to own site lists: directly %1$d, via tunnel %2$d, block %3$d.</string>
+    <string name="import_happ_skipped">Not taken:</string>
+    <string name="import_happ_more">… and %1$d more</string>
+    <string name="import_happ_note">The same entry in another own list moves to where the profile puts it. Nothing else in DPpass changes: DNS, geodata and the routing mode stay yours.</string>
+    <string name="import_happ_add">Add to own lists</string>
+    <string name="import_happ_done">Added to own site lists</string>
+    <string name="route_why_own_direct">Own list “Directly”</string>
+    <string name="route_why_own_proxy">Own list “Via tunnel”</string>
+    <string name="route_why_own_block">Own list “Block”</string>
 </resources>

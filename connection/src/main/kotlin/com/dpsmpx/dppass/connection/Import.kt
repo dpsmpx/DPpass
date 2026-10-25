@@ -31,6 +31,13 @@ sealed interface ImportKind {
      */
     data class Relay(val link: RelayLink) : ImportKind
 
+    /**
+     * Профиль маршрутизации Happ (D-93): JSON или `happ://routing/…`. Его
+     * списки сайтов можно добавить в свои — после сводки, что берётся, а
+     * что нет и почему.
+     */
+    data class HappRouting(val text: String) : ImportKind
+
     /** Не распознано: ни документ, ни адрес, ни ссылки. */
     data class Unrecognized(val reason: Diagnostic?) : ImportKind
 }
@@ -60,6 +67,15 @@ object ImportClassifier {
         if (t.startsWith("https://", ignoreCase = true) && '\n' !in t) {
             return ImportKind.Unrecognized(Diagnostic.error(DiagCode.SUBSCRIPTION_FETCH_FAILED, SubscriptionService.URL_RULE))
         }
+        if (HappRouting.isEncrypted(t)) {
+            return ImportKind.Unrecognized(
+                Diagnostic.error(
+                    DiagCode.SUBSCRIPTION_FORMAT_UNKNOWN,
+                    "зашифрованная ссылка Happ прячет конфигурацию от вас самих — DPpass такие не открывает (D-11)",
+                ),
+            )
+        }
+        if (HappRouting.looksLike(t)) return ImportKind.HappRouting(t)
         if (t.startsWith("{")) return ImportKind.Unrecognized(null)
         if (RelayLink.looksLike(t)) {
             return when (val r = RelayLink.parse(t)) {

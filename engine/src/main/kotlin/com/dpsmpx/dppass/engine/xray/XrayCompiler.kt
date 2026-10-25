@@ -93,6 +93,12 @@ class XrayCompiler(
         return problems
     }
 
+    override fun checkGeoCodes(geoSites: List<String>, geoIps: List<String>, path: String): List<Diagnostic> {
+        val problems = mutableListOf<Diagnostic>()
+        Build(problems, geodata, dnsHijackAnyAddress).checkGeo(geoSites, geoIps, path)
+        return problems
+    }
+
     override fun compile(ir: ConfigIr, plan: CompilePlan): Outcome<CompiledConfig> {
         val problems = CapabilityChecker.check(ir, capabilities, plan).toMutableList()
         if (problems.any { it.isError }) return Outcome.Failure(problems)
@@ -191,7 +197,7 @@ class XrayCompiler(
         }
 
         /** Коды geoip/geosite условия — против набора геоданных ядра (D-27). */
-        private fun checkGeo(geoSites: List<String>, geoIps: List<String>, path: String) {
+        fun checkGeo(geoSites: List<String>, geoIps: List<String>, path: String) {
             when (val g = geodata) {
                 GeodataCodes.Unchecked -> Unit
                 is GeodataCodes.Missing -> for ((field, codes) in listOf("geosite" to geoSites, "geoip" to geoIps)) {

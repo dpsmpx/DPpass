@@ -636,4 +636,33 @@
     <string name="usage_alert_title">Порог мобильного трафика пройден</string>
     <string name="usage_alert_text">Через сервер в мобильной сети с %1$s: %2$s, порог — %3$s. Туннель работает.</string>
     <string name="usage_alert_public">Порог мобильного трафика пройден</string>
+    <!-- Свои списки сайтов и профиль Happ (D-93) -->
+    <string name="site_lists_title">Свои списки сайтов</string>
+    <string name="site_lists_empty">Не заданы: всё — по режиму маршрутизации</string>
+    <string name="site_lists_summary">Напрямую %1$d · через туннель %2$d · блокировать %3$d</string>
+    <string name="site_list_direct">Напрямую</string>
+    <string name="site_list_proxy">Через туннель</string>
+    <string name="site_list_block">Блокировать</string>
+    <string name="site_list_direct_note">Мимо туннеля, даже когда режим ведёт всё через него</string>
+    <string name="site_list_proxy_note">Через туннель, даже российские сайты в «Российское напрямую»</string>
+    <string name="site_list_block_note">Соединения отклоняются</string>
+    <plurals name="site_list_count">
+        <item quantity="one">%d запись</item>
+        <item quantity="few">%d записи</item>
+        <item quantity="many">%d записей</item>
+        <item quantity="other">%d записи</item>
+    </plurals>
+    <string name="site_lists_note">Запись на строку: example.com (с поддоменами), full:www.example.com (только это имя), keyword:слово, geosite:код, 203.0.113.7, 10.0.0.0/8, geoip:код. Строки с # в начале — заметки. Порядок: блокировать, через туннель, напрямую — выигрывает более осторожное. Списки — раньше режима маршрутизации и блокировки рекламы.</string>
+    <string name="site_lists_hint">example.com</string>
+    <string name="import_happ_title">Профиль маршрутизации</string>
+    <string name="import_happ_named">Профиль маршрутизации «%1$s»</string>
+    <string name="import_happ_summary">Добавится в свои списки сайтов: напрямую — %1$d, через туннель — %2$d, блокировать — %3$d.</string>
+    <string name="import_happ_skipped">Не будет взято:</string>
+    <string name="import_happ_more">… и ещё %1$d</string>
+    <string name="import_happ_note">Та же запись из другого своего списка переедет туда, куда её отнёс профиль. Больше в DPpass ничего не меняется: DNS, геоданные и режим маршрутизации — ваши.</string>
+    <string name="import_happ_add">Добавить в свои списки</string>
+    <string name="import_happ_done">Добавлено в свои списки сайтов</string>
+    <string name="route_why_own_direct">Свой список «Напрямую»</string>
+    <string name="route_why_own_proxy">Свой список «Через туннель»</string>
+    <string name="route_why_own_block">Свой список «Блокировать»</string>
 </resources>

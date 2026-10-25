@@ -9,7 +9,7 @@ plugins {
 val addExports = "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED"
 
 // Версия оболочки — своя (D-74): в имени пакета и в `User-Agent` подписки (D-33), из манифеста jar.
-version = "0.1.13-dev"
+version = "0.1.14-dev"
 
 tasks.jar { manifest { attributes("Implementation-Version" to project.version) } }
 

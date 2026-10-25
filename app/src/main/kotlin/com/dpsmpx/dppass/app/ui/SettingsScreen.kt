@@ -108,6 +108,15 @@ class SettingsScreen(host: Host) : Screen(host) {
                     Ui.matchWidth(),
                 )
                 addView(Ui.divider(context))
+                // Свои списки сайтов (D-93): раньше правил режима.
+                addView(
+                    Ui.ListRow(context, R.drawable.ic_route, context.getString(R.string.site_lists_title))
+                        .subtitle(SiteListsScreen.summary(host, policy.lists))
+                        .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                        .onClick { host.push(SiteListsScreen(host)) },
+                    Ui.matchWidth(),
+                )
+                addView(Ui.divider(context))
                 addView(
                     Ui.ListRow(context, R.drawable.ic_apps, context.getString(R.string.settings_apps))
                         .subtitle(appsSummary(policy))

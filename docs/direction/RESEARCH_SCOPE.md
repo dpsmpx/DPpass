@@ -11,7 +11,7 @@
 
 | Документ | Вопрос | Решения |
 |---|---|---|
-| `docs/research/HAPP_SOURCE_AUDIT.md` | что из экосистемы Happ публично и можно ли этим пользоваться | D-01, D-11, D-12, D-20 |
+| `docs/research/HAPP_SOURCE_AUDIT.md` | что из экосистемы Happ публично и можно ли этим пользоваться; поля профиля маршрутизации (§7) | D-01, D-11, D-12, D-20, D-93 |
 | `docs/research/RUSSIA_NETWORK_RESTRICTIONS.md` | какие классы ограничений действуют и что клиент может против каждого | D-13, D-14, D-15 |
 | `docs/research/TRANSPORT_COMPARISON.md` | какие свойства транспортов против каких классов | D-16 |
 | `docs/research/BACKEND_STRATEGY.md` | какое ядро и почему | D-03, D-04 |

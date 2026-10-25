@@ -23,6 +23,10 @@ import com.dpsmpx.dppass.routing.RouteAction
 import com.dpsmpx.dppass.routing.RoutingPolicy
 import com.dpsmpx.dppass.routing.RoutingValidator
 import com.dpsmpx.dppass.routing.Rule
+import com.dpsmpx.dppass.routing.SiteEntry
+import com.dpsmpx.dppass.routing.SiteList
+import com.dpsmpx.dppass.routing.SiteListKind
+import com.dpsmpx.dppass.routing.SiteLists
 import com.dpsmpx.dppass.storage.BlobStore
 import com.dpsmpx.dppass.storage.Quarantine
 
@@ -70,6 +74,8 @@ data class UserPolicy(
     /** Пакеты для [AppMode.EXCEPT] и [AppMode.ONLY]; при [AppMode.ALL] хранятся, но не действуют. */
     val apps: Set<String> = emptySet(),
     val dns: DnsProvider = DnsProvider.CLOUDFLARE,
+    /** Свои списки сайтов (D-93): напрямую, через туннель, блокировать — раньше правил режима. */
+    val lists: SiteLists = SiteLists.NONE,
 ) {
     companion object {
         val DEFAULT: UserPolicy = UserPolicy()
@@ -109,7 +115,23 @@ object PolicyBuilder {
         for (pkg in p.apps.filterNot(RoutingValidator::isValidPackage)) {
             out += Diagnostic.error(DiagCode.PACKAGE_INVALID, "не имя пакета Android: ${pkg.take(64)}", "policy.apps")
         }
+        out += p.lists.validate(LISTS_PATH)
         return out
+    }
+
+    /** Путь находок своих списков: настройка, а не поле документа (D-05). */
+    const val LISTS_PATH: String = "policy.lists"
+
+    /** Постоянный id правила своего списка: по имени (`…-sites`) или по адресу (`…-ip`). */
+    fun ownRule(kind: SiteListKind, names: Boolean): String = "own-${kind.wire}-${if (names) "sites" else "ip"}"
+
+    /** Правила своих списков (D-93): блокировать, через туннель, напрямую; по имени и по адресу — отдельно (у правила это И). */
+    fun ownRules(lists: SiteLists): List<Rule> = SiteLists.ORDER.flatMap { kind ->
+        val list = lists[kind]
+        listOfNotNull(
+            list.names()?.let { Rule(RuleId(ownRule(kind, names = true)), it, kind.action) },
+            list.addresses()?.let { Rule(RuleId(ownRule(kind, names = false)), it, kind.action) },
+        )
     }
 
     /** Выбор приложений (D-38; свой выбор без сервера — D-73) → уровень VpnService. */
@@ -123,8 +145,9 @@ object PolicyBuilder {
     private fun domesticDirect(p: UserPolicy): Boolean = p.mode == RoutingMode.RU_DIRECT || p.mode == RoutingMode.AUTO
 
     fun routing(p: UserPolicy): RoutingPolicy {
-        val rules = mutableListOf<Rule>()
-        // Реклама — первой: и на российских сайтах тоже.
+        // Свои списки (D-93) — первыми: выбор пользователя сильнее режима.
+        val rules = ownRules(p.lists).toMutableList()
+        // Реклама — следом: и на российских сайтах тоже.
         if (p.blockAds) rules += Rule(RuleId(RULE_ADS), Conditions(geoSites = listOf(GEOSITE_ADS)), RouteAction.BLOCK)
         if (p.mode == RoutingMode.RU_DIRECT) {
             // Явные правила: отечественное напрямую до любых запасных.
@@ -150,15 +173,22 @@ object PolicyBuilder {
      */
     fun dns(p: UserPolicy): DnsPolicy {
         val remote = DnsServer(DNS_REMOTE, DnsTransport.Https(p.dns.url), DnsRoute.TUNNEL)
-        return if (domesticDirect(p)) {
-            DnsPolicy(
-                servers = listOf(remote, DnsServer(DNS_LOCAL, DnsTransport.System, DnsRoute.DIRECT)),
-                defaultServerId = DNS_REMOTE,
-                rules = listOf(DnsRule(emptyList(), listOf(GEOSITE_RU), DNS_LOCAL)),
-            )
-        } else {
-            DnsPolicy(servers = listOf(remote), defaultServerId = DNS_REMOTE)
-        }
+        // Свои списки (D-93): имена «напрямую» — системному резолверу (соединение и так мимо
+        // туннеля); имена «через туннель» — резолверу через туннель, даже если они российские.
+        val direct = p.lists.direct.names()
+        val proxy = p.lists.proxy.names()
+        val local = domesticDirect(p) || direct != null
+        if (!local) return DnsPolicy(servers = listOf(remote), defaultServerId = DNS_REMOTE)
+        val rules = listOfNotNull(
+            proxy?.let { DnsRule(it.domains, it.geoSites, DNS_REMOTE) },
+            direct?.let { DnsRule(it.domains, it.geoSites, DNS_LOCAL) },
+            if (domesticDirect(p)) DnsRule(emptyList(), listOf(GEOSITE_RU), DNS_LOCAL) else null,
+        )
+        return DnsPolicy(
+            servers = listOf(remote, DnsServer(DNS_LOCAL, DnsTransport.System, DnsRoute.DIRECT)),
+            defaultServerId = DNS_REMOTE,
+            rules = rules,
+        )
     }
 
     /** Те же серверы — с маршрутизацией и DNS политики. */
@@ -170,7 +200,8 @@ object PolicyBuilder {
 
 /**
  * Политика — одна запись `settings/policy` (D-38), документ
- * `dppass.policy` версии 1 в зашифрованном хранилище (D-19). Чтение
+ * `dppass.policy` версии 2 (свои списки, D-93; версия 1 читается) в
+ * зашифрованном хранилище (D-19). Чтение
  * строгое: не тот формат, неизвестное значение, неверный пакет — порча,
  * исходник уходит в карантин, а не затирается.
  */
@@ -209,7 +240,10 @@ class PolicyStore(private val blobs: BlobStore, private val quarantine: Quaranti
 
 object PolicyCodec {
     const val FORMAT: String = "dppass.policy"
-    const val VERSION: Int = 1
+
+    /** 2 — свои списки сайтов (D-93); версия 1 читается как политика без списков. */
+    const val VERSION: Int = 2
+    val READABLE: Set<Int> = setOf(1, 2)
 
     fun write(p: UserPolicy): String = Json.write(
         Json.obj(
@@ -220,6 +254,7 @@ object PolicyCodec {
             "bypass_lan" to Json.bool(p.bypassLan),
             "apps" to Json.obj("mode" to Json.str(p.appMode.wire), "packages" to Json.strings(p.apps.sorted())),
             "dns" to Json.str(p.dns.wire),
+            "lists" to Json.obj(*SiteLists.ORDER.map { k -> k.wire to Json.strings(p.lists[k].entries.map { it.text }) }.toTypedArray()),
         ),
         pretty = false,
     )
@@ -231,10 +266,11 @@ object PolicyCodec {
             null
         } ?: return Outcome.failure(DiagCode.STORAGE_CORRUPTED, "политика — не объект JSON")
         fun bad(what: String): Outcome<UserPolicy> = Outcome.failure(DiagCode.STORAGE_CORRUPTED, "политика: $what")
-        if ((root["format"] as? JsonString)?.value != FORMAT || (root["format_version"] as? JsonNumber)?.toIntOrNull() != VERSION) {
+        val version = (root["format_version"] as? JsonNumber)?.toIntOrNull()
+        if ((root["format"] as? JsonString)?.value != FORMAT || version !in READABLE) {
             return Outcome.failure(DiagCode.FORMAT_VERSION_UNSUPPORTED, "неизвестный формат политики")
         }
-        val known = setOf("format", "format_version", "mode", "block_ads", "bypass_lan", "apps", "dns")
+        val known = setOf("format", "format_version", "mode", "block_ads", "bypass_lan", "apps", "dns") + if (version == 1) emptySet() else setOf("lists")
         root.fields.keys.firstOrNull { it !in known }?.let { return bad("неизвестное поле «$it»") }
         val mode = RoutingMode.entries.firstOrNull { it.wire == (root["mode"] as? JsonString)?.value } ?: return bad("mode")
         val ads = (root["block_ads"] as? JsonBool)?.value ?: return bad("block_ads")
@@ -243,7 +279,20 @@ object PolicyCodec {
         val appMode = AppMode.entries.firstOrNull { it.wire == (apps["mode"] as? JsonString)?.value } ?: return bad("apps.mode")
         val packages = (apps["packages"] as? JsonArray)?.items?.map { (it as? JsonString)?.value ?: return bad("apps.packages") } ?: return bad("apps.packages")
         val dns = DnsProvider.entries.firstOrNull { it.wire == (root["dns"] as? JsonString)?.value } ?: return bad("dns")
-        val p = UserPolicy(mode, ads, lan, appMode, packages.toSet(), dns)
+        var lists = SiteLists.NONE
+        if (version != 1) {
+            val o = root["lists"] as? JsonObject ?: return bad("lists")
+            o.fields.keys.firstOrNull { k -> SiteListKind.entries.none { it.wire == k } }?.let { return bad("lists: неизвестный список «$it»") }
+            for (kind in SiteListKind.entries) {
+                val items = (o[kind.wire] as? JsonArray)?.items ?: return bad("lists.${kind.wire}")
+                val entries = items.map { item ->
+                    val text = (item as? JsonString)?.value ?: return bad("lists.${kind.wire}")
+                    SiteEntry.parse(text).valueOrNull()?.takeIf { it.text == text } ?: return bad("lists.${kind.wire}: запись не в нормальной форме")
+                }
+                lists = lists.with(kind, SiteList(entries))
+            }
+        }
+        val p = UserPolicy(mode, ads, lan, appMode, packages.toSet(), dns, lists)
         val problems = PolicyBuilder.validate(p).filter { it.isError }
         if (problems.isNotEmpty()) {
             return Outcome.Failure(listOf(Diagnostic.error(DiagCode.STORAGE_CORRUPTED, "политика не прошла проверку").copy(causes = problems)))
@@ -292,6 +341,34 @@ class PolicyService(private val store: PolicyStore, private val core: DPpassCore
             is Outcome.Failure -> w
             is Outcome.Success -> Outcome.Success(result.also { cached = next })
         }
+    }
+
+    /**
+     * Свои списки из текста правки (D-93): [texts] — новые тексты списков,
+     * прочие остаются. Неверная строка, запись в двух списках или код
+     * geosite/geoip, которого нет в наборе ядра (D-27), — отказ до смены
+     * политики, с номером строки.
+     */
+    suspend fun setSiteLists(texts: Map<SiteListKind, String>): Outcome<ActivationResult?> {
+        var lists = currentOrDefault().lists
+        val problems = mutableListOf<Diagnostic>()
+        for ((kind, text) in texts) {
+            when (val r = SiteList.parse(text, "${PolicyBuilder.LISTS_PATH}.${kind.wire}")) {
+                is Outcome.Failure -> problems += r.errors
+                is Outcome.Success -> lists = lists.with(kind, r.value)
+            }
+        }
+        if (problems.isNotEmpty()) return Outcome.Failure(problems)
+        return changeLists(lists)
+    }
+
+    /** Добавить списки импорта (профиль Happ, D-93) к своим: та же запись из другого своего списка переезжает. */
+    suspend fun addSiteLists(add: SiteLists): Outcome<ActivationResult?> = changeLists(currentOrDefault().lists.merge(add))
+
+    private suspend fun changeLists(lists: SiteLists): Outcome<ActivationResult?> {
+        val problems = lists.validate(PolicyBuilder.LISTS_PATH) + core.checkSiteLists(lists)
+        if (problems.any { it.isError }) return Outcome.Failure(problems.filter { it.isError })
+        return change(currentOrDefault().copy(lists = lists))
     }
 
     /** Основа для подписки: своя маршрутизация из документа, если она действует, иначе — политика. */
