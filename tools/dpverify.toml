@@ -255,11 +255,12 @@ summary = '^BUILD SUCCESSFUL.*'
 
 [[command]]
 id = "project.android-screens"
-# экраны телефона на JVM (D-86): тесты D-75 под Robolectric, вместе с остальными тестами app.
-# Robolectric и AndroidX тестов — только по этому свойству: сборка без него (в том числе в Termux) их не тянет
-run = ["./gradlew", "--console=plain", "--warning-mode=summary", "-Pdppass.robolectric", ":app:testDebugUnitTest"]
-paths = ["module:app"]
-requires = ["jdk", "android-sdk"]
+# экраны телефона на JVM (D-86): тесты D-75 под Robolectric, вместе с остальными тестами app;
+# ключевые пути (D-90) — с настоящим ядром Xray: библиотека моста для хоста собирается первой.
+# Robolectric и AndroidX тестов — только по свойству: сборка без него (в том числе в Termux) их не тянет
+run = ["bash", "tools/hostcheck/steps.sh", "android-screens"]
+paths = ["module:app", "tools/xray/**"]
+requires = ["jdk", "android-sdk", "go"]
 after = ["project.android"]
 timeout = "20m"
 summary = '^BUILD SUCCESSFUL.*'

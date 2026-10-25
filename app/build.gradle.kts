@@ -24,6 +24,10 @@ val releaseIdentity = if (stableIdentity) AppIdentity.STABLE else AppIdentity.ra
 // его не тянет: «Android целиком» — 213 МБ.
 val robolectric = providers.gradleProperty("dppass.robolectric").isPresent
 
+// Ядро Xray в тестах путей на JVM (D-90): библиотека моста для хоста — та же, что у XrayJniTest.
+val repoRoot: File = rootDir
+val xrayHostLib: Provider<File> = providers.gradleProperty("dppass.xray.lib").map { repoRoot.resolve(it).absoluteFile }
+
 /** Образ «Android целиком» для Robolectric — через Gradle, с проверкой суммы (аудит A-7), а не загрузкой из теста. */
 val robolectricAndroid: Configuration by configurations.creating {
     isCanBeConsumed = false
@@ -41,8 +45,8 @@ android {
         applicationId = AppIdentity.STABLE.applicationId
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 109
-        versionName = "0.7.39-dev"
+        versionCode = 110
+        versionName = "0.7.40-dev"
         // Ярлык приложения — через placeholder: стабильный для отладки,
         // случайный для личного release (D-47). Внутреннее имя «DPpass»
         // (экран «О программе», уведомление на своём экране) — @string/app_name.
@@ -222,5 +226,11 @@ tasks.withType<Test>().configureEach {
         // Образ Android 16 заводит общую память через внутренности FileDescriptor JDK — только в JVM тестов.
         jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
         jvmArgumentProviders.add(CommandLineArgumentProvider { listOf("-Drobolectric.dependency.dir=" + image.singleFile.parentFile.path) })
+        // Тесты путей (D-90) действуют: настоящее ядро Xray проверяет конфигурацию, как на телефоне.
+        val lib = xrayHostLib
+        inputs.files(lib).withPropertyName("xrayHostLib").optional()
+        jvmArgumentProviders.add(CommandLineArgumentProvider { listOfNotNull(lib.orNull?.let { "-Djava.library.path=" + it.parentFile.path }) })
+        // Состояние приложения — в объектах процесса (AppGraph, TunnelState): у каждого класса тестов свой процесс.
+        forkEvery = 1
     }
 }

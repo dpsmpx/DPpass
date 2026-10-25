@@ -5,6 +5,7 @@
 #
 #   tools/hostcheck/steps.sh build         сборка и тесты ядра и build-logic, стиль Kotlin (с Android SDK — без :app:build: APK — шаг Android)
 #   tools/hostcheck/steps.sh xray-bridge   мост Xray: библиотека для JVM хоста и тест JNI в этой JVM (D-25)
+#   tools/hostcheck/steps.sh android-screens  экраны и ключевые пути на JVM: Robolectric с ядром Xray для хоста (D-86, D-90)
 #   tools/hostcheck/steps.sh android-sdk   есть ли Android SDK (проба [[tool]] профиля)
 #   tools/hostcheck/steps.sh android-ndk   есть ли NDK версии из каталога (проба [[tool]] профиля)
 #
@@ -27,6 +28,13 @@ sdk_dir() { # тот же признак, что в settings.gradle.kts; печ�
   return 1
 }
 android_sdk() { sdk_dir >/dev/null; }
+
+# Тесты путей (D-90) действуют: конфигурацию проверяет настоящее ядро — библиотека моста для хоста,
+# та же, что у XrayJniTest. Robolectric и AndroidX тестов — только по свойству dppass.robolectric.
+android_screens() {
+  "$PY" tools/xray/native.py host || return 1
+  "${GRADLE[@]}" -Pdppass.robolectric -Pdppass.xray.lib=build/xray/host/libdppassxray.so :app:testDebugUnitTest
+}
 
 xray_bridge() {
   "$PY" tools/xray/native.py host || return 1
@@ -63,7 +71,8 @@ android_ndk() { # NDK версии из каталога: им собирает�
 case "${1:-}" in
   build) build ;;
   xray-bridge) xray_bridge ;;
+  android-screens) android_screens ;;
   android-sdk) android_sdk ;;
   android-ndk) android_ndk ;;
-  *) echo "steps.sh: шаг build, xray-bridge, android-sdk или android-ndk, а не «${1:-}»"; exit 2 ;;
+  *) echo "steps.sh: шаг build, xray-bridge, android-screens, android-sdk или android-ndk, а не «${1:-}»"; exit 2 ;;
 esac

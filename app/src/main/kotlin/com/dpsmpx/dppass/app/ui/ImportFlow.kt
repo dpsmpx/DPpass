@@ -159,8 +159,10 @@ internal object ImportFlow {
         val body = Ui.column(c, 12).apply {
             addView(Ui.text(c, R.style.Text_DPpass_Body, c.resources.getQuantityString(R.plurals.import_links_summary, kind.total, kind.usable, kind.total)))
             if (kind.usable < kind.total) {
-                // Причины пропуска — по коду, без значений из ссылок (D-22).
-                val reasons = kind.problems.flatMap { listOf(it) + it.causes }
+                // Причины пропуска — по коду, без значений из ссылок (D-22). Они в глубине
+                // цепочки: запись → ссылка → схема или параметр (D-90: тест пути нашёл).
+                fun chain(d: Diagnostic): List<Diagnostic> = listOf(d) + d.causes.flatMap(::chain)
+                val reasons = kind.problems.flatMap(::chain)
                     .filter { it.code == DiagCode.SHARE_LINK_PARAM_UNSUPPORTED || it.code == DiagCode.SHARE_LINK_SCHEME_UNSUPPORTED }
                     .map { it.message }
                     .distinct()
