@@ -49,8 +49,20 @@ data class RouteDecision(val action: RouteAction, val ruleId: RuleId?, val reaso
  * Используется для объяснения решений пользователю, проверки
  * компиляторов (одинаковые ответы на корпусе запросов) и тестов. Сам
  * трафик маршрутизирует ядро.
+ *
+ * Правила-кандидаты — по индексу имён ([RuleIndex], D-89): правило с
+ * доменами только точными и суффиксами проверяется, лишь если имя
+ * запроса или один из его суффиксов есть в индексе. Порядок — прежний,
+ * смысл — тот же, что у перебора всех правил ([indexed] = false —
+ * перебор, эталон для тестов индекса).
  */
-class RouteEvaluator(private val policy: RoutingPolicy, private val geo: GeoResolver = GeoResolver.None) {
+class RouteEvaluator(
+    private val policy: RoutingPolicy,
+    private val geo: GeoResolver = GeoResolver.None,
+    private val indexed: Boolean = true,
+) {
+    private val index: RuleIndex? = if (indexed) RuleIndex(policy.rules) else null
+
     fun decide(query: RouteQuery): RouteDecision {
         val pkg = query.packageName
         if (pkg != null && !policy.apps.includes(pkg)) {
@@ -74,10 +86,17 @@ class RouteEvaluator(private val policy: RoutingPolicy, private val geo: GeoReso
     }
 
     private fun firstMatch(query: RouteQuery): RouteDecision? {
-        for (rule in policy.rules) {
-            if (matches(rule.conditions, query)) {
-                return RouteDecision(rule.action, rule.id, "правило ${rule.id}")
+        val rules = policy.rules
+        val candidates = index?.candidates(query.domain)
+        if (candidates == null) {
+            for (rule in rules) {
+                if (matches(rule.conditions, query)) return RouteDecision(rule.action, rule.id, "правило ${rule.id}")
             }
+            return null
+        }
+        for (i in candidates) {
+            val rule = rules[i]
+            if (matches(rule.conditions, query)) return RouteDecision(rule.action, rule.id, "правило ${rule.id}")
         }
         return null
     }
