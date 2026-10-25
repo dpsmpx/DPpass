@@ -38,10 +38,20 @@ Android SDK: aapt2 и dexdump):
     оставляет пошаговая упаковка AGP, не считаются) и не превышает
     `ABI_APK_BUDGET_MIB` (docs/PERFORMANCE_BUDGET.md, §4).
 
-    python3 tools/hostcheck/check_apk.py [APK] [--abi ABI]
+  * сборка release (`--release`, D-91): код прошёл R8 в режиме release
+    (метка R8 в каждом dex), имена и строки — как в исходниках (не
+    переименованы, без карты: запись о падении читается, D-26), договор
+    JNI цел — native-методы `XrayJni` ровно `external` исходников и
+    защитник сокетов `SocketProtector.protect (I)Z` с реализацией (его мост
+    находит по имени), каждый компонент манифеста — класс в dex, сборка не
+    отладочная.
+
+    python3 tools/hostcheck/check_apk.py [APK] [--abi ABI] [--release]
         по умолчанию app/build/outputs/apk/debug/app-debug.apk — все три
         ABI; с --abi — APK одного ABI (тестовые сборки D-35,
-        tools/release/sign_apks.py): ровно библиотека этого ABI
+        tools/release/sign_apks.py): ровно библиотека этого ABI; с
+        --release — проверки R8 (по умолчанию тогда
+        app/build/outputs/apk/release/app-release-unsigned.apk)
 
 Код возврата: 0 — чисто; 1 — нарушения; 2 — нет APK или build-tools
 (в полном режиме hostcheck это ошибка, а не пропуск — docs/PROCESS.md).
@@ -67,6 +77,12 @@ import native  # noqa: E402 — разбор ELF и договор JNI — те 
 
 PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 APK = os.path.join(PROJ, "app", "build", "outputs", "apk", "debug", "app-debug.apk")
+RELEASE_APK = os.path.join(PROJ, "app", "build", "outputs", "apk", "release", "app-release-unsigned.apk")
+# Защитник сокетов: мост вызывает его по имени (tools/xray/jni/jni.go — FindClass, GetMethodID).
+PROTECTOR = ("com/dpsmpx/dppass/engine/SocketProtector", "protect", "(I)Z")
+XRAY_JNI_CLASS = "com/dpsmpx/dppass/engine/xray/XrayJni"
+ACC_NATIVE = 0x0100
+ACC_INTERFACE = 0x0200
 SOURCE_MANIFEST = os.path.join(PROJ, "app", "src", "main", "AndroidManifest.xml")
 # Пространство имён кода (app/build.gradle.kts `namespace`): по нему AGP
 # раскрывает относительные имена компонентов. У личной сборки applicationId
@@ -186,6 +202,89 @@ def dex_classes(dexdump, apk):
                     classes.append((current, bool(int(f.group(1), 16) & 0x1000)))
                     current = None
     return classes
+
+
+def dex_details(dexdump, apk):
+    """{дескриптор: {"flags", "source", "interfaces", "methods": [(имя, тип, флаги)]}} и метки компилятора каждого dex."""
+    classes, markers = {}, []
+    with tempfile.TemporaryDirectory() as tmp, zipfile.ZipFile(apk) as z:
+        for name in sorted(n for n in z.namelist() if re.fullmatch(r"classes\d*\.dex", n)):
+            raw_dex = z.read(name)
+            # Метка компилятора — строка dex вида ~~R8{"compilation-mode":"release",…} (D8 — ~~D8{…}).
+            markers.append((name, [m.decode("ascii", "replace") for m in re.findall(rb"~~(?:R8|D8)\{[^}]*\}", raw_dex)]))
+            path = os.path.join(tmp, name)
+            with open(path, "wb") as f:
+                f.write(raw_dex)
+            out = subprocess.run([dexdump, "-l", "plain", path], capture_output=True, check=True).stdout.decode("utf-8", errors="replace")
+            cls, section, method = None, None, None
+            for line in out.splitlines():
+                m = re.match(r"^\s*Class descriptor\s*:\s*'L([^;]+);'", line)
+                if m:
+                    cls = classes.setdefault(m.group(1), {"flags": 0, "source": None, "interfaces": [], "methods": []})
+                    section, method = None, None
+                    continue
+                if cls is None:
+                    continue
+                if re.match(r"^  Access flags\s*:", line):
+                    cls["flags"] = int(re.search(r"0x([0-9a-f]+)", line).group(1), 16)
+                elif re.match(r"^  (Interfaces|Static fields|Instance fields|Direct methods|Virtual methods)\s*-", line):
+                    section = line.strip().split("  ")[0].strip()
+                elif section == "Interfaces" and (m := re.match(r"^\s*#\d+\s*:\s*'L([^;]+);'", line)):
+                    cls["interfaces"].append(m.group(1))
+                elif section in ("Direct methods", "Virtual methods"):
+                    if (m := re.match(r"^\s*name\s*:\s*'([^']*)'", line)):
+                        method = [m.group(1), None, 0]
+                    elif method and (m := re.match(r"^\s*type\s*:\s*'([^']*)'", line)):
+                        method[1] = m.group(1)
+                    elif method and (m := re.match(r"^\s*access\s*:\s*0x([0-9a-f]+)", line)):
+                        method[2] = int(m.group(1), 16)
+                        cls["methods"].append(tuple(method))
+                        method = None
+                if (m := re.match(r"^  source_file_idx\s*:\s*\d+\s*\(([^)]*)\)", line)):
+                    cls["source"] = m.group(1)
+    return classes, markers
+
+
+def check_release(dexdump, apk, root, problems):
+    """R8 в release (D-91): прошёл, ничего не переименовал, договор JNI и компоненты целы, сборка не отладочная."""
+    classes, markers = dex_details(dexdump, apk)
+    for name, found in markers:
+        if not any(m.startswith("~~R8{") and '"compilation-mode":"release"' in m for m in found):
+            problems.append(f"release: {name} не прошёл R8 в режиме release (метки: {found or 'нет'}) — isMinifyEnabled (D-91)")
+    renamed = sorted(d for d, c in classes.items() if d.startswith("com/dpsmpx/dppass/") and (c["source"] or "").startswith("r8-map-id"))
+    if renamed:
+        problems.append(f"release: у {len(renamed)} своих классов файл и строки — номера карты R8 (например, {renamed[0]}): "
+                        "запись о падении не прочитать без карты — -dontoptimize, -keepattributes SourceFile,LineNumberTable (D-91)")
+    jni = classes.get(XRAY_JNI_CLASS)
+    want = {n[len(native.JNI_PREFIX):] for n in native.kotlin_externals()}
+    if jni is None:
+        problems.append(f"release: нет класса {XRAY_JNI_CLASS} — R8 убрал или переименовал его, ядро не загрузится (D-25)")
+    else:
+        have = {n for n, _, flags in jni["methods"] if flags & ACC_NATIVE}
+        for n in sorted(want - have):
+            problems.append(f"release: у XrayJni нет native-метода {n} — символ {native.JNI_PREFIX}{n} библиотеки не найдёт его (D-25)")
+        for n in sorted(have - want):
+            problems.append(f"release: native-метод XrayJni.{n} — не external исходников")
+    iface, method, sig = PROTECTOR
+    pc = classes.get(iface)
+    if pc is None or not pc["flags"] & ACC_INTERFACE or (method, sig) not in {(n, t) for n, t, _ in pc["methods"]}:
+        problems.append(f"release: нет интерфейса {iface} с {method} {sig} — мост ищет его по имени (tools/xray/jni/jni.go)")
+    impls = [d for d, c in classes.items() if iface in c["interfaces"] and not c["flags"] & ACC_INTERFACE
+             and (method, sig) in {(n, t) for n, t, _ in c["methods"]}]
+    if not impls:
+        problems.append(f"release: ни один класс не реализует {iface}.{method} — R8 убрал реализации, сокеты ядра не защитятся (D-91)")
+    app = root.find("application") if root is not None else None
+    if app is not None:
+        if app.get(A + "debuggable") == "true":
+            problems.append("release: android:debuggable = true")
+        for el in app:
+            if el.tag in ("activity", "service", "receiver", "provider"):
+                name = el.get(A + "name", "")
+                full = (NAMESPACE + name if name.startswith(".") else name).replace(".", "/")
+                if full not in classes:
+                    problems.append(f"release: компонента {full.replace('/', '.')} нет в dex — R8 убрал класс из манифеста")
+    own = sum(1 for d in classes if d.startswith("com/dpsmpx/dppass/"))
+    return f"release — R8 ({len(markers)} dex), имена и строки свои ({own} своих классов), JNI: XrayJni {len(want)} native, защитник — {len(impls)} реализ."
 
 
 def check_natives(apk, problems, only_abi=None):
@@ -345,12 +444,13 @@ def check_notices(apk, problems):
 
 def main():
     a = argparse.ArgumentParser(description="Проверка собранного APK")
-    a.add_argument("apk", nargs="?", default=APK)
+    a.add_argument("apk", nargs="?")
     a.add_argument("--abi", choices=sorted(native.ABIS), help="APK одного ABI (D-28, D-35)")
+    a.add_argument("--release", action="store_true", help="сборка release: R8 и договор JNI (D-91)")
     args = a.parse_args()
-    apk = args.apk
+    apk = args.apk or (RELEASE_APK if args.release else APK)
     if not os.path.isfile(apk):
-        print(f"✗ check_apk: нет {os.path.relpath(apk, PROJ)} — сначала ./gradlew :app:assembleDebug")
+        print(f"✗ check_apk: нет {os.path.relpath(apk, PROJ)} — сначала ./gradlew :app:{'assembleRelease' if args.release else 'assembleDebug'}")
         return 2
     sdk = sdk_dir()
     tools = build_tools(sdk) if sdk else None
@@ -430,6 +530,8 @@ def main():
     if not classes:
         problems.append("dex: в APK не найдено ни одного класса")
 
+    release = check_release(os.path.join(tools, "dexdump"), apk, root, problems) if args.release else None
+
     # ---- нативные библиотеки и размер ----
     native_sizes = check_natives(apk, problems, args.abi)
     geodata = check_geodata(apk, problems)
@@ -453,7 +555,7 @@ def main():
     print(f"✓ APK {os.path.relpath(apk, PROJ)}: {size / 1024 / 1024:.1f} МиБ; манифест — утверждённые разрешения и компоненты; "
           f"{len(classes)} классов только из утверждённых корней ({roots}); "
           f"нативный код — только {native.LIBRARY} ({native_sizes}), несжатая, выровнена по 16 КБ в zip и ELF, экспорт JNI = XrayJni; "
-          f"{geodata}; {legal}; "
+          f"{geodata}; {legal}; " + (f"{release}; " if release else "") +
           f"APK одного ABI (D-28) — {abi_sizes} МиБ, предел {ABI_APK_BUDGET_MIB}"
           + (f"; пустоты пошаговой упаковки AGP — {holes / 1024 / 1024:.1f} МиБ, в оценку не входят" if holes > 1024 * 1024 else ""))
     return 0

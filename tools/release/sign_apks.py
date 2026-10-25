@@ -33,7 +33,8 @@
 Шаги: `:app:assembleRelease -Pdppass.abiSplit=true` (APK на ABI, D-28) →
 выравнивание zip (4 байта, библиотеки — 16 КБ) → `apksigner sign` →
 `apksigner verify`: подпись v2/v3 и сертификат = отпечаток из
-docs/PROVENANCE.md, §7 → `check_apk.py --abi` → SHA256SUMS.
+docs/PROVENANCE.md, §7 → `check_apk.py --abi --release` (R8 и договор JNI,
+D-91) → SHA256SUMS.
 
 Без подписи (`--unsigned`): файл ключа не нужен, нужен только пароль
 хранилища (`DPPASS_SIGNING_STORE_PASSWORD`; алиас — `DPPASS_SIGNING_KEY_ALIAS`,
@@ -337,7 +338,7 @@ def main():
                 problems.append(f"{abi}: {e}")
                 continue
             problems += [f"{abi}: {p}" for p in bad]
-            check = subprocess.run([sys.executable, os.path.join(PROJ, "tools", "hostcheck", "check_apk.py"), out, "--abi", abi],
+            check = subprocess.run([sys.executable, os.path.join(PROJ, "tools", "hostcheck", "check_apk.py"), out, "--abi", abi, "--release"],
                                    capture_output=True, text=True)
             if check.returncode != 0:
                 problems.append(f"{abi}: check_apk.py\n    " + "\n    ".join((check.stdout + check.stderr).strip().splitlines()))
@@ -368,11 +369,11 @@ def main():
         if args.unsigned:
             shutil.copy(TERMUX_SIGNER, os.path.join(args.out, os.path.basename(TERMUX_SIGNER)))
             print(f"✓ {len(made)} APK ({version}, {rev}) без подписи, личность ключа {alias} ({expected[:16]}…), "
-                  f"check_apk.py --abi пройден; пакет {package} «{label}»; подписать на устройстве — "
+                  f"check_apk.py --abi --release пройден; пакет {package} «{label}»; подписать на устройстве — "
                   f"{os.path.basename(TERMUX_SIGNER)}: {os.path.relpath(args.out, PROJ)}")
             return 0
         print(f"✓ {len(made)} APK ({version}, {rev}) подписаны ключом {alias} ({expected[:16]}…), "
-              f"сертификат сверен с docs/PROVENANCE.md, §7, check_apk.py --abi пройден; пакет {package} «{label}»: "
+              f"сертификат сверен с docs/PROVENANCE.md, §7, check_apk.py --abi --release пройден; пакет {package} «{label}»: "
               f"{os.path.relpath(args.out, PROJ)}")
         return 0
     except Refusal as e:

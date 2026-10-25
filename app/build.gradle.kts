@@ -45,8 +45,8 @@ android {
         applicationId = AppIdentity.STABLE.applicationId
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 110
-        versionName = "0.7.40-dev"
+        versionCode = 111
+        versionName = "0.7.41-dev"
         // Ярлык приложения — через placeholder: стабильный для отладки,
         // случайный для личного release (D-47). Внутреннее имя «DPpass»
         // (экран «О программе», уведомление на своём экране) — @string/app_name.
@@ -58,10 +58,14 @@ android {
     buildTypes {
         release {
             // Не выпуск (CLAUDE.md, «Чего не делать»: выпуск — этап 5): личная
-            // сборка для устройств автора (D-35). Без R8; подписи в Gradle нет —
-            // APK подписывает tools/release/sign_apks.py ключом разработчика из
+            // сборка для устройств автора (D-35). Подписи в Gradle нет — APK
+            // подписывает tools/release/sign_apks.py ключом разработчика из
             // переменных окружения, ключ в демон Gradle не попадает.
-            isMinifyEnabled = false
+            // R8 (D-91): сжатие и оптимизация без переименования; правила JNI —
+            // proguard-rules.pro, проверка — check_apk.py --release. Ресурсы
+            // не сжимаются: экономия мала, а ошибка видна только на телефоне.
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // Случайный ярлык личной сборки (D-47): не выдаёт назначение. Сам
             // applicationId задаётся per-variant ниже (на buildType его ставить
             // нельзя — у типа сборки только applicationIdSuffix).

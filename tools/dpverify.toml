@@ -266,6 +266,15 @@ timeout = "20m"
 summary = '^BUILD SUCCESSFUL.*'
 
 [[command]]
+id = "project.apk-release"
+# release через R8 (D-91) — его собирает :app:build шага project.android, без подписи (подпись —
+# tools/release/sign_apks.py): метка R8, имена и строки свои, договор JNI, компоненты манифеста в dex
+run = ["python3", "tools/hostcheck/check_apk.py", "--release"]
+paths = ["module:app", "tools/xray/**"]
+requires = ["android-sdk"]
+after = ["project.android"]
+
+[[command]]
 id = "project.android-api"
 run = ["python3", "tools/hostcheck/check_android_api.py"]
 paths = ["**/src/main/**/*.kt"]
