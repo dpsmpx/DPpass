@@ -7,7 +7,7 @@
 Правила журнала:
 
 - Номер не переиспользуется и не меняется. Новое решение — следующий
-  свободный номер (сейчас — **88**).
+  свободный номер (сейчас — **89**).
 - Решение не переписывается задним числом: если оно меняется, старое
   получает статус «заменено D-NN», новое объясняет, что изменилось и
   почему.
@@ -3998,8 +3998,8 @@ D-34.
 - **AndroidX только в тестах (к D-34).** Robolectric приводит
   `androidx.test:monitor` и `espresso-idling-resource`. AGP пускает
   AndroidX только при `android.useAndroidX=true` — это свойство задаёт
-  только командная строка шага. В APK AndroidX нет, это держит
-  `check_apk.py`.
+  только командная строка шага (с D-88 — значение AGP по умолчанию). В
+  APK AndroidX нет, это держит `check_apk.py`.
 - **Без загрузок из тестов.** Образ Android — зависимость Gradle с суммой
   SHA-256 (аудит A-7), Robolectric работает без сети
   (`robolectric.offline`). Тестовой JVM открыт `jdk.internal.access`:
@@ -4063,6 +4063,44 @@ Android и ABI в журнале не нашлось — по нему не по
   пометка, затем `session_start`, затем события.
 - `SessionLineTest`: версия, Java и архитектура; имени пользователя,
   домашнего каталога и имени ПК нет.
+
+### D-88 — Сборка: без `android.useAndroidX=false`; ядро для Termux — только `arm64-v8a`
+
+Принято 25 октября 2026 по выбору автора («Устаревшее в сборке», «Termux:
+только arm64-v8a»). Два долга `TODO.md`.
+
+**Почему.**
+- `android.useAndroidX=false` устарело и уходит из AGP 10; сборка
+  предупреждала о нём при каждом запуске. Отсутствия AndroidX в APK оно
+  не обеспечивает — это делает `check_apk.py` (корни пакетов, D-34).
+  Шагу тестов экранов (D-86) приходилось включать его командной строкой.
+- 19.10.2026 в Termux на телефоне автора clang упал на `armeabi-v7a`
+  (пометка указателей в куче Android), `arm64-v8a` собрался. Телефону
+  автора нужна только `arm64-v8a`.
+
+**Решение.**
+- Строки `android.useAndroidX=false` в `gradle.properties` нет: значение
+  AGP по умолчанию. AndroidX в APK по-прежнему не пускает
+  `check_apk.py`; шаг `project.android-screens` идёт без флага.
+- Свойство `dppass.nativeAbis` (через запятую) — только эти ABI в
+  библиотеке ядра (`XrayNativeTask.abis` → `native.py android --abi`).
+  Без свойства — все три, как раньше. В Termux:
+  `./gradlew -Pdppass.nativeAbis=arm64-v8a :app:assembleDebug`.
+  - Неизвестный или повторённый ABI — отказ сборки с причиной, а не APK
+    без ядра.
+  - Такой APK — только для телефона автора: `check_apk.py` на хосте
+    по-прежнему ждёт три ABI.
+- Остаётся `Configuration.setVisible` в плагине Lint из AGP — своим кодом
+  не убрать, уйдёт с обновлением AGP (D-18).
+
+**Проверка.**
+- `NativeAbisTest` (`:build-logic:test`): пусто — все три; только
+  названные; опечатка и повтор — отказ.
+- Ручная проверка 25.10.2026: `-Pdppass.nativeAbis=arm64-v8a
+  :app:xrayNativeDebug` — одна библиотека `arm64-v8a`; без свойства —
+  все три.
+- `project.android-screens` без `-Pandroid.useAndroidX=true` зелёный;
+  `check_apk.py` — AndroidX в APK нет.
 
 ## Отложено
 

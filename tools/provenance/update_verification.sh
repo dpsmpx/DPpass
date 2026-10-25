@@ -46,5 +46,5 @@ XML
 # Экраны на JVM (D-86, шаг project.android-screens): Robolectric и образ Android — только по свойству;
 # второй вызов дописывает их суммы в тот же файл.
 ./gradlew --console=plain --warning-mode=summary --refresh-dependencies --write-verification-metadata sha256 \
-  -Pdppass.robolectric -Pandroid.useAndroidX=true :app:testDebugUnitTest
+  -Pdppass.robolectric :app:testDebugUnitTest
 python3 tools/provenance/check_dependencies.py

@@ -143,6 +143,12 @@ androidComponents {
             )
             script.set(xray.file("native.py"))
             ndkVersion.set(libs.versions.android.ndk)
+            // Только эти ABI (D-88): сборка в Termux — -Pdppass.nativeAbis=arm64-v8a; без свойства — все три.
+            abis.set(
+                providers.gradleProperty("dppass.nativeAbis")
+                    .map { v -> v.split(',').map(String::trim).filter(String::isNotEmpty) }
+                    .orElse(emptyList()),
+            )
             sdkDirectory.set(androidComponents.sdkComponents.sdkDirectory)
         }
         variant.sources.jniLibs?.addGeneratedSourceDirectory(task, XrayNativeTask::outputDir)
