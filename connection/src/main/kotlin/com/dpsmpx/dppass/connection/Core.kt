@@ -38,6 +38,7 @@ import com.dpsmpx.dppass.routing.Rule
 import com.dpsmpx.dppass.routing.SiteEntry
 import com.dpsmpx.dppass.routing.SiteListKind
 import com.dpsmpx.dppass.routing.SiteLists
+import com.dpsmpx.dppass.routing.SiteListsChange
 import com.dpsmpx.dppass.routing.SplitSites
 import com.dpsmpx.dppass.storage.BlobStore
 import com.dpsmpx.dppass.storage.Quarantine
@@ -357,6 +358,43 @@ class DPpassCore(
 
     /** Профиль маршрутизации Happ (D-93) → что добавится в свои списки и что нет; коды geosite/geoip — против набора ядра. */
     fun parseHappRouting(text: String): Outcome<HappRoutingImport> = HappRouting.parse(text) { e -> checkGeoEntry(e, "happ")?.message }
+
+    /** Профиль маршрутизации поставщика (D-94) → списки; коды geosite/geoip — против набора ядра, как у своих. */
+    fun parseProviderProfile(text: String): Outcome<HappRoutingImport> = HappRouting.provider(text) { e -> checkGeoEntry(e, "provider")?.message }
+
+    /** Списки поставщика, которые действуют у [sub], когда она применена (D-94): только с согласия и только разобранные. */
+    fun providerListsOf(sub: Subscription): SiteLists {
+        if (!sub.useProviderLists) return SiteLists.NONE
+        return sub.providerProfile?.let { parseProviderProfile(it.text).valueOrNull()?.lists } ?: SiteLists.NONE
+    }
+
+    /** Подписка, чья ревизия применена сейчас; null — действует свой документ или ничего (D-94). */
+    fun appliedSubscription(): Subscription? {
+        val source = activation.state.active?.source ?: return null
+        val st = subscriptions.state().valueOrNull() ?: return null
+        return st.activeId?.let(st::find)?.takeIf { source.substringBefore('#') == "subscription:${it.id}" }
+    }
+
+    /** Действующие списки поставщика (D-94): у применённой подписки, если пользователь их включил. */
+    fun activeProviderLists(): SiteLists = appliedSubscription()?.let(::providerListsOf) ?: SiteLists.NONE
+
+    /** Списки поставщика подписки [sub] для экрана (D-94); null — поставщик профиля не присылал. */
+    fun providerLists(sub: Subscription): ProviderListsView? {
+        val current = sub.providerProfile ?: return null
+        val parsed = parseProviderProfile(current.text)
+        val previous = sub.previousProviderProfile?.let { parseProviderProfile(it.text).valueOrNull() }
+        val now = parsed.valueOrNull()
+        return ProviderListsView(
+            subscription = sub.id,
+            profile = now,
+            problem = (parsed as? Outcome.Failure)?.errors?.first(),
+            receivedAtMillis = current.receivedAtMillis,
+            change = if (now != null && previous != null) SiteListsChange.between(previous.lists, now.lists) else null,
+            previousAtMillis = sub.previousProviderProfile?.receivedAtMillis,
+            inUse = sub.useProviderLists,
+            applied = appliedSubscription()?.id == sub.id,
+        )
+    }
 
     /** Свои списки (D-93) — против набора ядра: все записи с кодом, которого нет. */
     fun checkSiteLists(lists: SiteLists): List<Diagnostic> = SiteListKind.entries.flatMap { kind ->

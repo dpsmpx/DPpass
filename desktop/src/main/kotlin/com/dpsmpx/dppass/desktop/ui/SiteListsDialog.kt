@@ -12,6 +12,7 @@ import kotlinx.coroutines.withContext
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.GridLayout
+import javax.swing.JCheckBox
 import javax.swing.JLabel
 import javax.swing.JOptionPane
 import javax.swing.JPanel
@@ -23,12 +24,29 @@ import javax.swing.JTextArea
  * запись на строку. Неверная строка, запись в двух списках или код, которого
  * нет в наборе геоданных, — ошибка, и окно открывается снова с тем же
  * текстом. Смена политики — в фоне; действует сразу — туннель
- * переподключается.
+ * переподключается. Свои списки — слой поверх списков поставщика (D-94):
+ * их можно выключить, не стирая.
  */
 object SiteListsDialog {
-    fun show(parent: Component, core: DPpassCore, scope: CoroutineScope, reconnect: () -> Unit, start: Map<SiteListKind, String>? = null) {
-        val lists = core.userPolicy.currentOrDefault().lists
+    fun show(
+        parent: Component,
+        core: DPpassCore,
+        scope: CoroutineScope,
+        reconnect: () -> Unit,
+        start: Map<SiteListKind, String>? = null,
+        startEnabled: Boolean? = null,
+    ) {
+        val policy = core.userPolicy.currentOrDefault()
+        val lists = policy.lists
         val texts = start ?: SiteListKind.entries.associateWith { lists[it].format() }
+        val enabled = JCheckBox("Применять свои списки", startEnabled ?: policy.listsEnabled).apply {
+            toolTipText = "Выключено — списки хранятся, но не действуют"
+        }
+        // Списки поставщика применённой подписки (D-94): свои идут раньше них.
+        val provider = core.appliedSubscription()?.takeIf { it.providerProfile != null }?.let { sub ->
+            "Списки поставщика «${sub.displayName}»: " +
+                if (sub.useProviderLists) "включены — сначала свои списки, потом поставщика." else "получены, не используются (меню подписки)."
+        }
         val areas = SiteListKind.entries.associateWith { JTextArea(texts.getValue(it), ROWS, COLUMNS) }
         val columns = JPanel(GridLayout(1, SiteListKind.entries.size, Widgets.STEP * 2, 0)).apply {
             for (kind in SiteListKind.entries) {
@@ -41,16 +59,23 @@ object SiteListsDialog {
             }
         }
         val form = JPanel(BorderLayout(0, Widgets.STEP * 2)).apply {
+            add(enabled, BorderLayout.NORTH)
             add(columns, BorderLayout.CENTER)
-            add(Widgets.note().apply { text = NOTE; this.columns = COLUMNS * 3 }, BorderLayout.SOUTH)
+            add(Widgets.note().apply { text = listOfNotNull(provider, NOTE).joinToString("\n\n"); this.columns = COLUMNS * 3 }, BorderLayout.SOUTH)
         }
         val answer = JOptionPane.showConfirmDialog(parent, form, "Свои списки сайтов", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE)
         if (answer != JOptionPane.OK_OPTION) return
         val edited = areas.mapValues { it.value.text }
+        val on = enabled.isSelected
         scope.launch(Edt) {
-            val r = withContext(Dispatchers.IO) { core.userPolicy.setSiteLists(edited) }
+            val r = withContext(Dispatchers.IO) {
+                core.userPolicy.setSiteLists(edited).let { saved ->
+                    // Переключатель (D-94) — после списков: не сохранились списки — не меняется и он.
+                    if (saved is Outcome.Success && on != core.userPolicy.currentOrDefault().listsEnabled) core.userPolicy.setListsEnabled(on) else saved
+                }
+            }
             // Не сохранено — окно снова, с тем же текстом.
-            if (!report(parent, r, reconnect, null)) show(parent, core, scope, reconnect, edited)
+            if (!report(parent, r, reconnect, null)) show(parent, core, scope, reconnect, edited, on)
         }
     }
 
@@ -77,7 +102,7 @@ object SiteListsDialog {
     }
 
     /** Итог смены политики; true — готово (окно можно закрыть). */
-    private fun report(parent: Component, r: Outcome<ActivationResult?>, reconnect: () -> Unit, done: String?): Boolean {
+    fun report(parent: Component, r: Outcome<ActivationResult?>, reconnect: () -> Unit, done: String?): Boolean {
         when (r) {
             is Outcome.Failure -> {
                 JOptionPane.showMessageDialog(parent, r.errors.joinToString("\n") { it.message }, "Не сохранено", JOptionPane.WARNING_MESSAGE)

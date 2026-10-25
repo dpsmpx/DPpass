@@ -1,0 +1,8 @@
+{
+  "outcome": "ready",
+  "profiles": 2,
+  "provider_profile": true,
+  "codes": [
+    "SUBSCRIPTION_ENTRY_SKIPPED"
+  ]
+}

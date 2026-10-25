@@ -33,6 +33,10 @@ import com.dpsmpx.dppass.routing.RouteDecision
 import com.dpsmpx.dppass.routing.RouteEvaluator
 import com.dpsmpx.dppass.routing.RouteQuery
 import com.dpsmpx.dppass.routing.RoutingPolicy
+import com.dpsmpx.dppass.routing.SiteEntry
+import com.dpsmpx.dppass.routing.SiteList
+import com.dpsmpx.dppass.routing.SiteListKind
+import com.dpsmpx.dppass.routing.SiteLists
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -79,6 +83,18 @@ class ExplainTest {
         assertEquals(RouteAnswer(RouteVerdict.DIRECT, RouteWhy.RuSites), answer(ru, RouteQuery(domain = "shop.example.ru")))
         assertEquals(RouteAnswer(RouteVerdict.DIRECT, RouteWhy.RuIp), answer(ru, RouteQuery(ip = IpAddress.parse("198.51.100.7"))))
         assertEquals(RouteAnswer(RouteVerdict.TUNNEL, RouteWhy.Default), answer(ru, RouteQuery(domain = "www.example.com")))
+    }
+
+    @Test
+    fun ownListOverProviderListIsNamed() {
+        // D-94: своя запись — раньше списка поставщика, а его запись — раньше режима.
+        fun entries(vararg s: String) = SiteList(s.map { SiteEntry.parse(it).valueOrNull()!! })
+        val policy = UserPolicy(mode = RoutingMode.RU_DIRECT, lists = SiteLists(proxy = entries("shop.example.ru")))
+        val routing = PolicyBuilder.routing(policy, SiteLists(direct = entries("example.ru", "example.com")))
+        fun why(domain: String) = RouteQuery(domain = domain).let { q -> RouteExplain.answer(RouteEvaluator(routing, geo).decide(q), q, routing) }
+        assertEquals(RouteAnswer(RouteVerdict.TUNNEL, RouteWhy.OwnList(SiteListKind.PROXY)), why("shop.example.ru"))
+        assertEquals(RouteAnswer(RouteVerdict.DIRECT, RouteWhy.ProviderList(SiteListKind.DIRECT)), why("news.example.ru"))
+        assertEquals(RouteAnswer(RouteVerdict.DIRECT, RouteWhy.ProviderList(SiteListKind.DIRECT)), why("www.example.com"))
     }
 
     @Test

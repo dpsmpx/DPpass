@@ -43,6 +43,19 @@ data class Subscription(
      * (`profile-title`), если оно есть.
      */
     val nameByUser: Boolean = false,
+    /**
+     * Профиль маршрутизации поставщика (D-94) — последний принятый.
+     * Хранится рядом со своими списками, даже если не используется: его
+     * можно посмотреть и включить позже.
+     */
+    val providerProfile: ProviderProfile? = null,
+    /** Профиль до последнего изменения — для «что изменилось» (D-94). */
+    val previousProviderProfile: ProviderProfile? = null,
+    /**
+     * Списки поставщика действуют (D-94): включает только пользователь, с
+     * подтверждением (D-11); дальше они обновляются вместе с подпиской.
+     */
+    val useProviderLists: Boolean = false,
 ) {
     /**
      * Имя на экранах — одно для списка, экрана подключения и окна
@@ -56,6 +69,32 @@ data class Subscription(
         copy(lastSuccessful = revision, metadata = metadata, revisionCounter = revision.number)
 
     fun recordFailure(failure: FailedRevision): Subscription = copy(lastFailed = failure)
+
+    /**
+     * Ответ поставщика с профилем [text] (D-94): тот же — без изменений;
+     * другой — прежний уходит в [previousProviderProfile]. null — профиля в
+     * ответе нет: остаётся последний принятый (так его понимает и формат,
+     * `docs/research/HAPP_SOURCE_AUDIT.md`, §7: профиль только добавляется
+     * или заменяется).
+     */
+    fun withProviderProfile(text: String?, atMillis: Long): Subscription =
+        if (text == null || text == providerProfile?.text) {
+            this
+        } else {
+            copy(providerProfile = ProviderProfile(text, atMillis), previousProviderProfile = providerProfile)
+        }
+}
+
+/**
+ * Профиль маршрутизации поставщика (D-94) — как пришёл: ссылка
+ * `happ://routing/…`, base64 или JSON. Разбирает `connection/`: подписка
+ * не знает про набор геоданных ядра (D-27).
+ */
+data class ProviderProfile(val text: String, val receivedAtMillis: Long) {
+    companion object {
+        /** Больше — уже не профиль списков: 6 списков по 1000 записей в base64 — около 300 КБ. */
+        const val MAX_CHARS: Int = 512 * 1024
+    }
 }
 
 /** Откуда тело подписки. */

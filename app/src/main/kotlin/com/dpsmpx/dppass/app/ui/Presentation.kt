@@ -240,6 +240,10 @@ data class SubscriptionRow(
     val announce: String?,
     /** Сколько записей последнего разбора не стали серверами; null — в этом запуске не разбиралась. */
     val skipped: Int? = null,
+    /** Поставщик прислал профиль маршрутизации (D-94): у карточки — вход в его списки. */
+    val providerLists: Boolean = false,
+    /** Пользователь включил списки поставщика (D-94). */
+    val providerListsInUse: Boolean = false,
 )
 
 const val ANNOUNCE_LIMIT: Int = 300
@@ -283,6 +287,8 @@ object SubscriptionList {
             deviceIdEnabled = s.deviceId != null,
             announce = s.metadata.announce?.let(::plain)?.takeIf { it.isNotEmpty() },
             skipped = skipped(s.id),
+            providerLists = s.providerProfile != null,
+            providerListsInUse = s.useProviderLists,
         )
     }
 

@@ -219,3 +219,27 @@ data class SiteLists(val direct: SiteList = SiteList(), val proxy: SiteList = Si
         val ORDER: List<SiteListKind> = listOf(SiteListKind.BLOCK, SiteListKind.PROXY, SiteListKind.DIRECT)
     }
 }
+
+/**
+ * Что изменилось между двумя версиями списков (D-94): по каждому списку —
+ * добавленные и убранные записи. Запись, перешедшая в другой список, —
+ * убрана из прежнего и добавлена в новый: так видно, что её действие
+ * сменилось.
+ */
+data class SiteListsChange(val added: SiteLists, val removed: SiteLists) {
+    val isEmpty: Boolean get() = added.isEmpty && removed.isEmpty
+
+    companion object {
+        fun between(old: SiteLists, new: SiteLists): SiteListsChange {
+            var added = SiteLists.NONE
+            var removed = SiteLists.NONE
+            for (kind in SiteLists.ORDER) {
+                val before = old[kind].entries.map { it.text }.toSet()
+                val after = new[kind].entries.map { it.text }.toSet()
+                added = added.with(kind, SiteList(new[kind].entries.filter { it.text !in before }))
+                removed = removed.with(kind, SiteList(old[kind].entries.filter { it.text !in after }))
+            }
+            return SiteListsChange(added, removed)
+        }
+    }
+}

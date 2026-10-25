@@ -18,8 +18,9 @@ import com.dpsmpx.dppass.subscriptions.UpdatePolicy
 /**
  * «Подписки» (D-36, D-39, D-42): список, добавление, применение,
  * обновление, трафик и срок, автообновление, идентификатор устройства
- * только по согласию (D-33), свои серверы, удаление. Применённая
- * подписка при поднятом туннеле переподключает его с новыми серверами.
+ * только по согласию (D-33), свои серверы, списки поставщика (D-94),
+ * удаление. Применённая подписка при поднятом туннеле переподключает его с
+ * новыми серверами.
  */
 class SubscriptionsScreen(host: Host) : Screen(host) {
     private val list = Ui.column(context, 12)
@@ -164,6 +165,16 @@ class SubscriptionsScreen(host: Host) : Screen(host) {
             )
         }
 
+        // Списки поставщика (D-94): хранятся рядом со своими — вход к ним и включены ли они.
+        if (r.providerLists) {
+            addView(
+                Ui.button(context, R.string.provider_lists_title, Ui.Style.TEXT, R.drawable.ic_route).apply {
+                    text = context.getString(if (r.providerListsInUse) R.string.provider_lists_on else R.string.provider_lists_off)
+                    setOnClickListener { host.push(ProviderListsScreen(host, r.id)) }
+                },
+            )
+        }
+
         val busy = r.id in ImportFlow.running
         val action = if (r.active) R.string.subs_refresh else R.string.subs_apply
         addView(
@@ -243,6 +254,13 @@ class SubscriptionsScreen(host: Host) : Screen(host) {
             ) {
                 deviceIdSheet(r)
             }
+        }
+        if (r.providerLists) {
+            item(
+                R.drawable.ic_route,
+                R.string.provider_lists_title,
+                context.getString(if (r.providerListsInUse) R.string.provider_lists_on else R.string.provider_lists_off),
+            ) { host.push(ProviderListsScreen(host, r.id)) }
         }
         r.pageUrl?.let { url -> item(R.drawable.ic_open, R.string.subs_open_page, Uri.parse(url).host) { open(url) } }
         r.supportUrl?.let { url -> item(R.drawable.ic_open, R.string.subs_open_support, Uri.parse(url).host) { open(url) } }

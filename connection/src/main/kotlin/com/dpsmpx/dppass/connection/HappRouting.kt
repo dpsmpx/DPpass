@@ -63,7 +63,7 @@ object HappRouting {
         "fakedns" to "подмены адресов имён нет",
         "routeorder" to "порядок у DPpass постоянный: блокировать, через туннель, напрямую",
         "usechunkfiles" to "геоданные DPpass не режутся на части",
-        "lastupdated" to "дата профиля не нужна: списки меняются только вручную",
+        "lastupdated" to "дата профиля не нужна: DPpass сравнивает сами записи",
         "name" to "",
     )
 
@@ -84,6 +84,39 @@ object HappRouting {
      * geosite/geoip, кода которой нет в наборе ядра (null — код есть).
      */
     fun parse(text: String, geoProblem: (SiteEntry) -> String? = { null }): Outcome<HappRoutingImport> {
+        if (isOff(text)) {
+            return Outcome.failure(
+                DiagCode.CAPABILITY_FEATURE_UNSUPPORTED,
+                "happ://routing/off выключает маршрутизацию ссылкой — в DPpass её меняет только пользователь в настройках (D-11)",
+            )
+        }
+        val result = when (val r = read(text, geoProblem)) {
+            is Outcome.Failure -> return r
+            is Outcome.Success -> r.value
+        }
+        if (result.total == 0) {
+            val example = result.skipped.firstOrNull()?.let { " (например, ${it.field}: ${it.reason})" }.orEmpty()
+            return Outcome.failure(DiagCode.SUBSCRIPTION_NO_USABLE_SERVERS, "в профиле Happ нет записей, которые DPpass взял бы в свои списки$example")
+        }
+        return Outcome.Success(result)
+    }
+
+    /**
+     * Профиль поставщика из подписки (D-94): ссылка, JSON или base64 с JSON
+     * (так его шлют заголовком `routing`). В отличие от импорта, профиль
+     * без записей и `happ://routing/off` — не отказ, а «списков у
+     * поставщика нет»: так он их убирает. Маршрутизацию пользователя `off`
+     * не трогает (D-11) — только списки поставщика.
+     */
+    fun provider(text: String, geoProblem: (SiteEntry) -> String? = { null }): Outcome<HappRoutingImport> =
+        if (isOff(text)) Outcome.Success(HappRoutingImport(null, SiteLists.NONE, emptyList())) else read(text, geoProblem)
+
+    private fun isOff(text: String): Boolean {
+        val t = text.trim()
+        return t.startsWith(ROUTING, ignoreCase = true) && t.substring(ROUTING.length).substringBefore('/').equals("off", ignoreCase = true)
+    }
+
+    private fun read(text: String, geoProblem: (SiteEntry) -> String?): Outcome<HappRoutingImport> {
         val t = text.trim()
         val json = if (t.startsWith(ROUTING, ignoreCase = true)) {
             val rest = t.substring(ROUTING.length)
@@ -93,14 +126,13 @@ object HappRouting {
                     DiagCode.SUBSCRIPTION_FORMAT_UNKNOWN,
                     "ссылка профиля Happ: после happ://routing/$action/ — не base64 с JSON",
                 )
-                "off" -> return Outcome.failure(
-                    DiagCode.CAPABILITY_FEATURE_UNSUPPORTED,
-                    "happ://routing/off выключает маршрутизацию ссылкой — в DPpass её меняет только пользователь в настройках (D-11)",
-                )
                 else -> return Outcome.failure(DiagCode.SUBSCRIPTION_FORMAT_UNKNOWN, "ссылка профиля Happ: неизвестное действие «${action.take(16)}»")
             }
-        } else {
+        } else if (t.startsWith("{")) {
             t
+        } else {
+            decode(t)?.takeIf { it.trimStart().startsWith("{") }
+                ?: return Outcome.failure(DiagCode.SUBSCRIPTION_FORMAT_UNKNOWN, "профиль Happ — не ссылка, не JSON и не base64 с JSON")
         }
         val root = try {
             Json.parse(json) as? JsonObject
@@ -161,12 +193,7 @@ object HappRouting {
             }
             lists = lists.with(kind, SiteList(kept))
         }
-        val result = HappRoutingImport(name, lists, skipped)
-        if (result.total == 0) {
-            val example = skipped.firstOrNull()?.let { " (например, ${it.field}: ${it.reason})" }.orEmpty()
-            return Outcome.failure(DiagCode.SUBSCRIPTION_NO_USABLE_SERVERS, "в профиле Happ нет записей, которые DPpass взял бы в свои списки$example")
-        }
-        return Outcome.Success(result)
+        return Outcome.Success(HappRoutingImport(name, lists, skipped))
     }
 
     /** Пустое значение («», [], {}, "false") — не настройка, о нём молчать. */

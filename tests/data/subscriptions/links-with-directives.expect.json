@@ -1,6 +1,7 @@
 {
   "outcome": "ready",
   "profiles": 3,
+  "provider_profile": true,
   "codes": [
     "SUBSCRIPTION_DIRECTIVE_IGNORED"
   ]

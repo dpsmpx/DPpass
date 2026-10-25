@@ -430,6 +430,7 @@ class RouteCheckScreen(host: Host) : SubScreen(host, R.string.route_title) {
                     SiteListKind.BLOCK -> R.string.route_why_own_block
                 },
             )
+            is RouteWhy.ProviderList -> context.getString(ProviderListsScreen.why(w.kind))
             RouteWhy.Default -> context.getString(R.string.route_why_default)
             is RouteWhy.DocumentRule -> context.getString(R.string.route_why_rule, w.id)
         }

@@ -28,6 +28,11 @@ data class DecodedPayload(
      * проверки или фильтра ядра — та же, что у разбора.
      */
     val paths: List<String> = profiles.indices.map { "profiles[$it]" },
+    /**
+     * Профиль маршрутизации поставщика из тела (D-94): строка `#routing:`
+     * или ссылка `happ://routing/…` среди записей; null — нет.
+     */
+    val providerProfile: String? = null,
 ) {
     init {
         require(paths.size == profiles.size) { "путь — у каждого профиля" }
@@ -70,6 +75,7 @@ object PayloadDecoder {
         val directives = LinkedHashMap<String, String>()
         val profiles = mutableListOf<ServerProfile>()
         val paths = mutableListOf<String>()
+        var routingLink: String? = null
         var entry = 0
         for (raw in text.lineSequence()) {
             val line = raw.trim()
@@ -78,6 +84,11 @@ object PayloadDecoder {
                 val body = line.removePrefix("#").trim()
                 val colon = body.indexOf(':')
                 if (colon > 0) directives.putIfAbsent(body.substring(0, colon).trim().lowercase(), body.substring(colon + 1).trim())
+                continue
+            }
+            if (line.startsWith(ROUTING_LINK, ignoreCase = true)) {
+                // Профиль маршрутизации поставщика (D-94) — не сервер: номера записи не занимает.
+                if (routingLink == null) routingLink = line
                 continue
             }
             if (entry >= maxEntries) {
@@ -96,8 +107,12 @@ object PayloadDecoder {
                 is Outcome.Failure -> notes += Diagnostic.warning(DiagCode.SUBSCRIPTION_ENTRY_SKIPPED, "запись пропущена", path).copy(causes = r.diagnostics)
             }
         }
-        return Outcome.Success(DecodedPayload(profiles, directives, null, null, paths), notes)
+        val profile = directives[MetadataParser.ROUTING]?.takeIf { it.isNotBlank() } ?: routingLink
+        return Outcome.Success(DecodedPayload(profiles, directives, null, null, paths, profile), notes)
     }
+
+    /** Ссылка профиля маршрутизации в теле подписки (D-94; `HAPP_SOURCE_AUDIT.md`, §7). */
+    private const val ROUTING_LINK = "happ://routing/"
 
     private fun base64(text: String): String? {
         val compact = text.filterNot { it.isWhitespace() }
@@ -124,6 +139,12 @@ data class SubscriptionCandidate(
     val profiles: List<ServerProfile>,
     val providerRouting: RoutingPolicy?,
     val providerDns: DnsPolicy?,
+    /**
+     * Профиль маршрутизации поставщика из ответа (D-94): заголовок
+     * `routing`, иначе тело; null — в ответе его нет. Принимается в
+     * подписку при активации ревизии ([Subscription.withProviderProfile]).
+     */
+    val providerProfile: String? = null,
 )
 
 sealed interface UpdateResult {
@@ -170,7 +191,13 @@ class SubscriptionUpdater(
         if (payload.bytes.size > subscription.fetchPolicy.maxBytes) {
             return fail(Diagnostic.error(DiagCode.SUBSCRIPTION_TOO_LARGE, "больше ${subscription.fetchPolicy.maxBytes} байт"))
         }
-        val checksum = Checksums.sha256(payload.bytes)
+        val headerProfile = MetadataParser.routing(payload.headers)
+        // Профиль из заголовка — часть ревизии (D-94): другой профиль при том же теле — не «без изменений».
+        val checksum = if (headerProfile == null) {
+            Checksums.sha256(payload.bytes)
+        } else {
+            Checksums.sha256(payload.bytes + byteArrayOf(0) + headerProfile.toByteArray(Charsets.UTF_8))
+        }
         if (subscription.lastSuccessful?.checksum == checksum) {
             return UpdateResult.Unchanged(subscription, listOf(Diagnostic.info(DiagCode.SUBSCRIPTION_UNCHANGED, "содержимое не изменилось")))
         }
@@ -180,6 +207,16 @@ class SubscriptionUpdater(
         }
         val meta = MetadataParser.parse(payload.headers, decoded.directives)
         notes += meta.notes
+        val profile = (headerProfile ?: decoded.providerProfile)?.takeIf { p ->
+            (p.length <= ProviderProfile.MAX_CHARS).also { fits ->
+                if (!fits) {
+                    notes += Diagnostic.warning(
+                        DiagCode.SUBSCRIPTION_METADATA_INVALID,
+                        "routing: профиль маршрутизации длиннее ${ProviderProfile.MAX_CHARS / 1024} КБ — не принят",
+                    )
+                }
+            }
+        }
 
         val valid = mutableListOf<ServerProfile>()
         val validPaths = mutableListOf<String>()
@@ -231,6 +268,7 @@ class SubscriptionUpdater(
             filtered.usable,
             decoded.providerRouting.takeIf { useProvider },
             decoded.providerDns.takeIf { useProvider },
+            profile,
         )
         return UpdateResult.Ready(candidate, notes)
     }

@@ -232,6 +232,10 @@ class CorpusTest {
                     "ready" -> {
                         val ready = r as? UpdateResult.Ready ?: fail("$name: ожидался Ready, есть $r")
                         assertEquals((expect["profiles"] as JsonNumber).toIntOrNull(), ready.candidate.profiles.size, "$name: число серверов")
+                        // Профиль маршрутизации поставщика (D-94): принят рядом с серверами, а не отброшен.
+                        (expect["provider_profile"] as? JsonBool)?.let {
+                            assertEquals(it.value, ready.candidate.providerProfile != null, "$name: профиль поставщика")
+                        }
                     }
                     "failed" -> assertTrue(r is UpdateResult.Failed, "$name: ожидался отказ")
                 }

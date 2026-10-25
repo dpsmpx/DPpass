@@ -53,9 +53,9 @@ class DesktopWindow(
             servers.refresh()
             connect.render(session.status.value)
         }
-        subscriptions = SubscriptionsPanel(graph, scope, changed) { run ->
+        subscriptions = SubscriptionsPanel(graph, scope, changed, { run ->
             if (run.needsReconnect(session.connectedProfile())) session.reconnectIfConnected()
-        }
+        }) { session.reconnectIfConnected() }
         val import = ImportFlow(graph, scope, { frame }, subscriptions, changed, {
             relays.reload()
             tabs.selectedComponent = relays

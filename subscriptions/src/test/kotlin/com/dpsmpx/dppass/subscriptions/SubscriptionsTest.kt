@@ -554,7 +554,7 @@ class SubscriptionCodecTest {
         val s = SubscriptionCodec.read(v2).valueOrNull()!!.items.single()
         assertFalse(s.nameByUser)
         assertEquals("Поставщик", s.displayName)
-        assertIs<Outcome.Failure>(SubscriptionCodec.read(v2.replace("\"format_version\":2", "\"format_version\":4")), "версия новее — отказ")
+        assertIs<Outcome.Failure>(SubscriptionCodec.read(v2.replace("\"format_version\":2", "\"format_version\":5")), "версия новее — отказ")
     }
 
     @Test
@@ -577,6 +577,95 @@ class SubscriptionCodecTest {
         // Ровно один источник.
         val both = v1.replace("\"url\":\"https://sub.example.com/t\"", "\"url\":\"https://sub.example.com/t\",\"inline\":\"x\"")
         assertIs<Outcome.Failure>(SubscriptionCodec.read(both))
+    }
+}
+
+/** Профиль маршрутизации поставщика (D-94): принимается рядом с серверами, не как директива. */
+class ProviderProfileTest {
+    private val clock = ManualClock(1000)
+    private val links = "vless://$UUID1@203.0.113.11:443?security=tls&sni=a.example.com#A\ntrojan://p@198.51.100.2:443#B\n"
+    private val passAll = ProfileFilter { ps, _ -> FilterResult(ps, emptyList()) }
+    private val profileA = "happ://routing/onadd/" + Base64.getEncoder().encodeToString("""{"Name":"P","DirectSites":["example.ru"]}""".toByteArray())
+    private val profileB = "happ://routing/onadd/" + Base64.getEncoder().encodeToString("""{"Name":"P","DirectSites":["example.org"]}""".toByteArray())
+
+    private fun sub() = Subscription(SubscriptionId("sub1"), "Sub", SubscriptionSource.Url(Secret("https://sub.example.com/token123")))
+
+    private fun fetcher(body: String, headers: Map<String, String> = emptyMap()) =
+        SubscriptionFetcher { _, _ -> Outcome.Success(FetchedPayload(body.toByteArray(), headers, clock.nowMillis())) }
+
+    private suspend fun ready(body: String, headers: Map<String, String> = emptyMap(), s: Subscription = sub()) =
+        assertIs<UpdateResult.Ready>(SubscriptionUpdater(fetcher(body, headers), clock, "test").update(s, passAll))
+
+    @Test
+    fun headerProfileIsTakenNotIgnored() = runBlocking {
+        val r = ready(links, mapOf("Routing" to profileA, "hide-settings" to "1"))
+        assertEquals(profileA, r.candidate.providerProfile)
+        val ignored = r.diagnostics.single { it.code == DiagCode.SUBSCRIPTION_DIRECTIVE_IGNORED }.message
+        assertTrue("hide-settings" in ignored && "routing" !in ignored, ignored)
+        assertTrue(r.diagnostics.none { profileA in it.message }, "профиль не попадает в сообщения")
+    }
+
+    @Test
+    fun otherProfileWithSameBodyIsNotUnchanged() = runBlocking {
+        val first = ready(links, mapOf("routing" to profileA))
+        val applied = first.candidate.subscription.recordSuccess(first.candidate.revision, first.candidate.metadata)
+        val same = SubscriptionUpdater(fetcher(links, mapOf("routing" to profileA)), clock, "test").update(applied, passAll)
+        assertIs<UpdateResult.Unchanged>(same, "тот же ответ — без изменений")
+        val other = ready(links, mapOf("routing" to profileB), applied)
+        assertEquals(profileB, other.candidate.providerProfile, "другой профиль при том же теле — новая ревизия")
+        // Без заголовка сумма — та же, что до D-94: сохранённые ревизии не обновляются зря.
+        val plain = ready(links)
+        assertEquals(com.dpsmpx.dppass.core.Checksums.sha256(links.toByteArray()), plain.candidate.revision.checksum)
+        assertNull(plain.candidate.providerProfile)
+    }
+
+    @Test
+    fun bodyLinkIsNotAnEntryAndHeaderWins() = runBlocking {
+        val body = "$profileA\ntuic://x@203.0.113.9:443#T\n$links"
+        val r = ready(body)
+        assertEquals(profileA, r.candidate.providerProfile)
+        assertEquals(2, r.candidate.profiles.size)
+        // Ссылка профиля номера записи не занимает: неподдержанная — первая запись тела.
+        val skipped = r.diagnostics.single { it.code == DiagCode.SUBSCRIPTION_ENTRY_SKIPPED }
+        assertEquals("entry[0]", skipped.path)
+        assertEquals(profileB, ready(body, mapOf("routing" to profileB)).candidate.providerProfile, "заголовок сильнее тела")
+        assertEquals(profileB, ready("#routing: $profileB\n$links").candidate.providerProfile, "строка #routing: тела")
+    }
+
+    @Test
+    fun tooLongProfileIsNotTaken() = runBlocking {
+        val r = ready(links, mapOf("routing" to "x".repeat(ProviderProfile.MAX_CHARS + 1)))
+        assertNull(r.candidate.providerProfile)
+        assertTrue(r.diagnostics.any { it.code == DiagCode.SUBSCRIPTION_METADATA_INVALID && it.message.startsWith("routing:") }, r.diagnostics.toString())
+    }
+
+    @Test
+    fun newProfileKeepsPreviousForWhatChanged() {
+        val a = sub().withProviderProfile(profileA, 10)
+        assertEquals(ProviderProfile(profileA, 10), a.providerProfile)
+        assertNull(a.previousProviderProfile)
+        assertEquals(a, a.withProviderProfile(profileA, 20), "тот же профиль — без изменений, и время прежнее")
+        assertEquals(a, a.withProviderProfile(null, 20), "нет в ответе — остаётся последний")
+        val b = a.withProviderProfile(profileB, 30)
+        assertEquals(ProviderProfile(profileB, 30), b.providerProfile)
+        assertEquals(ProviderProfile(profileA, 10), b.previousProviderProfile)
+    }
+
+    @Test
+    fun codecKeepsProfilesAndConsent() {
+        val s = sub().withProviderProfile(profileA, 10).withProviderProfile(profileB, 30).copy(useProviderLists = true)
+        val state = SubscriptionsState(listOf(s, sub().copy(id = SubscriptionId("sub2"))), null)
+        val text = SubscriptionCodec.write(state)
+        assertTrue("\"format_version\":4" in text)
+        assertEquals(state, SubscriptionCodec.read(text).valueOrNull())
+        // Версия 3 — без профиля и без согласия.
+        val v3 = """{"format":"dppass.subscriptions","format_version":3,"items":[""" +
+            """{"id":"s1","name":"S","url":"https://sub.example.com/t","binding":"user","revision_counter":0,"metadata":{}}]}"""
+        val old = SubscriptionCodec.read(v3).valueOrNull()!!.items.single()
+        assertNull(old.providerProfile)
+        assertFalse(old.useProviderLists)
+        val empty = text.replace(profileB, " ")
+        assertIs<Outcome.Failure>(SubscriptionCodec.read(empty), "пустой профиль — порча")
     }
 }
 

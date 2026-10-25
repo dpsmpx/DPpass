@@ -103,9 +103,11 @@ data class SubscriptionRun(
     val activation: ActivationResult?,
     val before: ConfigIr? = null,
     val after: ConfigIr? = null,
+    /** Находки слоя подключения о самом ответе: профиль поставщика не разобран (D-94). */
+    val notes: List<Diagnostic> = emptyList(),
 ) {
     val applied: Boolean get() = activation is ActivationResult.Activated
-    val diagnostics: List<Diagnostic> get() = update.diagnostics + activation?.diagnostics.orEmpty()
+    val diagnostics: List<Diagnostic> get() = update.diagnostics + notes + activation?.diagnostics.orEmpty()
 
     /**
      * Нужно ли переподключать поднятый туннель (D-39): только если новые
@@ -245,12 +247,28 @@ class SubscriptionService(
         core.subscriptionNotes(update)
         SkippedEntries.of(update, clock.nowMillis())?.let { skipped[id] = it }
         val before = core.activation.state.activeConfig
+        val notes = mutableListOf<Diagnostic>()
         val (next, activation) = when (update) {
             is UpdateResult.Ready -> {
-                // Маршрутизация и DNS — своего документа, если он действует, иначе — политики (D-38).
-                val base = core.userPolicy.baseFor(core.activation.state)
-                val (s, a) = core.activateSubscription(base, update.candidate)
-                (if (a is ActivationResult.Activated) s.copy(lastCheckedMillis = clock.nowMillis()) else s) to a
+                val c = update.candidate
+                // Профиль поставщика (D-94) принимается с ревизией; не разобран — остаются прежние списки.
+                val parsed = c.providerProfile?.let(core::parseProviderProfile)
+                if (parsed is Outcome.Failure) {
+                    notes += Diagnostic.warning(
+                        DiagCode.SUBSCRIPTION_METADATA_INVALID,
+                        "routing: профиль маршрутизации поставщика не разобран — списки поставщика остались прежними",
+                    ).copy(causes = parsed.errors)
+                }
+                val withProfile = c.subscription.withProviderProfile(c.providerProfile.takeIf { parsed is Outcome.Success }, c.revision.fetchedAtMillis)
+                // Маршрутизация и DNS — своего документа, если он действует, иначе — политики
+                // (D-38) со списками поставщика этой подписки, если они включены (D-94).
+                val base = core.userPolicy.baseFor(core.activation.state, core.providerListsOf(withProfile))
+                val (s, a) = core.activateSubscription(base, c.copy(subscription = withProfile))
+                when (a) {
+                    is ActivationResult.Activated -> s.copy(lastCheckedMillis = clock.nowMillis())
+                    // Ревизия не применена — и профиль её не принят (D-08).
+                    is ActivationResult.Rejected -> s.copy(providerProfile = sub.providerProfile, previousProviderProfile = sub.previousProviderProfile)
+                } to a
             }
             is UpdateResult.Unchanged -> update.subscription.copy(lastCheckedMillis = clock.nowMillis()) to null
             is UpdateResult.Failed -> update.subscription to null
@@ -260,7 +278,34 @@ class SubscriptionService(
         val activeId = if (activation is ActivationResult.Activated) id else st.activeId
         val saved = commit(st.copy(items = st.items.map { if (it.id == id) kept else it }, activeId = activeId))
         if (saved is Outcome.Failure) return saved
-        return Outcome.Success(SubscriptionRun(kept, update, activation, before, core.activation.state.activeConfig))
+        notes.forEach(core.log::diagnostic)
+        return Outcome.Success(SubscriptionRun(kept, update, activation, before, core.activation.state.activeConfig, notes))
+    }
+
+    /**
+     * Списки поставщика у подписки [id] — включить или выключить (D-94).
+     * Включает пользователь, увидев, что в них (D-11: окно подтверждения —
+     * в оболочке); дальше они обновляются вместе с подпиской. Подписка
+     * применена — смена политики с новыми списками: отказ активации — отказ
+     * смены, согласие не записывается.
+     */
+    suspend fun setUseProviderLists(id: SubscriptionId, use: Boolean): Outcome<ActivationResult?> {
+        val st = when (val s = state()) {
+            is Outcome.Failure -> return s
+            is Outcome.Success -> s.value
+        }
+        val sub = st.find(id) ?: return Outcome.failure(DiagCode.SUBSCRIPTION_FETCH_FAILED, "нет подписки $id")
+        if (sub.useProviderLists == use) return Outcome.Success(null)
+        val next = sub.copy(useProviderLists = use)
+        val result = if (core.appliedSubscription()?.id == id) {
+            when (val r = core.userPolicy.change(core.userPolicy.currentOrDefault(), core.providerListsOf(next))) {
+                is Outcome.Failure -> return r
+                is Outcome.Success -> r.value.also { if (it is ActivationResult.Rejected) return r }
+            }
+        } else {
+            null
+        }
+        return commit(st.copy(items = st.items.map { if (it.id == id) next else it })).map { result }
     }
 
     /**

@@ -27,10 +27,13 @@ data class SubscriptionsState(val items: List<Subscription>, val activeId: Subsc
  * Документ хранения подписок `dppass.subscriptions` (D-36). Версия 2
  * (D-39, D-42) добавляет свои серверы (`inline` вместо `url`), срок
  * автообновления и время последней проверки; версия 3 (D-53) — признак
- * «имя задал пользователь» (`name_by_user`). Версии 1 и 2 читаются с
- * значениями по умолчанию — их записал телефон раньше; без признака имя
- * показывается, как показывалось до версии 3 (название поставщика, если
- * оно есть).
+ * «имя задал пользователь» (`name_by_user`); версия 4 (D-94) — профиль
+ * маршрутизации поставщика, прежний профиль и согласие на его списки
+ * (`provider_profile`, `provider_profile_previous`, `use_provider_lists`).
+ * Версии 1–3 читаются с значениями по умолчанию — их записал телефон
+ * раньше; без признака имя показывается, как показывалось до версии 3
+ * (название поставщика, если оно есть), без профиля — списков поставщика
+ * нет, пока он их не пришлёт.
  *
  * В нём секреты — адрес подписки и идентификатор устройства (D-33):
  * документ пишется только в зашифрованное хранилище (D-19) и наружу не
@@ -43,8 +46,8 @@ data class SubscriptionsState(val items: List<Subscription>, val activeId: Subsc
  */
 object SubscriptionCodec {
     const val FORMAT: String = "dppass.subscriptions"
-    const val VERSION: Int = 3
-    private val READABLE = setOf(1, 2, 3)
+    const val VERSION: Int = 4
+    private val READABLE = setOf(1, 2, 3, 4)
 
     fun write(state: SubscriptionsState): String = Json.write(
         Json.obj(
@@ -70,6 +73,9 @@ object SubscriptionCodec {
             "last_checked_at" to s.lastCheckedMillis?.let(Json::num),
             "device_id" to s.deviceId?.let { Json.str(it.reveal()) },
             "binding" to Json.str(if (s.binding == RoutingBinding.PROVIDER_ROUTING) "provider" else "user"),
+            "provider_profile" to s.providerProfile?.let(::profile),
+            "provider_profile_previous" to s.previousProviderProfile?.let(::profile),
+            "use_provider_lists" to Json.bool(s.useProviderLists),
             "revision_counter" to Json.num(s.revisionCounter),
             "metadata" to Json.obj(
                 "title" to Json.str(m.title),
@@ -103,6 +109,18 @@ object SubscriptionCodec {
                 )
             },
         )
+    }
+
+    private fun profile(p: ProviderProfile): JsonObject = Json.obj("text" to Json.str(p.text), "received_at" to Json.num(p.receivedAtMillis))
+
+    private fun readProfile(o: JsonObject, key: String): ProviderProfile? = when (val v = o[key]) {
+        null -> null
+        is JsonObject -> {
+            val text = v.str("text") ?: bad("$key.text")
+            require(text.isNotBlank() && text.length <= ProviderProfile.MAX_CHARS) { "$key: профиль пуст или длиннее предела" }
+            ProviderProfile(text, v.long("received_at") ?: bad("$key.received_at"))
+        }
+        else -> bad(key)
     }
 
     fun read(text: String): Outcome<SubscriptionsState> {
@@ -178,6 +196,9 @@ object SubscriptionCodec {
                 require(DeviceId.FORMAT.matches(d)) { "идентификатор устройства не по формату" }
                 Secret(d)
             },
+            providerProfile = readProfile(o, "provider_profile"),
+            previousProviderProfile = readProfile(o, "provider_profile_previous"),
+            useProviderLists = o.bool("use_provider_lists") ?: false,
         )
     }
 

@@ -7,9 +7,9 @@ import android.view.View
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.TunnelStatus
 import com.dpsmpx.dppass.connection.ActivationResult
+import com.dpsmpx.dppass.connection.UserPolicy
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.routing.SiteListKind
-import com.dpsmpx.dppass.routing.SiteLists
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -18,6 +18,8 @@ import kotlinx.coroutines.withContext
  * «Свои списки сайтов» (D-93): напрямую, через туннель, блокировать —
  * домены, geosite, адреса и geoip, правка рукой. Сохранение — смена
  * политики: активация с новыми правилами, отказ — с причиной у поля.
+ * Свои списки — слой поверх списков поставщика (D-94): их можно выключить,
+ * не стирая, а списки поставщика применённой подписки — открыть отсюда.
  */
 class SiteListsScreen(host: Host) : SubScreen(host, R.string.site_lists_title) {
     private val body = Ui.column(context, 12)
@@ -25,8 +27,25 @@ class SiteListsScreen(host: Host) : SubScreen(host, R.string.site_lists_title) {
     override fun content(): View = body
 
     override fun render(status: TunnelStatus) {
-        val lists = host.graph?.core?.userPolicy?.currentOrDefault()?.lists ?: return
+        val core = host.graph?.core ?: return
+        val policy = core.userPolicy.currentOrDefault()
+        val lists = policy.lists
         body.removeAllViews()
+        body.addView(
+            Ui.listCard(context).apply {
+                addView(
+                    Ui.switchRow(
+                        context,
+                        R.drawable.ic_route,
+                        context.getString(R.string.site_lists_enabled),
+                        context.getString(R.string.site_lists_enabled_note),
+                        policy.listsEnabled,
+                    ) { on -> enable(on) },
+                    Ui.matchWidth(),
+                )
+            },
+            Ui.matchWidth(),
+        )
         body.addView(
             Ui.listCard(context).apply {
                 SiteListKind.entries.forEachIndexed { i, kind ->
@@ -43,7 +62,28 @@ class SiteListsScreen(host: Host) : SubScreen(host, R.string.site_lists_title) {
             },
             Ui.matchWidth(),
         )
+        // Списки поставщика применённой подписки (D-94) — рядом: свои идут раньше них.
+        core.appliedSubscription()?.takeIf { it.providerProfile != null }?.let { sub ->
+            body.addView(
+                Ui.listCard(context).apply {
+                    addView(
+                        Ui.ListRow(context, R.drawable.ic_subscriptions, context.getString(R.string.site_lists_provider, sub.displayName))
+                            .subtitle(context.getString(if (sub.useProviderLists) R.string.site_lists_provider_on else R.string.site_lists_provider_off))
+                            .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                            .onClick { host.push(ProviderListsScreen(host, sub.id)) },
+                        Ui.matchWidth(),
+                    )
+                },
+                Ui.matchWidth(),
+            )
+        }
         body.addView(Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.site_lists_note)))
+    }
+
+    /** Свои списки включить или выключить (D-94): записи остаются, меняется, действуют ли они. */
+    private fun enable(on: Boolean) {
+        val core = host.graph?.core ?: return
+        host.scope.launch { applied(host, withContext(Dispatchers.IO) { core.userPolicy.setListsEnabled(on) }) }
     }
 
     /** Правка одного списка: запись на строку; неверная строка — ошибка у поля, окно не закрывается. */
@@ -107,11 +147,15 @@ class SiteListsScreen(host: Host) : SubScreen(host, R.string.site_lists_title) {
             SiteListKind.BLOCK -> R.drawable.ic_block
         }
 
-        /** «Напрямую 3 · через туннель 5 · блокировать 2» или «не заданы». */
-        fun summary(host: Host, lists: SiteLists): String = if (lists.isEmpty) {
-            host.activity.getString(R.string.site_lists_empty)
-        } else {
-            host.activity.getString(R.string.site_lists_summary, lists.direct.size, lists.proxy.size, lists.block.size)
+        /** «Напрямую 3 · через туннель 5 · блокировать 2», «не заданы»; выключенные (D-94) — «выключены · …». */
+        fun summary(host: Host, policy: UserPolicy): String {
+            val lists = policy.lists
+            val text = if (lists.isEmpty) {
+                host.activity.getString(R.string.site_lists_empty)
+            } else {
+                host.activity.getString(R.string.site_lists_summary, lists.direct.size, lists.proxy.size, lists.block.size)
+            }
+            return if (policy.listsEnabled || lists.isEmpty) text else host.activity.getString(R.string.site_lists_off, text)
         }
 
         /** Итог смены политики (D-38): отказ активации — с причиной; применено — туннель переподключается. */

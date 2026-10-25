@@ -30,7 +30,8 @@ import javax.swing.ListSelectionModel
  * «Подписки» (D-36): список, добавление по адресу `https://…`, обновление
  * (оно же применяет серверы подписки), удаление. Свои серверы (D-42) —
  * через импорт. Автообновление применённой подписки (D-77): интервал —
- * кнопкой «Автообновление…», у применённой — когда следующее.
+ * кнопкой «Автообновление…», у применённой — когда следующее. Списки
+ * поставщика (D-94) — кнопкой «Списки поставщика…».
  */
 class SubscriptionsPanel(
     private val graph: DesktopGraph,
@@ -43,6 +44,8 @@ class SubscriptionsPanel(
      * тоже: дальше подключение через них.
      */
     private val applied: (SubscriptionRun) -> Unit = {},
+    /** Смена маршрутизации без новых серверов (списки поставщика, D-94): переподключить, если туннель поднят. */
+    private val reconnect: () -> Unit = {},
 ) : JPanel(BorderLayout()) {
     private val model = DefaultListModel<Subscription>()
     private val list = JList(model)
@@ -66,6 +69,16 @@ class SubscriptionsPanel(
                     add(Widgets.button("Добавить по адресу…") { addByUrl() })
                     add(Widgets.button("Обновить и применить") { list.selectedValue?.let { refresh(it.id, it.name) } })
                     add(Widgets.button("Автообновление…") { chooseInterval() })
+                    add(
+                        Widgets.button("Списки поставщика…") {
+                            list.selectedValue?.let { s ->
+                                ProviderListsDialog.show(this@SubscriptionsPanel, graph.core, scope, s, reconnect) {
+                                    reload()
+                                    changed()
+                                }
+                            }
+                        },
+                    )
                     add(Widgets.button("Удалить…") { remove() })
                 },
                 BorderLayout.CENTER,
@@ -189,6 +202,7 @@ class SubscriptionsPanel(
                 (s.lastCheckedMillis ?: s.lastSuccessful?.fetchedAtMillis)?.let { add("проверена ${Format.date(it)}") }
                 s.lastFailed?.let { add("ошибка: ${it.reason.message}") }
                 if (s.source is SubscriptionSource.Url) add(autoUpdate(s))
+                if (s.providerProfile != null) add(if (s.useProviderLists) "списки поставщика включены" else "списки поставщика получены")
             }
             val active = if (s.id == activeId) " — применена" else ""
             text = "<html><b>${esc(s.name)}</b>${esc(active)}<br><span>${esc(parts.joinToString(" · "))}</span></html>"

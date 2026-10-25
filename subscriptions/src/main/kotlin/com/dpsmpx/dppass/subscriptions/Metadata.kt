@@ -16,6 +16,10 @@ import java.util.Base64
  * найденная отмечается предупреждением SUBSCRIPTION_DIRECTIVE_IGNORED
  * (D-11, `docs/SECURITY_MODEL.md`, угроза T2). Значения директив в
  * сообщения не попадают — в них бывают адреса и токены.
+ *
+ * Профиль маршрутизации поставщика (`routing`, D-94) — не директива, а
+ * списки: он принимается отдельно ([routing]), хранится у подписки и
+ * действует, только если пользователь включил списки поставщика.
  */
 object MetadataParser {
     private val SAFE = setOf(
@@ -34,6 +38,13 @@ object MetadataParser {
 
     data class Result(val metadata: SubscriptionMetadata, val notes: List<Diagnostic>)
 
+    /** Заголовок и строка `#routing:` тела с профилем маршрутизации поставщика (D-94). */
+    const val ROUTING: String = "routing"
+
+    /** Профиль маршрутизации из заголовков ответа (D-94); пустой — нет профиля. */
+    fun routing(headers: Map<String, String>): String? =
+        headers.entries.firstOrNull { it.key.lowercase() == ROUTING }?.value?.trim()?.takeIf { it.isNotEmpty() }
+
     fun parse(headers: Map<String, String>, bodyDirectives: Map<String, String>): Result {
         val notes = mutableListOf<Diagnostic>()
         val values = LinkedHashMap<String, String>()
@@ -45,6 +56,7 @@ object MetadataParser {
             val key = rawKey.lowercase()
             when {
                 key in SAFE -> values[key] = value
+                key == ROUTING -> Unit
                 isControl(key) -> ignored += key
             }
         }
@@ -52,7 +64,11 @@ object MetadataParser {
         for ((rawKey, value) in bodyDirectives) {
             if (value.isBlank()) continue
             val key = rawKey.lowercase()
-            if (key in SAFE) values.putIfAbsent(key, value) else ignored += key
+            when (key) {
+                in SAFE -> values.putIfAbsent(key, value)
+                ROUTING -> Unit
+                else -> ignored += key
+            }
         }
         if (ignored.isNotEmpty()) {
             notes += Diagnostic.warning(

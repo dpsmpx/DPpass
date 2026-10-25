@@ -253,11 +253,14 @@ def check_subscriptions():
     for n in sorted(expects & bodies):
         path = os.path.join(root, n + ".expect.json")
         e = load(path)
-        if e is None or not keys(path, e, {"outcome", "profiles", "codes"}, ("outcome",)):
+        if e is None or not keys(path, e, {"outcome", "profiles", "provider_profile", "codes"}, ("outcome",)):
             continue
         one_of(path, "outcome", e.get("outcome"), {"ready", "failed"})
         if e.get("outcome") == "ready" and not isinstance(e.get("profiles"), int):
             bad(path, "для ready нужно число profiles")
+        # Профиль маршрутизации поставщика (D-94) проверяется только у Ready.
+        if "provider_profile" in e and (not isinstance(e["provider_profile"], bool) or e.get("outcome") != "ready"):
+            bad(path, "provider_profile — true или false, и только у ready")
         codes(path, e)
     for n in sorted(headers & bodies):
         path = os.path.join(root, n + ".headers.json")

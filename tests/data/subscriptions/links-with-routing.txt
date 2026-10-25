@@ -1,0 +1,5 @@
+#profile-title: Routing in body
+vless://00000000-0000-4000-8000-000000000021@203.0.113.21:443?security=tls&sni=a.example.com#Alpha
+happ://routing/onadd/eyJOYW1lIjoiQ29ycHVzIiwiRGlyZWN0U2l0ZXMiOlsiZXhhbXBsZS5ydSJdLCJCbG9ja1NpdGVzIjpbImFkcy5leGFtcGxlLm5ldCJdfQ==
+tuic://00000000-0000-4000-8000-000000000022@203.0.113.22:443#Unsupported
+trojan://test-password-4@198.51.100.23:443?sni=b.example.org#Bravo
