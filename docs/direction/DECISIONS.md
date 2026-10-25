@@ -4140,7 +4140,7 @@ Android и ABI в журнале не нашлось — по нему не по
 - `RuleIndexTest.manySuffixRulesNoLongerScanEveryRule`: 4096 правил
   суффиксов — индекс хотя бы в 10 раз быстрее перебора, нужное правило
   находится.
-- Прежние тесты маршрутизации и корпус (`RoutingTest`, `CorpusTest`)
+- Прежние тесты маршрутизации и корпус (`RouteEvaluatorTest`, `CorpusTest`)
   идут через индекс.
 
 ## Отложено
