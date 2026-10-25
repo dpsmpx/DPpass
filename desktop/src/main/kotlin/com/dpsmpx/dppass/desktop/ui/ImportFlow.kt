@@ -32,6 +32,8 @@ class ImportFlow(
     private val changed: () -> Unit,
     /** Устройство раздачи добавлено ссылкой (D-85): показать его в списке. */
     private val relaysChanged: () -> Unit,
+    /** Политика сменилась (свои списки, D-93): туннель — переподключить, если поднят. */
+    private val reconnect: () -> Unit = {},
 ) {
     fun fromClipboard() {
         val text = try {
@@ -76,6 +78,13 @@ class ImportFlow(
                 }
             }
             is ImportKind.Relay -> addRelay(kind.link)
+            is ImportKind.HappRouting -> when (val r = graph.core.parseHappRouting(text)) {
+                is Outcome.Failure -> info("Профиль маршрутизации не взят:\n\n" + Widgets.describe(r.errors.first()))
+                is Outcome.Success -> SiteListsDialog.confirmHapp(parent(), graph.core, scope, r.value) {
+                    changed()
+                    reconnect()
+                }
+            }
             is ImportKind.Unrecognized -> {
                 val why = kind.reason?.let { "\n\n" + it.message }.orEmpty()
                 info("Не распознано: ни документ DPpass, ни адрес подписки, ни ссылки.$why")

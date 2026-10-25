@@ -804,6 +804,23 @@ class XrayCompilerTest {
     }
 
     @Test
+    fun ownListGeoCodesAreCheckedAgainstTheSet() {
+        // Свои списки (D-93): код geosite/geoip, которого нет в наборе, — находка до сохранения, с путём списка.
+        val set = GeodataManifest(
+            "v0.0.0-20260101000000-0123456789ab", "0123456789ab", "2026-01", emptyList(), setOf("ru"),
+            mapOf("example-a" to emptyList()),
+        )
+        val compiler = XrayCompiler(geodata = GeodataCodes.Installed(set))
+        assertTrue(compiler.checkGeoCodes(listOf("example-a"), listOf("ru"), "policy.lists.direct").isEmpty())
+        assertEquals(
+            listOf(DiagCode.GEO_CODE_UNKNOWN to "policy.lists.proxy.geoip", DiagCode.GEO_CODE_UNKNOWN to "policy.lists.proxy.geosite"),
+            compiler.checkGeoCodes(listOf("example-z"), listOf("zz"), "policy.lists.proxy").map { it.code to it.path },
+        )
+        // На хосте без набора — не сверяется.
+        assertTrue(XrayCompiler(geodata = GeodataCodes.Unchecked).checkGeoCodes(listOf("example-z"), emptyList(), "p").isEmpty())
+    }
+
+    @Test
     fun serverlessDialsOnlyDirectOutbounds() {
         // D-73: исходящего к серверу нет; `proxy` — прямой с разбиением (по нему — счётчики моста и проба).
         val sites = SplitSites.parse("example.com\ngeosite:example-a").valueOrNull()!!

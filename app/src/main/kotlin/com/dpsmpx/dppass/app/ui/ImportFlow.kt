@@ -77,6 +77,7 @@ internal object ImportFlow {
                 is ImportKind.SubscriptionUrl -> addSubscription(host, kind.url)
                 is ImportKind.Links -> confirmLinks(host, text, kind)
                 is ImportKind.Relay -> confirmRelay(host, kind.link)
+                is ImportKind.HappRouting -> confirmHapp(host, kind.text)
                 is ImportKind.Unrecognized -> host.problem(
                     c.getString(R.string.import_unrecognized),
                     kind.reason ?: Diagnostic.error(DiagCode.SUBSCRIPTION_FORMAT_UNKNOWN, c.getString(R.string.import_unrecognized_text)),
@@ -144,6 +145,50 @@ internal object ImportFlow {
         }
         sheet = Ui.sheet(c, c.getString(R.string.relays_add_title), body)
         sheet.show()
+    }
+
+    /**
+     * Профиль маршрутизации Happ (D-93): что добавится в свои списки и что
+     * не будет взято — с причинами; добавляется только по нажатию (T13).
+     */
+    private fun confirmHapp(host: Host, text: String) {
+        val c = host.activity
+        val core = host.graph?.core ?: return
+        host.scope.launch {
+            val parsed = withContext(Dispatchers.Default) { core.parseHappRouting(text) }
+            val r = when (parsed) {
+                is Outcome.Failure -> return@launch host.problem(c.getString(R.string.import_happ_title), parsed.errors.first())
+                is Outcome.Success -> parsed.value
+            }
+            lateinit var sheet: Dialog
+            val body = Ui.column(c, 12).apply {
+                val summary = c.getString(R.string.import_happ_summary, r.lists.direct.size, r.lists.proxy.size, r.lists.block.size)
+                addView(Ui.text(c, R.style.Text_DPpass_Body, summary))
+                if (r.skipped.isNotEmpty()) {
+                    val shown = r.skipped.take(SKIPPED_SHOWN).joinToString("\n") { "• ${it.field}: ${it.reason}" }
+                    val rest = r.skipped.size - SKIPPED_SHOWN
+                    val more = if (rest > 0) "\n" + c.resources.getQuantityString(R.plurals.import_happ_more, rest, rest) else ""
+                    addView(Ui.text(c, R.style.Text_DPpass_Secondary, c.getString(R.string.import_happ_skipped)))
+                    addView(Ui.text(c, R.style.Text_DPpass_Caption, shown + more).apply { setTextIsSelectable(true) })
+                }
+                addView(Ui.text(c, R.style.Text_DPpass_Caption, c.getString(R.string.import_happ_note)))
+                addView(
+                    Ui.button(c, R.string.import_happ_add, Ui.Style.PRIMARY, R.drawable.ic_check).apply {
+                        setOnClickListener {
+                            sheet.dismiss()
+                            host.scope.launch {
+                                val done = withContext(Dispatchers.IO) { core.userPolicy.addSiteLists(r.lists) }
+                                SiteListsScreen.applied(host, done, R.string.import_happ_done)
+                            }
+                        }
+                    },
+                    Ui.matchWidth(),
+                )
+            }
+            val title = r.name?.let { c.getString(R.string.import_happ_named, it) } ?: c.getString(R.string.import_happ_title)
+            sheet = Ui.sheet(c, title, body)
+            sheet.show()
+        }
     }
 
     private fun confirmLinks(host: Host, text: String, kind: ImportKind.Links) {
@@ -282,6 +327,9 @@ internal object ImportFlow {
             host.changed()
         }
     }
+
+    /** Сколько невзятых записей профиля показать в сводке; остальные — числом. */
+    private const val SKIPPED_SHOWN = 12
 
     /** Предел файла импорта — тот же, что у документа DPpass. */
     const val MAX_FILE_BYTES: Int = ImportClassifier.MAX_BYTES

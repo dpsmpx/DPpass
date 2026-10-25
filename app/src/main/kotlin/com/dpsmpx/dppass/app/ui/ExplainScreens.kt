@@ -21,6 +21,7 @@ import com.dpsmpx.dppass.core.SubscriptionId
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.engine.xray.Ipv6Egress
 import com.dpsmpx.dppass.routing.RouteQuery
+import com.dpsmpx.dppass.routing.SiteListKind
 import com.dpsmpx.dppass.routing.SplitSites
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -422,6 +423,13 @@ class RouteCheckScreen(host: Host) : SubScreen(host, R.string.route_title) {
             RouteWhy.SplitSites -> context.getString(R.string.route_why_split_sites)
             RouteWhy.ServerlessDirect -> context.getString(R.string.route_why_serverless_direct)
             RouteWhy.ServerlessSplit -> context.getString(R.string.route_why_serverless_split)
+            is RouteWhy.OwnList -> context.getString(
+                when (w.kind) {
+                    SiteListKind.DIRECT -> R.string.route_why_own_direct
+                    SiteListKind.PROXY -> R.string.route_why_own_proxy
+                    SiteListKind.BLOCK -> R.string.route_why_own_block
+                },
+            )
             RouteWhy.Default -> context.getString(R.string.route_why_default)
             is RouteWhy.DocumentRule -> context.getString(R.string.route_why_rule, w.id)
         }

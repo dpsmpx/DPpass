@@ -56,10 +56,10 @@ class DesktopWindow(
         subscriptions = SubscriptionsPanel(graph, scope, changed) { run ->
             if (run.needsReconnect(session.connectedProfile())) session.reconnectIfConnected()
         }
-        val import = ImportFlow(graph, scope, { frame }, subscriptions, changed) {
+        val import = ImportFlow(graph, scope, { frame }, subscriptions, changed, {
             relays.reload()
             tabs.selectedComponent = relays
-        }
+        }) { session.reconnectIfConnected() }
         connect = ConnectPanel(graph, session, prefs, import::fromClipboard)
         servers = ServersPanel(graph, prefs, scope, { session.status.value }) {
             session.reconnectIfConnected()
@@ -160,6 +160,12 @@ class DesktopWindow(
                 )
                 // Сайты напрямую с разбиением (D-72, D-82): список ПК; действует сразу.
                 add(JMenuItem("Сайты напрямую с разбиением…").apply { addActionListener { SplitSitesDialog.show(frame, graph, prefs, session) } })
+                // Свои списки сайтов (D-93): напрямую, через туннель, блокировать; действует сразу.
+                add(
+                    JMenuItem("Свои списки сайтов…").apply {
+                        addActionListener { SiteListsDialog.show(frame, graph.core, scope, { session.reconnectIfConnected() }) }
+                    },
+                )
                 // Без сервера (D-73, D-83): остальные сайты и DNS; приложения — все (Linux их не различает).
                 add(serverlessMenu())
                 // Проверка новой сети при поднятом туннеле (D-80): выключено — только по кнопке на «Сети».

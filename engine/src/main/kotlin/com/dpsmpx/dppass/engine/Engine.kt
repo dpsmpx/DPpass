@@ -204,6 +204,13 @@ interface BackendCompiler {
      */
     fun checkSplitSites(sites: SplitSites): List<Diagnostic> = emptyList()
 
+    /**
+     * Коды geosite и geoip (свои списки, D-93) — против набора геоданных
+     * ядра (D-27): запись с кодом, которого нет, — до сохранения, а не
+     * отказом подключения. Без ядра — ничего не проверяется.
+     */
+    fun checkGeoCodes(geoSites: List<String>, geoIps: List<String>, path: String): List<Diagnostic> = emptyList()
+
     fun compile(ir: ConfigIr, plan: CompilePlan): Outcome<CompiledConfig>
 
     /** Конфигурация без сервера (D-73); ядро, которое так не умеет, — отказ, а не подмена (D-05). */

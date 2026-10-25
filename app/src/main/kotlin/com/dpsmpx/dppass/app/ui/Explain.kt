@@ -16,6 +16,7 @@ import com.dpsmpx.dppass.routing.RouteAction
 import com.dpsmpx.dppass.routing.RouteDecision
 import com.dpsmpx.dppass.routing.RouteQuery
 import com.dpsmpx.dppass.routing.RoutingPolicy
+import com.dpsmpx.dppass.routing.SiteListKind
 import com.dpsmpx.dppass.tunnel.TunnelSpecBuilder
 import java.net.IDN
 
@@ -89,6 +90,9 @@ sealed interface RouteWhy {
     /** Без сервера (D-73): сайт не из списка, «остальные сайты» — с разбиением. */
     data object ServerlessSplit : RouteWhy
 
+    /** Свой список сайтов (D-93): напрямую, через туннель или блокировать — раньше правил режима. */
+    data class OwnList(val kind: SiteListKind) : RouteWhy
+
     /** Ни одно правило не сработало — действие по умолчанию. */
     data object Default : RouteWhy
 
@@ -99,6 +103,11 @@ sealed interface RouteWhy {
 data class RouteAnswer(val verdict: RouteVerdict, val why: RouteWhy)
 
 object RouteExplain {
+    /** Правила своих списков (D-93) по их постоянным id — какой список сработал. */
+    private val OWN_RULES: Map<String, SiteListKind> = SiteListKind.entries.flatMap { k ->
+        listOf(PolicyBuilder.ownRule(k, names = true) to k, PolicyBuilder.ownRule(k, names = false) to k)
+    }.toMap()
+
     /**
      * Ввод «Почему этот маршрут» → запрос: имя сайта, адрес IP или ссылка
      * (берётся её хост). Пусто — только приложение [packageName]; null —
@@ -158,6 +167,7 @@ object RouteExplain {
             PolicyBuilder.RULE_ADS -> RouteWhy.Ads
             PolicyBuilder.RULE_RU_SITES -> RouteWhy.RuSites
             PolicyBuilder.RULE_RU_IP -> RouteWhy.RuIp
+            in OWN_RULES.keys -> RouteWhy.OwnList(OWN_RULES.getValue(id!!))
             null -> when {
                 query.packageName?.let { !policy.apps.includes(it) } == true -> RouteWhy.AppOutside
                 policy.automaticDomestic && decision.action == RouteAction.DIRECT && policy.defaultAction != RouteAction.DIRECT -> RouteWhy.AutoDomestic

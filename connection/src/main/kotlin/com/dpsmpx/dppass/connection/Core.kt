@@ -35,6 +35,9 @@ import com.dpsmpx.dppass.routing.RouteDecision
 import com.dpsmpx.dppass.routing.RouteQuery
 import com.dpsmpx.dppass.routing.RoutingPolicy
 import com.dpsmpx.dppass.routing.Rule
+import com.dpsmpx.dppass.routing.SiteEntry
+import com.dpsmpx.dppass.routing.SiteListKind
+import com.dpsmpx.dppass.routing.SiteLists
 import com.dpsmpx.dppass.routing.SplitSites
 import com.dpsmpx.dppass.storage.BlobStore
 import com.dpsmpx.dppass.storage.Quarantine
@@ -344,6 +347,21 @@ class DPpassCore(
 
     /** Список «Напрямую с разбиением» (D-72) против ядра: коды geosite — по набору геоданных (D-27). */
     fun checkSplitSites(sites: SplitSites): List<Diagnostic> = compiler.checkSplitSites(sites)
+
+    /** Запись своего списка с geosite или geoip (D-93) — против набора ядра; null — код есть (или проверять нечем). */
+    fun checkGeoEntry(entry: SiteEntry, path: String): Diagnostic? = when (entry) {
+        is SiteEntry.GeoSite -> compiler.checkGeoCodes(listOf(entry.code), emptyList(), path).firstOrNull()
+        is SiteEntry.GeoIp -> compiler.checkGeoCodes(emptyList(), listOf(entry.code), path).firstOrNull()
+        else -> null
+    }
+
+    /** Профиль маршрутизации Happ (D-93) → что добавится в свои списки и что нет; коды geosite/geoip — против набора ядра. */
+    fun parseHappRouting(text: String): Outcome<HappRoutingImport> = HappRouting.parse(text) { e -> checkGeoEntry(e, "happ")?.message }
+
+    /** Свои списки (D-93) — против набора ядра: все записи с кодом, которого нет. */
+    fun checkSiteLists(lists: SiteLists): List<Diagnostic> = SiteListKind.entries.flatMap { kind ->
+        lists[kind].entries.mapNotNull { checkGeoEntry(it, "${PolicyBuilder.LISTS_PATH}.${kind.wire}") }
+    }
 
     /**
      * Попадает ли соединение в список «Напрямую с разбиением» (D-72): тот же
