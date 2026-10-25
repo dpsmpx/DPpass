@@ -4239,7 +4239,7 @@ minSdk, лицензия) — позже.
 защиты, а туннель зациклился бы.
 
 **Решение.**
-- **R8 в release** (`isMinifyEnabled = true`,
+- **R8 в release** (`isMinifyEnabled = true`, `isShrinkResources = true`,
   `proguard-android-optimize.txt` + `app/proguard-rules.pro`).
 - **Без переименования и оптимизации, со своими строками**:
   `-dontobfuscate`, `-dontoptimize`, `-keepattributes
@@ -4257,8 +4257,11 @@ minSdk, лицензия) — позже.
   - `native`-методы `XrayJni` — их имена входят в символы
     `libdppassxray.so`;
   - интерфейс `SocketProtector.protect` и этот метод у всех реализаций.
-- **Ресурсы не сжимаются**: экономия мала, а ошибка видна только на
-  телефоне.
+- **Ресурсы сжимаются тоже** (`isShrinkResources`; без этого Lint
+  отказывает, `NotShrinkingResources`). Имён ресурсов код не собирает
+  (`getIdentifier` нет), всё нужное R8 видит по ссылкам `R.*`; `assets`
+  (геоданные, уведомления) сжатие не трогает, и `check_apk.py` сверяет
+  их и в release.
 - **Тексты лицензий** — уже в приложении (D-43), их проверка идёт и для
   release.
 - **На телефоне** работу release проверяет автор (`TODO.md`, «На

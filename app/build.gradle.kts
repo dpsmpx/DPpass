@@ -61,10 +61,12 @@ android {
             // сборка для устройств автора (D-35). Подписи в Gradle нет — APK
             // подписывает tools/release/sign_apks.py ключом разработчика из
             // переменных окружения, ключ в демон Gradle не попадает.
-            // R8 (D-91): сжатие и оптимизация без переименования; правила JNI —
+            // R8 (D-91): сжатие без переименования и оптимизации; правила JNI —
             // proguard-rules.pro, проверка — check_apk.py --release. Ресурсы
-            // не сжимаются: экономия мала, а ошибка видна только на телефоне.
+            // сжимаются тоже: имён ресурсов код не собирает (getIdentifier нет),
+            // всё нужное видно R8 по ссылкам R.*; assets сжатие не трогает.
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // Случайный ярлык личной сборки (D-47): не выдаёт назначение. Сам
             // applicationId задаётся per-variant ниже (на buildType его ставить
