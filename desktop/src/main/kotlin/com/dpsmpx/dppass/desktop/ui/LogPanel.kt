@@ -12,8 +12,9 @@ import javax.swing.JTextArea
 
 /**
  * «Журнал»: события этого запуска из памяти (D-26, D-54) — уже с
- * отредактированными секретами (`Logger`, D-11). Наружу — только кнопкой
- * «Копировать журнал» (D-47).
+ * отредактированными секретами (`Logger`, D-11). Первая строка — версия и
+ * условия запуска (D-87): кольцо памяти могло её вытеснить. Наружу —
+ * только кнопкой «Копировать журнал» (D-47).
  */
 class LogPanel(private val graph: DesktopGraph) : JPanel(BorderLayout()) {
     private val area = JTextArea().apply {
@@ -44,7 +45,7 @@ class LogPanel(private val graph: DesktopGraph) : JPanel(BorderLayout()) {
     }
 
     fun reload() {
-        area.text = graph.log.snapshot().joinToString("\n") { it.render() }
+        area.text = (listOf(DesktopGraph.sessionLine()) + graph.log.snapshot().map { it.render() }).joinToString("\n")
         area.caretPosition = area.document.length
     }
 

@@ -108,7 +108,12 @@ object DeviceLog {
             }
             val open = file
             open?.flush(FLUSH_MILLIS)
-            val text = LogExport.text(d, TITLE, memory = if (open == null) memory.snapshot() else null)
+            // Журнал выключен — копия из памяти; версия и условия запуска — и в ней (D-87).
+            val text = if (open == null) {
+                LogExport.text(d, TITLE, memory = memory.snapshot(), header = header(app))
+            } else {
+                LogExport.text(d, TITLE)
+            }
             val clip = ClipData.newPlainText(TITLE, text)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 // Android 13+: система не показывает предпросмотр текста журнала.

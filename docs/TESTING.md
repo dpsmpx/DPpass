@@ -225,6 +225,7 @@ python3 tools/xray/native.py host
 `LinuxShareInterfacesTest` (D-84: раздача — только общие сети NetworkManager; сомнение — не раздавать),
 `ShareWatchTest` (D-84: смена точки доступа — одно переподключение),
 `SystemCommandTest` (T17: программа по абсолютному пути, без shell, с пределом времени),
+`SessionLineTest` (D-87: первая строка «Журнала» — версия без идентификаторов),
 `LinuxRelayNetworksTest` (D-85: устройство раздачи — шлюзы сетей ПК, вход SOCKS5, сокеты мимо туннеля),
 `RelayPairingTest` (D-85: сопряжение ПК-гостя с настоящим ходом хозяина по loopback),
 `go test` моста (`TestResolverUpstream`, метка резолвера,

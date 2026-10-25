@@ -171,9 +171,12 @@ class LogExportTest {
         earlier.startSession(listOf("earlier run"))
         CrashRecord.append(dir, CrashRecord.render("main", IllegalStateException("boom"), 0L))
         val run = listOf(event(1, "engine loaded"), event(2, "203.0.113.10"))
-        val text = LogExport.text(dir, "DPpass", memory = run)
+        val header = "1970-01-01T00:00:00.000Z INFO app session_start version=0.7.39-dev api=36 abis=arm64-v8a debuggable=true"
+        val text = LogExport.text(dir, "DPpass", memory = run, header = listOf(header))
         val session = text.substringAfter("=== Текущий сеанс ===\n")
         assertTrue(session.startsWith("(журнал на телефоне выключен — события этого запуска из памяти)\n"), text)
+        // D-87: версия и условия запуска — и в копии из памяти, первыми.
+        assertTrue(session.lines()[1].contains("session_start version=0.7.39-dev api=36"), text)
         assertTrue("${FileLogSink.format(run[0])}\n" in session, text)
         assertTrue(" e2 " in session, text)
         assertFalse("203.0.113.10" in text, "IP — только в STRICT-виде: $text")

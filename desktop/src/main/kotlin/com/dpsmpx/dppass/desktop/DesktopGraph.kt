@@ -56,6 +56,12 @@ class DesktopGraph(
         /** Версия оболочки — в `User-Agent` подписки (D-33): из манифеста jar. */
         val VERSION: String = DesktopGraph::class.java.`package`?.implementationVersion ?: "dev"
 
+        /**
+         * Первая строка «Журнала» и его копии (D-87): версия оболочки, Java и
+         * архитектура — без имени ПК, пользователя и прочих идентификаторов (D-12).
+         */
+        fun sessionLine(): String = "session_start version=$VERSION java=${Runtime.version().feature()} arch=${System.getProperty("os.arch")}"
+
         fun build(paths: DesktopPaths, platform: LinuxPlatform = SystemLinuxPlatform()): DesktopGraph {
             val sink = MemoryLogSink(LOG_CAPACITY)
             val logger = Logger("desktop", sink, Clock.SYSTEM::nowMillis)
