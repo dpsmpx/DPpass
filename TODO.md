@@ -188,6 +188,30 @@ Xray, проверки `check_apk.py` (16 КБ), `code.forbidden`
       (`ip link` — `usb0` или `enx…`), «Рядом: USB»; по Bluetooth-модему
       (PAN, `bnep0`) — «Рядом: Bluetooth». Записать, что видно.
 
+## Windows — этап 7 (D-97)
+
+Оболочка для ПК с Windows x64 по выбору автора 30.10.2026
+(`docs/direction/ROADMAP/07-windows.md`; факты —
+`docs/research/WINDOWS_SHELL.md`). Работы по порядку:
+
+- [ ] Мост для Windows: платформенные файлы по `//go:build`, снятие хуков
+      сокетов после остановки, ключ данных под DPAPI, `native.py windows`
+      (mingw-w64, заголовки JNI Temurin), проверка экспорта и импорта DLL.
+- [ ] Компилятор и политика моста: вход TUN Windows (адреса, маршруты
+      дополнением, DNS `172.19.0.2`, `autoOutboundsInterface`, фильтры
+      `dns` и `misconfigtun`); поля Windows — только на Windows (T11).
+- [ ] Платформа Windows в `:desktop`: выбор по `os.name`, туннель — у ядра,
+      `%LOCALAPPDATA%\DPpass`, права администратора, пробы и смена сети;
+      раздача и устройство раздачи — скрыты с причиной.
+- [ ] Комплект: jlink из Temurin 21, `wintun.dll` 0.14.1 и его
+      `LICENSE.txt` в `runtime\bin`, запускатель `dppass.exe` с манифестом
+      `requireAdministrator`, архив и `SHA256SUMS`; матрица и PROVENANCE;
+      ветка `windows_debug`.
+- [ ] На ПК автора: UAC при запуске, окно, адаптер `dppass0`, подключение
+      через сервер подписки, нет утечки DNS и IPv6 (`test-ipv6.com`,
+      проверка DNS), отключение и снятие процесса убирают адаптер и
+      фильтры.
+
 ## На устройстве
 
 Проверено 4 октября 2026 на телефоне автора — Android 15 (API 35),
