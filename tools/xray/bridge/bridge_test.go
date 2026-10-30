@@ -88,6 +88,29 @@ func TestPolicyAllowsOnlyTunInbound(t *testing.T) {
 	}
 }
 
+// D-97: вход TUN, который сам настраивает систему, — только на Windows; на
+// Android и Linux адреса и маршруты ставит платформа.
+func TestPolicyRejectsSystemTunFieldsOffWindows(t *testing.T) {
+	setup(t)
+	field := func(f string) []byte {
+		return cfg(`{"tag": "tun-in", "protocol": "tun", "settings": {"name": "dppass0", "mtu": 1500, ` + f + `}}`)
+	}
+	cases := map[string][]byte{
+		"адреса":            field(`"gateway": ["172.19.0.1/30"]`),
+		"DNS":               field(`"dns": ["172.19.0.2"]`),
+		"маршруты":          field(`"autoSystemRoutingTable": ["0.0.0.0/0"], "autoOutboundsInterface": ""`),
+		"привязка сокетов":  field(`"autoOutboundsInterface": "auto"`),
+		"фильтры WFP":       field(`"autoSystemWfpBlockLeak": ["dns"], "autoSystemRoutingTable": ["0.0.0.0/0"]`),
+		"DNS системы в TUN": field(`"gateway": ["172.19.0.1/30"], "autoSystemDnsToGateway": true`),
+	}
+	for name, c := range cases {
+		_, err := Validate(c)
+		if err == nil || kindOf(t, err) != KindConfig || !strings.Contains(err.Error(), "D-97") {
+			t.Errorf("%s: политика должна отвергнуть вход TUN, который настраивает систему, получено %v", name, err)
+		}
+	}
+}
+
 // D-51: вход раздачи — только SOCKS с паролем, на частном IPv4 и с тегом раздачи.
 func TestPolicyAllowsOnlyAuthenticatedShareInbound(t *testing.T) {
 	setup(t)

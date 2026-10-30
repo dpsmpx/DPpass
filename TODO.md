@@ -68,6 +68,13 @@ Xray, проверки `check_apk.py` (16 КБ), `code.forbidden`
 
 ## Известные долги (из аудита)
 
+- [ ] Адрес TUN на Android и Linux — номер сети `172.19.0.0/30`: `Cidr`
+      обнуляет биты хоста, и `TunnelSpec.address4` (`ADDRESS4`) хранит
+      сеть, а не `172.19.0.1` (найдено 30.10.2026, D-97). Подключение там
+      работает (TUN точка-точка, DNS `172.19.0.2` перехватывает ядро), но
+      смысл адреса не тот. Решить: адрес хоста в `TunnelSpec` — как
+      `HostAddress` у TUN ядра Windows.
+
 Подробности и обоснование — `docs/audits/INITIAL_ARCHITECTURE_AUDIT.md`.
 
 - [ ] DP Verify (D-50): `process.files` не сверяет «следующий свободный
@@ -192,12 +199,10 @@ Xray, проверки `check_apk.py` (16 КБ), `code.forbidden`
 
 Оболочка для ПК с Windows x64 по выбору автора 30.10.2026
 (`docs/direction/ROADMAP/07-windows.md`; факты —
-`docs/research/WINDOWS_SHELL.md`). Мост для Windows (работа 1) сделан
-30.10.2026. Дальше по порядку:
+`docs/research/WINDOWS_SHELL.md`). Мост для Windows и вход TUN Windows в
+компиляторе и политике моста (работы 1 и 2) сделаны 30.10.2026. Дальше по
+порядку:
 
-- [ ] Компилятор и политика моста: вход TUN Windows (адреса, маршруты
-      дополнением, DNS `172.19.0.2`, `autoOutboundsInterface`, фильтры
-      `dns` и `misconfigtun`); поля Windows — только на Windows (T11).
 - [ ] Платформа Windows в `:desktop`: выбор по `os.name`, туннель — у ядра,
       `%LOCALAPPDATA%\DPpass`, права администратора, пробы и смена сети;
       раздача и устройство раздачи — скрыты с причиной.

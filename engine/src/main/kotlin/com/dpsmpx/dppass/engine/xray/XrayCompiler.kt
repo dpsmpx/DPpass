@@ -27,6 +27,7 @@ import com.dpsmpx.dppass.engine.EngineCapabilities
 import com.dpsmpx.dppass.engine.LocalProxySpec
 import com.dpsmpx.dppass.engine.ServerlessPlan
 import com.dpsmpx.dppass.engine.ShareSpec
+import com.dpsmpx.dppass.engine.SystemTun
 import com.dpsmpx.dppass.routing.AppLowering
 import com.dpsmpx.dppass.routing.Conditions
 import com.dpsmpx.dppass.routing.DnsPolicy
@@ -79,6 +80,14 @@ import java.util.Base64
  * резолвер системы не перенастраивается, и запрос на порт 53 любого
  * адреса правилами `ip rule` приходит в TUN — ядро перехватывает его
  * весь, иначе запрос к резолверу роутера ушёл бы `direct` мимо туннеля.
+ * На Windows (D-97) так же: DNS адаптера и фильтр WFP `dns` ведут в TUN
+ * запросы на порт 53 к любому адресу.
+ *
+ * TUN ядра (Windows, [CompilePlan.systemTun], D-97) — вход TUN с адресами,
+ * маршрутами и DNS адаптера, привязкой сокетов ядра к физическому
+ * интерфейсу (`autoOutboundsInterface`) и фильтрами WFP `dns` и
+ * `misconfigtun`: вне TUN не уходят ни DNS, ни версия IP без маршрутов в
+ * него. Политика моста пропускает эти поля только на Windows.
  *
  * Конфигурация содержит секреты: наружу — только через
  * [CompiledConfig.payloadForEngine].
@@ -107,6 +116,7 @@ class XrayCompiler(
         if (plan.local != null && plan.withTun) {
             problems += Diagnostic.error(DiagCode.CAPABILITY_FEATURE_UNSUPPORTED, "локальный прокси — только без VPN (D-95), а в плане есть TUN", "$.inbounds")
         }
+        if (plan.systemTun != null && !plan.withTun) problems += systemTunWithoutTun()
         if (problems.any { it.isError }) return Outcome.Failure(problems)
         val index = ir.profiles.indexOfFirst { it.id == plan.profileId }
         val profile = ir.profiles[index]
@@ -140,7 +150,8 @@ class XrayCompiler(
             build.directSplitOutbound(ir.dns.strategy).takeIf { !plan.splitSites.isEmpty },
         )
 
-        val inbounds = listOfNotNull(tunInbound().takeIf { plan.withTun }, plan.local?.let(::localInbound)) + plan.share?.let(::shareInbounds).orEmpty()
+        val inbounds = listOfNotNull(tunInbound(plan.systemTun).takeIf { plan.withTun }, plan.local?.let(::localInbound)) +
+            plan.share?.let(::shareInbounds).orEmpty()
         return Outcome.Success(compiled(profile.id, document(dns, routing, inbounds, outbounds)), problems)
     }
 
@@ -154,6 +165,7 @@ class XrayCompiler(
      */
     override fun compileServerless(plan: ServerlessPlan): Outcome<CompiledConfig> {
         val problems = mutableListOf<Diagnostic>()
+        if (plan.systemTun != null && !plan.withTun) problems += systemTunWithoutTun()
         val build = Build(problems, geodata, dnsHijackAnyAddress)
         for ((i, server) in plan.dns.servers.withIndex()) {
             if (server.route == DnsRoute.TUNNEL) {
@@ -169,7 +181,7 @@ class XrayCompiler(
         // Первый исходящий — для соединений, которых не взяло ни одно правило (см. KDoc класса).
         val outbounds = (if (plan.splitRest) listOf(split, direct) else listOf(direct, split)) +
             listOfNotNull(blockOutbound(), dnsOutbound().takeIf { plan.withTun })
-        val inbounds = listOfNotNull(tunInbound().takeIf { plan.withTun })
+        val inbounds = listOfNotNull(tunInbound(plan.systemTun).takeIf { plan.withTun })
         return Outcome.Success(compiled(ServerlessPlan.PROFILE_ID, document(dns, routing, inbounds, outbounds)), problems)
     }
 
@@ -877,6 +889,30 @@ class XrayCompiler(
          * порту), только на `127.0.0.1`. UDP — для SOCKS5 UDP ASSOCIATE, тоже на
          * loopback.
          */
+        /**
+         * Вход TUN, который сам создаёт адаптер (Windows, D-97). Фильтр
+         * `misconfigtun` всегда: он закрывает только версию IP, у которой нет
+         * маршрутов в TUN, — с маршрутами обеих он ничего не меняет.
+         */
+        fun systemTunSettings(system: SystemTun): JsonObject = Json.obj(
+            "name" to Json.str(XrayBackend.TUN_NAME),
+            "mtu" to Json.num(XrayBackend.TUN_MTU),
+            "gateway" to Json.strings(system.addresses.map { it.toString() }),
+            "dns" to Json.strings(system.dns.map { it.toString() }),
+            "autoSystemRoutingTable" to Json.strings(system.routes.map { it.toString() }),
+            "autoOutboundsInterface" to Json.str(SYSTEM_TUN_OUTBOUNDS_INTERFACE),
+            "autoSystemWfpBlockLeak" to Json.strings(SYSTEM_TUN_BLOCK_LEAK),
+        )
+
+        /** Как выбирать физический интерфейс для сокетов ядра: по маршрутам системы. */
+        const val SYSTEM_TUN_OUTBOUNDS_INTERFACE: String = "auto"
+
+        /** Фильтры WFP: DNS только через TUN; версия IP без маршрутов в TUN — закрыта. */
+        val SYSTEM_TUN_BLOCK_LEAK: List<String> = listOf("dns", "misconfigtun")
+
+        private fun systemTunWithoutTun(): Diagnostic =
+            Diagnostic.error(DiagCode.CAPABILITY_FEATURE_UNSUPPORTED, "TUN ядра (D-97) — только в плане с TUN", "$.inbounds")
+
         fun localInbound(local: LocalProxySpec): JsonObject = Json.obj(
             "tag" to Json.str(XrayBackend.TAG_LOCAL),
             "protocol" to Json.str("socks"),
@@ -908,11 +944,15 @@ class XrayCompiler(
                 Cidr.complement(Cidr.ALL_V4, share.endpoints.map { it.subnet }) +
                 Cidr.ALL_V6
 
-        fun tunInbound(): JsonObject = Json.obj(
+        fun tunInbound(system: SystemTun? = null): JsonObject = Json.obj(
             "tag" to Json.str(XrayBackend.TAG_TUN_IN),
             "protocol" to Json.str("tun"),
             // Имя — всегда: без него Xray перебирает интерфейсы системы, а на Android это запрещено (XrayBackend.TUN_NAME).
-            "settings" to Json.obj("name" to Json.str(XrayBackend.TUN_NAME), "mtu" to Json.num(XrayBackend.TUN_MTU)),
+            "settings" to if (system == null) {
+                Json.obj("name" to Json.str(XrayBackend.TUN_NAME), "mtu" to Json.num(XrayBackend.TUN_MTU))
+            } else {
+                systemTunSettings(system)
+            },
             "sniffing" to Json.obj(
                 "enabled" to Json.bool(true),
                 "destOverride" to Json.strings(listOf("http", "tls", "quic")),

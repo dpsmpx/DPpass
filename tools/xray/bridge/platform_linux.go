@@ -3,10 +3,12 @@
 package bridge
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 
 	"github.com/xtls/xray-core/common/platform"
+	"github.com/xtls/xray-core/proxy/tun"
 )
 
 // Android и Linux: TUN открывает платформа и отдаёт fd (D-25, D-74), сокеты
@@ -60,3 +62,16 @@ func armSockets(p Protector) {
 func disarmSockets() { setGuard(denyAll{}) }
 
 func clearTunEnv() error { return os.Unsetenv(platform.TunFdKey) }
+
+// checkTunFields — вход TUN Android и Linux не трогает систему: адреса,
+// маршруты и DNS ставит платформа (D-25, D-74). Поля, которыми вход TUN
+// Xray сам настраивает систему (Windows, D-97), здесь — отказ: на Linux
+// Xray применил бы адреса и маршруты мимо LinuxRoutes, на Android — сверх
+// VpnService.
+func checkTunFields(tag string, tc *tun.Config) error {
+	if len(tc.Gateway) > 0 || len(tc.DNS) > 0 || len(tc.AutoSystemRoutingTable) > 0 || tc.AutoOutboundsInterface != "" ||
+		tc.AutoSystemDnsToGateway || len(tc.AutoSystemWfpBlockLeak) > 0 {
+		return fmt.Errorf("мост: вход TUN %q настраивает систему (адреса, маршруты, DNS) — так только на Windows (D-97)", tag)
+	}
+	return nil
+}

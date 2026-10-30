@@ -208,7 +208,16 @@ JNI из закреплённого JDK Temurin. Тесты моста для Wi
 - ключ под DPAPI читается обратно, испорченный блок — нет
   (`TestDpapiRoundTrip`);
 - снятие хуков сокетов не трогает старый массив
-  (`TestTrimHooksDropsOnlyAddedAndKeepsOldArray`, он же — и на Linux).
+  (`TestTrimHooksDropsOnlyAddedAndKeepsOldArray`, он же — и на Linux);
+- вход TUN проходит, только если он такой, как пишет компилятор: имя
+  `dppass0`, адреса, DNS, маршруты, `autoOutboundsInterface = "auto"`
+  и оба фильтра WFP (`TestWindowsPolicyAcceptsOnlyCompilerSystemTun`).
+  На Linux и Android те же поля — отказ
+  (`TestPolicyRejectsSystemTunFieldsOffWindows`).
+
+Сам вход TUN Windows компилятор пишет из `SystemTun`. Адрес адаптера —
+адрес хоста, а не номер сети; TUN ядра без TUN в плане — отказ; DNS вне
+маршрутов не строится (`XrayCompilerTest.systemTunOnWindowsCarriesAdapterSettings`).
 
 DLL проверяется: машина AMD64, экспорт JNI = `external` объектов
 `XrayJni` и `WindowsNative`, импорт только `kernel32.dll` и `msvcrt.dll`.

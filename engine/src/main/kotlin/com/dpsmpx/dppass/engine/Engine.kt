@@ -93,7 +93,8 @@ class CompiledConfig(
  * пользователя, по умолчанию — нет), какие сайты вести напрямую с
  * разбиением ([splitSites], D-72: список пользователя, по умолчанию пуст)
  * и есть ли локальный прокси для подключения без VPN ([local], D-95:
- * только без TUN).
+ * только без TUN). [systemTun] — TUN, который создаёт само ядро (Windows,
+ * D-97): только с [withTun]; без него TUN даёт платформа (fd, D-25).
  */
 data class CompilePlan(
     val profileId: ProfileId,
@@ -102,7 +103,40 @@ data class CompilePlan(
     val splitClientHello: Boolean = false,
     val splitSites: SplitSites = SplitSites.NONE,
     val local: LocalProxySpec? = null,
+    val systemTun: SystemTun? = null,
 )
+
+/**
+ * TUN, который создаёт и настраивает само ядро (Windows, D-97): адаптер
+ * Wintun, его адреса, маршруты и DNS ставит вход TUN Xray, у платформы
+ * нет ни fd, ни защитника сокетов — сокеты ядра вход TUN привязывает к
+ * физическому интерфейсу. Строит платформа из `TunnelSpec`
+ * (`docs/research/WINDOWS_SHELL.md`, §2).
+ */
+data class SystemTun(
+    /** Адреса адаптера — адрес хоста с длиной префикса, а не номер сети. */
+    val addresses: List<HostAddress>,
+    /** Маршруты в TUN. Исключающих маршрутов нет: исключённое выпадает дополнением. */
+    val routes: List<Cidr>,
+    /** DNS адаптера — внутренний адрес, запросы к которому перехватывает ядро. */
+    val dns: List<IpAddress>,
+) {
+    init {
+        require(addresses.isNotEmpty() && routes.isNotEmpty() && dns.isNotEmpty()) { "у TUN ядра нет адреса, маршрута или DNS" }
+        // Фильтр WFP «dns» пускает запросы к DNS адаптера только через TUN: адрес вне
+        // его адресов и маршрутов был бы просто закрыт (WINDOWS_SHELL.md, §2.3).
+        require(dns.all { ip -> routes.any { ip in it } }) { "DNS TUN ядра вне его маршрутов" }
+    }
+}
+
+/** Адрес интерфейса: хост и длина префикса его сети (`172.19.0.1/30`). */
+data class HostAddress(val address: IpAddress, val prefix: Int) {
+    init {
+        require(prefix in 1..address.bitLength) { "длина префикса вне диапазона" }
+    }
+
+    override fun toString(): String = "$address/$prefix"
+}
 
 /**
  * Подключение без VPN (D-95): вход SOCKS5 (он же HTTP-прокси) с логином и
@@ -134,6 +168,8 @@ data class ServerlessPlan(
     val splitSites: SplitSites,
     val splitRest: Boolean,
     val withTun: Boolean = true,
+    /** TUN, который создаёт ядро (Windows, D-97); как у [CompilePlan.systemTun]. */
+    val systemTun: SystemTun? = null,
 ) {
     companion object {
         /** Сеанс без сервера в `CompiledConfig.profileId`: не профиль документа — в id профиля нет двоеточий. */

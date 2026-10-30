@@ -21,9 +21,11 @@ import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Secret
 import com.dpsmpx.dppass.engine.CompilePlan
 import com.dpsmpx.dppass.engine.CompiledConfig
+import com.dpsmpx.dppass.engine.HostAddress
 import com.dpsmpx.dppass.engine.LocalProxySpec
 import com.dpsmpx.dppass.engine.ServerlessPlan
 import com.dpsmpx.dppass.engine.ShareSpec
+import com.dpsmpx.dppass.engine.SystemTun
 import com.dpsmpx.dppass.engine.capabilityDiff
 import com.dpsmpx.dppass.engine.mock.MockBackend
 import com.dpsmpx.dppass.routing.DnsPolicy
@@ -37,6 +39,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -263,6 +266,37 @@ class XrayCompilerTest {
         assertEquals(XrayBackend.TAG_DNS_OUT, any["outboundTag"].text)
         // Без TUN перехватывать нечего — и флаг правила не добавляет.
         assertNull(hijack(XrayCompiler(dnsHijackAnyAddress = true), withTun = false))
+    }
+
+    @Test
+    fun systemTunOnWindowsCarriesAdapterSettings() {
+        val config = ir()
+        val system = SystemTun(
+            addresses = listOf(HostAddress(IpAddress.parse("172.19.0.1")!!, 30), HostAddress(IpAddress.parse("fdfe:dcba:9876::1")!!, 126)),
+            routes = listOf(Cidr.ALL_V4, Cidr.ALL_V6),
+            dns = listOf(IpAddress.parse(XrayBackend.TUN_DNS4)!!),
+        )
+        fun tun(plan: CompilePlan): JsonObject {
+            val c = XrayCompiler(dnsHijackAnyAddress = true).compile(config, plan).valueOrNull()!!
+            return (Json.parse(c.payloadForEngine()) as JsonObject)["inbounds"].items.first { it["tag"].text == XrayBackend.TAG_TUN_IN } as JsonObject
+        }
+        // Windows (D-97): адаптер, его адреса, маршруты, DNS, привязка сокетов и фильтры WFP — во входе TUN.
+        val s = tun(CompilePlan(config.profiles[0].id, withTun = true, systemTun = system))["settings"]
+        assertEquals(XrayBackend.TUN_NAME, s["name"].text)
+        assertEquals(listOf("172.19.0.1/30", "fdfe:dcba:9876::1/126"), s["gateway"].items.map { it.text }, "адрес хоста, а не номер сети")
+        assertEquals(listOf("0.0.0.0/0", "::/0"), s["autoSystemRoutingTable"].items.map { it.text })
+        assertEquals(listOf(XrayBackend.TUN_DNS4), s["dns"].items.map { it.text })
+        assertEquals("auto", s["autoOutboundsInterface"].text)
+        assertEquals(listOf("dns", "misconfigtun"), s["autoSystemWfpBlockLeak"].items.map { it.text })
+        // Android и Linux: TUN даёт платформа — полей Windows во входе нет.
+        val plain = tun(CompilePlan(config.profiles[0].id, withTun = true))["settings"] as JsonObject
+        assertEquals(setOf("name", "mtu"), plain.fields.keys)
+        // TUN ядра без TUN в плане — отказ, а не вход, который никто не ждёт.
+        val r = XrayCompiler().compile(config, CompilePlan(config.profiles[0].id, withTun = false, systemTun = system))
+        assertIs<Outcome.Failure>(r)
+        assertTrue(r.errors.any { it.code == DiagCode.CAPABILITY_FEATURE_UNSUPPORTED && it.message.contains("D-97") })
+        // DNS вне маршрутов фильтр «dns» закрыл бы — такой TUN не строится.
+        assertFailsWith<IllegalArgumentException> { system.copy(routes = listOf(Cidr.parse("10.0.0.0/8")!!.cidr)) }
     }
 
     @Test

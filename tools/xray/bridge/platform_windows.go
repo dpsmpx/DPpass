@@ -3,6 +3,10 @@
 package bridge
 
 import (
+	"fmt"
+	"slices"
+
+	"github.com/xtls/xray-core/proxy/tun"
 	"github.com/xtls/xray-core/transport/internet"
 )
 
@@ -52,3 +56,27 @@ func disarmSockets() {
 }
 
 func clearTunEnv() error { return nil }
+
+// tunName — имя адаптера (XrayBackend.TUN_NAME): по нему ядро открывает или
+// создаёт адаптер Wintun, а GUID выводит из имени.
+const tunName = "dppass0"
+
+// checkTunFields — вход TUN Windows настраивает систему сам (D-97), и мост
+// пропускает только то, что пишет компилятор DPpass: своё имя, адреса,
+// маршруты и DNS, привязку сокетов по маршрутам и оба фильтра WFP. Без
+// маршрутов или без фильтра «dns» трафик и DNS шли бы мимо TUN.
+func checkTunFields(tag string, tc *tun.Config) error {
+	switch {
+	case tc.Name != tunName:
+		return fmt.Errorf("мост: вход TUN %q с адаптером %q, а не %q (D-97)", tag, tc.Name, tunName)
+	case len(tc.Gateway) == 0 || len(tc.DNS) == 0 || len(tc.AutoSystemRoutingTable) == 0:
+		return fmt.Errorf("мост: вход TUN %q без адресов, DNS или маршрутов — трафик шёл бы мимо TUN (D-97)", tag)
+	case tc.AutoOutboundsInterface != "auto":
+		return fmt.Errorf("мост: вход TUN %q без привязки сокетов ядра по маршрутам (autoOutboundsInterface), а с %q (D-97)", tag, tc.AutoOutboundsInterface)
+	case !slices.Contains(tc.AutoSystemWfpBlockLeak, "dns") || !slices.Contains(tc.AutoSystemWfpBlockLeak, "misconfigtun"):
+		return fmt.Errorf("мост: вход TUN %q без фильтров WFP dns и misconfigtun — утечка DNS и IPv6 мимо TUN (D-97)", tag)
+	case tc.AutoSystemDnsToGateway:
+		return fmt.Errorf("мост: вход TUN %q с autoSystemDnsToGateway — это настройка Linux (D-97)", tag)
+	}
+	return nil
+}

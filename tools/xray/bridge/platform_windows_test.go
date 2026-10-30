@@ -4,6 +4,7 @@ package bridge
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 )
 
@@ -42,5 +43,31 @@ func TestDpapiRoundTrip(t *testing.T) {
 	}
 	if _, err := Protect(nil); err == nil {
 		t.Fatal("пустые данные приняты")
+	}
+}
+
+// Политика моста на Windows (D-97): вход TUN — как пишет компилятор DPpass
+// (XrayCompiler.systemTunSettings), иначе отказ.
+func TestWindowsPolicyAcceptsOnlyCompilerSystemTun(t *testing.T) {
+	config := func(settings string) []byte {
+		return []byte(`{"inbounds": [{"tag": "tun-in", "protocol": "tun", "settings": {` + settings + `}}], "outbounds": [{"protocol": "freedom"}]}`)
+	}
+	const good = `"name": "dppass0", "mtu": 1500, "gateway": ["172.19.0.1/30"], "dns": ["172.19.0.2"], ` +
+		`"autoSystemRoutingTable": ["0.0.0.0/0", "::/0"], "autoOutboundsInterface": "auto", "autoSystemWfpBlockLeak": ["dns", "misconfigtun"]`
+	if _, tunIn, err := build(config(good)); err != nil || tunIn == nil {
+		t.Fatalf("вход TUN компилятора должен проходить: %v", err)
+	}
+	bad := map[string]string{
+		"чужое имя":         strings.Replace(good, `"dppass0"`, `"other"`, 1),
+		"без маршрутов":     `"name": "dppass0", "mtu": 1500, "gateway": ["172.19.0.1/30"], "dns": ["172.19.0.2"]`,
+		"без фильтра DNS":   strings.Replace(good, `["dns", "misconfigtun"]`, `["misconfigtun"]`, 1),
+		"без misconfigtun":  strings.Replace(good, `["dns", "misconfigtun"]`, `["dns"]`, 1),
+		"интерфейс задан":   strings.Replace(good, `"autoOutboundsInterface": "auto"`, `"autoOutboundsInterface": "Ethernet"`, 1),
+		"без адаптера ядра": `"name": "dppass0", "mtu": 1500`,
+	}
+	for name, settings := range bad {
+		if _, _, err := build(config(settings)); err == nil || !strings.Contains(err.Error(), "мост:") {
+			t.Errorf("%s: политика должна отвергнуть вход TUN, получено %v", name, err)
+		}
 	}
 }

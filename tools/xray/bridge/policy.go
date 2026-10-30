@@ -100,6 +100,11 @@ func checkPolicy(cfg *core.Config) (*tunInbound, error) {
 		if !ok {
 			return nil, fmt.Errorf("мост: вход %q: настройки не TUN", in.Tag)
 		}
+		// Адаптер и маршруты системы вход TUN ставит сам только на Windows (D-97):
+		// там — только своё имя и свои значения, на Android и Linux — ничего.
+		if err := checkTunFields(in.Tag, tc); err != nil {
+			return nil, err
+		}
 		found = &tunInbound{MTU: tc.MTU}
 	}
 	// Прокси — вместо VPN, а не рядом: при TUN приложение вне туннеля обошло бы через

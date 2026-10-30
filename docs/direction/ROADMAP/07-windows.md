@@ -17,7 +17,9 @@
    JNI; шаг `project.xray-windows`.
 2. **Компилятор и политика моста**: вход TUN Windows — адреса,
    маршруты, DNS, `autoOutboundsInterface`, фильтры WFP; поля Windows —
-   только на Windows (T11).
+   только на Windows (T11). Сделано 30.10.2026: `SystemTun` в
+   `CompilePlan` и `ServerlessPlan`; политика — `checkTunFields`
+   платформы.
 3. **Платформа Windows в оболочке**: выбор платформы при запуске;
    туннель — у ядра; хранение в `%LOCALAPPDATA%\DPpass`; пробы и смена
    сети; то, чего на Windows нет, — скрыто с причиной.
