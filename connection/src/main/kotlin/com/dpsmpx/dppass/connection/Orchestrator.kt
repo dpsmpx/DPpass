@@ -163,8 +163,8 @@ class ConnectionOrchestrator(
                 return ConnectionReport.Failed(busy, records, plan)
             }
             // Локальный прокси не поднялся (D-95): порт занят на этом устройстве — у
-            // следующих кандидатов то же, а сервер ни при чём.
-            if (failure.code == DiagCode.LOCAL_PROXY_UNAVAILABLE) {
+            // следующих кандидатов то же, а сервер ни при чём. Так же — TUN ядра (D-97).
+            if (failure.code == DiagCode.LOCAL_PROXY_UNAVAILABLE || failure.code == DiagCode.TUN_ESTABLISH_FAILED) {
                 log.diagnostic(failure)
                 records += AttemptRecord(p.id, reasons, false, failure)
                 return ConnectionReport.Failed(failure, records, plan)
@@ -242,6 +242,9 @@ class ConnectionOrchestrator(
                         ).withCause(reason),
                     )
                 }
+                // TUN ядра (Windows, D-97): адаптер Wintun и фильтры WFP встают при
+                // запуске ядра, конфигурация проверена — отказ этого ПК, а не сервера.
+                if (share == null && systemTun != null && reason.code == DiagCode.BACKEND_START_FAILED) return Try.Fail(systemTunFailed(reason))
                 // Вход раздачи не встал (адрес пропал, порт занят — D-51): это отказ
                 // запуска, а не сервера. Та же попытка без раздачи; запустилась —
                 // туннель работает без неё, и сервер не наказывается.
@@ -280,3 +283,14 @@ class ConnectionOrchestrator(
         const val SPLIT_REMEMBERED = "без разбиения ClientHello: этот сервер его не принял"
     }
 }
+
+/**
+ * Ядро не запустилось с TUN, который создаёт само (Windows, D-97): адаптер
+ * Wintun или фильтры WFP не встали. Это отказ TUN этого ПК — у следующих
+ * кандидатов то же, и сервер не наказывается; окно предлагает подключение
+ * без VPN (D-95, `LocalProxyOffer`).
+ */
+internal fun systemTunFailed(reason: Diagnostic): Diagnostic = Diagnostic.error(
+    DiagCode.TUN_ESTABLISH_FAILED,
+    "ядро не подняло адаптер Wintun или фильтры WFP (D-97) — отказ туннеля этого ПК, а не сервера; рядом с javaw.exe должен лежать wintun.dll",
+).withCause(reason)

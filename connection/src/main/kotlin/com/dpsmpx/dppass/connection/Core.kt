@@ -468,7 +468,12 @@ class DPpassCore(
         }
         (engine.validate(compiled) as? Outcome.Failure)?.let { return it }
         val session = when (val s = engine.start(compiled, tun)) {
-            is Outcome.Failure -> return s
+            // TUN ядра не встал (D-97) — с той же причиной, что и с сервером.
+            is Outcome.Failure -> return if (systemTun != null && s.errors.first().code == DiagCode.BACKEND_START_FAILED) {
+                Outcome.failure(systemTunFailed(s.errors.first()))
+            } else {
+                s
+            }
             is Outcome.Success -> s.value
         }
         val checked = try {
