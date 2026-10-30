@@ -7,7 +7,6 @@ import com.dpsmpx.dppass.connection.HealthChecker
 import com.dpsmpx.dppass.connection.ServerlessSettings
 import com.dpsmpx.dppass.connection.UsageAlert
 import com.dpsmpx.dppass.connection.UsageMeter
-import com.dpsmpx.dppass.connection.toTunInput
 import com.dpsmpx.dppass.core.Clock
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.desktop.ui.UsageText
@@ -24,7 +23,6 @@ import com.dpsmpx.dppass.network.NetworkAssessment
 import com.dpsmpx.dppass.network.NetworkChangeChecks
 import com.dpsmpx.dppass.network.NetworkType
 import com.dpsmpx.dppass.routing.SplitSites
-import com.dpsmpx.dppass.tunnel.TunnelHandle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -66,26 +64,29 @@ data class ServerNotice(val from: ServerProfile, val to: ServerProfile, val reas
 data class ShareStatus(val endpoints: List<ShareSpec.Endpoint>, val refused: Boolean, val source: LinuxShareInterfaces.Source)
 
 /**
- * Сеанс туннеля на Linux (D-74) — путь `DPpassVpnService` без Android:
- * спецификация → TUN → план кандидатов с пробой здоровья (D-15, D-32) →
+ * Сеанс туннеля на ПК (D-74, D-97) — путь `DPpassVpnService` без Android:
+ * спецификация → TUN (Linux) или описание адаптера для ядра (Windows) →
+ * план кандидатов с пробой здоровья (D-15, D-32) →
  * сеанс ядра; отключение — ядро, затем TUN и правила. Переподключение к
  * новым серверам подписки — [reconnect] (D-77). Пока сеанс идёт, его
  * наблюдает [SessionWatch] (D-78): подтверждённый сбой — переподключение,
  * вопрос о замене выбранного сервера ([notice]) или замена с согласием
  * заранее; сменилась сеть — режим сессии заново и проверка новой сети
- * ([NetworkWatch], D-80). Серверов нет, а список «Напрямую с разбиением»
- * есть — туннель без сервера (D-83). Раздача туннеля — на точке доступа
- * ПК (D-84): вход прокси на её адресах, смена набора — переподключение.
- * Выбрано устройство раздачи — подключение только через него (D-85).
+ * ([NetworkWatch], D-80).
+ * Серверов нет, а список «Напрямую с разбиением» есть — туннель без сервера
+ * (D-83). Раздача туннеля — на точке доступа ПК (D-84): вход прокси на её
+ * адресах, смена набора — переподключение. Выбрано устройство раздачи —
+ * подключение только через него (D-85). На Windows раздачи и устройств
+ * раздачи нет (D-97): выбранное устройство — отказ с причиной.
  */
 class DesktopSession(
     private val graph: DesktopGraph,
     private val scope: CoroutineScope,
     private val prefs: DesktopPrefs,
-    private val shares: LinuxShareInterfaces = LinuxShareInterfaces(),
+    private val shares: LinuxShareInterfaces? = graph.shares,
     private val notify: DesktopNotify = DesktopNotify(),
-    /** Сеть под туннелем для учёта трафика (D-92): маршрут по умолчанию таблицы `main`. */
-    private val network: () -> NetworkType = { LinuxNetwork.current()?.type ?: NetworkType.NONE },
+    /** Сеть под туннелем для учёта трафика (D-92): маршрут по умолчанию мимо туннеля. */
+    private val network: () -> NetworkType = { graph.host.network()?.type ?: NetworkType.NONE },
 ) {
     private val state = MutableStateFlow<SessionStatus>(SessionStatus.Disconnected)
     val status: StateFlow<SessionStatus> = state
@@ -137,7 +138,7 @@ class DesktopSession(
     private var session: EngineSession? = null
 
     @Volatile
-    private var tunnel: TunnelHandle? = null
+    private var tunnel: DesktopTunnel? = null
 
     /** Трафик сеанса; null — ядро не запущено. */
     fun traffic(): TrafficStats? = session?.stats()
@@ -252,12 +253,18 @@ class DesktopSession(
         // Устройство раздачи (D-55, D-85): выбрано — подключение только через него, по адресу, где оно ответило.
         val relay = prefs.selectedRelay?.let(core.relays::find)
         val target = relay?.let { d ->
-            when (val t = withContext(Dispatchers.IO) { graph.relayNetworks.locate(d) }) {
+            val relays = graph.relayNetworks ?: return fail(
+                Diagnostic.error(
+                    DiagCode.CAPABILITY_FEATURE_UNSUPPORTED,
+                    "устройств раздачи на Windows нет (D-97) — выбранное в настройках устройство здесь не подключить",
+                ),
+            )
+            when (val t = withContext(Dispatchers.IO) { relays.locate(d) }) {
                 is Outcome.Failure -> return fail(t.errors.first())
                 is Outcome.Success -> t.value.also { core.log.info("relay_found", "medium" to Safe(it.medium.name), "auto" to (d.address == null)) }
             }
         }
-        // Без VPN (D-95): локальный прокси вместо TUN — и CAP_NET_ADMIN не нужен; порт занят — новый.
+        // Без VPN (D-95): локальный прокси вместо TUN — и прав на туннель не нужно; порт занят — новый.
         val local = when (val l = withContext(Dispatchers.IO) { core.localProxy.prepare() }) {
             is Outcome.Failure -> return fail(l.errors.first())
             is Outcome.Success -> l.value.also { l.diagnostics.forEach(core.log::diagnostic) }
@@ -288,8 +295,10 @@ class DesktopSession(
             }
         }
         // Раздача (D-51, D-84) — только на точке доступа ПК; включена, а точки доступа нет — туннель без неё.
+        // На Windows раздачи нет (D-97): окно её не показывает, а включённая раньше — не действует.
         val shareSettings = core.share.current().also { r -> r.diagnostics.forEach(core.log::diagnostic) }.valueOrNull()
-        val scan = if (shareSettings?.enabled == true) withContext(Dispatchers.IO) { shares.find() } else null
+        val finder = shares
+        val scan = if (shareSettings?.enabled == true && finder != null) withContext(Dispatchers.IO) { finder.find() } else null
         if (scan != null && scan.endpoints.isEmpty()) core.log.info("share_no_tether", "seen" to Safe(scan.seen))
         val share = if (scan != null) shareSettings?.spec(scan.endpoints) else null
         val shareSubnets = share?.endpoints.orEmpty().map { it.subnet }
@@ -316,7 +325,7 @@ class DesktopSession(
         val failingUnderRegime = regime?.let(core::failingUnder).orEmpty()
         val report = try {
             if (relay != null && target != null) {
-                core.connectVia(relay, target.address, checker, handle?.toTunInput(), share, local) { delay(it) }
+                core.connectVia(relay, target.address, checker, handle?.tunInput, share, local) { delay(it) }
             } else {
                 // Разбиение ClientHello к серверу (D-68, D-81) — выбор пользователя; отказ сервера — повтор без него (D-69, ядро).
                 // К устройству раздачи — нет.
@@ -325,7 +334,7 @@ class DesktopSession(
                 // Сайты напрямую с разбиением (D-72, D-82): в журнал — число записей, не сами сайты.
                 val sites = prefs.splitSites()
                 core.log.info("split_sites", "n" to sites.size)
-                core.connect(null, checker, handle?.toTunInput(), preferred, share, regime, split, sites, local) { delay(it) }
+                core.connect(null, checker, handle?.tunInput, preferred, share, regime, split, sites, local, handle?.systemTun) { delay(it) }
             }
         } catch (e: CancellationException) {
             // Сеанс, запущенный посреди проверки, оркестратор уже остановил; остаётся TUN.
@@ -371,8 +380,9 @@ class DesktopSession(
                         core.log,
                         graph.networkCheck,
                         changes ?: NetworkChangeChecks(Clock.MONOTONIC).also { changes = it },
-                        { prefs.checkOnNetworkChange },
+                        { checkOnNetworkChange() },
                         { sessionRegime = it },
+                        graph.host::network,
                     )
                     networkWatch = scope.launch(Dispatchers.IO) { net.run { delay(it) } }
                 }
@@ -381,7 +391,7 @@ class DesktopSession(
                     val refused = report.shareRefused != null
                     shareState.value = ShareStatus(if (refused) emptyList() else offered, refused, scan.source)
                     core.log.info("share", "endpoints" to offered.size, "refused" to refused)
-                    startShareWatch(offered)
+                    finder?.let { startShareWatch(it, offered) }
                 }
             }
             is ConnectionReport.Failed -> {
@@ -407,7 +417,7 @@ class DesktopSession(
             is Outcome.Failure -> return fail(s.errors.first())
             is Outcome.Success -> s.value
         }
-        val handle = when (val t = withContext(Dispatchers.IO) { graph.tunnels.establish(spec) }) {
+        val handle = when (val t = withContext(Dispatchers.IO) { graph.tunnels.establish(spec, emptyList()) }) {
             is Outcome.Failure -> {
                 t.errors.drop(1).forEach(core.log::diagnostic)
                 return fail(t.errors.first())
@@ -417,7 +427,7 @@ class DesktopSession(
         core.log.info("split_sites", "n" to sites.size)
         val probeTimeout = (core.policy.healthTimeoutMillis - PROBE_MARGIN_MILLIS).toInt()
         val result = try {
-            core.connectServerless(handle.toTunInput(), sites, settings) { _, dns ->
+            core.connectServerless(handle.tunInput, sites, settings, handle.systemTun) { _, dns ->
                 withContext(Dispatchers.IO) { graph.engine.probeServerless(dns, probeTimeout) }
             }
         } catch (e: CancellationException) {
@@ -441,8 +451,9 @@ class DesktopSession(
                     core.log,
                     graph.networkCheck,
                     changes ?: NetworkChangeChecks(Clock.MONOTONIC).also { changes = it },
-                    { prefs.checkOnNetworkChange },
+                    { checkOnNetworkChange() },
                     { sessionRegime = it },
+                    graph.host::network,
                 )
                 networkWatch = scope.launch(Dispatchers.IO) { net.run { delay(it) } }
             }
@@ -453,8 +464,8 @@ class DesktopSession(
      * Раздача (D-84): набор адресов точки доступа сменился — переподключение;
      * остановка сеанса отменяет опрос, и переподключения нет.
      */
-    private fun startShareWatch(current: List<ShareSpec.Endpoint>) {
-        val w = ShareWatch(graph.core.log, current) { shares.find().endpoints }
+    private fun startShareWatch(finder: LinuxShareInterfaces, current: List<ShareSpec.Endpoint>) {
+        val w = ShareWatch(graph.core.log, current) { finder.find().endpoints }
         shareWatch = scope.launch {
             withContext(Dispatchers.IO) { w.run { delay(it) } }
             reconnect(prefs.selectedServer)
@@ -530,6 +541,9 @@ class DesktopSession(
         graph.core.log.info("disconnected")
         state.value = SessionStatus.Disconnected
     }
+
+    /** Проверка после смены сети (D-80): выбор пользователя — там, где пробы идут мимо туннеля (на Windows нет, D-97). */
+    private fun checkOnNetworkChange(): Boolean = prefs.checkOnNetworkChange && graph.host.checksUnderTunnel
 
     private fun fail(reason: Diagnostic) {
         graph.core.log.diagnostic(reason)

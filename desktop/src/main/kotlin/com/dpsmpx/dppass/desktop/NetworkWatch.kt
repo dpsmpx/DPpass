@@ -12,15 +12,17 @@ import kotlinx.coroutines.launch
 
 /**
  * Смена сети ПК под туннелем (D-80, к D-67) — как у сервиса туннеля Android.
- * Пока сеанс идёт, раз в [POLL_MILLIS] — сеть ПК ([LinuxNetwork]: маршрут по
- * умолчанию таблицы `main`). Сменилась — режим сессии заново (у новой сети
+ * Пока сеанс идёт, раз в [POLL_MILLIS] — сеть ПК ([DesktopHost.network]:
+ * маршрут по умолчанию таблицы `main` на Linux, мимо адаптера DPpass на
+ * Windows). Сменилась — режим сессии заново (у новой сети
  * он неизвестен); через паузу [NetworkChangeChecks] — проверка новой сети
  * (D-79), если она не выключена, и режим ещё раз. Что считать сменой, пауза
  * и предел за час — [NetworkChangeChecks], одни на время работы туннеля.
  *
  * Маршрутов и правил смена сети не трогает: сокеты ядра с меткой идут по
- * таблице `main`, и она уже ведёт в новую сеть (D-74). Зависший после смены
- * сеанс ловит наблюдатель (D-78).
+ * таблице `main`, и она уже ведёт в новую сеть (D-74); на Windows ядро само
+ * привязывает сокеты к новому интерфейсу (`autoOutboundsInterface`, D-97).
+ * Зависший после смены сеанс ловит наблюдатель (D-78).
  */
 class NetworkWatch(
     private val log: Logger,
@@ -30,7 +32,7 @@ class NetworkWatch(
     private val enabled: () -> Boolean,
     /** Режим сессии взят заново: наблюдателю — новый контекст опыта (D-64). */
     private val retaken: (NetworkAssessment?) -> Unit,
-    private val current: () -> LinuxNetwork? = LinuxNetwork::current,
+    private val current: () -> DesktopNetwork? = LinuxNetwork::current,
 ) {
     private var registered = false
     private var known: Long? = null
@@ -105,7 +107,7 @@ class NetworkWatch(
     }
 
     companion object {
-        /** Сеть читается из `/proc/net/route`: раз в 2 с — дёшево и быстро для смены Wi-Fi. */
+        /** Сеть — из `/proc/net/route` или таблицы маршрутов Windows: раз в 2 с — дёшево и быстро для смены Wi-Fi. */
         const val POLL_MILLIS: Long = 2_000
         const val BUSY_POLL_MILLIS: Long = 500
     }

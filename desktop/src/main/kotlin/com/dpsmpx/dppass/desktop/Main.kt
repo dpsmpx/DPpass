@@ -10,18 +10,21 @@ import javax.swing.SwingUtilities
 import kotlin.system.exitProcess
 
 /**
- * Оболочка Linux (D-74). Без аргументов — окно; `--self-check FILE` —
- * проверка туннеля на настоящем ядре для `tools/desktop/netns_check.py`
- * (отчёт — в FILE, код выхода 0 — туннель поднялся и закрылся).
+ * Оболочка ПК: Linux (D-74) и Windows (D-97). Без аргументов — окно;
+ * `--self-check FILE` (только Linux) — проверка туннеля на настоящем ядре
+ * для `tools/desktop/netns_check.py` (отчёт — в FILE, код выхода 0 —
+ * туннель поднялся и закрылся).
  */
 fun main(args: Array<String>) {
     val install = DesktopPaths.installDir(File(DesktopGraph::class.java.protectionDomain.codeSource.location.toURI()))
-    if (args.size == 2 && args[0] == "--self-check") {
+    val windows = WindowsHost.isWindows()
+    if (!windows && args.size == 2 && args[0] == "--self-check") {
         val ok = CoroutineScope(Dispatchers.Default).future { SelfCheck.run(install, File(args[1])) }.get()
         exitProcess(if (ok) 0 else 1)
     }
     val home = System.getProperty("user.home")
-    val paths = DesktopPaths(DesktopPaths.dataDir(System.getenv(), home), install)
+    val data = if (windows) DesktopPaths.windowsDataDir(System.getenv(), home) else DesktopPaths.dataDir(System.getenv(), home)
+    val paths = DesktopPaths(data, install, windows)
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val graph = DesktopGraph.build(paths)
     // Одни настройки на окно и сеанс: оба их пишут (DesktopPrefs).

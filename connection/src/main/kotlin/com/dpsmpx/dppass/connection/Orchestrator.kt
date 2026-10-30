@@ -16,6 +16,7 @@ import com.dpsmpx.dppass.engine.EngineSession
 import com.dpsmpx.dppass.engine.LocalProxySpec
 import com.dpsmpx.dppass.engine.ProxyEngine
 import com.dpsmpx.dppass.engine.ShareSpec
+import com.dpsmpx.dppass.engine.SystemTun
 import com.dpsmpx.dppass.engine.TunInput
 import com.dpsmpx.dppass.routing.SplitSites
 import kotlinx.coroutines.NonCancellable
@@ -89,7 +90,9 @@ class ConnectionOrchestrator(
      * разбиения (D-69). [splitSites] — сайты напрямую с разбиением (D-72),
      * список пользователя; от отказа сервера не зависит. [local] —
      * локальный прокси подключения без VPN (D-95): только без [tun]; не
-     * поднялся — отказ устройства, серверы не наказываются.
+     * поднялся — отказ устройства, серверы не наказываются. [systemTun] —
+     * TUN, который создаёт само ядро (Windows, D-97): вместо [tun], не
+     * вместе с ним.
      */
     suspend fun connect(
         ir: ConfigIr,
@@ -99,7 +102,9 @@ class ConnectionOrchestrator(
         splitClientHello: Boolean = false,
         splitSites: SplitSites = SplitSites.NONE,
         local: LocalProxySpec? = null,
+        systemTun: SystemTun? = null,
     ): ConnectionReport {
+        require(tun == null || systemTun == null) { "TUN платформы и TUN ядра вместе (D-97)" }
         if (plan.attempts.isEmpty()) {
             val d = Diagnostic.error(plan.verdict ?: DiagCode.NO_VIABLE_CANDIDATE, plan.verdictMessage ?: "нет кандидатов")
             log.diagnostic(d)
@@ -125,7 +130,7 @@ class ConnectionOrchestrator(
                 shareRefused = it
                 offered = null
             }
-            var t = tryOne(ir, p, tun, offered, splitClientHello && !remembered, splitSites, local).also(::refuseShare)
+            var t = tryOne(ir, p, tun, offered, splitClientHello && !remembered, splitSites, local, systemTun).also(::refuseShare)
             // Сервер не принял разбитый ClientHello (D-69): та же попытка без
             // разбиения, сразу; в учёт здоровья и опыта идёт только она.
             if (t is Try.Fail && t.split && SplitFallback.rejectedBy(t.reason)) {
@@ -136,7 +141,7 @@ class ConnectionOrchestrator(
                 splitMemory.reject(p.id)
                 reasons = reasons + SPLIT_REJECTED
                 startedAt = clock.nowMillis()
-                t = tryOne(ir, p, tun, offered, false, splitSites, local).also(::refuseShare)
+                t = tryOne(ir, p, tun, offered, false, splitSites, local, systemTun).also(::refuseShare)
             }
             val failure = when (t) {
                 is Try.Ok -> {
@@ -211,8 +216,9 @@ class ConnectionOrchestrator(
         split: Boolean,
         sites: SplitSites,
         local: LocalProxySpec? = null,
+        systemTun: SystemTun? = null,
     ): Try {
-        val c = compiler.compile(ir, CompilePlan(p.id, tun != null, share, split, sites, local))
+        val c = compiler.compile(ir, CompilePlan(p.id, tun != null || systemTun != null, share, split, sites, local, systemTun))
         val compiled = when (c) {
             is Outcome.Failure -> return Try.Fail(c.errors.first())
             is Outcome.Success -> c.value
@@ -242,7 +248,7 @@ class ConnectionOrchestrator(
                 if (share == null || reason.code != DiagCode.BACKEND_START_FAILED) return Try.Fail(reason)
                 val refused = Diagnostic.warning(DiagCode.BACKEND_START_FAILED, "раздача не поднялась: ядро с её входами не запустилось — туннель без раздачи")
                     .withCause(reason)
-                return when (val t = tryOne(ir, p, tun, null, split, sites, local)) {
+                return when (val t = tryOne(ir, p, tun, null, split, sites, local, systemTun)) {
                     is Try.Ok -> t.copy(shareRefused = refused)
                     is Try.Fail -> t.copy(shareRefused = refused)
                 }

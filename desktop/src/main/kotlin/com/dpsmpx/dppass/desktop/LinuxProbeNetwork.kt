@@ -4,7 +4,6 @@ import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.network.NetworkType
-import com.dpsmpx.dppass.network.ProbeNetwork
 import java.io.File
 import java.net.DatagramSocket
 import java.net.InetAddress
@@ -26,7 +25,7 @@ class LinuxProbeNetwork(
     /** Поставить метку на fd: 0 или −errno; null — метка не нужна: без `CAP_NET_ADMIN` туннеля нет. */
     private val mark: ((Int) -> Int)?,
     private val resolver: (String) -> List<InetAddress>,
-) : ProbeNetwork {
+) : DesktopProbeNetwork {
     override fun resolve(host: String): List<InetAddress> = resolver(host)
 
     override fun tcpSocket(): Socket = SocketChannel.open().also(::marked).socket()
@@ -40,7 +39,7 @@ class LinuxProbeNetwork(
      * Метка ставится — проверку можно начинать; иначе причина. Проверяется до
      * проб: отказ одной пробы прочитался бы как свойство сети.
      */
-    fun ready(): Diagnostic? {
+    override fun ready(): Diagnostic? {
         val m = mark ?: return null
         DatagramChannel.open().use { ch ->
             val fd = fdOf(ch) ?: return unavailable("не узнать fd сокета JDK (нужен флаг запуска --add-exports java.base/sun.nio.ch)")
@@ -97,9 +96,9 @@ class LinuxProbeNetwork(
  * метрикой; тип — по интерфейсу. Ключ сети для памяти режима (D-64) —
  * интерфейс и шлюз: другой Wi-Fi — другая сеть.
  */
-data class LinuxNetwork(val iface: String, val gateway: String, val type: NetworkType) {
+data class LinuxNetwork(val iface: String, val gateway: String, override val type: NetworkType) : DesktopNetwork {
     /** Непрозрачный ключ для `RegimeMemory`; в журнал не идёт. */
-    val key: Long get() = "$iface|$gateway".hashCode().toLong()
+    override val key: Long get() = "$iface|$gateway".hashCode().toLong()
 
     companion object {
         /** Сеть сейчас; null — маршрута по умолчанию нет. */

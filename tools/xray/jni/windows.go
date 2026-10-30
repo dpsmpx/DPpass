@@ -12,7 +12,11 @@ package main
 */
 import "C"
 
-import "github.com/dpsmpx/dppass/tools/xray/bridge"
+import (
+	"strings"
+
+	"github.com/dpsmpx/dppass/tools/xray/bridge"
+)
 
 //export Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeProtect
 func Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeProtect(env *C.JNIEnv, _ C.jclass, plain C.jbyteArray) C.jbyteArray {
@@ -30,6 +34,26 @@ func Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeElevated(env *C.JNIEnv, 
 		return C.JNI_TRUE
 	}
 	return C.JNI_FALSE
+}
+
+// Маршрут по умолчанию мимо адаптера tunAlias (D-97): статус 0, затем строка
+// «поднят ли адаптер (0/1)», и если маршрут есть — псевдоним, шлюз и вид
+// через табуляцию; иначе — вид отказа и текст.
+//
+//export Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeDefaultRoute
+func Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeDefaultRoute(env *C.JNIEnv, _ C.jclass, tunAlias C.jbyteArray) C.jbyteArray {
+	net, ok, up, err := bridge.DefaultRoute(string(bytesOf(env, tunAlias)))
+	if err != nil {
+		return statusOf(env, err)
+	}
+	line := "0"
+	if up {
+		line = "1"
+	}
+	if ok {
+		line += "\n" + strings.Join([]string{net.Alias, net.Gateway, string(rune('0' + net.Kind))}, "\t")
+	}
+	return status(env, statusOK, line)
 }
 
 func sealed(env *C.JNIEnv, f func([]byte) ([]byte, error), in C.jbyteArray) C.jbyteArray {

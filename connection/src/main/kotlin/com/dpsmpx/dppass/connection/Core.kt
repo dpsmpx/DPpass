@@ -27,6 +27,7 @@ import com.dpsmpx.dppass.engine.LocalProxySpec
 import com.dpsmpx.dppass.engine.ProxyEngine
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.SocketProtector
+import com.dpsmpx.dppass.engine.SystemTun
 import com.dpsmpx.dppass.engine.TunInput
 import com.dpsmpx.dppass.network.NetworkAssessment
 import com.dpsmpx.dppass.routing.AppPolicy
@@ -256,12 +257,14 @@ class DPpassCore(
         splitSites: SplitSites = SplitSites.NONE,
         /** Подключение без VPN (D-95): локальный прокси вместо [tun]; null — через VPN. */
         local: LocalProxySpec? = null,
+        /** TUN, который создаёт само ядро (Windows, D-97): вместо [tun]. */
+        systemTun: SystemTun? = null,
         pause: suspend (Long) -> Unit,
     ): ConnectionReport? {
         val ir = activation.state.activeConfig ?: return null
         val plan = plan(assessment, preferred, regime) ?: return null
         val orchestrator = ConnectionOrchestrator(compiler, engine, checker, health, clock, log, policy, stability, assessment ?: regime, splitMemory, pause)
-        return orchestrator.connect(ir, plan, tun, share, splitClientHello, splitSites, local)
+        return orchestrator.connect(ir, plan, tun, share, splitClientHello, splitSites, local, systemTun)
     }
 
     /** Наблюдатель сессии (D-44): Android-слой кормит его пробами (D-32). */
@@ -446,6 +449,8 @@ class DPpassCore(
         tun: TunInput?,
         sites: SplitSites,
         settings: ServerlessSettings,
+        /** TUN, который создаёт само ядро (Windows, D-97): вместо [tun]. */
+        systemTun: SystemTun? = null,
         check: suspend (EngineSession, DnsPolicy) -> Outcome<Unit>,
     ): Outcome<EngineSession> {
         val plan = ServerlessMode.plan(settings, sites, userPolicy.currentOrDefault())
@@ -456,7 +461,8 @@ class DPpassCore(
             "apps" to Safe(settings.apps.wire),
             "n" to sites.size,
         )
-        val compiled = when (val c = compiler.compileServerless(plan.copy(withTun = tun != null))) {
+        require(tun == null || systemTun == null) { "TUN платформы и TUN ядра вместе (D-97)" }
+        val compiled = when (val c = compiler.compileServerless(plan.copy(withTun = tun != null || systemTun != null, systemTun = systemTun))) {
             is Outcome.Failure -> return c
             is Outcome.Success -> c.also { it.diagnostics.forEach(log::diagnostic) }.value
         }

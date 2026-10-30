@@ -23,7 +23,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Проверка сети на ПК (D-79, к D-60 и D-64): те же пробы и бюджет D-14, что
- * на Android, — мимо туннеля ([LinuxProbeNetwork]); по кнопке и после смены
+ * на Android, — мимо туннеля ([LinuxProbeNetwork]; на Windows — только без
+ * туннеля, [WindowsProbeNetwork], D-97); по кнопке и после смены
  * сети (D-80, [NetworkWatch]). Одна за раз; итог — в
  * окно и в журнал без адресов, в план — только через память режима (D-64).
  * Пока идёт проверка и [QUIET_AFTER_MILLIS] после, наблюдатель сеанса (D-78)
@@ -32,10 +33,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class DesktopNetworkCheck(
     private val log: Logger,
-    private val probeNetwork: LinuxProbeNetwork,
+    private val probeNetwork: DesktopProbeNetwork,
     /** Сеть ПК сейчас; null — маршрута по умолчанию нет. */
-    private val network: () -> LinuxNetwork? = LinuxNetwork::current,
-    private val prober: (LinuxProbeNetwork) -> Prober = { SocketProber(it, Clock.MONOTONIC, SecureRandom()) },
+    private val network: () -> DesktopNetwork? = LinuxNetwork::current,
+    private val prober: (DesktopProbeNetwork) -> Prober = { SocketProber(it, Clock.MONOTONIC, SecureRandom()) },
     clock: Clock = Clock.MONOTONIC,
     private val pause: suspend (Long) -> Unit = { delay(it) },
 ) {

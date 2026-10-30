@@ -17,6 +17,7 @@ import com.dpsmpx.dppass.engine.xray.XrayRuntime
 import com.dpsmpx.dppass.network.SystemProbeNetwork
 import com.dpsmpx.dppass.storage.EncryptingBlobStore
 import com.dpsmpx.dppass.storage.FileBlobStore
+import com.dpsmpx.dppass.storage.KeyWrapper
 import com.dpsmpx.dppass.storage.StorageReset
 import com.dpsmpx.dppass.storage.WrappedKeyProvider
 import com.dpsmpx.dppass.subscriptions.HttpsSubscriptionFetcher
@@ -25,30 +26,45 @@ import com.dpsmpx.dppass.tunnel.PlatformTraits
 import java.io.File
 
 /**
- * Сборка зависимостей оболочки Linux (D-74) — как `AppGraph` на Android:
+ * Сборка зависимостей оболочки ПК (D-74, D-97) — как `AppGraph` на Android:
  * ядро DPpass, ядро Xray в процессе (D-25, библиотека пакета), набор
- * геоданных (D-27), хранилище в `$XDG_DATA_HOME/dppass` (D-19), подписки по
- * HTTPS (D-36), туннель Linux. Отказ части — диагностика в журнале и
- * причина у вызова, а не падение окна.
+ * геоданных (D-27), хранилище в каталоге данных (D-19), подписки по HTTPS
+ * (D-36). Чем Linux и Windows различаются — права на туннель, туннель, ключ
+ * данных, пробы мимо туннеля — собирает [Parts]. Отказ части — диагностика
+ * в журнале и причина у вызова, а не падение окна.
  */
 class DesktopGraph(
     val core: DPpassCore,
     val engine: XrayProxyEngine,
     /** Мост ядра — для остановки при выходе без корутин (`Runtime.addShutdownHook`). */
     val runtime: XrayRuntime?,
-    val tunnels: LinuxTunnelProvider,
-    val platform: LinuxPlatform,
+    /** Система ПК (D-74, D-97): можно ли поднять туннель, какая сеть. */
+    val host: DesktopHost,
+    val tunnels: DesktopTunnels,
     val fetcher: SubscriptionFetcher,
     val log: MemoryLogSink,
     val logger: Logger,
     val paths: DesktopPaths,
     /** Проверка сети (D-79): пробы мимо туннеля, память режима (D-64). */
     val networkCheck: DesktopNetworkCheck,
-    /** Поиск устройства раздачи и сопряжение (D-85): сокеты мимо туннеля, как у проб. */
-    val relayNetworks: LinuxRelayNetworks,
+    /** Поиск устройства раздачи и сопряжение (D-85): сокеты мимо туннеля, как у проб; null — на Windows их нет (D-97). */
+    val relayNetworks: LinuxRelayNetworks?,
+    /** Точка доступа ПК для раздачи (D-84); null — на Windows раздачи нет (D-97). */
+    val shares: LinuxShareInterfaces?,
     /** Что не поднялось при сборке: показывается в окне. */
     val problems: List<Diagnostic>,
 ) {
+    /** Чем сборка различается по системе (D-74, D-97). */
+    private class Parts(
+        val host: DesktopHost,
+        val tunnels: DesktopTunnels,
+        val keyWrapper: KeyWrapper,
+        val traits: PlatformTraits,
+        val probeNetwork: DesktopProbeNetwork,
+        val relayNetworks: LinuxRelayNetworks?,
+        val shares: LinuxShareInterfaces?,
+    )
+
     companion object {
         /** Имя «пакета» оболочки: у TunnelSpec собственный пакет всегда вне туннеля (D-17). */
         const val SELF: String = "com.dpsmpx.dppass"
@@ -62,7 +78,7 @@ class DesktopGraph(
          */
         fun sessionLine(): String = "session_start version=$VERSION java=${Runtime.version().feature()} arch=${System.getProperty("os.arch")}"
 
-        fun build(paths: DesktopPaths, platform: LinuxPlatform = SystemLinuxPlatform()): DesktopGraph {
+        fun build(paths: DesktopPaths): DesktopGraph {
             val sink = MemoryLogSink(LOG_CAPACITY)
             val logger = Logger("desktop", sink, Clock.SYSTEM::nowMillis)
             val problems = mutableListOf<Diagnostic>()
@@ -74,8 +90,6 @@ class DesktopGraph(
             }
             report(paths.prepare())
             val data = FileBlobStore(paths.state)
-            // Ключ данных — в своём каталоге (D-19); поверх существующих записей новый не создаётся.
-            val keys = WrappedKeyProvider(FileBlobStore(paths.keys), PlainKeyWrapper(), dataPresent = { StorageReset.hasData(data) })
             val (assetDir, geoCodes, geodataSummary) = when (val g = GeodataInstaller({ File(paths.install, it).inputStream() }, paths.geodata).install()) {
                 is Outcome.Success -> {
                     logger.info("geodata_ready", "set" to Safe(g.value.manifest.summary), "installed_now" to g.value.installedNow)
@@ -88,32 +102,53 @@ class DesktopGraph(
             }
             val runtime = JniXrayRuntime.load({ loadLibrary(paths) }, assetDir.path)
             when (runtime) {
-                is Outcome.Success -> {
-                    logger.info("engine_loaded", "backend" to Safe(XrayBackend.ID), "version" to Safe(runtime.value.version()))
-                    // Имена серверов — резолвером Go с меткой, мимо туннеля (D-29, D-74); без права метки
-                    // не ставятся, а подключение и так откажет с причиной.
-                    if (platform.hasNetAdmin()) LinuxNative.nativeMarkResolver(LinuxRoutes.MARK)
-                }
+                is Outcome.Success -> logger.info("engine_loaded", "backend" to Safe(XrayBackend.ID), "version" to Safe(runtime.value.version()))
                 is Outcome.Failure -> report(runtime)
             }
+            val loaded = runtime is Outcome.Success
+            val parts = if (paths.windows) windows(loaded, logger) else linux(SystemLinuxPlatform(), loaded, logger)
+            // Ключ данных — в своём каталоге (D-19); поверх существующих записей новый не создаётся.
+            val keys = WrappedKeyProvider(FileBlobStore(paths.keys), parts.keyWrapper, dataPresent = { StorageReset.hasData(data) })
             val engine = XrayProxyEngine(runtime)
             val core = DPpassCore(
-                // На Linux ядро перехватывает DNS на порт 53 любого адреса (D-74).
+                // На ПК ядро перехватывает DNS на порт 53 любого адреса (D-74, D-97).
                 compiler = XrayCompiler(geodata = geoCodes, dnsHijackAnyAddress = true),
                 engine = engine,
                 store = EncryptingBlobStore(data, keys),
                 clock = Clock.SYSTEM,
                 selfPackage = SELF,
-                platform = PlatformTraits(supportsExcludeRoute = true),
+                platform = parts.traits,
                 storageRecovery = StorageReset(data, keys, Clock.SYSTEM),
                 logSink = sink,
-                engineDetails = listOf("geodata" to geodataSummary, "platform" to "linux"),
+                engineDetails = listOf("geodata" to geodataSummary, "platform" to parts.host.id),
             )
             core.restore().filter { it.isError }.forEach { problems += it }
+            return DesktopGraph(
+                core = core,
+                engine = engine,
+                runtime = runtime.valueOrNull(),
+                host = parts.host,
+                tunnels = parts.tunnels,
+                fetcher = HttpsSubscriptionFetcher(Clock.SYSTEM),
+                log = sink,
+                logger = logger,
+                paths = paths,
+                networkCheck = DesktopNetworkCheck(core.log, parts.probeNetwork, parts.host::network),
+                relayNetworks = parts.relayNetworks,
+                shares = parts.shares,
+                problems = problems,
+            )
+        }
+
+        /** Linux (D-74): `CAP_NET_ADMIN`, TUN с fd и правилами `ip`, метка сокетов мимо туннеля. */
+        private fun linux(platform: LinuxPlatform, loaded: Boolean, logger: Logger): Parts {
+            // Имена серверов — резолвером Go с меткой, мимо туннеля (D-29, D-74); без права метки
+            // не ставятся, а подключение и так откажет с причиной.
+            val marks = loaded && platform.hasNetAdmin()
+            if (marks) LinuxNative.nativeMarkResolver(LinuxRoutes.MARK)
             // Пробы проверки сети — мимо туннеля (D-79): метка, как у сокетов ядра, и резолвер моста с меткой.
-            val loaded = runtime is Outcome.Success
             val probeNetwork = LinuxProbeNetwork(
-                mark = if (loaded && platform.hasNetAdmin()) { fd -> LinuxNative.nativeMarkSocket(fd, LinuxRoutes.MARK) } else null,
+                mark = if (marks) { fd -> LinuxNative.nativeMarkSocket(fd, LinuxRoutes.MARK) } else null,
                 resolver = if (loaded) {
                     { host ->
                         LinuxProbeNetwork.parseResolve(
@@ -126,23 +161,40 @@ class DesktopGraph(
                     SystemProbeNetwork::resolve
                 },
             )
-            return DesktopGraph(
-                core = core,
-                engine = engine,
-                runtime = runtime.valueOrNull(),
-                tunnels = LinuxTunnelProvider(platform, SELF, logger),
-                platform = platform,
-                fetcher = HttpsSubscriptionFetcher(Clock.SYSTEM),
-                log = sink,
-                logger = logger,
-                paths = paths,
-                networkCheck = DesktopNetworkCheck(core.log, probeNetwork),
+            return Parts(
+                host = LinuxHost(platform),
+                tunnels = LinuxTunnels(LinuxTunnelProvider(platform, SELF, logger)),
+                keyWrapper = PlainKeyWrapper(),
+                traits = PlatformTraits(supportsExcludeRoute = true),
+                probeNetwork = probeNetwork,
                 relayNetworks = LinuxRelayNetworks(probeNetwork::tcpSocket),
-                problems = problems,
+                shares = LinuxShareInterfaces(),
             )
         }
 
-        /** Библиотека ядра и функций Linux — из пакета, по абсолютному пути (не из `java.library.path`). */
+        /**
+         * Windows (D-97): права администратора, адаптер Wintun создаёт ядро,
+         * ключ данных — под DPAPI. Без библиотеки моста функций Windows нет:
+         * прав «нет», ключ данных недоступен с причиной, а не падение окна.
+         */
+        private fun windows(loaded: Boolean, logger: Logger): Parts {
+            val elevated: () -> Boolean = if (loaded) WindowsNative::nativeElevated else { { false } }
+            val alias = WINDOWS_TUN_ALIAS.toByteArray(Charsets.UTF_8)
+            val host = WindowsHost(if (loaded) { { WindowsNative.nativeDefaultRoute(alias) } } else null, elevated)
+            return Parts(
+                host = host,
+                tunnels = WindowsTunnels(SELF, logger, elevated),
+                keyWrapper = if (loaded) DpapiKeyWrapper() else DpapiKeyWrapper(NO_BRIDGE, NO_BRIDGE),
+                traits = WindowsHost.TRAITS,
+                probeNetwork = WindowsProbeNetwork(host::tunnelUp),
+                relayNetworks = null,
+                shares = null,
+            )
+        }
+
+        private val NO_BRIDGE: (ByteArray) -> ByteArray = { error("библиотека ядра не загружена — DPAPI недоступен, ключ данных не открыть") }
+
+        /** Библиотека ядра и функций системы — из пакета, по абсолютному пути (не из `java.library.path`). */
         fun loadLibrary(paths: DesktopPaths) = System.load(paths.library.path)
 
         private const val LOG_CAPACITY = 2000

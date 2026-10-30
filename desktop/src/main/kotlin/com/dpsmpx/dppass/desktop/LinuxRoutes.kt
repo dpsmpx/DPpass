@@ -57,12 +57,12 @@ object LinuxRoutes {
      * «Все, кроме DPpass» выполняется меткой сокетов ядра; иной выбор —
      * отказ, а не туннель для всех (D-05).
      */
-    fun appPolicyProblem(spec: TunnelSpec, selfPackage: String): Diagnostic? {
+    fun appPolicyProblem(spec: TunnelSpec, selfPackage: String, system: String = "Linux"): Diagnostic? {
         val apps = spec.apps
         if (apps is AppPolicy.ExceptApps && apps.packages == setOf(selfPackage)) return null
         return Diagnostic.error(
             DiagCode.APP_POLICY_CONFLICT,
-            "на Linux программы не различаются: выбор приложений туннеля (${describe(apps)}) здесь не выполнить — " +
+            "на $system программы не различаются: выбор приложений туннеля (${describe(apps)}) здесь не выполнить — " +
                 "уберите его, туннель пойдёт для всех программ",
             "$.routing.apps",
         )

@@ -25,9 +25,10 @@ import javax.swing.KeyStroke
 import javax.swing.WindowConstants
 
 /**
- * Окно DPpass для Linux (D-74): «Подключение», «Серверы», «Подписки»,
+ * Окно DPpass для ПК (D-74, D-97): «Подключение», «Серверы», «Подписки»,
  * «Сеть» (проверка сети, D-79), «Раздача» (точка доступа ПК, D-84),
- * «Устройства раздачи» (подключение через телефон, D-85), «Журнал». Меню «Импорт» — буфер обмена и
+ * «Устройства раздачи» (подключение через телефон, D-85), «Журнал»; на
+ * Windows раздачи и устройств раздачи нет — и вкладок тоже. Меню «Импорт» — буфер обмена и
  * файл (D-42); «Подключение» — автопереключение сервера (D-78), разбиение
  * ClientHello к серверу (D-81), сайты напрямую с разбиением (D-82) и
  * проверка сети при её смене (D-80). Пока окно открыто, применённая подписка
@@ -50,7 +51,7 @@ class DesktopWindow(
         lateinit var servers: ServersPanel
         lateinit var subscriptions: SubscriptionsPanel
         lateinit var connect: ConnectPanel
-        lateinit var relays: RelaysPanel
+        var relays: RelaysPanel? = null
         lateinit var tabs: JTabbedPane
         val changed = {
             servers.refresh()
@@ -60,19 +61,23 @@ class DesktopWindow(
             if (run.needsReconnect(session.connectedProfile())) session.reconnectIfConnected()
         }) { session.reconnectIfConnected() }
         val import = ImportFlow(graph, scope, { frame }, subscriptions, changed, {
-            relays.reload()
-            tabs.selectedComponent = relays
+            relays?.let {
+                it.reload()
+                tabs.selectedComponent = it
+            }
         }) { session.reconnectIfConnected() }
         connect = ConnectPanel(graph, session, prefs, import::fromClipboard)
         redrawConnect = { connect.render(session.status.value) }
         servers = ServersPanel(graph, prefs, scope, { session.status.value }) {
             session.reconnectIfConnected()
-            relays.render()
+            relays?.render()
         }
         val log = LogPanel(graph)
         val network = NetworkPanel(graph.networkCheck, scope)
-        val share = SharePanel(graph, session)
-        relays = RelaysPanel(graph, session, prefs, scope, import::fromClipboard)
+        // Раздача и устройства раздачи — только на Linux (D-84, D-85); на Windows их нет (D-97).
+        val share = graph.shares?.let { SharePanel(graph, session) }
+        relays = graph.relayNetworks?.let { RelaysPanel(graph, it, session, prefs, scope, import::fromClipboard) }
+        val relaysPanel = relays
         tabs = JTabbedPane().apply {
             // Без своего фона за ярлыками вкладок видна светлая подложка окна.
             isOpaque = true
@@ -81,8 +86,8 @@ class DesktopWindow(
             addTab("Серверы", servers)
             addTab("Подписки", subscriptions)
             addTab("Сеть", network)
-            addTab("Раздача", share)
-            addTab("Устройства раздачи", relays)
+            share?.let { addTab("Раздача", it) }
+            relaysPanel?.let { addTab("Устройства раздачи", it) }
             addTab("Журнал", log)
             addChangeListener {
                 when (selectedComponent) {
@@ -90,7 +95,7 @@ class DesktopWindow(
                     subscriptions -> subscriptions.reload()
                     log -> log.reload()
                     share -> share.reload()
-                    relays -> relays.reload()
+                    relaysPanel -> relaysPanel.reload()
                 }
             }
         }
@@ -116,12 +121,12 @@ class DesktopWindow(
         }.start(scope)
         scope.launch(Edt) { session.notice.collect(connect::renderNotice) }
         scope.launch(Edt) { session.usageAlert.collect(connect::renderUsageAlert) }
-        scope.launch(Edt) { session.share.collect { share.render(session.status.value, it) } }
+        share?.let { panel -> scope.launch(Edt) { session.share.collect { panel.render(session.status.value, it) } } }
         scope.launch(Edt) {
             session.status.collect { s ->
                 connect.render(s)
-                share.render(s, session.share.value)
-                relays.render()
+                share?.render(s, session.share.value)
+                relaysPanel?.render()
                 servers.refresh()
                 // Подключение или его отказ мог сменить «последний удачный» и паузы серверов (D-15).
                 if (s is SessionStatus.Failed) log.reload()
@@ -176,13 +181,18 @@ class DesktopWindow(
                         addActionListener { LocalProxyDialog.show(frame, graph.core, { session.reconnectIfConnected() }) { redrawConnect() } }
                     },
                 )
-                // Без сервера (D-73, D-83): остальные сайты и DNS; приложения — все (Linux их не различает).
+                // Без сервера (D-73, D-83): остальные сайты и DNS; приложения — все (Linux и Windows их не различают).
                 add(serverlessMenu())
                 // Проверка новой сети при поднятом туннеле (D-80): выключено — только по кнопке на «Сети».
                 add(
                     JCheckBoxMenuItem("Проверять сеть при её смене", prefs.checkOnNetworkChange).apply {
                         toolTipText = "Через 20 с после смены сети — та же проверка, что на вкладке «Сеть», не больше 4 раз в час; " +
                             "ориентиры видят адрес ПК в новой сети"
+                        // На Windows пробы при туннеле шли бы через него (D-97): пункт есть, но не действует — и сказано почему.
+                        if (!graph.host.checksUnderTunnel) {
+                            isEnabled = false
+                            toolTipText = "На Windows проверка сети — только без туннеля: через туннель она мерила бы сервер, а не сеть (D-97)"
+                        }
                         addActionListener {
                             prefs.checkOnNetworkChange = isSelected
                             graph.core.log.info("check_on_network_change", "on" to isSelected)
@@ -247,7 +257,7 @@ class DesktopWindow(
             "DNS",
             listOf(
                 "DoH напрямую — мимо резолвера оператора" to { s -> s.copy(dns = ServerlessSettings.Dns.DOH) },
-                "Системный — как резолвит Linux" to { s -> s.copy(dns = ServerlessSettings.Dns.SYSTEM) },
+                "Системный — как резолвит система" to { s -> s.copy(dns = ServerlessSettings.Dns.SYSTEM) },
             ),
         )
     }

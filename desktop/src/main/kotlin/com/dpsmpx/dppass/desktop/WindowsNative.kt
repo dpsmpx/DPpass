@@ -16,4 +16,11 @@ internal object WindowsNative {
 
     /** Процесс запущен с правами администратора: без них ядро не создаст адаптер Wintun. */
     @JvmStatic external fun nativeElevated(): Boolean
+
+    /**
+     * Маршрут по умолчанию мимо адаптера [tunAlias] (UTF-8): после статуса —
+     * «0» или «1» (адаптер поднят), затем, если маршрут есть, строка
+     * «псевдоним, шлюз, вид» через табуляцию ([WindowsHost.parseRoute]).
+     */
+    @JvmStatic external fun nativeDefaultRoute(tunAlias: ByteArray): ByteArray
 }

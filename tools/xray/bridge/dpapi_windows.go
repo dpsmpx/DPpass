@@ -3,6 +3,7 @@
 package bridge
 
 import (
+	"errors"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -25,7 +26,10 @@ func Protect(plain []byte) ([]byte, error) {
 	return dpapi(plain, true)
 }
 
-// Unprotect — обратное Protect; чужой или испорченный блок — ошибка.
+// Unprotect — обратное Protect. Блок не открыть никогда — испорчен, другого
+// пользователя или ПК, ключ пользователя утрачен (unprotectLost) —
+// KindConfig: оболочка считает ключ данных потерянным. Прочие отказы
+// (служба, профиль) — KindStart: повторить позже, а не сбрасывать данные.
 func Unprotect(sealed []byte) ([]byte, error) {
 	if len(sealed) == 0 {
 		return nil, fail(KindContract, "DPAPI: пустой блок")
@@ -44,10 +48,29 @@ func dpapi(in []byte, protect bool) ([]byte, error) {
 		err = windows.CryptUnprotectData(&src, nil, &entropy, 0, nil, windows.CRYPTPROTECT_UI_FORBIDDEN, &out)
 	}
 	if err != nil {
-		return nil, &Error{Kind: KindStart, Err: err}
+		kind := KindStart
+		if !protect && unprotectLost(err) {
+			kind = KindConfig
+		}
+		return nil, &Error{Kind: kind, Err: err}
 	}
 	defer windows.LocalFree(windows.Handle(unsafe.Pointer(out.Data)))
 	return append([]byte(nil), unsafe.Slice(out.Data, out.Size)...), nil
+}
+
+// unprotectLost — отказ CryptUnprotectData, который сам не пройдёт:
+// данные неверны (испорчены или не той добавки), ключ не того пользователя
+// или ПК, ключ пользователя в негодном состоянии (сброс пароля).
+func unprotectLost(err error) bool {
+	var errno windows.Errno
+	if !errors.As(err, &errno) {
+		return false
+	}
+	switch uintptr(errno) {
+	case uintptr(windows.ERROR_INVALID_DATA), uintptr(windows.NTE_BAD_DATA), uintptr(windows.NTE_BAD_KEY_STATE):
+		return true
+	}
+	return false
 }
 
 // Elevated — процесс запущен с правами администратора (токен повышен UAC).

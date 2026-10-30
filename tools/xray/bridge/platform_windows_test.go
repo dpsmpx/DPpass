@@ -4,8 +4,12 @@ package bridge
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/windows"
+	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 )
 
 // Договор Start на Windows (D-97): fd и защитника нет — адаптер и
@@ -38,8 +42,13 @@ func TestDpapiRoundTrip(t *testing.T) {
 		t.Fatalf("Unprotect: %x, %v", plain, err)
 	}
 	sealed[len(sealed)-1] ^= 1
-	if _, err := Unprotect(sealed); err == nil {
-		t.Fatal("испорченный блок расшифрован")
+	var be *Error
+	if _, err := Unprotect(sealed); !errors.As(err, &be) || be.Kind != KindConfig {
+		t.Fatalf("испорченный блок — ключ потерян (KindConfig), получено %v", err)
+	}
+	// Временный отказ службы — не потеря: данные не сбрасываются.
+	if unprotectLost(windows.RPC_S_SERVER_UNAVAILABLE) || !unprotectLost(windows.Errno(windows.NTE_BAD_KEY_STATE)) {
+		t.Fatal("отказы DPAPI разобраны не так")
 	}
 	if _, err := Protect(nil); err == nil {
 		t.Fatal("пустые данные приняты")
@@ -68,6 +77,41 @@ func TestWindowsPolicyAcceptsOnlyCompilerSystemTun(t *testing.T) {
 	for name, settings := range bad {
 		if _, _, err := build(config(settings)); err == nil || !strings.Contains(err.Error(), "мост:") {
 			t.Errorf("%s: политика должна отвергнуть вход TUN, получено %v", name, err)
+		}
+	}
+}
+
+// Маршрут по умолчанию (D-97): наименьшая метрика, адаптер DPpass в маршрут
+// не попадает, но значит «туннель поднят»; вид интерфейса — по его типу.
+// Таблицу маршрутов Wine не отдаёт (GetIPForwardTable2 — «Request not
+// supported»): системный вызов проверяется на ПК с Windows
+// (docs/research/WINDOWS_SHELL.md, §6), здесь — выбор по таблице.
+func TestDefaultRouteSkipsOwnAdapterAndKnowsKinds(t *testing.T) {
+	rows := []routeRow{
+		{alias: "Ethernet", gateway: "192.0.2.1", kind: NetEthernet, isDefault: true, metric: 35},
+		{alias: tunName, gateway: "0.0.0.0", isDefault: true, metric: 0},
+		{alias: "Wi-Fi", gateway: "198.51.100.1", kind: NetWifi, isDefault: true, metric: 25},
+		{alias: "Wi-Fi", gateway: "0.0.0.0", kind: NetWifi},
+		{alias: "Cellular", gateway: "203.0.113.1", kind: NetMobile, isDefault: true, metric: 25},
+	}
+	net, ok, up := pickDefault(rows, tunName)
+	if !ok || !up || net != (Network{Alias: "Wi-Fi", Gateway: "198.51.100.1", Kind: NetWifi}) {
+		t.Fatalf("ждали Wi-Fi и поднятый адаптер, получено %+v ok=%v up=%v", net, ok, up)
+	}
+	if _, ok, up := pickDefault(rows[1:2], tunName); ok || !up {
+		t.Fatalf("только адаптер DPpass — маршрута нет, туннель поднят: ok=%v up=%v", ok, up)
+	}
+	if _, ok, up := pickDefault(rows[3:4], tunName); ok || up {
+		t.Fatalf("без маршрута /0 — сети нет: ok=%v up=%v", ok, up)
+	}
+	for typ, want := range map[uint32]NetKind{
+		windows.IF_TYPE_ETHERNET_CSMACD: NetEthernet,
+		windows.IF_TYPE_IEEE80211:       NetWifi,
+		ifTypeWwanPP:                    NetMobile,
+		windows.IF_TYPE_PPP:             NetOther,
+	} {
+		if got := kindOf(winipcfg.IfType(typ)); got != want {
+			t.Errorf("тип %d: %d, ждали %d", typ, got, want)
 		}
 	}
 }

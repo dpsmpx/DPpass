@@ -21,8 +21,9 @@ import javax.swing.Timer
  * «Подключение»: кнопка питания, состояние, сервер, время и трафик сеанса,
  * причина отказа; сбой выбранного сервера (D-58, D-78) — вопрос с кнопками
  * «Перейти» и «Остаться» или сообщение об автопереключении. Туннель не
- * поднять (нет CAP_NET_ADMIN, TUN не открылся) — «Подключиться без VPN»
- * (D-95): только по нажатию.
+ * поднять (нет прав на туннель — `CAP_NET_ADMIN` на Linux, администратора
+ * на Windows, D-97; TUN не открылся) — «Подключиться без VPN» (D-95):
+ * только по нажатию.
  */
 class ConnectPanel(
     private val graph: DesktopGraph,
@@ -59,6 +60,10 @@ class ConnectPanel(
         isVisible = false
     }
     private var last: SessionStatus = SessionStatus.Disconnected
+
+    /** Права на туннель за время процесса не меняются (D-74, D-97): спросить систему один раз. */
+    private val tunnelAllowed = graph.host.tunnelAllowed()
+
     private val ticker = Timer(TICK_MILLIS) { renderDetails() }
 
     init {
@@ -97,13 +102,8 @@ class ConnectPanel(
         }
         add(actions, BorderLayout.SOUTH)
         val problems = buildList {
-            if (!graph.platform.hasNetAdmin()) {
-                add(
-                    "DPpass запущен без права CAP_NET_ADMIN — туннель (VPN) не поднять. Запустите его ярлыком DPpass " +
-                        "или командой dppass: пароль администратора нужен для запуска с одной этой возможностью (D-74). " +
-                        "Или подключитесь без VPN: прокси для программ, где его можно указать (D-95).",
-                )
-            }
+            if (!tunnelAllowed) add(graph.host.tunnelRefusal)
+            graph.host.absent?.let(::add)
             graph.problems.forEach { add(Widgets.describe(it)) }
         }
         rights.show(problems.joinToString("\n\n").ifEmpty { null })
@@ -128,9 +128,9 @@ class ConnectPanel(
         reason.show((s as? SessionStatus.Failed)?.reason?.let(Widgets::describe))
         val settings = graph.core.localProxy.current().valueOrNull()
         val on = settings?.enabled == true
-        // Предложить без VPN (D-95): туннель не поднялся — или его заведомо не поднять (нет CAP_NET_ADMIN).
+        // Предложить без VPN (D-95): туннель не поднялся — или его заведомо не поднять (нет прав на туннель).
         val failed = (s as? SessionStatus.Failed)?.reason
-        localOffer.isVisible = (failed != null && LocalProxyOffer.applies(failed, on)) || (!on && !graph.platform.hasNetAdmin())
+        localOffer.isVisible = (failed != null && LocalProxyOffer.applies(failed, on)) || (!on && !tunnelAllowed)
         local.text = LocalProxyDialog.line(settings, session.localProxy.value) ?: " "
         renderDetails()
     }

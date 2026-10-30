@@ -39,6 +39,8 @@ import javax.swing.JTextField
  */
 class RelaysPanel(
     private val graph: DesktopGraph,
+    /** Сети ПК для поиска и сопряжения (D-85): есть только на Linux. */
+    private val nets: LinuxRelayNetworks,
     private val session: DesktopSession,
     private val prefs: DesktopPrefs,
     private val scope: CoroutineScope,
@@ -158,11 +160,11 @@ class RelaysPanel(
         render()
         scan = scope.launch(Edt) {
             val (gws, answered) = withContext(Dispatchers.IO) {
-                val gws = graph.relayNetworks.gateways()
+                val gws = nets.gateways()
                 val answered = if (gws.isEmpty() && list.none { it.address != null }) {
                     emptyMap()
                 } else {
-                    list.mapNotNull { d -> graph.relayNetworks.locate(d).valueOrNull()?.let { d.id to it } }.toMap()
+                    list.mapNotNull { d -> nets.locate(d).valueOrNull()?.let { d.id to it } }.toMap()
                 }
                 gws to answered
             }
@@ -199,7 +201,7 @@ class RelaysPanel(
         status.text = "Ищу телефон, который ждёт сопряжения…"
         pairing = scope.launch(Edt) {
             val r = withContext(Dispatchers.IO) {
-                RelayPairing.pair(graph.relayNetworks, graph.core.relays, graph.core.log) { code ->
+                RelayPairing.pair(nets, graph.core.relays, graph.core.log) { code ->
                     withContext(Edt) {
                         status.text = "Телефон найден — сверьте код"
                         codeMatches(code)
