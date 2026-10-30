@@ -37,7 +37,7 @@
 | 5 | Выпуск | в работе | 0 из 2 |
 | 6 | Linux: оболочка для ПК с туннелем TUN (D-74) | в работе | 0 из 4 |
 
-- **Решения** (`docs/direction/DECISIONS.md`): принято 95, из них частично или полностью заменено 7; отложенных вопросов — 17.
+- **Решения** (`docs/direction/DECISIONS.md`): принято 96, из них частично или полностью заменено 7; отложенных вопросов — 16.
 - **Задачи и долги** (`TODO.md`): открыто 80: следующее (этап 2) — 4, подписки Remnawave (цель автора) — 1, известные долги (из аудита) — 2, linux — этап 6 (D-74) — 18, на устройстве — 53, исследования — 2.
 - **Аудиты:** `docs/audits/INITIAL_ARCHITECTURE_AUDIT.md` (4 октября 2026); `docs/audits/SECURITY_STABILITY_AUDIT_0.5.0.md` (6 октября 2026).
 <!-- progress:end -->
@@ -153,7 +153,7 @@ cli/build/install/dppass-cli/bin/dppass-cli connect tests/data/configs/valid-mul
 
 ## Лицензия
 
-Apache License 2.0 — `LICENSE`. Окончательное решение о лицензии и
-открытости репозитория принимается перед выпуском
-(`docs/direction/DECISIONS.md`, «Отложено»). Лицензии сторонних
-компонентов — `docs/legal/THIRD_PARTY_MATRIX.md`.
+Все права защищены — `LICENSE` (D-96, как у всего DPmetaApp —
+`DPmetaApp:D-47`). Лицензии сторонних компонентов —
+`docs/legal/THIRD_PARTY_MATRIX.md`; копия DP Verify в `tools/dpv/` — по
+лицензии DP Verify (`docs/PROVENANCE.md`, §8).
