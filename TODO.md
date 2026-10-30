@@ -192,11 +192,9 @@ Xray, проверки `check_apk.py` (16 КБ), `code.forbidden`
 
 Оболочка для ПК с Windows x64 по выбору автора 30.10.2026
 (`docs/direction/ROADMAP/07-windows.md`; факты —
-`docs/research/WINDOWS_SHELL.md`). Работы по порядку:
+`docs/research/WINDOWS_SHELL.md`). Мост для Windows (работа 1) сделан
+30.10.2026. Дальше по порядку:
 
-- [ ] Мост для Windows: платформенные файлы по `//go:build`, снятие хуков
-      сокетов после остановки, ключ данных под DPAPI, `native.py windows`
-      (mingw-w64, заголовки JNI Temurin), проверка экспорта и импорта DLL.
 - [ ] Компилятор и политика моста: вход TUN Windows (адреса, маршруты
       дополнением, DNS `172.19.0.2`, `autoOutboundsInterface`, фильтры
       `dns` и `misconfigtun`); поля Windows — только на Windows (T11).

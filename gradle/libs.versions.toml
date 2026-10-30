@@ -46,6 +46,14 @@ android-ndk = "30.0.16248370"
 geodata-dlc = "v0.0.0-20261004053103-63777333b7dd"
 geodata-dbip = "2026-10"
 
+# Оболочка Windows (D-97): архивы, которые tools/desktop/windows_deps.py
+# скачивает при сборке и сверяет с SHA-256 из docs/PROVENANCE.md
+# («Windows»); в репозиторий они не кладутся. Temurin — JDK для Windows
+# x64: заголовки JNI моста и jmods рантайма jlink; Wintun — подписанные
+# DLL (в комплект — amd64 без изменений). Сверяет и check_dependencies.py.
+temurin-windows = "21.0.13+9"
+wintun = "0.14.1"
+
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }

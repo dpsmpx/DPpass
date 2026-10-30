@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || windows
 
 // Package bridge — ядро Xray внутри процесса DPpass (D-25): проверка,
 // запуск и остановка единственного экземпляра, защита его сокетов от
@@ -11,13 +11,18 @@
 // Одно ядро на процесс: хуки сокетов, fd TUN (переменная окружения) и
 // системный dialer у Xray глобальны. Поэтому всё состояние моста —
 // переменные пакета под одной блокировкой.
+//
+// Платформенное — в своих файлах (D-97): на Android и Linux TUN открывает
+// платформа и отдаёт fd, сокеты ядра выводит из туннеля защитник
+// (platform_linux.go, protect.go); на Windows адаптер Wintun создаёт сам
+// вход TUN ядра, а сокеты привязывает к физическому интерфейсу
+// (platform_windows.go).
 package bridge
 
 import (
 	"bytes"
 	"fmt"
 	"os"
-	"strconv"
 	"sync"
 
 	"github.com/xtls/xray-core/common/platform"
@@ -59,7 +64,8 @@ func fail(kind Kind, format string, args ...any) *Error {
 	return &Error{Kind: kind, Err: fmt.Errorf(format, args...)}
 }
 
-// Tun — вход TUN: fd платформы и MTU. FD < 0 — без TUN.
+// Tun — вход TUN: fd платформы и MTU. FD < 0 — без fd: без TUN, а на
+// Windows — и с TUN, адаптер которого создаёт ядро (D-97).
 type Tun struct {
 	FD  int
 	MTU int
@@ -131,23 +137,17 @@ func Validate(config []byte) (full bool, err error) {
 	return true, nil
 }
 
-// Start запускает ядро. Защитник p получает каждый исходящий сокет ядра
-// до соединения; его отказ делает сокет непригодным (protect.go). С TUN
-// защитник обязателен; без TUN и без защитника сокеты не трогаются.
+// Start запускает ядро. На Android и Linux защитник p получает каждый
+// исходящий сокет ядра до соединения; его отказ делает сокет непригодным
+// (protect.go). С TUN защитник обязателен; без TUN и без защитника сокеты
+// не трогаются. На Windows защитника нет: сокеты привязывает ядро (D-97).
 func Start(config []byte, tun Tun, p Protector) error {
 	cfg, tunIn, err := build(config)
 	if err != nil {
 		return err
 	}
-	switch {
-	case tunIn != nil && tun.FD < 0:
-		return fail(KindContract, "в конфигурации вход TUN, а fd не передан: ядро читало бы fd 0")
-	case tunIn == nil && tun.FD >= 0:
-		return fail(KindContract, "передан fd TUN, а входа TUN в конфигурации нет")
-	case tunIn != nil && int(tunIn.MTU) != tun.MTU:
-		return fail(KindContract, "MTU входа TUN в конфигурации %d, а у TUN %d", tunIn.MTU, tun.MTU)
-	case tun.FD >= 0 && p == nil:
-		return fail(KindContract, "TUN без защитника сокетов: соединения ядра к серверу ушли бы в туннель")
+	if err := checkTun(tunIn, tun, p); err != nil {
+		return err
 	}
 	if err := installHook(); err != nil {
 		return &Error{Kind: KindStart, Err: err}
@@ -161,23 +161,13 @@ func Start(config []byte, tun Tun, p Protector) error {
 	if current != nil {
 		return fail(KindRunning, "ядро уже запущено; сначала Stop")
 	}
-	// fd для ядра — на Linux копия (tunfd_desktop.go), на Android тот же.
-	coreFD := -1
-	if tun.FD >= 0 {
-		if coreFD, err = coreTun(tun.FD); err != nil {
-			return &Error{Kind: KindStart, Err: err}
-		}
-		err = os.Setenv(platform.TunFdKey, strconv.Itoa(coreFD))
-	} else {
-		err = os.Unsetenv(platform.TunFdKey)
-	}
+	coreFD, err := attachTun(tun)
 	if err != nil {
-		releaseCoreTun(coreFD, tun.FD)
 		return &Error{Kind: KindStart, Err: err}
 	}
 	inst, err := core.New(cfg)
 	if err != nil {
-		releaseCoreTun(coreFD, tun.FD)
+		detachTun(coreFD, tun)
 		return &Error{Kind: KindConfig, Err: err}
 	}
 	sm, _ := inst.GetFeature(stats.ManagerType()).(stats.Manager)
@@ -187,19 +177,15 @@ func Start(config []byte, tun Tun, p Protector) error {
 	}
 	if up == nil || down == nil {
 		_ = inst.Close()
-		releaseCoreTun(coreFD, tun.FD)
+		detachTun(coreFD, tun)
 		return fail(KindConfig, "нет счётчиков исходящего proxy (stats и policy.system.statsOutbound*): конфигурация собрана не компилятором DPpass")
 	}
 	// Защитник — до Start: исходящие соединения могут начаться сразу.
-	if p != nil {
-		setGuard(p)
-	} else {
-		setGuard(allowAll{})
-	}
+	armSockets(p)
 	if err := inst.Start(); err != nil {
 		_ = inst.Close()
-		setGuard(denyAll{})
-		releaseCoreTun(coreFD, tun.FD)
+		disarmSockets()
+		detachTun(coreFD, tun)
 		return &Error{Kind: KindStart, Err: err}
 	}
 	current, uplink, downlink = inst, up, down
@@ -209,7 +195,8 @@ func Start(config []byte, tun Tun, p Protector) error {
 // Stop останавливает ядро; без запущенного — ничего не делает. fd TUN
 // платформы ядро не закрывает: на Android вход TUN его не трогает
 // (BACKEND_STRATEGY.md, §6), на Linux ядро закрывает свою копию
-// (tunfd_desktop.go). Платформа закрывает свой fd после Stop.
+// (tunfd_desktop.go). Платформа закрывает свой fd после Stop. На Windows
+// с ядром уходит и его адаптер Wintun (D-97).
 func Stop() error {
 	mu.Lock()
 	defer mu.Unlock()
@@ -219,8 +206,8 @@ func Stop() error {
 	err := current.Close()
 	current, uplink, downlink = nil, nil, nil
 	// Сокеты, которые остановленное ядро ещё успело бы открыть, не уходят никуда.
-	setGuard(denyAll{})
-	unsetErr := os.Unsetenv(platform.TunFdKey)
+	disarmSockets()
+	unsetErr := clearTunEnv()
 	if err != nil {
 		return &Error{Kind: KindStart, Err: err}
 	}

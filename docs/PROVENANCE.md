@@ -164,6 +164,20 @@ Xray 26.9.30 его принимает и выбирает по его кода�
 (`TestXrayAcceptsTheSet`, ручная проверка `dppass-xray-probe route` на
 полном наборе).
 
+### Windows (D-97)
+
+Архивы для сборки Windows — не в репозитории: их скачивает
+`tools/desktop/windows_deps.py` и сверяет с суммами ниже (сумма не
+совпала — архив удаляется, сборка останавливается). Версии — в каталоге
+(`temurin-windows`, `wintun`); сверяет и `check_dependencies.py`.
+Скачаны и сверены 30 октября 2026 (`docs/research/WINDOWS_SHELL.md`,
+§3–§4).
+
+| Архив | Версия | Откуда и сумма |
+|---|---|---|
+| `OpenJDK21U-jdk_x64_windows_hotspot_21.0.13_9.zip` | `21.0.13+9` | Eclipse Temurin, `github.com/adoptium/temurin21-binaries`, выпуск `jdk-21.0.13+9` (`JAVA_VERSION_DATE` 2026-10-20); 205 421 281 байт; SHA-256 `a4dbaa05fca4bd89d84584e58c459bd732efebb1722af80ab13c6516832004f9` — та же, что у `api.adoptium.net` 30.10.2026. Берутся `include/` (заголовки JNI моста) и `jmods/` (рантайм jlink комплекта со своим `legal/`) |
+| `wintun-0.14.1.zip` | `0.14.1` | `www.wintun.net/builds/wintun-0.14.1.zip`; SHA-256 `07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51` — та же, что на странице `www.wintun.net` 30.10.2026. В комплект — `bin/amd64/wintun.dll` (427 552 байта) и `LICENSE.txt` без изменений |
+
 ## 3. Gradle
 
 | Что | Значение |

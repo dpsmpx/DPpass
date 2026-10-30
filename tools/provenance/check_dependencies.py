@@ -25,7 +25,11 @@ DP Verify нет:
   * источники геоданных (D-27, D-31): версии `geodata-dlc` и `geodata-dbip`
     из каталога — строки матрицы («разрешён») и PROVENANCE (§2 «Геоданные»:
     версия и сумма `h1:` модуля dlc; выпуск DB-IP); файл выпуска DB-IP —
-    в `tools/xray/geodata/sources/`, других файлов там нет.
+    в `tools/xray/geodata/sources/`, других файлов там нет;
+  * архивы оболочки Windows (D-97): версии `temurin-windows` и `wintun` из
+    каталога — строки матрицы («разрешён») и PROVENANCE (§2 «Windows»:
+    имя архива этой версии с одной суммой SHA-256 — по ней сверяет
+    `tools/desktop/windows_deps.py`).
 
     python3 tools/provenance/check_dependencies.py
 
@@ -133,6 +137,30 @@ def check_geodata(versions, mrows, provenance, problems):
         if name != want:
             problems.append(f"tools/xray/geodata/sources/{name}: источник не из каталога (устарел?) — "
                             "в наборе только закреплённый выпуск")
+
+
+def check_windows(versions, mrows, provenance, problems):
+    """Архивы оболочки Windows (D-97): каталог ↔ матрица и PROVENANCE с суммой того архива,
+    который скачивает windows_deps.py."""
+    sys.path.insert(0, os.path.join(PROJ, "tools", "desktop"))
+    import windows_deps  # noqa: E402 — те же имена архивов, что при сборке
+
+    wrows = section_rows(provenance, "Windows")
+    for name, key, label in (("temurin", "temurin-windows", "Eclipse Temurin JDK 21"), ("wintun", "wintun", "Wintun")):
+        ver = versions.get(key)
+        if not ver:
+            problems.append(f"libs.versions.toml: нет версии {key} (архивы Windows закрепляются в каталоге, D-97)")
+            continue
+        try:
+            file, _ = windows_deps.archive(name, ver)
+        except RuntimeError as e:
+            problems.append(f"libs.versions.toml: {e}")
+            continue
+        if not any(label in r and f"`{ver}`" in r and "разрешён" in r for r in mrows):
+            problems.append(f"THIRD_PARTY_MATRIX.md: нет строки «{label}» с версией `{ver}` и статусом «разрешён»")
+        rows = [r for r in wrows if f"`{file}`" in r and f"`{ver}`" in r]
+        if len({m for r in rows for m in re.findall(r"`([0-9a-f]{64})`", r)}) != 1:
+            problems.append(f"PROVENANCE.md, «Windows»: нет строки `{file}` версии `{ver}` с одной суммой SHA-256")
 
 
 def check_go(versions, matrix, mrows, prows, problems):
@@ -290,6 +318,7 @@ def main():
     verified = check_verification(resolved, problems)
     go_modules = check_go(versions, matrix, mrows, prows, problems)
     check_geodata(versions, mrows, provenance, problems)
+    check_windows(versions, mrows, provenance, problems)
 
     for call, (coord, vref) in IMPLICIT.items():
         ver = versions.get(vref)

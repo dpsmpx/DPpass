@@ -199,6 +199,22 @@ python3 tools/xray/native.py host
 `TODO.md`, «На устройстве») и шагом «Android: APK» (там же — размер APK
 одного ABI, D-28).
 
+DLL для Windows (D-97) собирает `native.py windows` — mingw-w64, заголовки
+JNI из закреплённого JDK Temurin. Тесты моста для Windows
+(`platform_windows_test.go`, `hooks_test.go`) собираются `go test -c`
+и выполняются в Wine:
+- договор `Start` без fd и без защитника
+  (`TestWindowsTunContract`);
+- ключ под DPAPI читается обратно, испорченный блок — нет
+  (`TestDpapiRoundTrip`);
+- снятие хуков сокетов не трогает старый массив
+  (`TestTrimHooksDropsOnlyAddedAndKeepsOldArray`, он же — и на Linux).
+
+DLL проверяется: машина AMD64, экспорт JNI = `external` объектов
+`XrayJni` и `WindowsNative`, импорт только `kernel32.dll` и `msvcrt.dll`.
+Адаптер Wintun и фильтры WFP в Wine не проверить — это ПК автора
+(`TODO.md`, «Windows — этап 7 (D-97)»).
+
 Проба здоровья (D-32) проверяется на хосте так же дважды:
 - `go test` моста — проба через proxy и защитника в обход правил, к
   серверам DNS на loopback: UDP, TCP и DoH с TLS. Чужой корень — отказ

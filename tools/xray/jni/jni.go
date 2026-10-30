@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || windows
 
 // Command jni — библиотека libdppassxray (D-25): мост tools/xray/bridge
 // для JVM через JNI. Собирается `go build -buildmode=c-shared`

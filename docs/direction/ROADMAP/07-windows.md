@@ -12,7 +12,9 @@
 1. **Мост для Windows** (D-97, D-25): платформенные файлы моста по
    `//go:build`; снятие хуков сокетов, добавленных запуском; ключ данных
    под DPAPI; `native.py windows` — DLL mingw-w64 с заголовками JNI
-   Temurin; проверка экспорта и импорта DLL.
+   Temurin; проверка экспорта и импорта DLL. Сделано 30.10.2026: тесты
+   моста для Windows — в Wine; DLL в JVM Windows под Wine отвечает на
+   JNI; шаг `project.xray-windows`.
 2. **Компилятор и политика моста**: вход TUN Windows — адреса,
    маршруты, DNS, `autoOutboundsInterface`, фильтры WFP; поля Windows —
    только на Windows (T11).

@@ -57,6 +57,16 @@ probe = ["bash", "tools/hostcheck/steps.sh", "android-sdk"]
 name = "android-ndk"
 probe = ["bash", "tools/hostcheck/steps.sh", "android-ndk"]
 
+[[tool]]
+# cgo-компилятор DLL моста для Windows (D-97): mingw-w64 из Ubuntu
+name = "mingw-w64"
+probe = ["x86_64-w64-mingw32-gcc", "--version"]
+
+[[tool]]
+# Wine: тесты моста для Windows выполняются в нём (D-97)
+name = "wine"
+probe = ["bash", "tools/hostcheck/steps.sh", "wine"]
+
 # ---- обязательный набор ----
 
 [checks."repo.layout"]
@@ -116,7 +126,7 @@ rule = [
   { id = "trust-override", regex = '\b(X509TrustManager|X509ExtendedTrustManager|HostnameVerifier|setHostnameVerifier|setDefaultHostnameVerifier|TrustAllCerts|ALLOW_ALL_HOSTNAME_VERIFIER)\b', files = ["**/*.kt", "**/*.kts"], reason = "своя проверка сертификата — её отключение (T5); запрещено и в тестах" },
   { id = "android-log", regex = '\bandroid\.util\.Log\b|(?<![\w.])Log\.(v|d|i|w|e|wtf)\s*\(', files = ["**/*.kt", "**/*.kts"], reason = "журнал — только Logger с редактированием (D-11)" },
   { id = "blocking", regex = '\bThread\.sleep\s*\(|\bGlobalScope\b|\brunBlocking\b', files = ["**/src/main/**/*.{kt,kts}"], allow = ["module:cli"], reason = "ожидание — через pause и Clock; корутины — в своём scope" },
-  { id = "native-load", regex = '\bSystem\.load(Library)?\s*\(|\bRuntime\.getRuntime\(\)\.load|\bexternal\s+fun\b', files = ["**/*.kt", "**/*.kts"], allow = ["app/src/main/kotlin/com/dpsmpx/dppass/app/AppGraph.kt", "engine/src/main/kotlin/com/dpsmpx/dppass/engine/xray/XrayRuntime.kt", "tests/integration/src/xrayJni/**", "desktop/src/main/kotlin/com/dpsmpx/dppass/desktop/DesktopGraph.kt", "desktop/src/main/kotlin/com/dpsmpx/dppass/desktop/LinuxNative.kt"], reason = "нативный код — только мост ядра (D-25): JNI — XrayRuntime и функции Linux моста LinuxNative (D-74), загрузка — AppGraph, DesktopGraph и тест JNI" },
+  { id = "native-load", regex = '\bSystem\.load(Library)?\s*\(|\bRuntime\.getRuntime\(\)\.load|\bexternal\s+fun\b', files = ["**/*.kt", "**/*.kts"], allow = ["app/src/main/kotlin/com/dpsmpx/dppass/app/AppGraph.kt", "engine/src/main/kotlin/com/dpsmpx/dppass/engine/xray/XrayRuntime.kt", "tests/integration/src/xrayJni/**", "desktop/src/main/kotlin/com/dpsmpx/dppass/desktop/DesktopGraph.kt", "desktop/src/main/kotlin/com/dpsmpx/dppass/desktop/LinuxNative.kt", "desktop/src/main/kotlin/com/dpsmpx/dppass/desktop/WindowsNative.kt"], reason = "нативный код — только мост ядра (D-25): JNI — XrayRuntime и функции моста для Linux LinuxNative (D-74) и для Windows WindowsNative (D-97), загрузка — AppGraph, DesktopGraph и тест JNI" },
   { id = "android-import", regex = '^\s*import\s+android\.', files = ["**/src/main/**/*.kt"], allow = ["module:app"], reason = "Android только в app/: ядро собирается и проверяется на JVM (D-02, D-21)" },
   { id = "simulation-import", regex = '^\s*import\s+com\.dpsmpx\.dppass\.network\.simulation\.', files = ["**/src/main/**/*.kt"], allow = ["module:cli"], reason = "модель сети — тестовая фикстура network: тесты и cli, в основном коде модулей и в app её нет" },
   { id = "mock-engine-import", regex = '^\s*import\s+com\.dpsmpx\.dppass\.engine\.mock\.', files = ["**/src/main/**/*.kt"], allow = ["module:cli"], reason = "фиктивное ядро — тестовая фикстура engine: второй бэкенд тестов и cli, в APK его нет (D-25)" },
@@ -237,6 +247,15 @@ id = "project.xray-bridge"
 run = ["bash", "tools/hostcheck/steps.sh", "xray-bridge"]
 paths = ["tools/xray/**", "engine/**", "tests/integration/**"]
 requires = ["jdk", "go"]
+
+[[command]]
+id = "project.xray-windows"
+# DLL моста для Windows (D-97): go vet, тесты моста в Wine, сборка mingw-w64, экспорт и импорт PE
+run = ["python3", "tools/xray/native.py", "windows", "--require-tests"]
+paths = ["tools/xray/**", "tools/desktop/**", "desktop/**", "gradle/libs.versions.toml"]
+requires = ["go", "mingw-w64", "wine"]
+allow_skip_in_ci = "mingw-w64 и Wine ставятся вручную из apt (docs/PROCESS.md, «Окружение»): на машине без них DLL для Windows не собрать, шаг — громкий пропуск"
+timeout = "20m"
 
 [[command]]
 id = "project.geodata"

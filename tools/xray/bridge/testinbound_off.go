@@ -1,4 +1,4 @@
-//go:build linux && !dppass_testinbound
+//go:build (linux || windows) && !dppass_testinbound
 
 package bridge
 

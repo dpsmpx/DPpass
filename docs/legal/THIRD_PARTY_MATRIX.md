@@ -165,9 +165,9 @@ DPpass их не выбирает, но записывает и сверяет �
 | `golang.org/x/sys` | `v0.48.0` | BSD-3-Clause | `common/net` | разрешён |
 | `golang.org/x/text` | `v0.42.0` | BSD-3-Clause | `common/geodata/strmatcher` | разрешён |
 | `golang.org/x/time` | `v0.14.0` | BSD-3-Clause | `proxy/wireguard` | разрешён |
-| `golang.zx2c4.com/wintun` | `v0.0.0-20230126152724-0fa3db229ce2` | MIT | `proxy/tun` (только Windows); в сборку не входит | разрешён |
+| `golang.zx2c4.com/wintun` | `v0.0.0-20230126152724-0fa3db229ce2` | MIT | `proxy/tun` (только Windows): в DLL комплекта Windows (D-97), в APK и сборку Linux не входит | разрешён |
 | `golang.zx2c4.com/wireguard` | `v0.0.0-20250521234502-f333402bd9cb` | MIT | `proxy/wireguard` | разрешён |
-| `golang.zx2c4.com/wireguard/windows` | `v1.1.1` | MIT | `proxy/tun` (только Windows); в сборку не входит | разрешён |
+| `golang.zx2c4.com/wireguard/windows` | `v1.1.1` | MIT | `proxy/tun` (только Windows): в DLL комплекта Windows (D-97), в APK и сборку Linux не входит | разрешён |
 | `google.golang.org/genproto/googleapis/rpc` | `v0.0.0-20260706201446-f0a921348800` | Apache-2.0 | `app/log/command` (gRPC) | разрешён |
 | `google.golang.org/grpc` | `v1.84.0` | Apache-2.0 | `app/commander`, транспорт gRPC | разрешён |
 | `gopkg.in/yaml.v2` | `v2.4.0` | Apache-2.0; части из libyaml — MIT | `infra/conf/serial` | разрешён |
@@ -201,6 +201,19 @@ Xray (`infra/conf`), а не DPpass, и отсечь их без правки up
 |---|---|---|---|---|---|
 | `github.com/v2fly/domain-list-community` (dlc) | `v0.0.0-20261004053103-63777333b7dd` | MIT | APK — `assets/geodata/geosite.dat`: все списки, в том числе `category-ru` и `category-gov-ru` | разрешён | уведомление MIT — `NOTICE.txt` рядом с набором и экран лицензий (этап 5) |
 | DB-IP «IP to Country Lite» | `2026-10` | CC BY 4.0 | APK — `assets/geodata/geoip.dat`: все страны; исходный CSV — в репозитории (D-31) | разрешён | атрибуция «IP Geolocation by DB-IP» со ссылкой на https://db-ip.com и указание изменений — `NOTICE.txt` рядом с набором и экран лицензий (этап 5); распространять можно, устаревшие версии удалять не требуется |
+
+### 1.9. Оболочка Windows (D-97)
+
+Комплект для ПК с Windows x64 — только на устройства автора
+(`DPmetaApp:D-24`). Архивы скачиваются при сборке со сверкой SHA-256
+(`docs/PROVENANCE.md`, §2 «Windows»); в репозитории их нет. Лицензии
+прочитаны 30 октября 2026 по `legal/` JDK и `LICENSE.txt` архива Wintun
+(`docs/research/WINDOWS_SHELL.md`, §3–§4).
+
+| Компонент | Версия | Лицензия | Куда | Статус | Условия |
+|---|---|---|---|---|---|
+| Eclipse Temurin JDK 21 для Windows x64 | `21.0.13+9` | GPL-2.0 с Classpath Exception; сторонние части — по `legal/` JDK | заголовки JNI — сборка моста; рантайм jlink (`runtime\`) — в комплект | разрешён | Classpath Exception снимает копилефт с программ, которые на рантайме работают (D-20 не нарушается); рантайм — без изменений, с его `legal/` |
+| Wintun (подписанные DLL WireGuard LLC) | `0.14.1` | Prebuilt Binaries License (WireGuard LLC) | `runtime\bin\wintun.dll` (amd64) — в комплект | разрешён | только неизменённая DLL рядом с программой, которая обращается к ней через API `wintun.h` (так делает Xray, §1.7); рядом — её `LICENSE.txt`; имена WireGuard и Wintun — не для продвижения |
 
 ## 2. Запланированные
 

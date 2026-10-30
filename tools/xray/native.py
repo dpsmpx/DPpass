@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Сборка библиотеки ядра `libdppassxray.so` (D-25) — для хоста и для Android.
+"""Сборка библиотеки ядра `libdppassxray` (D-25) — для хоста, Android и Windows.
 
 Библиотека — мост `tools/xray/bridge` и экспорт JNI `tools/xray/jni`,
 собранные `go build -buildmode=c-shared` из того же `tools/xray/go.mod`,
@@ -20,6 +20,16 @@
         LinuxNative (TUN, метка SO_MARK, резолвер с меткой). Результат —
         DIR/libdppassxray.so.
 
+    python3 tools/xray/native.py windows --out DIR
+        библиотека для оболочки Windows (D-97): windows/amd64, mingw-w64
+        (`x86_64-w64-mingw32-gcc`), заголовки JNI — из закреплённого JDK
+        Temurin (`tools/desktop/windows_deps.py`); без тестового входа, без
+        таблиц отладки; кроме XrayJni — функции WindowsNative (DPAPI, права
+        администратора). Перед сборкой — go vet моста и JNI и тесты моста
+        для Windows: собираются всегда, выполняются в Wine (`wine64`), если
+        он есть (с --require-tests без Wine — код 3, пропуск шага). Результат —
+        DIR/dppassxray.dll.
+
     python3 tools/xray/native.py android --out DIR [--abi ABI ...]
         библиотека для APK: NDK версии `android-ndk` из
         gradle/libs.versions.toml, ABI arm64-v8a, armeabi-v7a, x86_64,
@@ -30,10 +40,12 @@
 Каждая собранная библиотека проверяется: машина ELF, выравнивание
 сегментов PT_LOAD (для Android ≥ 16 КБ), экспортированы ровно функции
 `external` объекта `XrayJni` (Kotlin) и, в сборке для Linux, объекта
-`LinuxNative` оболочки `desktop` — договор JNI не разойдётся молча.
+`LinuxNative` оболочки `desktop` — договор JNI не разойдётся молча. DLL
+для Windows — машина PE AMD64, экспорт XrayJni и WindowsNative, импорт
+только из системных библиотек (`WINDOWS_IMPORTS`): без рантайма mingw.
 
 Код возврата: 0 — собрано и проверено; 1 — ошибка сборки или проверки;
-3 — нет Go, NDK или заголовков JNI (без них библиотеку не собрать, D-25).
+3 — нет Go, NDK, mingw-w64 или заголовков JNI (без них библиотеку не собрать, D-25).
 """
 import argparse
 import os
@@ -58,6 +70,16 @@ JNI_PREFIX = "Java_com_dpsmpx_dppass_engine_xray_XrayJni_"
 KOTLIN_DESKTOP_JNI = os.path.join(PROJ, "desktop", "src", "main", "kotlin", "com", "dpsmpx", "dppass", "desktop", "LinuxNative.kt")
 DESKTOP_JNI_PREFIX = "Java_com_dpsmpx_dppass_desktop_LinuxNative_"
 DESKTOP_OUT = os.path.join(PROJ, "build", "xray", "desktop")
+# Функции оболочки Windows (D-97): только в DLL для Windows.
+KOTLIN_WINDOWS_JNI = os.path.join(PROJ, "desktop", "src", "main", "kotlin", "com", "dpsmpx", "dppass", "desktop", "WindowsNative.kt")
+WINDOWS_JNI_PREFIX = "Java_com_dpsmpx_dppass_desktop_WindowsNative_"
+WINDOWS_OUT = os.path.join(PROJ, "build", "xray", "windows")
+WINDOWS_LIBRARY = "dppassxray.dll"
+WINDOWS_CC = "x86_64-w64-mingw32-gcc"
+# Импорт DLL — только системные библиотеки Windows: рантайм mingw
+# (libgcc, libwinpthread) рядом не кладётся, и его там быть не должно.
+WINDOWS_IMPORTS = {"kernel32.dll", "msvcrt.dll"}
+PE_AMD64 = 0x8664
 LDFLAGS_DESKTOP = "-s -w -buildid="
 PAGE_16K = 16384
 
@@ -195,11 +217,14 @@ def _externals(path, prefix):
     return {prefix + n for n in names}
 
 
-def kotlin_externals(linux=False):
-    """Имена `external fun` объекта XrayJni и, для Linux, LinuxNative — договор с экспортом JNI."""
+def kotlin_externals(linux=False, windows=False):
+    """Имена `external fun` объекта XrayJni и, для Linux, LinuxNative, для Windows — WindowsNative:
+    договор с экспортом JNI."""
     names = _externals(KOTLIN_JNI, JNI_PREFIX)
     if linux:
         names |= _externals(KOTLIN_DESKTOP_JNI, DESKTOP_JNI_PREFIX)
+    if windows:
+        names |= _externals(KOTLIN_WINDOWS_JNI, WINDOWS_JNI_PREFIX)
     return names
 
 
@@ -284,6 +309,120 @@ def desktop(out_dir):
     return 0
 
 
+# ---- оболочка Windows (D-97) ----
+
+def pe_info(path):
+    """(машина, {имена экспорта}, {DLL импорта в нижнем регистре}) файла PE."""
+    with open(path, "rb") as f:
+        data = f.read()
+    if data[:2] != b"MZ":
+        raise RuntimeError(f"{path}: не PE (нет MZ)")
+    pe = struct.unpack_from("<I", data, 0x3C)[0]
+    if data[pe:pe + 4] != b"PE\0\0":
+        raise RuntimeError(f"{path}: нет подписи PE")
+    machine, nsections, _, _, _, opt_size, _ = struct.unpack_from("<HHIIIHH", data, pe + 4)
+    opt = pe + 24
+    if struct.unpack_from("<H", data, opt)[0] != 0x20B:
+        raise RuntimeError(f"{path}: не PE32+")
+    ndirs = struct.unpack_from("<I", data, opt + 108)[0]
+    dirs = [struct.unpack_from("<II", data, opt + 112 + 8 * i) for i in range(min(ndirs, 16))]
+    sections = []
+    for i in range(nsections):
+        off = opt + opt_size + 40 * i
+        vsize, vaddr, rawsize, rawptr = struct.unpack_from("<IIII", data, off + 8)
+        sections.append((vaddr, max(vsize, rawsize), rawptr))
+
+    def at(rva):
+        for vaddr, size, rawptr in sections:
+            if vaddr <= rva < vaddr + size:
+                return rawptr + rva - vaddr
+        raise RuntimeError(f"{path}: RVA {rva:#x} вне секций")
+
+    def cstr(rva):
+        o = at(rva)
+        return data[o:data.index(b"\0", o)].decode("ascii", "replace")
+
+    exports = set()
+    if dirs and dirs[0][0]:
+        e = at(dirs[0][0])
+        # IMAGE_EXPORT_DIRECTORY: NumberOfNames — +24, AddressOfNames — +32.
+        nnames = struct.unpack_from("<I", data, e + 24)[0]
+        names_rva = struct.unpack_from("<I", data, e + 32)[0]
+        for k in range(nnames):
+            exports.add(cstr(struct.unpack_from("<I", data, at(names_rva) + 4 * k)[0]))
+    imports = set()
+    if len(dirs) > 1 and dirs[1][0]:
+        d = at(dirs[1][0])
+        while True:
+            name_rva = struct.unpack_from("<I", data, d + 12)[0]
+            if name_rva == 0:
+                break
+            imports.add(cstr(name_rva).lower())
+            d += 20
+    return machine, exports, imports
+
+
+def check_dll(path):
+    """Машина, экспорт JNI и импорт DLL для Windows."""
+    machine, exports, imports = pe_info(path)
+    rel = os.path.relpath(path, PROJ)
+    if machine != PE_AMD64:
+        raise RuntimeError(f"{rel}: машина PE {machine:#x}, ожидалась AMD64")
+    want = kotlin_externals(windows=True)
+    jni = {s for s in exports if s.startswith("Java_")}
+    if jni != want:
+        missing = ", ".join(sorted(want - jni)) or "—"
+        extra = ", ".join(sorted(jni - want)) or "—"
+        raise RuntimeError(f"{rel}: экспорт JNI не совпадает с XrayJni и WindowsNative (Kotlin): нет {missing}; лишние {extra}")
+    foreign = sorted(imports - WINDOWS_IMPORTS)
+    if foreign:
+        raise RuntimeError(f"{rel}: импорт не только из системных библиотек: {', '.join(foreign)} — рядом с DLL их нет")
+    return os.path.getsize(path), len(jni), sorted(imports)
+
+
+def windows(out_dir, require_tests):
+    """DLL для комплекта Windows: go vet и тесты моста для Windows, сборка mingw-w64, проверка PE.
+    [require_tests] — шаг проверок: без Wine тесты моста не выполнить, и это пропуск (код 3), а не успех."""
+    env = base_env()
+    if shutil.which(WINDOWS_CC) is None:
+        raise Missing(f"нет {WINDOWS_CC} (mingw-w64 из Ubuntu: gcc-mingw-w64-x86-64-posix) — DLL для Windows не собрать")
+    sys.path.insert(0, os.path.join(PROJ, "tools", "desktop"))
+    import windows_deps  # noqa: E402 — заголовки JNI из закреплённого JDK Temurin
+
+    try:
+        headers = windows_deps.jni_include()
+    except windows_deps.Missing as e:
+        raise Missing(str(e))
+    env.update(GOOS="windows", GOARCH="amd64", CC=WINDOWS_CC, CGO_CFLAGS=" ".join(f"-I{h}" for h in headers))
+    check_library_packages(env)
+    run(["go", "vet", "./bridge", "./jni"], env, "go vet (windows)")
+    os.makedirs(WINDOWS_OUT, exist_ok=True)
+    test_exe = os.path.join(WINDOWS_OUT, "bridge.test.exe")
+    run(["go", "test", "-c", "-o", test_exe, "./bridge"], env, "go test -c ./bridge (windows)")
+    wine = shutil.which("wine64") or ("/usr/lib/wine/wine64" if os.path.isfile("/usr/lib/wine/wine64") else None)
+    if wine is None and require_tests:
+        raise Missing("нет wine64 — тесты моста для Windows не выполнить (собраны: go test -c)")
+    if wine:
+        wenv = dict(os.environ, WINEPREFIX=os.path.join(WINDOWS_OUT, "wine"), WINEDEBUG="-all")
+        r = subprocess.run([wine, test_exe, "-test.count=1"], cwd=TOOL, env=wenv, capture_output=True, text=True, timeout=600)
+        if r.returncode != 0 or "PASS" not in r.stdout:
+            tail = "\n".join((r.stdout + r.stderr).strip().splitlines()[-30:])
+            raise RuntimeError(f"тесты моста для Windows в Wine: код {r.returncode}\n{tail}")
+        tests_note = "тесты моста для Windows — в Wine"
+    else:
+        tests_note = "тесты моста для Windows собраны, но не запущены: нет wine64"
+    os.makedirs(out_dir, exist_ok=True)
+    out = os.path.join(out_dir, WINDOWS_LIBRARY)
+    run(["go", "build", *BUILD_FLAGS, f"-ldflags={LDFLAGS_DESKTOP}", "-o", out, "./jni"], env, "сборка DLL для Windows")
+    header = out[:-4] + ".h"
+    if os.path.isfile(header):
+        os.remove(header)
+    size, n, imports = check_dll(out)
+    print(f"✓ dppassxray для Windows (windows/amd64, mingw-w64): {os.path.relpath(out, PROJ)} {mib(size)}, "
+          f"экспорт JNI — {n} функций XrayJni и WindowsNative, импорт — {', '.join(imports)}; go vet; {tests_note}")
+    return 0
+
+
 # ---- Android ----
 
 def ndk_dir(versions):
@@ -348,6 +487,9 @@ def main(argv):
     h.add_argument("--race", action="store_true", help="go test ещё и с -race")
     d = sub.add_parser("desktop", help="библиотека для оболочки Linux (D-74)")
     d.add_argument("--out", default=DESKTOP_OUT, help="каталог для libdppassxray.so")
+    w = sub.add_parser("windows", help="DLL для оболочки Windows (D-97)")
+    w.add_argument("--out", default=WINDOWS_OUT, help="каталог для dppassxray.dll")
+    w.add_argument("--require-tests", action="store_true", help="без wine64 — код 3: тесты моста для Windows не выполнены")
     a = sub.add_parser("android", help="библиотеки для APK")
     a.add_argument("--out", required=True, help="каталог: <ABI>/libdppassxray.so")
     a.add_argument("--abi", action="append", choices=sorted(ABIS), help="ABI (по умолчанию — все три)")
@@ -357,6 +499,8 @@ def main(argv):
             return host(args.race)
         if args.cmd == "desktop":
             return desktop(os.path.abspath(args.out))
+        if args.cmd == "windows":
+            return windows(os.path.abspath(args.out), args.require_tests)
         return android(os.path.abspath(args.out), args.abi or list(ABIS))
     except Missing as e:
         print(f"✗ {e}")

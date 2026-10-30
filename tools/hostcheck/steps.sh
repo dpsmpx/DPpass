@@ -8,6 +8,7 @@
 #   tools/hostcheck/steps.sh android-screens  экраны и ключевые пути на JVM: Robolectric с ядром Xray для хоста (D-86, D-90)
 #   tools/hostcheck/steps.sh android-sdk   есть ли Android SDK (проба [[tool]] профиля)
 #   tools/hostcheck/steps.sh android-ndk   есть ли NDK версии из каталога (проба [[tool]] профиля)
+#   tools/hostcheck/steps.sh wine          есть ли wine64 — тесты моста для Windows (проба [[tool]] профиля, D-97)
 #
 # Код возврата: 0 — шаг прошёл; 1 — нет; 2 — неверный вызов.
 set -u
@@ -68,11 +69,16 @@ android_ndk() { # NDK версии из каталога: им собирает�
   [ -n "$ver" ] && [ -f "$sdk/ndk/$ver/source.properties" ]
 }
 
+wine() { # wine64 в PATH или там, куда его кладёт пакет Ubuntu
+  command -v wine64 >/dev/null || [ -x /usr/lib/wine/wine64 ]
+}
+
 case "${1:-}" in
   build) build ;;
   xray-bridge) xray_bridge ;;
   android-screens) android_screens ;;
   android-sdk) android_sdk ;;
   android-ndk) android_ndk ;;
-  *) echo "steps.sh: шаг build, xray-bridge, android-screens, android-sdk или android-ndk, а не «${1:-}»"; exit 2 ;;
+  wine) wine ;;
+  *) echo "steps.sh: шаг build, xray-bridge, android-screens, android-sdk, android-ndk или wine, а не «${1:-}»"; exit 2 ;;
 esac

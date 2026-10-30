@@ -10,21 +10,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Protector держит сокет ядра вне TUN (на Android — VpnService.protect).
-// Ложь — сокет не защищён.
-type Protector interface {
-	Protect(fd int) bool
-}
-
-type allowAll struct{}
-
-func (allowAll) Protect(int) bool { return true }
-
-// denyAll — защитник без сеанса: ядро остановлено, его сокетам незачем соединяться.
-type denyAll struct{}
-
-func (denyAll) Protect(int) bool { return false }
-
 var (
 	guardMu sync.RWMutex
 	guard   Protector = denyAll{}

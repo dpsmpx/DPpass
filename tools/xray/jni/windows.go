@@ -1,0 +1,41 @@
+//go:build windows
+
+package main
+
+// Функции оболочки Windows (D-97) — договор с объектом
+// desktop.WindowsNative (Kotlin): ответ — статус первым байтом (0 —
+// успех, иначе bridge.Kind) и данные или текст ошибки. В библиотеках для
+// Android и Linux их нет.
+
+/*
+#include <jni.h>
+*/
+import "C"
+
+import "github.com/dpsmpx/dppass/tools/xray/bridge"
+
+//export Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeProtect
+func Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeProtect(env *C.JNIEnv, _ C.jclass, plain C.jbyteArray) C.jbyteArray {
+	return sealed(env, bridge.Protect, plain)
+}
+
+//export Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeUnprotect
+func Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeUnprotect(env *C.JNIEnv, _ C.jclass, data C.jbyteArray) C.jbyteArray {
+	return sealed(env, bridge.Unprotect, data)
+}
+
+//export Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeElevated
+func Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeElevated(env *C.JNIEnv, _ C.jclass) C.jboolean {
+	if bridge.Elevated() {
+		return C.JNI_TRUE
+	}
+	return C.JNI_FALSE
+}
+
+func sealed(env *C.JNIEnv, f func([]byte) ([]byte, error), in C.jbyteArray) C.jbyteArray {
+	out, err := f(bytesOf(env, in))
+	if err != nil {
+		return statusOf(env, err)
+	}
+	return newBytes(env, append([]byte{statusOK}, out...))
+}
