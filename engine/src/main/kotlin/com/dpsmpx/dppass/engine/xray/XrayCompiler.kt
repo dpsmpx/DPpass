@@ -885,11 +885,6 @@ class XrayCompiler(
         }
 
         /**
-         * Локальный прокси (D-95, T11): SOCKS5 с паролем (и HTTP-прокси на том же
-         * порту), только на `127.0.0.1`. UDP — для SOCKS5 UDP ASSOCIATE, тоже на
-         * loopback.
-         */
-        /**
          * Вход TUN, который сам создаёт адаптер (Windows, D-97). Фильтр
          * `misconfigtun` всегда: он закрывает только версию IP, у которой нет
          * маршрутов в TUN, — с маршрутами обеих он ничего не меняет.
@@ -913,6 +908,11 @@ class XrayCompiler(
         private fun systemTunWithoutTun(): Diagnostic =
             Diagnostic.error(DiagCode.CAPABILITY_FEATURE_UNSUPPORTED, "TUN ядра (D-97) — только в плане с TUN", "$.inbounds")
 
+        /**
+         * Локальный прокси (D-95, T11): SOCKS5 с паролем (и HTTP-прокси на том же
+         * порту), только на `127.0.0.1`. UDP — для SOCKS5 UDP ASSOCIATE, тоже на
+         * loopback.
+         */
         fun localInbound(local: LocalProxySpec): JsonObject = Json.obj(
             "tag" to Json.str(XrayBackend.TAG_LOCAL),
             "protocol" to Json.str("socks"),
