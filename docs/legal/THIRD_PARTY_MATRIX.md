@@ -212,8 +212,15 @@ Xray (`infra/conf`), а не DPpass, и отсечь их без правки up
 
 | Компонент | Версия | Лицензия | Куда | Статус | Условия |
 |---|---|---|---|---|---|
-| Eclipse Temurin JDK 21 для Windows x64 | `21.0.13+9` | GPL-2.0 с Classpath Exception; сторонние части — по `legal/` JDK | заголовки JNI — сборка моста; рантайм jlink (`runtime\`) — в комплект | разрешён | Classpath Exception снимает копилефт с программ, которые на рантайме работают (D-20 не нарушается); рантайм — без изменений, с его `legal/` |
+| Eclipse Temurin JDK 21 для Windows x64 | `21.0.13+9` | GPL-2.0 с Classpath Exception; сторонние части — по `legal/` JDK | заголовки JNI — сборка моста; рантайм jlink (`runtime\`) — в комплект | разрешён | Classpath Exception снимает копилефт с программ, которые на рантайме работают (D-20 не нарушается); рантайм — без изменений (`.exe` и `.dll` сверяет с jmods `tools/desktop/windows_package.py`), с его `legal/` |
 | Wintun (подписанные DLL WireGuard LLC) | `0.14.1` | Prebuilt Binaries License (WireGuard LLC) | `runtime\bin\wintun.dll` (amd64) — в комплект | разрешён | только неизменённая DLL рядом с программой, которая обращается к ней через API `wintun.h` (так делает Xray, §1.7); рядом — её `LICENSE.txt`; имена WireGuard и Wintun — не для продвижения |
+| mingw-w64 — среда выполнения C (пакет Ubuntu `mingw-w64-x86-64-dev`) | `11.0.1` | ZPL-2.1; объекты запуска CRT — общественное достояние | статически в `dppass.exe` и `native\dppassxray.dll` | разрешён | двоичная поставка воспроизводит уведомление и условия ZPL-2.1 — `NOTICES.txt` комплекта (текст — из `copyright` пакета, `tools/desktop/windows_package.py`) |
+| GCC — `libgcc` (пакет Ubuntu `gcc-mingw-w64-x86-64-posix`) | `13.2.0` | GPL-3.0 с GCC Runtime Library Exception | статически в `dppass.exe` и `native\dppassxray.dll` | разрешён | исключение снимает GPL с программ, собранных GCC; строка в `NOTICES.txt` — для прозрачности |
+
+Уведомления комплекта — `NOTICES.txt` в его корне: те же, что в APK
+(`tools/legal/notices.py`), но библиотеки Maven — только те, чьи jar в
+комплекте (сторонний jar без строки §1.1 — отказ сборки), и строки этого
+раздела.
 
 ## 2. Запланированные
 

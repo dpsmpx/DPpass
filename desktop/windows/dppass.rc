@@ -1,0 +1,28 @@
+// Ресурсы запускателя (D-97): манифест с правами администратора и сведения о версии.
+// DPPASS_VERSION ("0.1.19-dev") и DPPASS_VERSION_NUM (0,1,19,0) задаёт tools/desktop/windows_package.py.
+#include <winver.h>
+
+1 24 "dppass.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION DPPASS_VERSION_NUM
+PRODUCTVERSION DPPASS_VERSION_NUM
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "041904B0"
+    BEGIN
+      VALUE "FileDescription", "DPpass"
+      VALUE "ProductName", "DPpass"
+      VALUE "FileVersion", DPPASS_VERSION
+      VALUE "ProductVersion", DPPASS_VERSION
+      VALUE "OriginalFilename", "dppass.exe"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0419, 1200
+  END
+END

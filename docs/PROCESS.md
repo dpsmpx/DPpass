@@ -90,6 +90,7 @@ Verify. Журнал каждой проверки — `build/dpv/last/<пров
 | `project.build` — `tools/hostcheck/steps.sh build` (`./gradlew build :cli:installDist :build-logic:test ktlintCheck`, с Android SDK — `-x :app:build`: APK собирается шагом Android) | ошибки и **предупреждения** компилятора (они — ошибки), модульные и межмодульные тесты, тесты `build-logic` (личность пакета, D-47, D-49), корпус, fuzz; стиль Kotlin по `.editorconfig` — `ktlintCheck`, исправление — `./gradlew ktlintFormat` (D-63) | D-05 … D-22, D-63 |
 | `project.xray` — `tools/xray/check_xray.py` | эталон компилятора, который Xray закреплённой версии не принимает (`xray run -test`); решение маршрутизации Xray, не совпавшее с `RouteEvaluator`; собранное ядро не той версии, что в каталоге (`docs/TESTING.md`, «Эталоны Xray») | D-05, D-09, D-24 |
 | `project.xray-windows` — `tools/xray/native.py windows --require-tests` | `go vet` моста и JNI для Windows; тесты моста для Windows в Wine (договор `Start` без fd и защитника, DPAPI, снятие хуков сокетов, политика входа TUN Windows); архив Temurin, сумма которого не совпала с PROVENANCE; DLL не машины AMD64, с экспортом JNI не как у `external` объектов `XrayJni` и `WindowsNative` или с импортом не из системных библиотек | D-97 |
+| `project.windows-package` — `tools/desktop/windows_package.py --require-tests` | комплект Windows (D-97, T18): рантайм jlink не той версии Temurin, без модулей jdeps или с `.exe` и `.dll`, которые не совпадают с jmods; `wintun.dll` не AMD64; `dppass.exe` без `requireAdministrator`, не с окном, с импортом не из системных DLL или с тестовой частью; лишний или недостающий файл комплекта; сторонний jar без строки матрицы лицензий; в Wine — запускатель, который пускает при чужих правах, оставляет JVM `JAVA_TOOL_OPTIONS` и подобные или зовёт её не той командой; оболочка, которая на рантайме комплекта не загружает DLL моста, собирается с отказами или не проводит ключ через DPAPI | D-97 |
 | `project.xray-bridge` — `tools/hostcheck/steps.sh xray-bridge` (`tools/xray/native.py host` и `:tests:integration:xrayJniTest`) | `go vet` и `go test` моста ядра в обеих сборках (с тестовым входом и без); библиотека для JVM хоста, экспорт JNI которой не совпал с `external` объекта `XrayJni`; нарушение договора JNI в JVM хоста — версия, проверка, один экземпляр, защитник сокетов, счётчики (`docs/TESTING.md`, «Мост Xray и JNI») | D-25 |
 | `project.geodata` — `tools/xray/geodata.py --test` | `go vet` и `go test` сборщика набора геоданных; источник, чья сумма не совпала с PROVENANCE (DB-IP — файл в репозитории, dlc — Go-модуль со сверкой sum.golang.org); строка источника, которую сборщик не понял; код собранного набора, который ядро Xray не загрузило (`docs/TESTING.md`, «Набор геоданных»); нет кодов, которые компилятор подставляет сам | D-27, D-31, D-38 |
 | `project.android` — `:app:build :app:lint` (нужны Go и NDK) | сборка APK вместе с `libdppassxray.so` трёх ABI (задачи `xrayNative<Вариант>` → `tools/xray/native.py android`) и набором геоданных (задачи `xrayGeodata<Вариант>` → `tools/xray/geodata.py`); Lint с `warningsAsErrors`, и для модулей ядра (`checkDependencies`); предупреждения Kotlin в `app/` — ошибки, как у модулей ядра (`allWarningsAsErrors`, с 18.10.2026) | D-17, D-25 |
@@ -112,7 +113,7 @@ Verify. Журнал каждой проверки — `build/dpv/last/<пров
 | Компилятор C и заголовки JNI | `cc` (gcc или clang) для cgo; `jni.h` из JDK (`JAVA_HOME/include`) | библиотека моста для JVM хоста (`native.py host`) |
 | Android SDK | платформа 36 (`compileSdk`) и build-tools (`aapt2`, `dexdump`), путь — `ANDROID_HOME` или `sdk.dir` в `local.properties` | модуль `app`, `check_android_api.py`, `check_apk.py`; без SDK `app` не подключается, а `--full` падает |
 | Android NDK | версия из `gradle/libs.versions.toml` (`android-ndk`, сейчас `30.0.16248370`) в `$ANDROID_HOME/ndk/<версия>`; ставится `sdkmanager "ndk;30.0.16248370"` | сборка `libdppassxray.so` для APK (D-25); без NDK (или без Go) шаги Android пропускаются, а `--full` падает |
-| mingw-w64 и Wine (по желанию) | `gcc-mingw-w64-x86-64-posix`, `binutils-mingw-w64-x86-64` и `wine64` из apt Ubuntu (проверено с 13.2.0 и Wine 9.0) | DLL моста для Windows и тесты моста в Wine (`native.py windows`, шаг `project.xray-windows`, D-97); без них шаг пропускается и в `--full` — по `allow_skip_in_ci` профиля |
+| mingw-w64 и Wine (по желанию) | `gcc-mingw-w64-x86-64-posix`, `binutils-mingw-w64-x86-64` и `wine64` из apt Ubuntu (проверено с 13.2.0 и Wine 9.0) | DLL моста для Windows и тесты моста в Wine (`native.py windows`, шаг `project.xray-windows`, D-97), комплект Windows и его проверка в Wine (шаг `project.windows-package`); без них шаги пропускаются и в `--full` — по `allow_skip_in_ci` профиля |
 | Сеть | при первом запуске | Gradle скачивает дистрибутив (сверяя SHA-256) и зависимости из Maven Central и Google Maven; Go — toolchain и модули с proxy.golang.org (сверяя с `go.sum` и sum.golang.org) |
 
 В веб-сессии Claude Code окружение готовит хук начала сессии
@@ -220,7 +221,10 @@ Maven Central через его зеркало у Google (только сбор�
    двоичных файлов в `main` нет, `docs/PROVENANCE.md`, §4): APK,
    `SHA256SUMS`, `CERTIFICATE.txt` и `README.md` с коммитом `main`, из
    которого собраны; у сборки без подписи — и скрипт подписи. Сборки для
-   Linux — в ветку `linux_debug`. В `main` ветки сборок не вливаются.
+   Linux — в ветку `linux_debug`, комплект Windows
+   (`tools/desktop/windows_package.py` → `build/windows/dist/`: архив и
+   `SHA256SUMS`) — в ветку `windows_debug`. В `main` ветки сборок не
+   вливаются.
 
 ## 5. Перед слиянием
 

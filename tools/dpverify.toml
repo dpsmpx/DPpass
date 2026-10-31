@@ -258,6 +258,16 @@ allow_skip_in_ci = "mingw-w64 и Wine ставятся вручную из apt (
 timeout = "20m"
 
 [[command]]
+id = "project.windows-package"
+# Комплект Windows (D-97, T18): рантайм jlink, Wintun, запускатель dppass.exe, состав; в Wine — запускатель и самопроверка оболочки
+run = ["python3", "tools/desktop/windows_package.py", "--require-tests"]
+paths = ["**/*.kt", "**/*.kts", "desktop/**", "tools/desktop/**", "tools/xray/**", "tools/legal/**", "gradle/**",
+         "docs/PROVENANCE.md", "docs/legal/THIRD_PARTY_MATRIX.md", "LICENSE"]
+requires = ["jdk", "go", "mingw-w64", "wine"]
+allow_skip_in_ci = "mingw-w64 и Wine ставятся вручную из apt (docs/PROCESS.md, «Окружение»): на машине без них комплект Windows не собрать и не проверить, шаг — громкий пропуск"
+timeout = "30m"
+
+[[command]]
 id = "project.geodata"
 run = ["python3", "tools/xray/geodata.py", "--test"]
 paths = ["tools/xray/**", "gradle/libs.versions.toml"]

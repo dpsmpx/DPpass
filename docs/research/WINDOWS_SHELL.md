@@ -185,6 +185,26 @@ Xray обращается к DLL только через экспорт `wintun.
     сетевых интерфейсов (`NetworkInterface.getAll`) роняет процесс в
     `kernelbase.dll`. В прогоне первым ставился поставщик `SunMSCAPI`
     (модуль `jdk.crypto.mscapi`); на Windows это не нужно.
+- **Права файлов в Wine** (30.10.2026, Wine 9.0). Права не хранятся:
+  `GetNamedSecurityInfoW` для файлов на диске Linux отдаёт владельца
+  `S-1-5-21-0-0-0-1000` и список доступа из прав Unix (SYSTEM и
+  пользователь — полный доступ, Everyone — чтение).
+  `SetNamedSecurityInfoW` отвечает успехом, но ничего не меняет — и в
+  расширенные атрибуты файла не пишет. Проверку прав комплекта в Wine
+  можно провести только по строкам SDDL; права NTFS — на Windows.
+- **Комплект** (30–31.10.2026, оболочка 0.1.19-dev): архив zip — 53 МиБ,
+  168 файлов. Рантайм jlink с `--strip-java-debug-attributes` и
+  `--compress=zip-6` — модули `java.base`, `java.datatransfer`,
+  `java.desktop`, `java.instrument`, `java.prefs`, `java.xml`,
+  `jdk.unsupported`. `java.exe` этого рантайма под Wine прошёл
+  самопроверку оболочки: ядро 26.9.30, DPAPI.
+- **`jlink --strip-debug` на Linux меняет `.exe` Temurin** (31.10.2026,
+  jlink 21.0.11 хоста, jmods 21.0.13): вместе с атрибутами классов он
+  обрабатывает нативные команды. `java.exe`, `javaw.exe` и `keytool.exe`
+  выходят на 10 КБ короче (без подписи Authenticode) и с новым
+  заголовком в каждой сборке, DLL не меняются. С
+  `--strip-java-debug-attributes` все 72 `.exe` и `.dll` рантайма
+  побайтно совпадают с jmods, и две сборки комплекта дают одну сумму.
 
 ## 5. Права
 

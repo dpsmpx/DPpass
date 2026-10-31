@@ -10,10 +10,13 @@ import javax.swing.SwingUtilities
 import kotlin.system.exitProcess
 
 /**
- * Оболочка ПК: Linux (D-74) и Windows (D-97). Без аргументов — окно;
+ * Оболочка ПК: Linux (D-74) и Windows (D-97). Без аргументов — окно.
  * `--self-check FILE` (только Linux) — проверка туннеля на настоящем ядре
  * для `tools/desktop/netns_check.py` (отчёт — в FILE, код выхода 0 —
- * туннель поднялся и закрылся).
+ * туннель поднялся и закрылся). `--windows-self-check DATA FILE` (только
+ * Windows) — проверка комплекта для `tools/desktop/windows_package.py`
+ * ([WindowsSelfCheck]). Запускатель `dppass.exe` своих аргументов не
+ * передаёт: с правами администратора — только окно (T18).
  */
 fun main(args: Array<String>) {
     val install = DesktopPaths.installDir(File(DesktopGraph::class.java.protectionDomain.codeSource.location.toURI()))
@@ -21,6 +24,9 @@ fun main(args: Array<String>) {
     if (!windows && args.size == 2 && args[0] == "--self-check") {
         val ok = CoroutineScope(Dispatchers.Default).future { SelfCheck.run(install, File(args[1])) }.get()
         exitProcess(if (ok) 0 else 1)
+    }
+    if (windows && args.size == 3 && args[0] == "--windows-self-check") {
+        exitProcess(if (WindowsSelfCheck.run(install, File(args[1]), File(args[2]))) 0 else 1)
     }
     val home = System.getProperty("user.home")
     val data = if (windows) DesktopPaths.windowsDataDir(System.getenv(), home) else DesktopPaths.dataDir(System.getenv(), home)

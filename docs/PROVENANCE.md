@@ -178,6 +178,16 @@ Xray 26.9.30 его принимает и выбирает по его кода�
 | `OpenJDK21U-jdk_x64_windows_hotspot_21.0.13_9.zip` | `21.0.13+9` | Eclipse Temurin, `github.com/adoptium/temurin21-binaries`, выпуск `jdk-21.0.13+9` (`JAVA_VERSION_DATE` 2026-10-20); 205 421 281 байт; SHA-256 `a4dbaa05fca4bd89d84584e58c459bd732efebb1722af80ab13c6516832004f9` — та же, что у `api.adoptium.net` 30.10.2026. Берутся `include/` (заголовки JNI моста) и `jmods/` (рантайм jlink комплекта со своим `legal/`) |
 | `wintun-0.14.1.zip` | `0.14.1` | `www.wintun.net/builds/wintun-0.14.1.zip`; SHA-256 `07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51` — та же, что на странице `www.wintun.net` 30.10.2026. В комплект — `bin/amd64/wintun.dll` (427 552 байта) и `LICENSE.txt` без изменений |
 
+Инструменты сборки комплекта — пакеты Ubuntu, не в репозитории:
+`gcc-mingw-w64-x86-64-posix` 13.2.0-6ubuntu1+26.1,
+`binutils-mingw-w64-x86-64` 2.41.90.20240122-1ubuntu1+11.4 (`windres`),
+`mingw-w64-x86-64-dev` 11.0.1-3build1 (среда выполнения C — статически
+в `dppass.exe` и DLL моста, матрица §1.9), `wine64` 9.0~repack-4build3
+(только проверка). Запускатель `dppass.exe` — свой код
+(`desktop/windows/`), собирается из исходника при каждой сборке
+комплекта; двоичного в репозитории нет. Рантайм `runtime\` — `jlink`
+хоста из `jmods/` архива Temurin выше, без своих изменений.
+
 ## 3. Gradle
 
 | Что | Значение |

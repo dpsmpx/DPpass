@@ -31,15 +31,19 @@
 4. **Комплект**: рантайм jlink из Temurin, `wintun.dll`, запускатель
    `dppass.exe` с манифестом `requireAdministrator`, архив и
    `SHA256SUMS`; матрица лицензий и PROVENANCE; ветка сборок
-   `windows_debug`.
+   `windows_debug`. Сделано 30.10.2026: `tools/desktop/windows_package.py`,
+   шаг `project.windows-package`. Запускатель сверяет права файлов
+   комплекта и чистит окружение JVM (T18). В Wine проверяются запускатель
+   (по таблице прав SDDL) и сама оболочка на рантайме комплекта
+   (`--windows-self-check`). `NOTICES.txt` — с mingw-w64 и GCC.
 
 ## Критерии выхода
 
-- [ ] `go vet` и `go test -c` моста для Windows, `native.py windows` и
+- [x] `go vet` и `go test -c` моста для Windows, `native.py windows` и
       проверка DLL зелёные.
-- [ ] Эталоны компилятора для входа TUN Windows, отказ моста на полях
+- [x] Эталоны компилятора для входа TUN Windows, отказ моста на полях
       Windows вне Windows, тесты платформы Windows в `:desktop`.
-- [ ] Сценарий комплекта (работа 4) собирает архив и сверяет его
+- [x] Сценарий комплекта (работа 4) собирает архив и сверяет его
       состав.
 - [ ] На ПК автора: запуск с UAC, подключение через сервер подписки, нет
       утечки DNS и IPv6, отключение убирает адаптер (`TODO.md`,

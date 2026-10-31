@@ -23,6 +23,10 @@ sum.golang.org, `goenv.py`, T10). Одинаковые тексты — один
 номером. Для библиотек Kotlin (Apache-2.0) — тот же текст Apache-2.0 из
 модуля Go с этой лицензией.
 
+Комплект Windows (D-97, `tools/desktop/windows_package.py`) зовёт
+`build(out, jars)`: библиотеки Maven — только с jar комплекта, а
+сторонний jar без строки §1.1 — отказ.
+
 Код возврата: 0 — готово; 1 — нет строки в матрице, текста лицензии или
 архива модуля; 3 — нет Go.
 """
@@ -133,11 +137,27 @@ def license_text(directory):
     return None
 
 
-def build(out_dir):
+def only_jars(items, jars):
+    """Библиотеки Maven — только те, чьи jar в комплекте (оболочка ПК, D-97); сторонний jar без строки матрицы — отказ."""
+    maven = [(k, n, v, lic) for k, n, v, lic in items if k == "maven"]
+
+    def artifact(name):
+        return name.split(":")[1]
+
+    stray = [j for j in jars if re.search(r"-\d[^/]*\.jar$", j) and not any(j.startswith(artifact(n) + "-") for _, n, _, _ in maven)]
+    if stray:
+        raise SystemExit(f"✗ notices: jar без строки в матрице лицензий (§1.1): {', '.join(stray)}")
+    return [i for i in items if i[0] != "maven" or any(j.startswith(artifact(i[1]) + "-") for j in jars)]
+
+
+def build(out_dir, jars=None):
+    """[jars] — имена jar комплекта: библиотеки Maven — только из них (без него — все строки APK)."""
     if shutil.which("go") is None:
         raise Missing()
     env = goenv.go_env()
     items = components()
+    if jars is not None:
+        items = only_jars(items, jars)
     texts = {}  # sha → (номер, текст)
     entries = []
     apache = None
