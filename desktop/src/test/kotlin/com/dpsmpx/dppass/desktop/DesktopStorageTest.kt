@@ -13,10 +13,23 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.fail
 
 /** Хранение оболочки Linux (D-74, T7): каталоги 0700, ключ данных без обёртки, записи зашифрованы. */
 class DesktopStorageTest {
     private fun tmp(): File = Files.createTempDirectory("dppass-desktop").toFile().also { it.deleteOnExit() }
+
+    @Test
+    fun secondDpPassOnTheSameDataIsRefusedUntilTheFirstExits() {
+        // Ярлык через задачу и автозапуск (D-100) легко запускают DPpass дважды: второй хранилище не трогает.
+        val data = tmp()
+        val first = assertNotNull(DesktopLock.acquire(data))
+        assertNull(DesktopLock.acquire(data), "замок занят — второй экземпляр не запускается")
+        first.close()
+        DesktopLock.acquire(data)?.close() ?: fail("замок не освободился после выхода первого")
+    }
 
     @Test
     fun dataDirectoriesAreOwnerOnlyEvenIfTheyExisted() {

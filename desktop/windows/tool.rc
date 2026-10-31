@@ -1,0 +1,31 @@
+// Ресурсы программ установки (D-100): манифест, значок и сведения о версии.
+// DPPASS_MANIFEST, DPPASS_FILE, DPPASS_DESCRIPTION, DPPASS_VERSION и
+// DPPASS_VERSION_NUM задаёт tools/desktop/windows_package.py; dppass.ico он же
+// рисует из desktop/package/dppass.svg в каталог сборки.
+#include <winver.h>
+
+1 24 DPPASS_MANIFEST
+1 ICON "dppass.ico"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION DPPASS_VERSION_NUM
+PRODUCTVERSION DPPASS_VERSION_NUM
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "041904B0"
+    BEGIN
+      VALUE "FileDescription", DPPASS_DESCRIPTION
+      VALUE "ProductName", "DPpass"
+      VALUE "FileVersion", DPPASS_VERSION
+      VALUE "ProductVersion", DPPASS_VERSION
+      VALUE "OriginalFilename", DPPASS_FILE
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0419, 1200
+  END
+END

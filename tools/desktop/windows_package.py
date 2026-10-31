@@ -70,14 +70,24 @@ JVM_FLAGS = ["-Dfile.encoding=UTF-8", "-XX:+DisableAttachMechanism", "--enable-n
              "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED"]
 EXE_IMPORTS = {"kernel32.dll", "user32.dll", "advapi32.dll", "msvcrt.dll"}
 PE_SUBSYSTEM_GUI = 2
-TOP = {"dppass.exe", "runtime", "lib", "native", "geodata", "LICENSE", "NOTICES.txt"}
+TOP = {"dppass.exe", "dppass-start.exe", "setup.exe", "uninstall.exe", "runtime", "lib", "native", "geodata", "LICENSE", "NOTICES.txt"}
 REQUIRED = [
-    "dppass.exe", "runtime/release", "runtime/bin/javaw.exe", "runtime/bin/java.exe", "runtime/bin/wintun.dll",
+    "dppass.exe", "dppass-start.exe", "setup.exe", "uninstall.exe", "runtime/release", "runtime/bin/javaw.exe", "runtime/bin/java.exe", "runtime/bin/wintun.dll",
     "runtime/bin/LICENSE.txt", "runtime/legal/java.base/LICENSE", "native/dppassxray.dll", "geodata/manifest.json",
     "geodata/NOTICE.txt", "LICENSE", "NOTICES.txt",
 ]
 # Тестовая часть запускателя: её строк в dppass.exe комплекта быть не должно.
 TEST_MARKERS = ["--sddl", "--trust-tree", "--walk-tree", "command: "]
+# Программы установки (D-100): файл → манифест, уровень прав, описание, тестовые строки.
+SETUP_IMPORTS = EXE_IMPORTS | {"shell32.dll", "ole32.dll"}
+TOOLS = {
+    "dppass-start.exe": ("start.manifest", "asInvoker", "DPpass — запуск"),
+    "uninstall.exe": ("setup.manifest", "requireAdministrator", "DPpass — удаление"),
+    "setup.exe": ("setup.manifest", "requireAdministrator", "DPpass — установка"),
+}
+SETUP_TEST_MARKERS = ["install SOURCE TARGET", "DPpassSetupTest"]
+SETUP_TEST_TASK = "DPpassSetupTest"
+SETUP_TEST_KEY = "HKCU\\Software\\DPpassSetupTest\\Uninstall\\DPpass"
 # Оценка прав запускателем (T18): строка SDDL → можно ли запускать.
 SDDL_CASES = [
     ("O:BAD:P(A;;FA;;;BA)(A;;FA;;;SY)(A;;0x1200a9;;;BU)(A;OICIIO;GA;;;CO)", True, "как у C:\\Program Files"),
@@ -163,6 +173,152 @@ def build_launcher(v, out_dir):
     run([CC, *common, "-mconsole", "-DDPPASS_LAUNCHER_TEST", "-o", test, os.path.join(LAUNCHER, "dppass.c"), "-ladvapi32"],
         "тестовая сборка запускателя")
     return exe, test
+
+
+def tool_resources(v, out_dir, name):
+    """Ресурсы программы установки: манифест, значок (dppass.ico — из build_launcher), версия."""
+    manifest, _, description = TOOLS[name]
+    res = os.path.join(out_dir, name + ".res.o")
+    run([WINDRES, f'-DDPPASS_VERSION=\\"{v}\\"', f"-DDPPASS_VERSION_NUM={numeric(v)}", f'-DDPPASS_MANIFEST=\\"{manifest}\\"',
+         f'-DDPPASS_FILE=\\"{name}\\"', f'-DDPPASS_DESCRIPTION=\\"{description}\\"', "-I", LAUNCHER, "-I", out_dir,
+         "-O", "coff", "-o", res, os.path.join(LAUNCHER, "tool.rc")], f"windres {name}")
+    return res
+
+
+SETUP_COMMON = ["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-municode", "-Wl,--no-insert-timestamp"]
+SETUP_LIBS = ["-ladvapi32", "-lshell32", "-lole32", "-luuid"]
+
+
+def build_payload_tools(v, out_dir, root):
+    """dppass-start.exe и uninstall.exe — в комплект (их суммы тоже вшиваются в setup.exe)."""
+    for name, src, extra in (("dppass-start.exe", "start.c", []), ("uninstall.exe", "setup.c", ["-DDPPASS_UNINSTALL"])):
+        out = os.path.join(root, name)
+        # uninstall.exe не включает payload.h, но заголовок рядом не мешает: суммы считаются позже.
+        run([CC, *SETUP_COMMON, "-mwindows", "-s", *extra, "-o", out, os.path.join(LAUNCHER, src), tool_resources(v, out_dir, name), *SETUP_LIBS],
+            f"сборка {name}")
+
+
+def write_payload(v, out_dir, root):
+    """payload.h: каждый файл комплекта (кроме setup.exe) и его SHA-256 — их сверяет установщик (D-100)."""
+    files = []
+    for dirpath, _, names in os.walk(root):
+        for n in names:
+            full = os.path.join(dirpath, n)
+            rel = os.path.relpath(full, root)
+            if rel == "setup.exe":
+                continue
+            files.append((rel.replace(os.sep, "\\"), sha256(full)))
+    files.sort()
+    for rel, _ in files:
+        if not re.fullmatch(r"[A-Za-z0-9._\\ +-]+", rel):
+            raise RuntimeError(f"payload.h: путь {rel!r} не годится для строки C")
+    lines = [f'/* Создан tools/desktop/windows_package.py: файлы комплекта DPpass {v} и их SHA-256 (D-100). */',
+             f'#define DPPASS_VERSION_W L"{v}"',
+             "static const struct payload_file {", "    const wchar_t *path;", "    const char *sha256;", "} PAYLOAD[] = {"]
+    lines += [f'    {{L"{rel.replace(chr(92), chr(92) * 2)}", "{h}"}},' for rel, h in files]
+    lines += ["};", "#define PAYLOAD_COUNT (sizeof PAYLOAD / sizeof PAYLOAD[0])", ""]
+    with open(os.path.join(out_dir, "payload.h"), "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    return len(files)
+
+
+def build_setup(v, out_dir, root):
+    """setup.exe — в корень архива (не устанавливается); setup-test.exe — для Wine, с тем же payload.h."""
+    exe = os.path.join(root, "setup.exe")
+    run([CC, *SETUP_COMMON, "-mwindows", "-s", "-I", out_dir, "-o", exe, os.path.join(LAUNCHER, "setup.c"),
+         tool_resources(v, out_dir, "setup.exe"), *SETUP_LIBS], "сборка setup.exe")
+    test = os.path.join(out_dir, "setup-test.exe")
+    run([CC, *SETUP_COMMON, "-mconsole", "-DDPPASS_SETUP_TEST", "-I", out_dir, "-o", test, os.path.join(LAUNCHER, "setup.c"), *SETUP_LIBS],
+        "тестовая сборка установщика")
+    return test
+
+
+def check_tool(path):
+    """Программа установки: AMD64, окно, уровень прав из манифеста, импорт системных DLL, значок, без тестовой части."""
+    name = os.path.basename(path)
+    _, level, _ = TOOLS[name]
+    machine, _, imports = native.pe_info(path)
+    if machine != native.PE_AMD64 or subsystem(path) != PE_SUBSYSTEM_GUI:
+        raise RuntimeError(f"{name}: не AMD64 или не приложение с окном")
+    foreign = sorted(imports - SETUP_IMPORTS)
+    if foreign:
+        raise RuntimeError(f"{name}: импорт не только из системных DLL: {', '.join(foreign)}")
+    with open(path, "rb") as f:
+        data = f.read()
+    if f'requestedExecutionLevel level="{level}"'.encode() not in data:
+        raise RuntimeError(f"{name}: в манифесте не {level}")
+    for marker in SETUP_TEST_MARKERS:
+        if marker.encode("utf-16-le") in data:
+            raise RuntimeError(f"{name}: в программе комплекта есть тестовая часть ({marker})")
+    if [size for size, image in app_icon.pngs() if image not in data]:
+        raise RuntimeError(f"{name}: нет значка из dppass.svg")
+
+
+def setup_checks(root, setup_test, wine, n_payload):
+    """Установщик в Wine (D-100): установка с автозапуском, повторная, подмена файла — отказ, удаление."""
+    env = dict(os.environ, WINEPREFIX=os.path.join(native.WINDOWS_OUT, "wine"), WINEDEBUG="-all")
+    work = os.path.join(OUT, "setup-test")
+    if os.path.exists(work):
+        shutil.rmtree(work)
+    os.makedirs(work)
+    target = os.path.join(work, "DPpass")
+
+    def setup(*args):
+        return subprocess.run([wine, setup_test, *args], env=env, capture_output=True, text=True, timeout=600)
+
+    def schtasks_delete():
+        return subprocess.run([wine, "schtasks.exe", "/Delete", "/TN", SETUP_TEST_TASK, "/F"], env=env, capture_output=True, text=True,
+                              timeout=120).returncode
+
+    try:
+        probe = os.path.join(root, "LICENSE")
+        r = setup("hash", winpath(probe))
+        if r.returncode != 0 or r.stdout.strip() != sha256(probe):
+            raise RuntimeError(f"установщик: SHA-256 {r.stdout.strip()!r} ≠ {sha256(probe)}")
+        r = setup("install", winpath(root), winpath(target), "autostart")
+        if r.returncode != 0:
+            raise RuntimeError(f"установщик: установка — код {r.returncode}: {r.stdout.strip()[-500:]}")
+        task = r.stdout
+        for want in ("<RunLevel>HighestAvailable</RunLevel>", "<LogonType>InteractiveToken</LogonType>", "<LogonTrigger>",
+                     "<SecurityDescriptor>D:P(A;;FA;;;BA)(A;;FA;;;SY)(A;;FRFX;;;S-", winpath(os.path.join(target, "dppass.exe"))):
+            if want not in task:
+                raise RuntimeError(f"установщик: в задаче нет {want}")
+        installed = sum(len(files) for _, _, files in os.walk(target))
+        if installed != n_payload or os.path.exists(os.path.join(target, "task.xml")):
+            raise RuntimeError(f"установщик: в каталоге установки {installed} файлов, ожидалось {n_payload} (без task.xml)")
+        for dirpath, _, names in os.walk(target):
+            for n in names:
+                rel = os.path.relpath(os.path.join(dirpath, n), target)
+                if sha256(os.path.join(dirpath, n)) != sha256(os.path.join(root, rel)):
+                    raise RuntimeError(f"установщик: {rel} установлен не тот")
+        if not os.path.isfile(target + ".menu/DPpass.lnk"):
+            raise RuntimeError("установщик: нет ярлыка")
+        q = subprocess.run([wine, "reg", "query", SETUP_TEST_KEY, "/v", "UninstallString"], env=env,
+                           capture_output=True, text=True, timeout=120)
+        if q.returncode != 0 or "uninstall.exe" not in q.stdout:
+            raise RuntimeError(f"установщик: нет записи удаления: {q.stdout.strip()[:300]}")
+        # Повторная установка заменяет прежнюю целиком; прежняя убирается.
+        r = setup("install", winpath(root), winpath(target))
+        if r.returncode != 0 or os.path.exists(target + ".old") or "<LogonTrigger>" in r.stdout:
+            raise RuntimeError(f"установщик: повторная установка — код {r.returncode}, прежняя {'осталась' if os.path.exists(target + '.old') else 'убрана'}")
+        # Файл, подменённый после распаковки, не ставится, и каталога установки не остаётся.
+        tampered = os.path.join(work, "tampered")
+        shutil.copytree(root, tampered)
+        with open(os.path.join(tampered, "LICENSE"), "ab") as f:
+            f.write(b"\n")
+        other = os.path.join(work, "Other")
+        r = setup("install", winpath(tampered), winpath(other))
+        if r.returncode == 0 or "LICENSE" not in r.stdout or os.path.exists(other):
+            raise RuntimeError(f"установщик: подменённый LICENSE принят или каталог остался: {r.stdout.strip()[-300:]}")
+        r = setup("uninstall", winpath(target))
+        if r.returncode != 0 or os.path.exists(target) or os.path.exists(target + ".menu"):
+            raise RuntimeError(f"установщик: удаление — код {r.returncode}, каталог {'остался' if os.path.exists(target) else 'убран'}")
+        q = subprocess.run([wine, "reg", "query", SETUP_TEST_KEY], env=env, capture_output=True, text=True, timeout=120)
+        if q.returncode == 0 or schtasks_delete() == 0:
+            raise RuntimeError("установщик: после удаления осталась запись или задача")
+    finally:
+        schtasks_delete()
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def subsystem(path):
@@ -314,8 +470,8 @@ def write_notices(path, jar_names, temurin, wintun_version, crt_version, zpl):
         "",
         f"* Eclipse Temurin {temurin} — рантайм runtime\\ — GPL-2.0 с Classpath Exception; уведомления рантайма и его частей — runtime\\legal\\",
         f"* Wintun {wintun_version} (WireGuard LLC) — runtime\\bin\\wintun.dll без изменений — Prebuilt Binaries License; текст — runtime\\bin\\LICENSE.txt",
-        f"* mingw-w64 {crt_version} — среда выполнения C в dppass.exe и native\\dppassxray.dll — ZPL-2.1, части — общественное достояние; текст ниже",
-        f"* GCC {gcc_version()} (libgcc) — в dppass.exe и native\\dppassxray.dll — GPL-3.0 с GCC Runtime Library Exception",
+        f"* mingw-w64 {crt_version} — среда выполнения C в dppass.exe, dppass-start.exe, setup.exe, uninstall.exe и native\\dppassxray.dll — ZPL-2.1, части — общественное достояние; текст ниже",
+        f"* GCC {gcc_version()} (libgcc) — в dppass.exe, dppass-start.exe, setup.exe, uninstall.exe и native\\dppassxray.dll — GPL-3.0 с GCC Runtime Library Exception",
         "",
         "--- ZPL-2.1 (mingw-w64) ---",
         zpl,
@@ -438,18 +594,28 @@ def package(dist, require_tests):
     except native.Missing as e:
         raise Missing(str(e))
     dll_size, n_jni, _ = native.check_dll(os.path.join(root, "native", native.WINDOWS_LIBRARY))
-    exe, test_exe = build_launcher(v, os.path.join(OUT, "launcher"))
+    launcher_dir = os.path.join(OUT, "launcher")
+    exe, test_exe = build_launcher(v, launcher_dir)
     shutil.copyfile(exe, os.path.join(root, "dppass.exe"))
     imports = check_launcher(os.path.join(root, "dppass.exe"))
     crt_version, zpl = mingw()
     jar_names = sorted(os.path.basename(p) for p in jar_paths)
     write_notices(os.path.join(root, "NOTICES.txt"), jar_names, temurin, wintun_version, crt_version, zpl)
+    # Программы установки (D-100): сначала то, что ставится, потом суммы, потом сам установщик с ними.
+    build_payload_tools(v, launcher_dir, root)
+    n_payload = write_payload(v, launcher_dir, root)
+    setup_test = build_setup(v, launcher_dir, root)
+    for name in TOOLS:
+        check_tool(os.path.join(root, name))
     check_tree(root, jar_names)
     if wine:
         engine = wine_checks(root, test_exe, wine)
-        wine_note = f"в Wine: права — {len(SDDL_CASES)} случаев, обход всего комплекта, командная строка и окружение JVM, самопроверка оболочки (ядро {engine}, DPAPI, сокет пробы)"
+        setup_checks(root, setup_test, wine, n_payload)
+        wine_note = (f"в Wine: права — {len(SDDL_CASES)} случаев, обход всего комплекта, командная строка и окружение JVM, "
+                     f"самопроверка оболочки (ядро {engine}, DPAPI, сокет пробы), установщик — установка {n_payload} файлов со сверкой SHA-256, "
+                     f"задача и запись удаления, повторная установка, подменённый файл — отказ, удаление")
     else:
-        wine_note = "Wine нет: запускатель и рантайм в Wine не проверены"
+        wine_note = "Wine нет: запускатель, установщик и рантайм в Wine не проверены"
     os.makedirs(dist, exist_ok=True)
     archive = os.path.join(dist, f"dppass-windows-{v}.zip")
     n = write_zip(root, archive)
@@ -458,7 +624,8 @@ def package(dist, require_tests):
         f.write(f"{digest}  {os.path.basename(archive)}\n")
     print(f"✓ комплект Windows: {os.path.relpath(archive, PROJ)} {mib(os.path.getsize(archive))}, файлов {n}; "
           f"рантайм Temurin {temurin} ({', '.join(runtime_mods)}; {native_files} нативных файлов — как в jmods), Wintun {wintun_version}, DLL моста {mib(dll_size)} ({n_jni} JNI), "
-          f"dppass.exe — requireAdministrator, значок из dppass.svg, импорт {', '.join(imports)}; {wine_note}")
+          f"dppass.exe — requireAdministrator, значок из dppass.svg, импорт {', '.join(imports)}; "
+          f"setup.exe и uninstall.exe — requireAdministrator, dppass-start.exe — asInvoker; {wine_note}")
     return 0
 
 

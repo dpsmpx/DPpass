@@ -187,6 +187,12 @@ Xray обращается к DLL только через экспорт `wintun.
   (`WSAIoctl` с `SIO_UDP_CONNRESET` — `WSAEOPNOTSUPP`); сокет IPv6 —
   `WSAEAFNOSUPPORT` (IPv6 нет в ядре машины). Привязку проб (D-99)
   тесты в Wine проверяют подменой опций, резолв — своим сервером по TCP.
+  Планировщик в Wine 9.0 (31.10.2026): `schtasks /Create /XML` принимает
+  задачу с `HighestAvailable`, `LogonTrigger` и `SecurityDescriptor` в
+  `RegistrationInfo`, `/Run` и `/End` отвечают успехом, `/Delete`
+  несуществующей задачи — код 1; поэтому тест установщика узнаёт, что
+  задачу удалили. Запустить её как Windows и проверить список доступа
+  Wine не может — это ПК автора.
 - **Граф оболочки в Wine** (30.10.2026, оболочка 0.1.18-dev):
   - `jdeps` jar оболочки и её модулей называет модули `java.base`,
     `java.desktop`, `java.instrument`, `jdk.unsupported`;

@@ -6,7 +6,11 @@ import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.storage.KeyWrapper
 import java.io.File
 import java.io.IOException
+import java.nio.channels.FileChannel
+import java.nio.channels.FileLock
+import java.nio.channels.OverlappingFileLockException
 import java.nio.file.Files
+import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.PosixFilePermission
 
 /**
@@ -64,6 +68,34 @@ class DesktopPaths(val data: File, val install: File, val windows: Boolean = fal
 
         /** Корень пакета — каталог над `lib/`, где лежит jar оболочки. */
         fun installDir(jar: File): File = jar.absoluteFile.parentFile.parentFile
+    }
+}
+
+/**
+ * Один DPpass на пользователя (D-100): второй экземпляр писал бы то же
+ * хранилище и поднимал бы тот же туннель — а с ярлыком через задачу
+ * планировщика и автозапуском при входе запустить его дважды легко. Замок —
+ * файл `.lock` в каталоге данных, пока жив процесс (освобождает его и
+ * падение: замок держит система, а не файл).
+ */
+class DesktopLock private constructor(private val channel: FileChannel, private val lock: FileLock) : AutoCloseable {
+    override fun close() {
+        lock.release()
+        channel.close()
+    }
+
+    companion object {
+        /** Замок каталога [data]; null — его держит другой DPpass. */
+        fun acquire(data: File): DesktopLock? {
+            val channel = FileChannel.open(File(data, ".lock").toPath(), StandardOpenOption.CREATE, StandardOpenOption.WRITE)
+            val lock = try {
+                channel.tryLock()
+            } catch (e: OverlappingFileLockException) {
+                null
+            }
+            if (lock == null) channel.close()
+            return lock?.let { DesktopLock(channel, it) }
+        }
     }
 }
 

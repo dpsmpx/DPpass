@@ -1,13 +1,19 @@
 package com.dpsmpx.dppass.desktop
 
 import com.dpsmpx.dppass.desktop.ui.DesktopWindow
+import com.dpsmpx.dppass.diagnostics.Outcome
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.future.future
 import java.io.File
+import javax.swing.JOptionPane
 import javax.swing.SwingUtilities
 import kotlin.system.exitProcess
+
+/** Замок каталога данных на всё время процесса: ссылка держит его от сборщика мусора. */
+@Volatile
+private var processLock: DesktopLock? = null
 
 /**
  * Оболочка ПК: Linux (D-74) и Windows (D-97). Без аргументов — окно.
@@ -31,6 +37,13 @@ fun main(args: Array<String>) {
     val home = System.getProperty("user.home")
     val data = if (windows) DesktopPaths.windowsDataDir(System.getenv(), home) else DesktopPaths.dataDir(System.getenv(), home)
     val paths = DesktopPaths(data, install, windows)
+    // Один DPpass на пользователя (D-100); каталог не подготовлен — причину покажет граф.
+    if (paths.prepare() is Outcome.Success) {
+        processLock = DesktopLock.acquire(paths.data) ?: run {
+            JOptionPane.showMessageDialog(null, "DPpass уже запущен: его окно открыто или свёрнуто.", "DPpass", JOptionPane.INFORMATION_MESSAGE)
+            exitProcess(0)
+        }
+    }
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val graph = DesktopGraph.build(paths)
     // Одни настройки на окно и сеанс: оба их пишут (DesktopPrefs).
