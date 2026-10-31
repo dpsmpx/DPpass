@@ -129,9 +129,12 @@ SubscriptionUpdater.update
   → ConfigValidator.validateProfile по каждой записи (пропуск — с причиной)
   → ProfileFilter (EngineProfileFilter: матрица ядра; исключение — с причиной)
   → маршрутизация/DNS поставщика — только при RoutingBinding.PROVIDER_ROUTING
+    (согласие у подписки, D-98; id слоя `own-…`/`provider-…` — отказ с путём)
   → Ready(кандидат) | Failed (lastFailed записан, lastSuccessful не тронут)
 DPpassCore.activateSubscription(base, кандидат)
   → base: политика со списками поставщика этой подписки, если они включены (D-94)
+  → привязана (D-98): правила и DNS поставщика, свои списки и приложения — слоем
+    поверх (ProviderPolicy); смена своих настроек перекладывает только слой
   → активация (3.1) → recordSuccess и профиль поставщика только при успехе (D-08)
 ```
 

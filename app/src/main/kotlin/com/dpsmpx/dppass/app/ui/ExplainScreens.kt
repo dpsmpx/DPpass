@@ -377,7 +377,7 @@ class RouteCheckScreen(host: Host) : SubScreen(host, R.string.route_title) {
                 // Первое обращение к geosite/geoip читает файл набора — не на главном потоке.
                 when (val r = withContext(Dispatchers.IO) { core.explain(query) }) {
                     null -> host.toast(context.getString(R.string.route_no_config))
-                    is Outcome.Success -> showAnswer(RouteExplain.answer(r.value, query, policy))
+                    is Outcome.Success -> showAnswer(RouteExplain.answer(r.value, query, policy, core.providerPolicyInEffect()?.subscription?.displayName))
                     is Outcome.Failure -> host.problem(context.getString(R.string.route_failed), r.errors.first())
                 }
             } finally {
@@ -433,6 +433,7 @@ class RouteCheckScreen(host: Host) : SubScreen(host, R.string.route_title) {
             is RouteWhy.ProviderList -> context.getString(ProviderListsScreen.why(w.kind))
             RouteWhy.Default -> context.getString(R.string.route_why_default)
             is RouteWhy.DocumentRule -> context.getString(R.string.route_why_rule, w.id)
+            is RouteWhy.ProviderRule -> context.getString(R.string.route_why_provider_rule, w.id, w.subscription)
         }
         verdict.visibility = View.VISIBLE
     }

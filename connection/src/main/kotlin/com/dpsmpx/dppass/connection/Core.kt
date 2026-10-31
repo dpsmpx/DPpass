@@ -47,6 +47,7 @@ import com.dpsmpx.dppass.storage.Quarantine
 import com.dpsmpx.dppass.storage.StorageRecovery
 import com.dpsmpx.dppass.subscriptions.FilterResult
 import com.dpsmpx.dppass.subscriptions.ProfileFilter
+import com.dpsmpx.dppass.subscriptions.RoutingBinding
 import com.dpsmpx.dppass.subscriptions.Subscription
 import com.dpsmpx.dppass.subscriptions.SubscriptionCandidate
 import com.dpsmpx.dppass.subscriptions.UpdateResult
@@ -384,6 +385,23 @@ class DPpassCore(
         val source = activation.state.active?.source ?: return null
         val st = subscriptions.state().valueOrNull() ?: return null
         return st.activeId?.let(st::find)?.takeIf { source.substringBefore('#') == "subscription:${it.id}" }
+    }
+
+    /**
+     * Действуют ли маршрутизация и DNS поставщика (D-98): применённая
+     * подписка к ним привязана, и её последняя принятая ревизия — документ
+     * DPpass. null — действуют свои (политика или свой документ).
+     */
+    fun providerPolicyInEffect(): ProviderPolicyState? = appliedSubscription()
+        ?.takeIf { it.binding == RoutingBinding.PROVIDER_ROUTING && it.providerPolicyOffered }
+        ?.let(::ProviderPolicyState)
+
+    /** Что с маршрутизацией и DNS поставщика у подписки [sub] (D-98) — для окна у неё. */
+    fun providerPolicyStatus(sub: Subscription): ProviderPolicyStatus = when {
+        sub.binding != RoutingBinding.PROVIDER_ROUTING -> ProviderPolicyStatus.OFF
+        appliedSubscription()?.id != sub.id -> ProviderPolicyStatus.NOT_APPLIED
+        !sub.providerPolicyOffered -> ProviderPolicyStatus.NOT_OFFERED
+        else -> ProviderPolicyStatus.IN_USE
     }
 
     /** Действующие списки поставщика (D-94): у применённой подписки, если пользователь их включил. */

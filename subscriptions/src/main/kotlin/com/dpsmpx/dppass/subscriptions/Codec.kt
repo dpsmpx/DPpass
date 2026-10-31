@@ -29,11 +29,14 @@ data class SubscriptionsState(val items: List<Subscription>, val activeId: Subsc
  * автообновления и время последней проверки; версия 3 (D-53) — признак
  * «имя задал пользователь» (`name_by_user`); версия 4 (D-94) — профиль
  * маршрутизации поставщика, прежний профиль и согласие на его списки
- * (`provider_profile`, `provider_profile_previous`, `use_provider_lists`).
- * Версии 1–3 читаются с значениями по умолчанию — их записал телефон
+ * (`provider_profile`, `provider_profile_previous`, `use_provider_lists`);
+ * версия 5 (D-98) — прислал ли поставщик маршрутизацию и DNS документом
+ * DPpass (`provider_policy_offered`).
+ * Версии 1–4 читаются с значениями по умолчанию — их записал телефон
  * раньше; без признака имя показывается, как показывалось до версии 3
  * (название поставщика, если оно есть), без профиля — списков поставщика
- * нет, пока он их не пришлёт.
+ * нет, пока он их не пришлёт; без признаков D-98 — «не присылал», пока
+ * подписка не обновится.
  *
  * В нём секреты — адрес подписки и идентификатор устройства (D-33):
  * документ пишется только в зашифрованное хранилище (D-19) и наружу не
@@ -46,8 +49,8 @@ data class SubscriptionsState(val items: List<Subscription>, val activeId: Subsc
  */
 object SubscriptionCodec {
     const val FORMAT: String = "dppass.subscriptions"
-    const val VERSION: Int = 4
-    private val READABLE = setOf(1, 2, 3, 4)
+    const val VERSION: Int = 5
+    private val READABLE = setOf(1, 2, 3, 4, 5)
 
     fun write(state: SubscriptionsState): String = Json.write(
         Json.obj(
@@ -76,6 +79,7 @@ object SubscriptionCodec {
             "provider_profile" to s.providerProfile?.let(::profile),
             "provider_profile_previous" to s.previousProviderProfile?.let(::profile),
             "use_provider_lists" to Json.bool(s.useProviderLists),
+            "provider_policy_offered" to Json.bool(s.providerPolicyOffered),
             "revision_counter" to Json.num(s.revisionCounter),
             "metadata" to Json.obj(
                 "title" to Json.str(m.title),
@@ -199,6 +203,7 @@ object SubscriptionCodec {
             providerProfile = readProfile(o, "provider_profile"),
             previousProviderProfile = readProfile(o, "provider_profile_previous"),
             useProviderLists = o.bool("use_provider_lists") ?: false,
+            providerPolicyOffered = o.bool("provider_policy_offered") ?: false,
         )
     }
 

@@ -128,6 +128,18 @@ class ExplainTest {
     }
 
     @Test
+    fun providerRoutingRuleIsTheProviders() {
+        // Маршрутизация поставщика (D-98): его правило — его, даже с id как у правила политики; свой список — свой.
+        val routing = RoutingPolicy()
+        val query = RouteQuery(domain = "ads.example.com")
+        fun why(id: String) = RouteExplain.answer(RouteDecision(RouteAction.BLOCK, RuleId(id), ""), query, routing, provider = "Дом").why
+        assertEquals(RouteWhy.ProviderRule("p-ads", "Дом"), why("p-ads"))
+        assertEquals(RouteWhy.ProviderRule(PolicyBuilder.RULE_ADS, "Дом"), why(PolicyBuilder.RULE_ADS))
+        assertEquals(RouteWhy.OwnList(SiteListKind.BLOCK), why(PolicyBuilder.ownRule(SiteListKind.BLOCK, true)))
+        assertEquals(RouteWhy.Ads, RouteExplain.answer(RouteDecision(RouteAction.BLOCK, RuleId(PolicyBuilder.RULE_ADS), ""), query, routing).why)
+    }
+
+    @Test
     fun localNetworksBypassTheTunnelOnlyWhenAsked() {
         val on = PolicyBuilder.routing(UserPolicy(bypassLan = true))
         val off = PolicyBuilder.routing(UserPolicy(bypassLan = false))

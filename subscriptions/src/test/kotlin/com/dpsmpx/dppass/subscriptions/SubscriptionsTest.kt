@@ -554,7 +554,7 @@ class SubscriptionCodecTest {
         val s = SubscriptionCodec.read(v2).valueOrNull()!!.items.single()
         assertFalse(s.nameByUser)
         assertEquals("Поставщик", s.displayName)
-        assertIs<Outcome.Failure>(SubscriptionCodec.read(v2.replace("\"format_version\":2", "\"format_version\":5")), "версия новее — отказ")
+        assertIs<Outcome.Failure>(SubscriptionCodec.read(v2.replace("\"format_version\":2", "\"format_version\":6")), "версия новее — отказ")
     }
 
     @Test
@@ -656,7 +656,7 @@ class ProviderProfileTest {
         val s = sub().withProviderProfile(profileA, 10).withProviderProfile(profileB, 30).copy(useProviderLists = true)
         val state = SubscriptionsState(listOf(s, sub().copy(id = SubscriptionId("sub2"))), null)
         val text = SubscriptionCodec.write(state)
-        assertTrue("\"format_version\":4" in text)
+        assertTrue("\"format_version\":5" in text)
         assertEquals(state, SubscriptionCodec.read(text).valueOrNull())
         // Версия 3 — без профиля и без согласия.
         val v3 = """{"format":"dppass.subscriptions","format_version":3,"items":[""" +
@@ -666,6 +666,71 @@ class ProviderProfileTest {
         assertFalse(old.useProviderLists)
         val empty = text.replace(profileB, " ")
         assertIs<Outcome.Failure>(SubscriptionCodec.read(empty), "пустой профиль — порча")
+    }
+}
+
+/** Маршрутизация и DNS поставщика из документа DPpass (D-98): предлагаются всегда, применяются — с привязкой. */
+class ProviderPolicyBindingTest {
+    private val clock = ManualClock(1000)
+    private val passAll = ProfileFilter { ps, _ -> FilterResult(ps, emptyList()) }
+
+    private fun sub(binding: RoutingBinding = RoutingBinding.USER_ROUTING) =
+        Subscription(SubscriptionId("sub1"), "Sub", SubscriptionSource.Url(Secret("https://sub.example.com/token123")), binding = binding)
+
+    /** Документ DPpass с одним правилом [rule] и сервером DNS [dns] — синтетический (TEST-NET, example). */
+    private fun doc(rule: String = "ads-block", dns: String = "remote") = """
+        {"format":"dppass.config","format_version":2,
+         "profiles":[{"id":"t1","name":"T1","server":"203.0.113.10","port":443,
+           "protocol":{"type":"trojan","password":"test-password"},
+           "security":{"type":"tls","server_name":"t1.example.com"}}],
+         "routing":{"rules":[{"id":"$rule","action":"block","domain_suffix":["ads.example.com"]}]},
+         "dns":{"servers":[{"id":"$dns","type":"https","url":"https://dns.example.net/dns-query","route":"tunnel"}],"default":"$dns"}}
+    """.trimIndent()
+
+    private suspend fun update(body: String, s: Subscription) =
+        SubscriptionUpdater(SubscriptionFetcher { _, _ -> Outcome.Success(FetchedPayload(body.toByteArray(), emptyMap(), clock.nowMillis())) }, clock, "test")
+            .update(s, passAll)
+
+    @Test
+    fun documentOffersPolicyEvenWithoutBinding() = runBlocking<Unit> {
+        val r = assertIs<UpdateResult.Ready>(update(doc(), sub()))
+        assertTrue(r.candidate.offersPolicy, "предлагается — по нему окно у подписки")
+        assertNull(r.candidate.providerRouting, "без привязки не применяется")
+        assertNull(r.candidate.providerDns)
+        val note = r.diagnostics.single { it.code == DiagCode.SUBSCRIPTION_DIRECTIVE_IGNORED }.message
+        assertTrue("Маршрутизация поставщика" in note, "куда идти, чтобы включить: $note")
+        val bound = assertIs<UpdateResult.Ready>(update(doc(), sub(RoutingBinding.PROVIDER_ROUTING)))
+        assertEquals("ads-block", bound.candidate.providerRouting?.rules?.single()?.id?.value)
+        assertEquals("remote", bound.candidate.providerDns?.defaultServerId)
+        assertTrue(bound.diagnostics.none { it.code == DiagCode.SUBSCRIPTION_DIRECTIVE_IGNORED })
+        val links = "trojan://p@198.51.100.2:443#B\n"
+        assertFalse(assertIs<UpdateResult.Ready>(update(links, sub())).candidate.offersPolicy, "ссылки — не документ")
+    }
+
+    @Test
+    fun layerIdsInBoundDocumentAreRefusedWithPath() = runBlocking<Unit> {
+        val rule = assertIs<UpdateResult.Failed>(update(doc(rule = "own-direct-sites"), sub(RoutingBinding.PROVIDER_ROUTING)))
+        val e = rule.subscription.lastFailed!!.reason
+        assertEquals(DiagCode.ID_DUPLICATE, e.code)
+        val first = rule.diagnostics.last()
+        assertEquals("$.routing.rules[0].id", first.path)
+        val dns = assertIs<UpdateResult.Failed>(update(doc(dns = "own-local"), sub(RoutingBinding.PROVIDER_ROUTING)))
+        assertEquals("$.dns.servers[0].id", dns.diagnostics.last().path)
+        assertNull(dns.subscription.lastSuccessful, "ревизия не принята")
+        // Без привязки правила поставщика не применяются — и не мешают.
+        assertIs<UpdateResult.Ready>(update(doc(rule = "provider-proxy-ip"), sub()))
+    }
+
+    @Test
+    fun codecKeepsOfferAndReadsV4WithoutIt() {
+        val s = sub(RoutingBinding.PROVIDER_ROUTING).copy(providerPolicyOffered = true)
+        val text = SubscriptionCodec.write(SubscriptionsState(listOf(s), s.id))
+        assertEquals(s, SubscriptionCodec.read(text).valueOrNull()?.items?.single())
+        val v4 = """{"format":"dppass.subscriptions","format_version":4,"items":[""" +
+            """{"id":"s1","name":"S","url":"https://sub.example.com/t","binding":"provider","revision_counter":0,"metadata":{}}]}"""
+        val old = SubscriptionCodec.read(v4).valueOrNull()!!.items.single()
+        assertEquals(RoutingBinding.PROVIDER_ROUTING, old.binding)
+        assertFalse(old.providerPolicyOffered, "версия 4 — «не присылал», пока подписка не обновится")
     }
 }
 

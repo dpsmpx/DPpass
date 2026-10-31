@@ -174,6 +174,15 @@ class SubscriptionsScreen(host: Host) : Screen(host) {
                 },
             )
         }
+        // Маршрутизация и DNS поставщика (D-98): включены ли — и вход к окну согласия.
+        if (r.providerPolicy) {
+            addView(
+                Ui.button(context, R.string.provider_policy_title, Ui.Style.TEXT, R.drawable.ic_route).apply {
+                    text = context.getString(if (r.providerPolicyInUse) R.string.provider_policy_on else R.string.provider_policy_off)
+                    setOnClickListener { ProviderPolicySheet.show(host, r.id) }
+                },
+            )
+        }
 
         val busy = r.id in ImportFlow.running
         val action = if (r.active) R.string.subs_refresh else R.string.subs_apply
@@ -261,6 +270,13 @@ class SubscriptionsScreen(host: Host) : Screen(host) {
                 R.string.provider_lists_title,
                 context.getString(if (r.providerListsInUse) R.string.provider_lists_on else R.string.provider_lists_off),
             ) { host.push(ProviderListsScreen(host, r.id)) }
+        }
+        if (r.providerPolicy) {
+            item(
+                R.drawable.ic_route,
+                R.string.provider_policy_title,
+                context.getString(if (r.providerPolicyInUse) R.string.provider_policy_on else R.string.provider_policy_off),
+            ) { ProviderPolicySheet.show(host, r.id) }
         }
         r.pageUrl?.let { url -> item(R.drawable.ic_open, R.string.subs_open_page, Uri.parse(url).host) { open(url) } }
         r.supportUrl?.let { url -> item(R.drawable.ic_open, R.string.subs_open_support, Uri.parse(url).host) { open(url) } }

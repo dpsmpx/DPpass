@@ -101,6 +101,9 @@ sealed interface RouteWhy {
 
     /** Правило своего документа (D-09: называется по id). */
     data class DocumentRule(val id: String) : RouteWhy
+
+    /** Правило маршрутизации поставщика подписки [subscription], привязанной к ней (D-98). */
+    data class ProviderRule(val id: String, val subscription: String) : RouteWhy
 }
 
 data class RouteAnswer(val verdict: RouteVerdict, val why: RouteWhy)
@@ -164,17 +167,18 @@ object RouteExplain {
         return RouteAnswer(RouteVerdict.DIRECT, why)
     }
 
-    /** Решение ядра → ответ: правила политики — по их постоянным id (D-38). */
-    fun answer(decision: RouteDecision, query: RouteQuery, policy: RoutingPolicy): RouteAnswer {
+    /**
+     * Решение ядра → ответ: правила политики — по их постоянным id (D-38).
+     * [provider] — подписка, чьи маршрутизация и DNS действуют (D-98): тогда
+     * своё — только слой своих списков, остальные правила — поставщика.
+     */
+    fun answer(decision: RouteDecision, query: RouteQuery, policy: RoutingPolicy, provider: String? = null): RouteAnswer {
         val verdict = when (decision.action) {
             RouteAction.PROXY -> RouteVerdict.TUNNEL
             RouteAction.DIRECT -> RouteVerdict.DIRECT
             RouteAction.BLOCK -> RouteVerdict.BLOCKED
         }
         val why = when (val id = decision.ruleId?.value) {
-            PolicyBuilder.RULE_ADS -> RouteWhy.Ads
-            PolicyBuilder.RULE_RU_SITES -> RouteWhy.RuSites
-            PolicyBuilder.RULE_RU_IP -> RouteWhy.RuIp
             in OWN_RULES.keys -> RouteWhy.OwnList(OWN_RULES.getValue(id!!))
             in PROVIDER_RULES.keys -> RouteWhy.ProviderList(PROVIDER_RULES.getValue(id!!))
             null -> when {
@@ -182,7 +186,17 @@ object RouteExplain {
                 policy.automaticDomestic && decision.action == RouteAction.DIRECT && policy.defaultAction != RouteAction.DIRECT -> RouteWhy.AutoDomestic
                 else -> RouteWhy.Default
             }
-            else -> RouteWhy.DocumentRule(id)
+            // Правил режима и рекламы при маршрутизации поставщика нет: такой id — его правило.
+            else -> if (provider != null) {
+                RouteWhy.ProviderRule(id, provider)
+            } else {
+                when (id) {
+                    PolicyBuilder.RULE_ADS -> RouteWhy.Ads
+                    PolicyBuilder.RULE_RU_SITES -> RouteWhy.RuSites
+                    PolicyBuilder.RULE_RU_IP -> RouteWhy.RuIp
+                    else -> RouteWhy.DocumentRule(id)
+                }
+            }
         }
         return RouteAnswer(verdict, why)
     }

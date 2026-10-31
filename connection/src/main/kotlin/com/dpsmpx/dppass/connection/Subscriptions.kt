@@ -15,6 +15,7 @@ import com.dpsmpx.dppass.storage.Quarantine
 import com.dpsmpx.dppass.subscriptions.DeviceId
 import com.dpsmpx.dppass.subscriptions.FetchPolicy
 import com.dpsmpx.dppass.subscriptions.InlineSubscriptionFetcher
+import com.dpsmpx.dppass.subscriptions.RoutingBinding
 import com.dpsmpx.dppass.subscriptions.SourceFetcher
 import com.dpsmpx.dppass.subscriptions.Subscription
 import com.dpsmpx.dppass.subscriptions.SubscriptionCodec
@@ -234,14 +235,25 @@ class SubscriptionService(
      * сейчас не применена, загружается заново, даже если тело не
      * изменилось: её серверов нигде, кроме ответа поставщика, нет. Свои
      * серверы (D-42) разбираются без сети.
+     *
+     * [force] — загрузить заново и применённую; [binding] — привязка, с
+     * которой загрузить (D-98): записывается, только если ревизия
+     * активирована, иначе остаётся прежняя.
      */
-    suspend fun refresh(id: SubscriptionId, fetcher: SubscriptionFetcher, appVersion: String): Outcome<SubscriptionRun> {
+    suspend fun refresh(
+        id: SubscriptionId,
+        fetcher: SubscriptionFetcher,
+        appVersion: String,
+        force: Boolean = false,
+        binding: RoutingBinding? = null,
+    ): Outcome<SubscriptionRun> {
         val st = when (val s = state()) {
             is Outcome.Failure -> return s
             is Outcome.Success -> s.value
         }
         val sub = st.find(id) ?: return Outcome.failure(DiagCode.SUBSCRIPTION_FETCH_FAILED, "нет подписки $id")
-        val forUpdate = if (st.activeId == id) sub else sub.copy(lastSuccessful = null)
+        val fetched = if (st.activeId == id && !force) sub else sub.copy(lastSuccessful = null)
+        val forUpdate = binding?.let { fetched.copy(binding = it) } ?: fetched
         val source = SourceFetcher(network = fetcher, inline = InlineSubscriptionFetcher(clock))
         val update = SubscriptionUpdater(source, clock, appVersion).update(forUpdate, core.profileFilter())
         core.subscriptionNotes(update)
@@ -262,10 +274,19 @@ class SubscriptionService(
                 val withProfile = c.subscription.withProviderProfile(c.providerProfile.takeIf { parsed is Outcome.Success }, c.revision.fetchedAtMillis)
                 // Маршрутизация и DNS — своего документа, если он действует, иначе — политики
                 // (D-38) со списками поставщика этой подписки, если они включены (D-94).
-                val base = core.userPolicy.baseFor(core.activation.state, core.providerListsOf(withProfile))
-                val (s, a) = core.activateSubscription(base, c.copy(subscription = withProfile))
+                val lists = core.providerListsOf(withProfile)
+                val base = core.userPolicy.baseFor(core.activation.state, lists)
+                // Привязанные маршрутизация и DNS поставщика (D-98) — со своими настройками поверх.
+                val policy = core.userPolicy.currentOrDefault()
+                ProviderPolicy.notTaken(c.providerRouting, policy)?.let(notes::add)
+                val layered = c.copy(
+                    subscription = withProfile,
+                    providerRouting = c.providerRouting?.let { ProviderPolicy.routing(it, policy, lists) },
+                    providerDns = c.providerDns?.let { ProviderPolicy.dns(it, policy, lists) },
+                )
+                val (s, a) = core.activateSubscription(base, layered)
                 when (a) {
-                    is ActivationResult.Activated -> s.copy(lastCheckedMillis = clock.nowMillis())
+                    is ActivationResult.Activated -> s.copy(lastCheckedMillis = clock.nowMillis(), providerPolicyOffered = c.offersPolicy)
                     // Ревизия не применена — и профиль её не принят (D-08).
                     is ActivationResult.Rejected -> s.copy(providerProfile = sub.providerProfile, previousProviderProfile = sub.previousProviderProfile)
                 } to a
@@ -274,7 +295,9 @@ class SubscriptionService(
             is UpdateResult.Failed -> update.subscription to null
         }
         // Неудача не стирает прошлую удачную ревизию (D-08): у переданной копии её могло не быть.
-        val kept = if (next.lastSuccessful == null) next.copy(lastSuccessful = sub.lastSuccessful) else next
+        val restored = if (next.lastSuccessful == null) next.copy(lastSuccessful = sub.lastSuccessful) else next
+        // Привязка (D-98) — только с активированной ревизией.
+        val kept = if (binding != null && activation !is ActivationResult.Activated) restored.copy(binding = sub.binding) else restored
         val activeId = if (activation is ActivationResult.Activated) id else st.activeId
         val saved = commit(st.copy(items = st.items.map { if (it.id == id) kept else it }, activeId = activeId))
         if (saved is Outcome.Failure) return saved
@@ -306,6 +329,40 @@ class SubscriptionService(
             null
         }
         return commit(st.copy(items = st.items.map { if (it.id == id) next else it })).map { result }
+    }
+
+    /**
+     * Маршрутизация и DNS поставщика у подписки [id] — привязать или
+     * отвязать (D-98). Привязывает пользователь в окне согласия (оно — в
+     * оболочке): что заменят и что останется своим. Подписка не применена —
+     * привязка записывается и действует, когда её применят. Применена —
+     * сразу: включение загружает подписку заново (тело могло не измениться,
+     * а прежняя ревизия применена без маршрутизации поставщика), выключение
+     * — смена политики. Отказ загрузки или активации — привязка прежняя.
+     */
+    suspend fun setProviderPolicy(id: SubscriptionId, use: Boolean, fetcher: SubscriptionFetcher, appVersion: String): Outcome<ActivationResult?> {
+        val st = when (val s = state()) {
+            is Outcome.Failure -> return s
+            is Outcome.Success -> s.value
+        }
+        val sub = st.find(id) ?: return Outcome.failure(DiagCode.SUBSCRIPTION_FETCH_FAILED, "нет подписки $id")
+        val want = if (use) RoutingBinding.PROVIDER_ROUTING else RoutingBinding.USER_ROUTING
+        if (sub.binding == want) return Outcome.Success(null)
+        fun bind(b: RoutingBinding) = edit { s -> s.copy(items = s.items.map { if (it.id == id) it.copy(binding = b) else it }) }
+        if (core.appliedSubscription()?.id != id) return bind(want).map { null }
+        if (use) {
+            val run = when (val r = refresh(id, fetcher, appVersion, force = true, binding = want)) {
+                is Outcome.Failure -> return r
+                is Outcome.Success -> r.value
+            }
+            (run.update as? UpdateResult.Failed)?.let { f -> return Outcome.Failure(f.diagnostics.filter { it.isError }) }
+            return Outcome.Success(run.activation)
+        }
+        // Сначала привязка: сбой между шагами оставит политику пользователя, а не правила поставщика без привязки.
+        bind(want).let { if (it is Outcome.Failure) return it }
+        val r = core.userPolicy.change(core.userPolicy.currentOrDefault(), core.providerListsOf(sub), bound = null)
+        if (r is Outcome.Failure || (r as? Outcome.Success)?.value is ActivationResult.Rejected) bind(sub.binding)
+        return r
     }
 
     /**

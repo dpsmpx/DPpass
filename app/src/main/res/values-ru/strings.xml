@@ -506,6 +506,7 @@
     <string name="route_why_serverless_split">Без сервера: сайта нет в списке, но остальные сайты тоже идут с разбиением начала соединения.</string>
     <string name="route_why_default">Ни одно правило не сработало — действие по умолчанию.</string>
     <string name="route_why_rule">Правило «%1$s» вашей конфигурации.</string>
+    <string name="route_why_provider_rule">Правило «%1$s» поставщика «%2$s»: для этой подписки включена его маршрутизация.</string>
     <string name="route_note">Проверка по имени: правила по адресам (geoip) срабатывают после того, как имя разрешится, и могут ответить иначе. Ответ — по активной конфигурации; изменённая применится при переподключении.</string>
     <!-- Режим сети (D-64) -->
     <plurals name="plan_regime_allowlist">
@@ -704,6 +705,19 @@
     <string name="provider_lists_off">Списки поставщика: выключены</string>
     <string name="provider_lists_on_done">Списки поставщика включены</string>
     <string name="provider_lists_off_done">Списки поставщика выключены</string>
+    <string name="provider_policy_title">Маршрутизация поставщика</string>
+    <string name="provider_policy_on">Маршрутизация поставщика: включена</string>
+    <string name="provider_policy_off">Маршрутизация поставщика: выключена</string>
+    <string name="provider_policy_state_off">Не используется: действуют ваши маршрутизация и DNS.</string>
+    <string name="provider_policy_state_on">Используется: действуют правила маршрутизации и DNS поставщика, ваши настройки — поверх.</string>
+    <string name="provider_policy_state_not_applied">Включена, но подписка не применена: подействует, когда её применят.</string>
+    <string name="provider_policy_state_not_offered">Включена, но поставщик сейчас не присылает маршрутизацию: действуют ваши маршрутизация и DNS.</string>
+    <string name="provider_policy_confirm">Поставщик «%1$s» присылает свои маршрутизацию и DNS. Если их включить, то, пока применена эта подписка, правила, действие по умолчанию и DNS поставщика заменят ваш режим маршрутизации, блокировку рекламы и резолвер DNS. Ваши остаются: выбор приложений, локальная сеть мимо туннеля и свои списки сайтов — поверх правил поставщика. Поставщик может менять правила с каждым обновлением подписки; выключить можно здесь же.</string>
+    <string name="provider_policy_enable">Включить маршрутизацию поставщика</string>
+    <string name="provider_policy_disable">Выключить</string>
+    <string name="provider_policy_on_done">Маршрутизация поставщика включена</string>
+    <string name="provider_policy_off_done">Маршрутизация поставщика выключена</string>
+    <string name="routing_provider_note">Маршрутизация и DNS сейчас — поставщика «%1$s». Режим, реклама и DNS здесь подействуют, когда это выключить у подписки; свои списки сайтов и выбор приложений действуют сразу.</string>
     <string name="route_why_provider_direct">Список поставщика «Напрямую»</string>
     <string name="route_why_provider_proxy">Список поставщика «Через туннель»</string>
     <string name="route_why_provider_block">Список поставщика «Блокировать»</string>

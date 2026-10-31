@@ -80,6 +80,15 @@ class SettingsScreen(host: Host) : Screen(host) {
                 },
             )
         }
+        // Привязанные маршрутизация и DNS поставщика (D-98): режим, реклама и DNS здесь ждут отвязки — не молча.
+        core?.providerPolicyInEffect()?.let { bound ->
+            body.addView(
+                Ui.text(context, R.style.Text_DPpass_Caption, context.getString(R.string.routing_provider_note, bound.subscription.displayName)).apply {
+                    setTextColor(context.getColor(R.color.warning))
+                    setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0)
+                },
+            )
+        }
         body.addView(
             Ui.listCard(context).apply {
                 addView(

@@ -12,6 +12,7 @@ import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.FailureKind
 import com.dpsmpx.dppass.network.LatencyResult
+import com.dpsmpx.dppass.subscriptions.RoutingBinding
 import com.dpsmpx.dppass.subscriptions.SubscriptionSource
 import com.dpsmpx.dppass.subscriptions.SubscriptionsState
 import com.dpsmpx.dppass.subscriptions.UpdateSchedule
@@ -244,6 +245,10 @@ data class SubscriptionRow(
     val providerLists: Boolean = false,
     /** Пользователь включил списки поставщика (D-94). */
     val providerListsInUse: Boolean = false,
+    /** Поставщик прислал маршрутизацию и DNS документом DPpass (D-98) — или они уже привязаны: у карточки — вход к ним. */
+    val providerPolicy: Boolean = false,
+    /** Пользователь привязал подписку к маршрутизации и DNS поставщика (D-98). */
+    val providerPolicyInUse: Boolean = false,
 )
 
 const val ANNOUNCE_LIMIT: Int = 300
@@ -289,6 +294,8 @@ object SubscriptionList {
             skipped = skipped(s.id),
             providerLists = s.providerProfile != null,
             providerListsInUse = s.useProviderLists,
+            providerPolicy = s.providerPolicyOffered || s.binding == RoutingBinding.PROVIDER_ROUTING,
+            providerPolicyInUse = s.binding == RoutingBinding.PROVIDER_ROUTING,
         )
     }
 

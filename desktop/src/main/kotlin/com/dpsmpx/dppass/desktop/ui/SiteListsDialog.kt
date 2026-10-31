@@ -47,6 +47,10 @@ object SiteListsDialog {
             "Списки поставщика «${sub.displayName}»: " +
                 if (sub.useProviderLists) "включены — сначала свои списки, потом поставщика." else "получены, не используются (меню подписки)."
         }
+        // Привязанные маршрутизация и DNS поставщика (D-98): свои списки — поверх их правил.
+        val bound = core.providerPolicyInEffect()?.let {
+            "Действуют маршрутизация и DNS поставщика «${it.subscription.displayName}»: свои списки — раньше их правил."
+        }
         val areas = SiteListKind.entries.associateWith { JTextArea(texts.getValue(it), ROWS, COLUMNS) }
         val columns = JPanel(GridLayout(1, SiteListKind.entries.size, Widgets.STEP * 2, 0)).apply {
             for (kind in SiteListKind.entries) {
@@ -61,7 +65,7 @@ object SiteListsDialog {
         val form = JPanel(BorderLayout(0, Widgets.STEP * 2)).apply {
             add(enabled, BorderLayout.NORTH)
             add(columns, BorderLayout.CENTER)
-            add(Widgets.note().apply { text = listOfNotNull(provider, NOTE).joinToString("\n\n"); this.columns = COLUMNS * 3 }, BorderLayout.SOUTH)
+            add(Widgets.note().apply { text = listOfNotNull(bound, provider, NOTE).joinToString("\n\n"); this.columns = COLUMNS * 3 }, BorderLayout.SOUTH)
         }
         val answer = JOptionPane.showConfirmDialog(parent, form, "Свои списки сайтов", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE)
         if (answer != JOptionPane.OK_OPTION) return

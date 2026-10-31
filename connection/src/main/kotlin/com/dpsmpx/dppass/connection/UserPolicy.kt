@@ -19,6 +19,7 @@ import com.dpsmpx.dppass.routing.DnsRoute
 import com.dpsmpx.dppass.routing.DnsRule
 import com.dpsmpx.dppass.routing.DnsServer
 import com.dpsmpx.dppass.routing.DnsTransport
+import com.dpsmpx.dppass.routing.Layers
 import com.dpsmpx.dppass.routing.RouteAction
 import com.dpsmpx.dppass.routing.RoutingPolicy
 import com.dpsmpx.dppass.routing.RoutingValidator
@@ -128,13 +129,13 @@ object PolicyBuilder {
     const val LISTS_PATH: String = "policy.lists"
 
     /** Постоянный id правила своего списка: по имени (`…-sites`) или по адресу (`…-ip`). */
-    fun ownRule(kind: SiteListKind, names: Boolean): String = "own-${kind.wire}-${if (names) "sites" else "ip"}"
+    fun ownRule(kind: SiteListKind, names: Boolean): String = "${Layers.OWN}${kind.wire}-${if (names) "sites" else "ip"}"
 
     /** Правила своих списков (D-93): блокировать, через туннель, напрямую; по имени и по адресу — отдельно (у правила это И). */
     fun ownRules(lists: SiteLists): List<Rule> = listRules(lists, ::ownRule)
 
     /** Постоянный id правила списка поставщика (D-94): как у своего, с другим началом. */
-    fun providerRule(kind: SiteListKind, names: Boolean): String = "provider-${kind.wire}-${if (names) "sites" else "ip"}"
+    fun providerRule(kind: SiteListKind, names: Boolean): String = "${Layers.PROVIDER_LISTS}${kind.wire}-${if (names) "sites" else "ip"}"
 
     /** Правила списков поставщика (D-94) — в том же порядке, что свои. */
     fun providerRules(lists: SiteLists): List<Rule> = listRules(lists, ::providerRule)
@@ -148,7 +149,7 @@ object PolicyBuilder {
     }
 
     /** Свои списки, если они включены (D-94). */
-    private fun own(p: UserPolicy): SiteLists = if (p.listsEnabled) p.lists else SiteLists.NONE
+    fun own(p: UserPolicy): SiteLists = if (p.listsEnabled) p.lists else SiteLists.NONE
 
     /** Выбор приложений (D-38; свой выбор без сервера — D-73) → уровень VpnService. */
     fun apps(mode: AppMode, packages: Set<String>): AppPolicy = when (mode) {
@@ -355,16 +356,22 @@ class PolicyService(private val store: PolicyStore, private val core: DPpassCore
     /**
      * Новая политика. Если есть активная конфигурация — её серверы
      * активируются с новой маршрутизацией и DNS; отказ активации — отказ
-     * смены, прежняя политика и конфигурация остаются.
+     * смены, прежняя политика и конфигурация остаются. Действуют
+     * маршрутизация и DNS поставщика ([bound], D-98) — меняется только
+     * слой своих настроек поверх них, остальное политики ждёт отвязки.
      */
-    suspend fun change(next: UserPolicy, provider: SiteLists = core.activeProviderLists()): Outcome<ActivationResult?> {
+    suspend fun change(
+        next: UserPolicy,
+        provider: SiteLists = core.activeProviderLists(),
+        bound: ProviderPolicyState? = core.providerPolicyInEffect(),
+    ): Outcome<ActivationResult?> {
         val problems = PolicyBuilder.validate(next)
         if (problems.any { it.isError }) return Outcome.Failure(problems)
         val active = core.activation.state
         val config = active.activeConfig
         val record = active.active
         val result = if (config != null && record != null && config.profiles.isNotEmpty()) {
-            val ir = PolicyBuilder.apply(config, next, provider)
+            val ir = if (bound != null) ProviderPolicy.relayer(config, next, provider) else PolicyBuilder.apply(config, next, provider)
             val r = core.activation.activate(ir, record.source, record.sourceChecksum)
             core.logActivation(r)
             if (r is ActivationResult.Rejected) return Outcome.Success(r)

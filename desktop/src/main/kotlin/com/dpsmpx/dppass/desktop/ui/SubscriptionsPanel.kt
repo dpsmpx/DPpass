@@ -31,7 +31,8 @@ import javax.swing.ListSelectionModel
  * (оно же применяет серверы подписки), удаление. Свои серверы (D-42) —
  * через импорт. Автообновление применённой подписки (D-77): интервал —
  * кнопкой «Автообновление…», у применённой — когда следующее. Списки
- * поставщика (D-94) — кнопкой «Списки поставщика…».
+ * поставщика (D-94) — кнопкой «Списки поставщика…», маршрутизация и DNS
+ * поставщика из документа DPpass (D-98) — «Маршрутизация поставщика…».
  */
 class SubscriptionsPanel(
     private val graph: DesktopGraph,
@@ -73,6 +74,16 @@ class SubscriptionsPanel(
                         Widgets.button("Списки поставщика…") {
                             list.selectedValue?.let { s ->
                                 ProviderListsDialog.show(this@SubscriptionsPanel, graph.core, scope, s, reconnect) {
+                                    reload()
+                                    changed()
+                                }
+                            }
+                        },
+                    )
+                    add(
+                        Widgets.button("Маршрутизация поставщика…") {
+                            list.selectedValue?.let { s ->
+                                ProviderPolicyDialog.show(this@SubscriptionsPanel, graph.core, scope, s, graph.fetcher, DesktopGraph.VERSION, reconnect) {
                                     reload()
                                     changed()
                                 }

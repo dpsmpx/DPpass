@@ -11,6 +11,7 @@ import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.routing.DnsPolicy
+import com.dpsmpx.dppass.routing.Layers
 import com.dpsmpx.dppass.routing.RoutingPolicy
 import java.util.Base64
 
@@ -145,6 +146,12 @@ data class SubscriptionCandidate(
      * подписку при активации ревизии ([Subscription.withProviderProfile]).
      */
     val providerProfile: String? = null,
+    /**
+     * Тело — документ DPpass: поставщик прислал маршрутизацию и DNS, даже
+     * если подписка к ним не привязана и [providerRouting] с [providerDns]
+     * пусты (D-98). Принимается в подписку с ревизией.
+     */
+    val offersPolicy: Boolean = false,
 )
 
 sealed interface UpdateResult {
@@ -257,8 +264,14 @@ class SubscriptionUpdater(
         if (!useProvider && (decoded.providerRouting != null || decoded.providerDns != null)) {
             notes += Diagnostic.warning(
                 DiagCode.SUBSCRIPTION_DIRECTIVE_IGNORED,
-                "маршрутизация и DNS поставщика не применены: у подписки выбрана маршрутизация пользователя",
+                "маршрутизация и DNS поставщика не применены: у подписки выбрана маршрутизация пользователя " +
+                    "(включить — у подписки, «Маршрутизация поставщика»)",
             )
+        }
+        // Привязанная маршрутизация (D-98): id слоёв своих настроек заняты — ревизия не принимается (D-05).
+        if (useProvider) {
+            val clash = Layers.reserved(decoded.providerRouting, decoded.providerDns)
+            if (clash.isNotEmpty()) return fail(clash.first().copy(causes = clash.drop(1)), checksum)
         }
         val revision = SubscriptionRevision(subscription.revisionCounter + 1, checksum, payload.fetchedAtMillis, filtered.usable.size)
         val candidate = SubscriptionCandidate(
@@ -269,6 +282,7 @@ class SubscriptionUpdater(
             decoded.providerRouting.takeIf { useProvider },
             decoded.providerDns.takeIf { useProvider },
             profile,
+            offersPolicy = decoded.providerRouting != null || decoded.providerDns != null,
         )
         return UpdateResult.Ready(candidate, notes)
     }

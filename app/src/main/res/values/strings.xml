@@ -489,6 +489,7 @@
     <string name="route_why_serverless_split">No server: the site is not in the list, but other sites go with the connection start split too.</string>
     <string name="route_why_default">No rule matched — the default action.</string>
     <string name="route_why_rule">Rule “%1$s” of your configuration.</string>
+    <string name="route_why_provider_rule">Rule “%1$s” of the provider of “%2$s”: its routing is in use for this subscription.</string>
     <string name="route_note">The check is by name: rules by address (geoip) apply after the name is resolved and may answer differently. The answer is for the active configuration; a changed one applies on reconnect.</string>
     <!-- Режим сети (D-64) -->
     <plurals name="plan_regime_allowlist">
@@ -675,6 +676,19 @@
     <string name="provider_lists_off">Provider lists: off</string>
     <string name="provider_lists_on_done">Provider lists are on</string>
     <string name="provider_lists_off_done">Provider lists are off</string>
+    <string name="provider_policy_title">Provider routing</string>
+    <string name="provider_policy_on">Provider routing: on</string>
+    <string name="provider_policy_off">Provider routing: off</string>
+    <string name="provider_policy_state_off">Not used: your routing and DNS apply.</string>
+    <string name="provider_policy_state_on">In use: the provider’s routing rules and DNS apply, your settings on top.</string>
+    <string name="provider_policy_state_not_applied">On, but the subscription is not applied: it will work once it is.</string>
+    <string name="provider_policy_state_not_offered">On, but the provider does not send routing now: your routing and DNS apply.</string>
+    <string name="provider_policy_confirm">The provider of “%1$s” sends its own routing and DNS. If you turn them on, then while this subscription is applied the provider’s rules, default action and DNS replace your routing mode, ad blocking and DNS resolver. Yours stay: the choice of apps, the local network outside the tunnel and your site lists — on top of the provider’s rules. The provider can change the rules with every subscription update; you can turn this off here.</string>
+    <string name="provider_policy_enable">Use provider routing</string>
+    <string name="provider_policy_disable">Turn off</string>
+    <string name="provider_policy_on_done">Provider routing is on</string>
+    <string name="provider_policy_off_done">Provider routing is off</string>
+    <string name="routing_provider_note">Routing and DNS now come from the provider of “%1$s”. The mode, ad blocking and DNS here will apply once you turn that off at the subscription; your site lists and apps apply now.</string>
     <string name="route_why_provider_direct">Provider list “Directly”</string>
     <string name="route_why_provider_proxy">Provider list “Via tunnel”</string>
     <string name="route_why_provider_block">Provider list “Block”</string>
