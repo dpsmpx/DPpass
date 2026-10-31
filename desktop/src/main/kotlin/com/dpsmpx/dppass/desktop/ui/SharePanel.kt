@@ -3,7 +3,7 @@ package com.dpsmpx.dppass.desktop.ui
 import com.dpsmpx.dppass.connection.ShareSettings
 import com.dpsmpx.dppass.desktop.DesktopGraph
 import com.dpsmpx.dppass.desktop.DesktopSession
-import com.dpsmpx.dppass.desktop.LinuxShareInterfaces
+import com.dpsmpx.dppass.desktop.DesktopShares
 import com.dpsmpx.dppass.desktop.SessionStatus
 import com.dpsmpx.dppass.desktop.ShareStatus
 import com.dpsmpx.dppass.diagnostics.Outcome
@@ -25,13 +25,14 @@ import javax.swing.JPasswordField
 import javax.swing.JTextField
 
 /**
- * «Раздача» (D-84, к D-51): вход прокси SOCKS5 и HTTP с паролем на адресах
- * точки доступа ПК — для других устройств в ней. Включить, адреса, порт,
+ * «Раздача» (D-84, D-101, к D-51): вход прокси SOCKS5 и HTTP с паролем на
+ * адресах точки доступа ПК — для других устройств в ней; где она, говорит
+ * система ([DesktopShares]). Включить, адреса, порт,
  * логин и пароль, новые логин, пароль и порт. Включение и смена входа
  * действуют сразу: туннель переподключается. Пароль скрыт, пока его не
  * показали: на ПК нет запрета снимка экрана, как `FLAG_SECURE` на Android.
  */
-class SharePanel(private val graph: DesktopGraph, private val session: DesktopSession) : JPanel(BorderLayout()) {
+class SharePanel(private val graph: DesktopGraph, private val session: DesktopSession, private val shares: DesktopShares) : JPanel(BorderLayout()) {
     private val enabled = JCheckBox("Раздавать туннель").apply {
         isOpaque = false
         foreground = Theme.palette.text
@@ -58,7 +59,7 @@ class SharePanel(private val graph: DesktopGraph, private val session: DesktopSe
         column.line(Widgets.still(Widgets.note()).apply { text = INTRO })
         column.add(Box.createVerticalStrut(Widgets.STEP * 2))
         column.line(enabled)
-        column.line(Widgets.caption("Только пока DPpass подключён и в NetworkManager включена точка доступа"))
+        column.line(Widgets.caption(shares.condition))
         column.add(Box.createVerticalStrut(Widgets.STEP * 2))
         column.line(where)
         column.line(problem)
@@ -74,7 +75,7 @@ class SharePanel(private val graph: DesktopGraph, private val session: DesktopSe
         column.line(Widgets.caption("Другим устройствам понадобятся новые настройки"))
         column.add(Box.createVerticalStrut(Widgets.STEP * 4))
         column.line(Widgets.title("Важно знать").also { it.border = Widgets.pad(1) })
-        column.line(Widgets.still(Widgets.note()).apply { text = LIMITS })
+        column.line(Widgets.still(Widgets.note()).apply { text = limits(shares.firewall) })
         add(column.scroll(), BorderLayout.CENTER)
         reload()
     }
@@ -94,7 +95,7 @@ class SharePanel(private val graph: DesktopGraph, private val session: DesktopSe
             connected.profileId == ServerlessPlan.PROFILE_ID -> " " to "Без сервера раздачи нет: она — вход в туннель через сервер."
             share == null -> "Адреса появятся после переподключения." to null
             share.refused -> " " to REFUSED
-            share.endpoints.isEmpty() -> " " to noHotspot(share.source)
+            share.endpoints.isEmpty() -> " " to share.absent
             else -> "Адрес прокси — для другого устройства (SOCKS5 или HTTP):" to null
         }
         where.text = text
@@ -191,16 +192,6 @@ class SharePanel(private val graph: DesktopGraph, private val session: DesktopSe
             insets = Insets(Widgets.STEP, 0, Widgets.STEP, Widgets.STEP * 2)
         }
 
-        fun noHotspot(source: LinuxShareInterfaces.Source): String = when (source) {
-            LinuxShareInterfaces.Source.NO_NMCLI -> "Нет nmcli: точку доступа ПК DPpass узнаёт только от NetworkManager. Раздачи нет."
-            LinuxShareInterfaces.Source.FAILED -> "NetworkManager не ответил — раздачи нет. Он запущен?"
-            LinuxShareInterfaces.Source.UNPARSED -> "Ответ NetworkManager не разобран — раздачи нет: лучше не раздавать, чем открыть вход не в той сети."
-            LinuxShareInterfaces.Source.OK ->
-                "Нет точки доступа. Включите в NetworkManager «Точку доступа Wi-Fi» или «Общий доступ с другими компьютерами» " +
-                    "у проводного соединения — DPpass заметит это за несколько секунд и переподключится. Другие сети ПК для " +
-                    "раздачи не годятся: вход прокси встал бы в чужую сеть."
-        }
-
         const val FIELD_COLUMNS = 18
 
         const val INTRO = "Ваши другие устройства могут ходить в интернет через туннель DPpass: ПК открывает прокси с паролем " +
@@ -209,12 +200,13 @@ class SharePanel(private val graph: DesktopGraph, private val session: DesktopSe
         const val REFUSED = "Прокси не открылся на адресе точки доступа: её выключили во время подключения, или порт занят " +
             "другой программой. Туннель работает без раздачи. Включите точку доступа заново или нажмите «Новые логин, пароль и порт»."
 
-        const val LIMITS = "• На другом устройстве нужна программа, которая умеет работать через прокси. Надёжнее всего — " +
+        /** «Важно знать»; [firewall] — строка о межсетевом экране этой системы. */
+        fun limits(firewall: String): String = "• На другом устройстве нужна программа, которая умеет работать через прокси. Надёжнее всего — " +
             "клиент SOCKS5 с паролем; HTTP-прокси в настройках Wi-Fi пароль не передаёт: браузер спросит его сам, остальные " +
             "программы могут не работать.\n" +
             "• Через прокси идёт только то, что программа другого устройства в него направила, и её DNS тоже.\n" +
             "• Маршрутизация и блокировка — те же, что у ПК.\n" +
-            "• Межсетевой экран ПК (firewalld, ufw) может закрывать порт — тогда откройте его для интерфейса точки доступа.\n" +
+            "$firewall\n" +
             "• Пока раздача включена, открытый порт видят устройства в точке доступа и программы ПК — это примета прокси. " +
             "Выключайте раздачу, когда она не нужна."
     }

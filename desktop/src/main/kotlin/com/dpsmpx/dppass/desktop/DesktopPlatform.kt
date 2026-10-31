@@ -4,6 +4,7 @@ import com.dpsmpx.dppass.connection.toTunInput
 import com.dpsmpx.dppass.core.Cidr
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
+import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.SystemTun
 import com.dpsmpx.dppass.engine.TunInput
 import com.dpsmpx.dppass.network.NetworkType
@@ -68,7 +69,28 @@ interface DesktopTunnel {
     fun close()
 }
 
-/** Поднять туннель по [TunnelSpec]; [share] — подсети раздачи мимо туннеля (D-84, только Linux). */
+/**
+ * Точка доступа ПК для раздачи (D-84 — Linux, D-101 — Windows): где ПК сам
+ * раздаёт сеть, по словам системы. Сомнение — адресов нет: лучше не
+ * раздавать, чем открыть вход прокси не в той сети.
+ */
+interface DesktopShares {
+    fun find(): ShareScan
+
+    /** Подпись под переключателем раздачи: когда она действует на этой системе. */
+    val condition: String
+
+    /** Строка «Важно знать» о межсетевом экране ПК. */
+    val firewall: String
+}
+
+/**
+ * Адреса раздачи сейчас; [absent] — почему их нет, для окна (пусто, когда
+ * адреса есть); [seen] — что видно, для журнала: без имён и адресов (D-57).
+ */
+data class ShareScan(val endpoints: List<ShareSpec.Endpoint>, val absent: String, val seen: String)
+
+/** Поднять туннель по [TunnelSpec]; [share] — подсети раздачи мимо туннеля (D-84, D-101). */
 fun interface DesktopTunnels {
     fun establish(spec: TunnelSpec, share: List<Cidr>): Outcome<DesktopTunnel>
 }

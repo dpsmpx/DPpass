@@ -28,7 +28,7 @@ import javax.swing.WindowConstants
  * Окно DPpass для ПК (D-74, D-97): «Подключение», «Серверы», «Подписки»,
  * «Сеть» (проверка сети, D-79), «Раздача» (точка доступа ПК, D-84),
  * «Устройства раздачи» (подключение через телефон, D-85), «Журнал»; на
- * Windows раздачи и устройств раздачи нет — и вкладок тоже. Меню «Импорт» — буфер обмена и
+ * Windows устройств раздачи нет — и вкладки тоже. Меню «Импорт» — буфер обмена и
  * файл (D-42); «Подключение» — автопереключение сервера (D-78), разбиение
  * ClientHello к серверу (D-81), сайты напрямую с разбиением (D-82) и
  * проверка сети при её смене (D-80). Пока окно открыто, применённая подписка
@@ -75,8 +75,8 @@ class DesktopWindow(
         }
         val log = LogPanel(graph)
         val network = NetworkPanel(graph.networkCheck, scope)
-        // Раздача и устройства раздачи — только на Linux (D-84, D-85); на Windows их нет (D-97).
-        val share = graph.shares?.let { SharePanel(graph, session) }
+        // Раздача — на Linux и Windows (D-84, D-101); устройства раздачи — только на Linux (D-85).
+        val share = graph.shares?.let { SharePanel(graph, session, it) }
         relays = graph.relayNetworks?.let { RelaysPanel(graph, it, session, prefs, scope, import::fromClipboard) }
         val relaysPanel = relays
         tabs = JTabbedPane().apply {

@@ -23,7 +23,7 @@ class LinuxShareInterfaces(
     private val nmcli: (List<String>) -> CommandResult = { SystemCommand.run(NMCLI_BINARIES, "nmcli (NetworkManager)", it, NMCLI_TIMEOUT_SECONDS) },
     private val interfaces: () -> List<Iface>? = ::systemInterfaces,
     private val upstream: () -> String? = { LinuxNetwork.current()?.iface },
-) {
+) : DesktopShares {
     /** Что известно об интерфейсе: поднят ли и его IPv4-адреса с длиной префикса. */
     data class Iface(val name: String, val up: Boolean, val addresses: List<Pair<IpAddress, Int>>)
 
@@ -37,7 +37,13 @@ class LinuxShareInterfaces(
      */
     data class Scan(val endpoints: List<ShareSpec.Endpoint>, val source: Source, val seen: String)
 
-    fun find(): Scan {
+    override fun find(): ShareScan = scan().let { ShareScan(it.endpoints, if (it.endpoints.isEmpty()) absent(it.source) else "", it.seen) }
+
+    override val condition: String = "Только пока DPpass подключён и в NetworkManager включена точка доступа"
+
+    override val firewall: String = "• Межсетевой экран ПК (firewalld, ufw) может закрывать порт — тогда откройте его для интерфейса точки доступа."
+
+    fun scan(): Scan {
         val active = nmcli(ACTIVE)
         if (active.code != 0) {
             val source = if (active.code == SystemCommand.NOT_FOUND) Source.NO_NMCLI else Source.FAILED
@@ -51,6 +57,17 @@ class LinuxShareInterfaces(
     }
 
     companion object {
+        /** Почему адресов раздачи нет — для окна. */
+        fun absent(source: Source): String = when (source) {
+            Source.NO_NMCLI -> "Нет nmcli: точку доступа ПК DPpass узнаёт только от NetworkManager. Раздачи нет."
+            Source.FAILED -> "NetworkManager не ответил — раздачи нет. Он запущен?"
+            Source.UNPARSED -> "Ответ NetworkManager не разобран — раздачи нет: лучше не раздавать, чем открыть вход не в той сети."
+            Source.OK ->
+                "Нет точки доступа. Включите в NetworkManager «Точку доступа Wi-Fi» или «Общий доступ с другими компьютерами» " +
+                    "у проводного соединения — DPpass заметит это за несколько секунд и переподключится. Другие сети ПК для " +
+                    "раздачи не годятся: вход прокси встал бы в чужую сеть."
+        }
+
         /** Не из PATH (T17): `nmcli` — из пакета NetworkManager. */
         val NMCLI_BINARIES: List<String> = listOf("/usr/bin/nmcli", "/bin/nmcli")
 

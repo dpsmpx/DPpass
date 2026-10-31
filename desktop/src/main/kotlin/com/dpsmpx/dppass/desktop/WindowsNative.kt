@@ -39,4 +39,11 @@ internal object WindowsNative {
 
     /** Адреса имени [host] у серверов [servers] (адреса по строке) сокетами с привязкой к [index] (D-99). */
     @JvmStatic external fun nativeResolveVia(host: ByteArray, servers: ByteArray, index: Int, timeoutMillis: Int): ByteArray
+
+    /**
+     * Адреса раздачи с ПК (D-101): после статуса — адреса IPv4 частной стороны
+     * общего доступа к подключению (ICS) с длиной префикса по строке, кроме
+     * адаптера [tunAlias] и сети «вверх по течению» ([WindowsShareInterfaces]).
+     */
+    @JvmStatic external fun nativeSharedInterfaces(tunAlias: ByteArray): ByteArray
 }

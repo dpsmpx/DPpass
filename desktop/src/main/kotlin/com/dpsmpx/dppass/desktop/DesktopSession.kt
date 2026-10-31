@@ -59,9 +59,9 @@ data class ServerNotice(val from: ServerProfile, val to: ServerProfile, val reas
 /**
  * Раздача сеанса для окна (D-84): на каких адресах точки доступа открыт вход;
  * [refused] — ядро не открыло вход, и туннель работает без раздачи;
- * [source] — ответил ли NetworkManager, когда точки доступа не нашлось.
+ * [absent] — почему точки доступа не нашлось, по словам системы (D-84, D-101).
  */
-data class ShareStatus(val endpoints: List<ShareSpec.Endpoint>, val refused: Boolean, val source: LinuxShareInterfaces.Source)
+data class ShareStatus(val endpoints: List<ShareSpec.Endpoint>, val refused: Boolean, val absent: String)
 
 /**
  * Сеанс туннеля на ПК (D-74, D-97) — путь `DPpassVpnService` без Android:
@@ -74,16 +74,17 @@ data class ShareStatus(val endpoints: List<ShareSpec.Endpoint>, val refused: Boo
  * заранее; сменилась сеть — режим сессии заново и проверка новой сети
  * ([NetworkWatch], D-80).
  * Серверов нет, а список «Напрямую с разбиением» есть — туннель без сервера
- * (D-83). Раздача туннеля — на точке доступа ПК (D-84): вход прокси на её
- * адресах, смена набора — переподключение. Выбрано устройство раздачи —
- * подключение только через него (D-85). На Windows раздачи и устройств
- * раздачи нет (D-97): выбранное устройство — отказ с причиной.
+ * (D-83). Раздача туннеля — на точке доступа ПК (D-84, на Windows — частная
+ * сторона ICS, D-101): вход прокси на её адресах, смена набора —
+ * переподключение. Выбрано устройство раздачи — подключение только через
+ * него (D-85). На Windows устройств раздачи нет (D-97): выбранное
+ * устройство — отказ с причиной.
  */
 class DesktopSession(
     private val graph: DesktopGraph,
     private val scope: CoroutineScope,
     private val prefs: DesktopPrefs,
-    private val shares: LinuxShareInterfaces? = graph.shares,
+    private val shares: DesktopShares? = graph.shares,
     private val notify: DesktopNotifier = graph.host.notifier,
     /** Сеть под туннелем для учёта трафика (D-92): маршрут по умолчанию мимо туннеля. */
     private val network: () -> NetworkType = { graph.host.network()?.type ?: NetworkType.NONE },
@@ -295,7 +296,7 @@ class DesktopSession(
             }
         }
         // Раздача (D-51, D-84) — только на точке доступа ПК; включена, а точки доступа нет — туннель без неё.
-        // На Windows раздачи нет (D-97): окно её не показывает, а включённая раньше — не действует.
+        // Без библиотеки моста на Windows точку доступа не узнать (D-101): окно раздачу не показывает, а включённая раньше — не действует.
         val shareSettings = core.share.current().also { r -> r.diagnostics.forEach(core.log::diagnostic) }.valueOrNull()
         val finder = shares
         val scan = if (shareSettings?.enabled == true && finder != null) withContext(Dispatchers.IO) { finder.find() } else null
@@ -389,7 +390,7 @@ class DesktopSession(
                 if (scan != null) {
                     val offered = share?.endpoints.orEmpty()
                     val refused = report.shareRefused != null
-                    shareState.value = ShareStatus(if (refused) emptyList() else offered, refused, scan.source)
+                    shareState.value = ShareStatus(if (refused) emptyList() else offered, refused, scan.absent)
                     core.log.info("share", "endpoints" to offered.size, "refused" to refused)
                     finder?.let { startShareWatch(it, offered) }
                 }
@@ -464,7 +465,7 @@ class DesktopSession(
      * Раздача (D-84): набор адресов точки доступа сменился — переподключение;
      * остановка сеанса отменяет опрос, и переподключения нет.
      */
-    private fun startShareWatch(finder: LinuxShareInterfaces, current: List<ShareSpec.Endpoint>) {
+    private fun startShareWatch(finder: DesktopShares, current: List<ShareSpec.Endpoint>) {
         val w = ShareWatch(graph.core.log, current) { finder.find().endpoints }
         shareWatch = scope.launch {
             withContext(Dispatchers.IO) { w.run { delay(it) } }

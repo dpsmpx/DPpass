@@ -1,6 +1,7 @@
 package com.dpsmpx.dppass.desktop
 
 import com.dpsmpx.dppass.core.Cidr
+import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Logger
 import com.dpsmpx.dppass.diagnostics.MemoryLogSink
@@ -71,10 +72,23 @@ class WindowsTest {
     }
 
     @Test
-    fun shareAndAppChoiceAreRefusedWithReason() {
+    fun shareSubnetStaysOutOfTheAdapter() {
+        // Подсеть «Мобильного хот-спота» (D-101): ответы гостям — в её интерфейс, а не в туннель.
+        val hotspot = Cidr.parse("192.168.137.0/24")!!.cidr
+        val t = assertIs<Outcome.Success<DesktopTunnel>>(WindowsTunnels(SELF, log) { true }.establish(spec(), listOf(hotspot))).value
+        val routes = t.systemTun!!.routes
+        assertTrue(routes.none { it.isWithin(hotspot) || hotspot.isWithin(it) }, "маршрут адаптера накрывает подсеть раздачи: $routes")
+        // Остальное — по-прежнему в туннель: соседние адреса и IPv6.
+        for (ip in listOf("192.168.136.255", "192.168.138.0", "8.8.8.8", "0.0.0.1")) {
+            assertTrue(routes.any { IpAddress.parse(ip)!! in it }, "$ip выпал из туннеля")
+        }
+        assertTrue(Cidr.ALL_V6 in routes)
+        assertTrue(routes.none { IpAddress.parse("192.168.137.42")!! in it })
+    }
+
+    @Test
+    fun appChoiceIsRefusedWithReason() {
         val tunnels = WindowsTunnels(SELF, log) { true }
-        val share = assertIs<Outcome.Failure>(tunnels.establish(spec(), listOf(Cidr.parse("192.0.2.0/24")!!.cidr)))
-        assertTrue("раздачи" in share.errors.first().message)
         val apps = assertIs<Outcome.Failure>(tunnels.establish(spec(apps = AppPolicy.OnlyApps(setOf("browser"))), emptyList()))
         assertEquals(DiagCode.APP_POLICY_CONFLICT, apps.errors.first().code)
         assertTrue("на Windows программы не различаются" in apps.errors.first().message)

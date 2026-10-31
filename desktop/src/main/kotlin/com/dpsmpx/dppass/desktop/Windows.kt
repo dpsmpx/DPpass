@@ -67,7 +67,7 @@ class WindowsHost(
     }
 
     override val absent: String =
-        "На Windows нет раздачи с ПК (D-84) и подключения через устройство раздачи (D-85) — вкладок для них здесь нет (D-97)."
+        "На Windows нет подключения через устройство раздачи (D-85) — вкладки для него здесь нет (D-97)."
 
     /** Ответ [WindowsNative.nativeDefaultRoute] — сеть и поднят ли адаптер. */
     data class Route(val network: WindowsNetwork?, val tunUp: Boolean)
@@ -105,21 +105,20 @@ data class WindowsNetwork(val alias: String, val gateway: String, override val t
 /**
  * Туннель Windows (D-97): адаптер Wintun создаёт вход TUN ядра. Здесь —
  * только описание адаптера по [TunnelSpec] ([SystemTun]); закрывать нечего:
- * адаптер уходит вместе с ядром. Раздачи на Windows нет, политика приложений
- * — только «все, кроме DPpass», как на Linux (D-05).
+ * адаптер уходит вместе с ядром. Подсети раздачи (D-101) — мимо адаптера,
+ * политика приложений — только «все, кроме DPpass», как на Linux (D-05).
  */
 class WindowsTunnels(private val selfPackage: String, private val log: Logger, private val elevated: () -> Boolean) : DesktopTunnels {
     override fun establish(spec: TunnelSpec, share: List<Cidr>): Outcome<DesktopTunnel> {
         if (!elevated()) {
             return Outcome.failure(DiagCode.TUN_ESTABLISH_FAILED, "нет прав администратора — адаптер Wintun не создать; запустите DPpass через dppass.exe")
         }
-        if (share.isNotEmpty()) return Outcome.failure(DiagCode.TUN_ESTABLISH_FAILED, "раздачи на Windows нет (D-97)")
         LinuxRoutes.appPolicyProblem(spec, selfPackage, system = "Windows")?.let { return Outcome.failure(it) }
-        val system = when (val s = systemTun(spec)) {
+        val system = when (val s = systemTun(spec, share)) {
             is Outcome.Failure -> return s
             is Outcome.Success -> s.value
         }
-        log.info("windows_tunnel", "routes" to system.routes.size, "addresses" to system.addresses.size)
+        log.info("windows_tunnel", "routes" to system.routes.size, "addresses" to system.addresses.size, "share" to share.size)
         return Outcome.Success(Core(system))
     }
 
@@ -132,14 +131,17 @@ class WindowsTunnels(private val selfPackage: String, private val log: Logger, p
     companion object {
         /**
          * Адаптер по [TunnelSpec]: адреса узла (`172.19.0.1/30`); маршруты —
-         * как есть (исключённое уже выпало дополнением, [WindowsHost.TRAITS]);
-         * DNS — внутренний адрес.
+         * как есть (исключённое уже выпало дополнением, [WindowsHost.TRAITS]),
+         * без подсетей раздачи [share] (D-101): ответы гостям точки доступа
+         * идут в её интерфейс, а не в туннель, даже если маршрут туннеля
+         * длиннее маршрута её сети. DNS — внутренний адрес.
          */
-        fun systemTun(spec: TunnelSpec): Outcome<SystemTun> {
+        fun systemTun(spec: TunnelSpec, share: List<Cidr> = emptyList()): Outcome<SystemTun> {
             if (spec.excludedRoutes.isNotEmpty()) {
                 return Outcome.failure(DiagCode.TUN_ESTABLISH_FAILED, "исключающих маршрутов у адаптера ядра нет — TunnelSpec собран не для Windows")
             }
-            return Outcome.Success(SystemTun(listOfNotNull(spec.address4, spec.address6), spec.routes, spec.dnsServers))
+            val routes = spec.routes.flatMap { Cidr.complement(it, share) }
+            return Outcome.Success(SystemTun(listOfNotNull(spec.address4, spec.address6), routes, spec.dnsServers))
         }
     }
 }

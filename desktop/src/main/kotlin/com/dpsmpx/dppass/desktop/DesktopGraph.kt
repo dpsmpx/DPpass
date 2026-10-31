@@ -49,8 +49,8 @@ class DesktopGraph(
     val networkCheck: DesktopNetworkCheck,
     /** Поиск устройства раздачи и сопряжение (D-85): сокеты мимо туннеля, как у проб; null — на Windows их нет (D-97). */
     val relayNetworks: LinuxRelayNetworks?,
-    /** Точка доступа ПК для раздачи (D-84); null — на Windows раздачи нет (D-97). */
-    val shares: LinuxShareInterfaces?,
+    /** Точка доступа ПК для раздачи (D-84, D-101); null — без библиотеки моста на Windows её не узнать. */
+    val shares: DesktopShares?,
     /** Что не поднялось при сборке: показывается в окне. */
     val problems: List<Diagnostic>,
 ) {
@@ -62,7 +62,7 @@ class DesktopGraph(
         val traits: PlatformTraits,
         val probeNetwork: DesktopProbeNetwork,
         val relayNetworks: LinuxRelayNetworks?,
-        val shares: LinuxShareInterfaces?,
+        val shares: DesktopShares?,
     )
 
     companion object {
@@ -207,7 +207,7 @@ class DesktopGraph(
                     WindowsProbeNetwork(host::tunnelUp)
                 },
                 relayNetworks = null,
-                shares = null,
+                shares = if (loaded) WindowsShareInterfaces { WindowsNative.nativeSharedInterfaces(alias) } else null,
             )
         }
 

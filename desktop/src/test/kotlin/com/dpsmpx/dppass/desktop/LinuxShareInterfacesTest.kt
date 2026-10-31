@@ -35,7 +35,7 @@ class LinuxShareInterfacesTest {
 
     @Test
     fun onlySharedConnectionsOfNetworkManagerAreShared() {
-        val scan = shares.find()
+        val scan = shares.scan()
         assertEquals(LinuxShareInterfaces.Source.OK, scan.source)
         assertEquals(listOf("10.42.0.1/24"), scan.endpoints.map { it.toString() }, "провод к роутеру — чужая сеть, не раздача")
         assertEquals("nmcli=0 active=2 shared=1 endpoints=1", scan.seen)
@@ -74,12 +74,12 @@ class LinuxShareInterfacesTest {
     @Test
     fun anyDoubtMeansNoSharing() {
         active = CommandResult(SystemCommand.NOT_FOUND, "нет nmcli")
-        assertEquals(LinuxShareInterfaces.Source.NO_NMCLI, shares.find().source)
+        assertEquals(LinuxShareInterfaces.Source.NO_NMCLI, shares.scan().source)
         active = CommandResult(8, "Error: NetworkManager is not running.")
-        assertEquals(LinuxShareInterfaces.Source.FAILED, shares.find().source)
+        assertEquals(LinuxShareInterfaces.Source.FAILED, shares.scan().source)
         assertEquals("nmcli=8", shares.find().seen)
         active = CommandResult(0, "это не вывод nmcli\n")
-        val unparsed = shares.find()
+        val unparsed = shares.scan()
         assertEquals(LinuxShareInterfaces.Source.UNPARSED, unparsed.source)
         assertTrue(unparsed.endpoints.isEmpty())
         // Соединение ушло между вызовами — ответа о нём нет: не общее.
@@ -89,6 +89,17 @@ class LinuxShareInterfacesTest {
         // Интерфейсов не узнать — раздавать не на чем.
         methods[hotspot] = "shared"
         assertTrue(LinuxShareInterfaces(nmcli, { null }, { null }).find().endpoints.isEmpty())
+    }
+
+    @Test
+    fun windowSaysWhyThereIsNoSharing() {
+        assertEquals("", shares.find().absent, "адреса есть — причины нет")
+        upstream = "wlp2s0"
+        assertTrue("Нет точки доступа" in shares.find().absent)
+        active = CommandResult(SystemCommand.NOT_FOUND, "нет nmcli")
+        assertTrue("Нет nmcli" in shares.find().absent)
+        active = CommandResult(0, "это не вывод nmcli\n")
+        assertTrue("лучше не раздавать" in shares.find().absent)
     }
 
     @Test

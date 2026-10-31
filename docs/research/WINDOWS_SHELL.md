@@ -263,4 +263,43 @@ Xray обращается к DLL только через экспорт `wintun.
 - отсутствие утечки DNS и IPv6;
 - уборка после отключения и после снятия процесса;
 - тема окна по режиму приложений и всплывающее уведомление о пороге
-  трафика из области уведомлений; значок `dppass.exe` в Проводнике.
+  трафика из области уведомлений; значок `dppass.exe` в Проводнике;
+- раздача с ПК (§7).
+
+## 7. Раздача с ПК: общий доступ к подключению (ICS) — 31.10.2026
+
+Повод — выбор автора в форме 31.10.2026: на Windows — «Раздача с ПК»
+(D-101). Источники — заголовки и библиотеки mingw-w64 11.0.1 из Ubuntu,
+документы Microsoft и проверка в облаке под Wine 9.0.
+
+- **Что раздаёт ПК, знает ICS.** «Мобильный хот-спот» и общий доступ у
+  адаптера делают адаптер частной стороной ICS. Объект COM
+  `HNetCfg.HNetShare` (`CLSID_NetSharingManager`) с интерфейсом
+  `INetSharingManager` перечисляет частные подключения
+  (`get_EnumPrivateConnections`; `ICSSC_ENABLED` — только с включённым
+  общим доступом) и даёт настройку каждого (`INetSharingConfiguration`:
+  включено ли, сторона — `ICSSHARINGTYPE_PRIVATE`). GUID подключения —
+  поле `guidId` из `INetConnection::GetProperties`; память свойств —
+  `CoTaskMemFree`.
+- **Порядок методов** — `netcon.h` и `oaidl.h` mingw-w64 11.0.1. GUID
+  `CLSID_NetSharingManager`, `IID_INetSharingManager`,
+  `IID_INetConnection` и `IID_IEnumVARIANT` в мосте
+  (`tools/xray/bridge/share_windows.go`) сверены с байтами `libuuid.a`
+  и `oaidl.h` того же пакета.
+- **Регистрации из HKCU процессу с правами администратора не видны.** С
+  Windows Vista COM процесса выше среднего уровня целостности не
+  учитывает регистрации классов пользователя (HKCU) и берёт только
+  регистрации ПК (HKLM): программа пользователя не подменит объект COM
+  в процессе с правами. Источники: «COM activation change in Windows
+  Vista» (блог Microsoft, learn.microsoft.com/archive/blogs/junfeng);
+  Raymond Chen, «Not actually crossing the airtight hatchway: Applying
+  per-user overrides» (devblogs.microsoft.com/oldnewthing). Исключение
+  из доклада Virus Bulletin 2011 касается `SHCoCreateInstance` оболочки,
+  а не `CoCreateInstance`.
+- **Wine 9.0** (`9.0~repack-4build3`): `hnetcfg.dll` есть, но класса
+  `NetSharingManager` в нём нет — `CoCreateInstance` отвечает
+  `0x80040154` (`REGDB_E_CLASSNOTREG`). Проверено в облаке 31.10.2026.
+  Перечисление в Wine проверяется только на поддельных объектах COM.
+- **Не проверено** и остаётся ПК автора: виден ли «Мобильный хот-спот»
+  частным подключением ICS, какой адрес у его адаптера, спрашивает ли
+  брандмауэр Windows разрешение на вход и в какой сети оно нужно.

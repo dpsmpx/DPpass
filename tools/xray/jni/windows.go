@@ -120,6 +120,23 @@ func Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeResolveVia(
 	return status(env, statusOK, strings.Join(addrs, "\n"))
 }
 
+// Адреса раздачи с ПК (D-101): статус 0, затем адреса IPv4 частной стороны
+// общего доступа к подключению (ICS) с длиной префикса — по строке; иначе —
+// вид отказа и текст.
+//
+//export Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeSharedInterfaces
+func Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeSharedInterfaces(env *C.JNIEnv, _ C.jclass, tunAlias C.jbyteArray) C.jbyteArray {
+	prefixes, err := bridge.SharedInterfaces(string(bytesOf(env, tunAlias)))
+	if err != nil {
+		return statusOf(env, err)
+	}
+	lines := make([]string, 0, len(prefixes))
+	for _, p := range prefixes {
+		lines = append(lines, p.String())
+	}
+	return status(env, statusOK, strings.Join(lines, "\n"))
+}
+
 func sealed(env *C.JNIEnv, f func([]byte) ([]byte, error), in C.jbyteArray) C.jbyteArray {
 	out, err := f(bytesOf(env, in))
 	if err != nil {
