@@ -13,7 +13,7 @@ import org.robolectric.annotation.Config
  * и серверы в списке. Данные — синтетические (адреса TEST-NET, RFC 5737).
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [26, 29, 36])
 class ImportPathTest {
     @Test
     fun linksFromClipboardBecomeServers() {

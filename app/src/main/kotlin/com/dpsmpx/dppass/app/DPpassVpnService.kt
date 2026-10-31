@@ -241,7 +241,25 @@ class DPpassVpnService : VpnService() {
             }
             TunnelState.set(TunnelStatus.Connecting(null))
             announce()
-            connecting = scope.launch { connect() }
+            connecting = scope.launch { connectOrFail() }
+        }
+    }
+
+    /**
+     * Неожиданная ошибка внутри подключения — отказ с причиной (D-22), а не
+     * «Подключение…» навсегда: у корутины на SupervisorJob исключение гасло
+     * молча, и экран ждал (путь подключения на API 26, 31.10.2026). Отмена —
+     * не отказ; нехватка памяти и прочие сбои машины — дальше, как были.
+     */
+    private suspend fun connectOrFail() {
+        try {
+            connect()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: VirtualMachineError) {
+            throw e
+        } catch (e: Throwable) {
+            fail(Diagnostic.fromThrowable(DiagCode.INTERNAL_ERROR, "подключение прервала неожиданная ошибка", e))
         }
     }
 

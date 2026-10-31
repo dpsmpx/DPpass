@@ -29,7 +29,7 @@ import org.robolectric.annotation.Config
  * выключение — учёт в ядре выключен.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [26, 29, 36])
 class ConnectionsPathTest {
     @Test
     fun analyzerShowsCoreConnectionsAndKeepsTheJournal() {
@@ -72,8 +72,14 @@ class ConnectionsPathTest {
             act.waitFor(a, c.getString(R.string.conn_entry_on))
             act.tap(a, c.getString(R.string.conn_title))
             act.waitFor(a, c.getString(R.string.conn_switch))
+            // Таблица без строк скрыта: ждать, пока снимок ядра принесёт строку пробы.
+            try {
+                act.d.waitUntil("таблица со строками на экране", 15_000) { act.view(a, GridTable::class.java) != null }
+            } catch (e: AssertionError) {
+                throw AssertionError("${e.message}; видно: ${act.texts(a)}", e)
+            }
             val table = act.view(a, GridTable::class.java)
-            expect(table != null) { "нет таблицы на экране" }
+            expect(table != null) { "нет таблицы на экране; видно: ${act.texts(a)}" }
             fun cell(row: Int, col: ConnColumn): String = act.d.main { table!!.model!!.text(row, ConnectionsScreen.LIVE.indexOf(col)) }
             fun rows(): Int = act.d.main { table!!.model?.rows ?: 0 }
             act.d.waitUntil("строка пробы в таблице", 15_000) { rows() > 0 }

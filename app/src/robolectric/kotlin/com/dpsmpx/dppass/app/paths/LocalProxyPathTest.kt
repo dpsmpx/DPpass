@@ -26,7 +26,7 @@ import org.robolectric.annotation.Config
  * это отказ сервера, а не TUN.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [26, 29, 36])
 class LocalProxyPathTest {
     @Test
     fun refusedVpnOffersProxyAndConnectsWithoutConsent() {

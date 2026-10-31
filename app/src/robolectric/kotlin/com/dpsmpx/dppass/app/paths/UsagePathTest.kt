@@ -21,7 +21,7 @@ import org.robolectric.annotation.Config
  * с подтверждением, счёт с нуля.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [26, 29, 36])
 class UsagePathTest {
     @Test
     fun countsShowPerNetworkAndThresholdNotifies() {

@@ -25,7 +25,7 @@ import java.util.Base64
  * включение у применённой (загрузка заново) — `ProviderPolicyTest` на хосте.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [26, 29, 36])
 class ProviderPolicyPathTest {
     @Test
     fun providerRoutingIsOfferedTakenOnlyAfterConsentAndComesBack() {

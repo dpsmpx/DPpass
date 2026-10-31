@@ -20,7 +20,7 @@ import org.robolectric.annotation.Config
  * окно с причиной и выходом, сервис туннеля не запущен.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [26, 29, 36])
 class VpnConsentPathTest {
     @Test
     fun refusedConsentExplainsAndDoesNotStartTunnel() {

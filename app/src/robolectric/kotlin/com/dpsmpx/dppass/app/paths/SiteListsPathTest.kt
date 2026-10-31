@@ -16,7 +16,7 @@ import org.robolectric.annotation.Config
  * геоданных настоящего ядра. Данные синтетические.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [26, 29, 36])
 class SiteListsPathTest {
     @Test
     fun happProfileFillsOwnListsAndListsAreEditable() {

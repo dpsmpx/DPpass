@@ -16,7 +16,7 @@ import java.util.Base64
  * и выключаются переключателем. Ответ поставщика — синтетический.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [26, 29, 36])
 class ProviderListsPathTest {
     @Test
     fun providerListsAreKeptShownAndUsedOnlyAfterConsent() {

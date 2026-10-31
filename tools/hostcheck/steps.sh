@@ -5,7 +5,7 @@
 #
 #   tools/hostcheck/steps.sh build         сборка и тесты ядра и build-logic, стиль Kotlin (с Android SDK — без :app:build: APK — шаг Android)
 #   tools/hostcheck/steps.sh xray-bridge   мост Xray: библиотека для JVM хоста и тест JNI в этой JVM (D-25)
-#   tools/hostcheck/steps.sh android-screens  экраны и ключевые пути на JVM: Robolectric с ядром Xray для хоста (D-86, D-90)
+#   tools/hostcheck/steps.sh android-screens  экраны и ключевые пути на JVM: Robolectric с ядром Xray для хоста, API 36, 26 и 29 (D-86, D-90, D-108)
 #   tools/hostcheck/steps.sh android-sdk   есть ли Android SDK (проба [[tool]] профиля)
 #   tools/hostcheck/steps.sh android-ndk   есть ли NDK версии из каталога (проба [[tool]] профиля)
 #   tools/hostcheck/steps.sh wine          есть ли wine64 — тесты моста для Windows (проба [[tool]] профиля, D-97)
@@ -34,7 +34,14 @@ android_sdk() { sdk_dir >/dev/null; }
 # та же, что у XrayJniTest. Robolectric и AndroidX тестов — только по свойству dppass.robolectric.
 android_screens() {
   "$PY" tools/xray/native.py host || return 1
-  "${GRADLE[@]}" -Pdppass.robolectric -Pdppass.xray.lib=build/xray/host/libdppassxray.so :app:testDebugUnitTest
+  # Экраны и пути — на каждом API отдельным прогоном (D-108): 36 — как targetSdk,
+  # 26 и 29 — младшие ветки кода (D-104); ядро Xray грузится в JVM один раз.
+  local sdk
+  for sdk in 36 26 29; do
+    "${GRADLE[@]}" -Pdppass.robolectric -Pdppass.robolectric.sdk="$sdk" \
+      -Pdppass.xray.lib=build/xray/host/libdppassxray.so :app:testDebugUnitTest || return 1
+  done
+  echo "✓ экраны и ключевые пути на JVM: API 36, 26 и 29 (D-86, D-90, D-108)"
 }
 
 xray_bridge() {

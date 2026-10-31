@@ -21,6 +21,10 @@ robolectric = "4.17"
 # JUnit 4 — API тестов Robolectric (его запускатель — JUnit 4); та же версия, что тянет Robolectric.
 junit4 = "4.13.2"
 robolectric-android-all = "16-robolectric-13921718-i7"
+# Образы младших API для путей API 26–34 (D-104, D-108): API 26 (Android 8.0) и 29
+# (Android 10) — те, что для них ждёт Robolectric 4.17 (DefaultSdkProvider).
+robolectric-android-all-api26 = "8.0.0_r4-robolectric-r1-i7"
+robolectric-android-all-api29 = "10-robolectric-5803371-i7"
 
 # Ядро прокси (D-24): версия Xray и Go-модуль той же версии (тег v26.9.30
 # upstream XTLS/Xray-core). Из него tools/xray собирает ядро для проверки
@@ -65,6 +69,8 @@ junit-vintage-engine = { module = "org.junit.vintage:junit-vintage-engine" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 junit4 = { module = "junit:junit", version.ref = "junit4" }
 robolectric-android-all = { module = "org.robolectric:android-all-instrumented", version.ref = "robolectric-android-all" }
+robolectric-android-all-api26 = { module = "org.robolectric:android-all-instrumented", version.ref = "robolectric-android-all-api26" }
+robolectric-android-all-api29 = { module = "org.robolectric:android-all-instrumented", version.ref = "robolectric-android-all-api29" }
 
 # ZXing core: распознавание QR (D-65), без зависимостей; в app и тесты app.
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }

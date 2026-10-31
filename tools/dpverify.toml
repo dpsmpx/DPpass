@@ -290,15 +290,15 @@ summary = '^BUILD SUCCESSFUL.*'
 
 [[command]]
 id = "project.android-screens"
-# экраны телефона на JVM (D-86): тесты D-75 под Robolectric, вместе с остальными тестами app;
+# экраны телефона на JVM (D-86): тесты D-75 под Robolectric, вместе с остальными тестами app, на API 36, 26 и 29 (D-108);
 # ключевые пути (D-90) — с настоящим ядром Xray: библиотека моста для хоста собирается первой.
 # Robolectric и AndroidX тестов — только по свойству: сборка без него (в том числе в Termux) их не тянет
 run = ["bash", "tools/hostcheck/steps.sh", "android-screens"]
 paths = ["module:app", "tools/xray/**"]
 requires = ["jdk", "android-sdk", "go"]
 after = ["project.android"]
-timeout = "20m"
-summary = '^BUILD SUCCESSFUL.*'
+timeout = "45m"
+summary = '^✓ экраны и ключевые пути.*'
 
 [[command]]
 id = "project.apk-release"

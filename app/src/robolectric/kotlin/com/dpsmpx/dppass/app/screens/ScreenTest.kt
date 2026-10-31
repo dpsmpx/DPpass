@@ -16,7 +16,7 @@ import org.robolectric.annotation.Config
  * размеры у них свои. Android — образ SDK 36 (Android 16), как `targetSdk`.
  */
 @RunWith(ParameterizedRobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [26, 29, 36])
 class ScreenTest(private val name: String, private val language: String) {
     @Test
     fun run() {

@@ -52,6 +52,8 @@
 | `junit:junit` | 4.13.2 | EPL-1.0 | тесты экранов на JVM (`app`, только по свойству `dppass.robolectric`) | разрешён | API тестов Robolectric: его запускатель — JUnit 4 (D-86) |
 | `org.robolectric:robolectric` | 4.17 | MIT | тесты экранов на JVM (`app`, только по свойству `dppass.robolectric`) | разрешён | тесты экранов телефона (D-75) на JVM (D-86). Транзитивно — около сорока артефактов, в том числе AndroidX только в тестах (`androidx.test:monitor`, `espresso-idling-resource`, к D-34); лицензии — в PROVENANCE |
 | `org.robolectric:android-all-instrumented` | 16-robolectric-13921718-i7 | Apache-2.0 | тесты экранов на JVM (образ Android 16 для Robolectric) | разрешён | образ SDK 36, который ждёт Robolectric 4.17; через Gradle с суммой, без загрузки из тестов (D-86) |
+| `org.robolectric:android-all-instrumented` | 8.0.0_r4-robolectric-r1-i7 | Apache-2.0 | тесты экранов и путей на JVM (образ Android 8.0 для Robolectric) | разрешён | образ API 26, который ждёт Robolectric 4.17; через Gradle с суммой, без загрузки из тестов (D-86, D-108) |
+| `org.robolectric:android-all-instrumented` | 10-robolectric-5803371-i7 | Apache-2.0 | тесты экранов и путей на JVM (образ Android 10 для Robolectric) | разрешён | образ API 29, который ждёт Robolectric 4.17; через Gradle с суммой, без загрузки из тестов (D-86, D-108) |
 
 EPL-2.0 — слабый копилефт на уровне модуля; тестовые библиотеки не
 распространяются вместе с DPpass, обязательств для APK нет. То же у

@@ -98,11 +98,6 @@ Android с приложением у соединения (0.7.49-dev), вкла
 
 Подробности и обоснование — `docs/audits/INITIAL_ARCHITECTURE_AUDIT.md`.
 
-- [ ] Пути API 26–34 на JVM (D-104): экраны и ключевые пути идут в
-      Robolectric только на API 36, на устройстве — Android 15. Прогон на
-      API 26 потребует образа `android-all` 8.0 — новая зависимость по
-      D-18 (матрица, PROVENANCE, сумма в `verification-metadata.xml`).
-
 ## Linux — этап 6 (D-74)
 
 Оболочка `desktop` собрана и проверена в облаке 21 октября 2026: тесты

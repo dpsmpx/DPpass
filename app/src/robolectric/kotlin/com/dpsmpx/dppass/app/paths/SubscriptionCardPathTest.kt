@@ -16,7 +16,7 @@ import java.util.Base64
  * поставщика — синтетический (адреса TEST-NET, домены example.com).
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [26, 29, 36])
 class SubscriptionCardPathTest {
     @Test
     fun cardShowsWhatProviderSentAndMenuEditsIt() {

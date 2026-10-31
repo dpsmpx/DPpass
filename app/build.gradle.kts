@@ -24,15 +24,27 @@ val releaseIdentity = if (stableIdentity) AppIdentity.STABLE else AppIdentity.ra
 // его не тянет: «Android целиком» — 213 МБ.
 val robolectric = providers.gradleProperty("dppass.robolectric").isPresent
 
+// API, на котором идут экраны и пути (D-108): 36 по умолчанию, 26 и 29 — младшие
+// ветки кода (D-104). Один прогон — одно API: ядро Xray грузится в JVM один раз,
+// а у каждого API Robolectric — свой загрузчик классов.
+val robolectricSdk: Int = providers.gradleProperty("dppass.robolectric.sdk").map(String::toInt).getOrElse(36)
+
 // Ядро Xray в тестах путей на JVM (D-90): библиотека моста для хоста — та же, что у XrayJniTest.
 val repoRoot: File = rootDir
 val xrayHostLib: Provider<File> = providers.gradleProperty("dppass.xray.lib").map { repoRoot.resolve(it).absoluteFile }
 
-/** Образ «Android целиком» для Robolectric — через Gradle, с проверкой суммы (аудит A-7), а не загрузкой из теста. */
-val robolectricAndroid: Configuration = configurations.create("robolectricAndroid") {
-    isCanBeConsumed = false
-    isTransitive = false
+/**
+ * Образы «Android целиком» для Robolectric — через Gradle, с проверкой суммы (аудит A-7), а не
+ * загрузкой из теста; по образу на API (D-108): один модуль трёх версий в одной конфигурации
+ * Gradle свёл бы к старшей.
+ */
+val robolectricImages: Map<Int, Configuration> = listOf(26, 29, 36).associateWith { sdk ->
+    configurations.create("robolectricAndroid$sdk") {
+        isCanBeConsumed = false
+        isTransitive = false
+    }
 }
+require(robolectricSdk in robolectricImages) { "dppass.robolectric.sdk — одно из ${robolectricImages.keys}, а не $robolectricSdk" }
 
 android {
     namespace = "com.dpsmpx.dppass"
@@ -45,8 +57,8 @@ android {
         applicationId = AppIdentity.STABLE.applicationId
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 120
-        versionName = "0.7.50-dev"
+        versionCode = 121
+        versionName = "0.7.51-dev"
         // Ярлык приложения — через placeholder: стабильный для отладки,
         // случайный для личного release (D-47). Внутреннее имя «DPpass»
         // (экран «О программе», уведомление на своём экране) — @string/app_name.
@@ -216,7 +228,19 @@ dependencies {
         testImplementation(libs.robolectric)
         testImplementation(libs.junit4)
         testRuntimeOnly(libs.junit.vintage.engine)
-        robolectricAndroid(libs.robolectric.android.all)
+        robolectricImages.getValue(26)(libs.robolectric.android.all.api26)
+        robolectricImages.getValue(29)(libs.robolectric.android.all.api29)
+        robolectricImages.getValue(36)(libs.robolectric.android.all)
+    }
+}
+
+// Образы всех API — одной задачей: суммы для verification-metadata.xml (update_verification.sh, D-108).
+if (robolectric) {
+    tasks.register("robolectricImages") {
+        description = "Скачивает и сверяет образы Android для Robolectric всех API (D-108)"
+        val images: List<FileCollection> = robolectricImages.values.map { it.incoming.artifacts.artifactFiles }
+        inputs.files(images)
+        doLast { images.forEach { it.files } }
     }
 }
 
@@ -226,9 +250,11 @@ tasks.withType<Test>().configureEach {
     systemProperty("junit.platform.discovery.issue.severity.critical", "WARNING")
     if (robolectric) {
         // Robolectric ничего не скачивает сам: образ уже проверен Gradle (D-86).
-        val image: FileCollection = robolectricAndroid.incoming.artifacts.artifactFiles
+        val image: FileCollection = robolectricImages.getValue(robolectricSdk).incoming.artifacts.artifactFiles
         inputs.files(image)
         systemProperty("robolectric.offline", "true")
+        // Тесты объявляют все API (@Config); идёт только выбранное.
+        systemProperty("robolectric.enabledSdks", robolectricSdk.toString())
         // Образ Android 16 заводит общую память через внутренности FileDescriptor JDK — только в JVM тестов.
         jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
         jvmArgumentProviders.add(CommandLineArgumentProvider { listOf("-Drobolectric.dependency.dir=" + image.singleFile.parentFile.path) })
