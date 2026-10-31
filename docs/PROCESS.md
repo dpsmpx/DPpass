@@ -226,6 +226,13 @@ Maven Central через его зеркало у Google (только сбор�
    `SHA256SUMS`) — в ветку `windows_debug`. В `main` ветки сборок не
    вливаются.
 
+5. **Воспроизводимость** (D-105): две сборки release с одной личностью
+   (`-Pdppass.stableIdentity=true` или одно зерно) — вторая после
+   удаления `app/build` и со свежим `GOCACHE` — сравнивает
+   `python3 tools/release/compare_apks.py A.apk B.apk`. Код 0 — побайтно
+   одинаковы; иначе — какие записи APK различаются. Перед выпуском и
+   после обновления AGP, NDK, Go или Kotlin.
+
 ## 5. Перед слиянием
 
 CI нет: GitHub Actions в DPpass не используется и не запускается
