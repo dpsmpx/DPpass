@@ -43,7 +43,7 @@ class WindowsTest {
     @Test
     fun adapterTakesHostAddressesRoutesAndInnerDns() {
         val t = assertIs<Outcome.Success<SystemTun>>(WindowsTunnels.systemTun(spec())).value
-        // Номер сети 172.19.0.0 Windows адаптеру не назначит: первый хост.
+        // Адрес узла, а не номер сети: его и получает адаптер.
         assertEquals(listOf("172.19.0.1/30", "fdfe:dcba:9876::1/126"), t.addresses.map { it.toString() })
         assertEquals(spec().routes, t.routes)
         assertEquals(listOf(TunnelSpecBuilder.TUN_DNS4), t.dns)
@@ -100,7 +100,7 @@ class WindowsTest {
 
     @Test
     fun hostWithoutBridgeKnowsNoNetworkAndNoTunnel() {
-        val host = WindowsHost(null) { false }
+        val host = WindowsHost(null, elevated = { false })
         assertNull(host.network())
         assertEquals(false, host.tunnelUp())
         assertEquals(false, host.tunnelAllowed())
@@ -108,6 +108,17 @@ class WindowsTest {
         // Чего на Windows нет — окно говорит, а не прячет молча (D-97).
         assertEquals(false, host.checksUnderTunnel)
         assertTrue("раздачи" in host.absent)
+    }
+
+    @Test
+    fun themeComesFromWindowsAndTrayMayBeAbsent() {
+        // Тема приложений Windows: 0 — тёмная, 1 — светлая; не узнать — решают признаки Linux, как без моста.
+        assertEquals(true, WindowsHost(null, elevated = { true }, theme = { 0 }).systemDark())
+        assertEquals(false, WindowsHost(null, elevated = { true }, theme = { 1 }).systemDark())
+        assertNull(WindowsHost(null, elevated = { true }, theme = { -1 }).systemDark())
+        assertNull(WindowsHost(null, elevated = { true }).systemDark())
+        // Области уведомлений нет — false: окно покажет полосу, а не потеряет порог трафика молча.
+        assertEquals(false, TrayNotify { false }.show("DPpass", "порог"))
     }
 
     @Test

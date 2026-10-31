@@ -23,4 +23,7 @@ internal object WindowsNative {
      * «псевдоним, шлюз, вид» через табуляцию ([WindowsHost.parseRoute]).
      */
     @JvmStatic external fun nativeDefaultRoute(tunAlias: ByteArray): ByteArray
+
+    /** Тема приложений пользователя (`AppsUseLightTheme`): 1 — светлая, 0 — тёмная, -1 — не узнать. */
+    @JvmStatic external fun nativeSystemTheme(): Int
 }

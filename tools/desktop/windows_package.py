@@ -16,8 +16,9 @@
     LICENSE, NOTICES.txt   лицензия DPpass, уведомления о сторонних частях
 
 Состав сверяется: каждого нужного файла — ровно по месту, лишних нет;
-dppass.exe — AMD64, окно, манифест `requireAdministrator`, импорт только
-системных DLL, без тестовой части; DLL — экспорт JNI = `external` Kotlin;
+dppass.exe — AMD64, окно, манифест `requireAdministrator`, значок из
+`dppass.svg` (tools/desktop/app_icon.py), импорт только системных DLL, без
+тестовой части; DLL — экспорт JNI = `external` Kotlin;
 рантайм — версия Temurin из каталога и модули jdeps, его `.exe` и `.dll`
 побайтно как в jmods. Затем, если есть Wine:
 
@@ -48,6 +49,7 @@ PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(PROJ, "tools", "xray"))
 sys.path.insert(0, os.path.join(PROJ, "tools", "desktop"))
 sys.path.insert(0, os.path.join(PROJ, "tools", "legal"))
+import app_icon  # noqa: E402 — значок dppass.exe из dppass.svg
 import native  # noqa: E402 — DLL моста и разбор PE
 import notices  # noqa: E402 — уведомления из матрицы лицензий
 import windows_deps  # noqa: E402 — архивы Temurin и Wintun со сверкой
@@ -147,9 +149,11 @@ def build_launcher(v, out_dir):
     tool(WINDRES)
     os.makedirs(out_dir, exist_ok=True)
     res = os.path.join(out_dir, "dppass.res.o")
+    with open(os.path.join(out_dir, "dppass.ico"), "wb") as f:
+        f.write(app_icon.ico(app_icon.pngs()))
     # windres зовёт препроцессор через оболочку: кавычки строки — экранированные.
-    run([WINDRES, f'-DDPPASS_VERSION=\\"{v}\\"', f"-DDPPASS_VERSION_NUM={numeric(v)}", "-I", LAUNCHER, "-O", "coff",
-         "-o", res, os.path.join(LAUNCHER, "dppass.rc")], "windres")
+    run([WINDRES, f'-DDPPASS_VERSION=\\"{v}\\"', f"-DDPPASS_VERSION_NUM={numeric(v)}", "-I", LAUNCHER, "-I", out_dir,
+         "-O", "coff", "-o", res, os.path.join(LAUNCHER, "dppass.rc")], "windres")
     common = ["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-municode", "-Wl,--no-insert-timestamp"]
     exe = os.path.join(out_dir, "dppass.exe")
     run([CC, *common, "-mwindows", "-s", "-o", exe, os.path.join(LAUNCHER, "dppass.c"), res, "-ladvapi32"], "сборка dppass.exe")
@@ -182,6 +186,10 @@ def check_launcher(exe):
     for marker in TEST_MARKERS:
         if marker.encode("utf-16-le") in data:
             raise RuntimeError(f"dppass.exe: в запускателе комплекта есть тестовая часть ({marker})")
+    # windres кладёт записи PNG значка как есть: каждая — из dppass.svg этой сборки.
+    missing = [size for size, image in app_icon.pngs() if image not in data]
+    if missing:
+        raise RuntimeError(f"dppass.exe: нет значка из dppass.svg размеров {missing}")
     return sorted(imports)
 
 
@@ -447,7 +455,7 @@ def package(dist, require_tests):
         f.write(f"{digest}  {os.path.basename(archive)}\n")
     print(f"✓ комплект Windows: {os.path.relpath(archive, PROJ)} {mib(os.path.getsize(archive))}, файлов {n}; "
           f"рантайм Temurin {temurin} ({', '.join(runtime_mods)}; {native_files} нативных файлов — как в jmods), Wintun {wintun_version}, DLL моста {mib(dll_size)} ({n_jni} JNI), "
-          f"dppass.exe — requireAdministrator, импорт {', '.join(imports)}; {wine_note}")
+          f"dppass.exe — requireAdministrator, значок из dppass.svg, импорт {', '.join(imports)}; {wine_note}")
     return 0
 
 

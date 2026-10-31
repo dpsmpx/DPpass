@@ -95,3 +95,27 @@ class Cidr private constructor(val network: IpAddress, val prefix: Int) {
         }
     }
 }
+
+/**
+ * Адрес интерфейса: адрес узла и длина префикса его сети
+ * (`172.19.0.1/30`). В отличие от [Cidr], биты узла не обнуляются: это
+ * адрес, который получает интерфейс, а не номер сети.
+ */
+data class HostAddress(val address: IpAddress, val prefix: Int) {
+    init {
+        require(prefix in 1..address.bitLength) { "длина префикса вне диапазона" }
+    }
+
+    override fun toString(): String = "$address/$prefix"
+
+    companion object {
+        /** `адрес/префикс` → адрес интерфейса; не разобрать — null. */
+        fun parse(text: String): HostAddress? {
+            val slash = text.indexOf('/')
+            if (slash < 0) return null
+            val ip = IpAddress.parse(text.substring(0, slash)) ?: return null
+            val prefix = text.substring(slash + 1).toIntOrNull() ?: return null
+            return if (prefix in 1..ip.bitLength) HostAddress(ip, prefix) else null
+        }
+    }
+}

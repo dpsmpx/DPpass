@@ -84,7 +84,7 @@ class DesktopSession(
     private val scope: CoroutineScope,
     private val prefs: DesktopPrefs,
     private val shares: LinuxShareInterfaces? = graph.shares,
-    private val notify: DesktopNotify = DesktopNotify(),
+    private val notify: DesktopNotifier = graph.host.notifier,
     /** Сеть под туннелем для учёта трафика (D-92): маршрут по умолчанию мимо туннеля. */
     private val network: () -> NetworkType = { graph.host.network()?.type ?: NetworkType.NONE },
 ) {

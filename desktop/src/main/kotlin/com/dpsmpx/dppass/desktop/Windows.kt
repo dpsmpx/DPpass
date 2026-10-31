@@ -1,12 +1,11 @@
 package com.dpsmpx.dppass.desktop
 
 import com.dpsmpx.dppass.core.Cidr
-import com.dpsmpx.dppass.core.IpAddress
+import com.dpsmpx.dppass.desktop.ui.AppIcon
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Logger
 import com.dpsmpx.dppass.diagnostics.Outcome
-import com.dpsmpx.dppass.engine.HostAddress
 import com.dpsmpx.dppass.engine.SystemTun
 import com.dpsmpx.dppass.engine.TunInput
 import com.dpsmpx.dppass.engine.xray.XrayBackend
@@ -16,6 +15,12 @@ import com.dpsmpx.dppass.network.SystemProbeNetwork
 import com.dpsmpx.dppass.storage.KeyWrapper
 import com.dpsmpx.dppass.tunnel.PlatformTraits
 import com.dpsmpx.dppass.tunnel.TunnelSpec
+import java.awt.AWTException
+import java.awt.EventQueue
+import java.awt.GraphicsEnvironment
+import java.awt.SystemTray
+import java.awt.TrayIcon
+import javax.swing.Timer
 
 /**
  * Windows (D-97): права администратора (UAC), сеть — маршрут по умолчанию
@@ -27,6 +32,9 @@ class WindowsHost(
     /** Ответ моста о маршруте по умолчанию; null — библиотеки ядра нет. */
     private val route: (() -> ByteArray)?,
     private val elevated: () -> Boolean,
+    /** Тема приложений от моста: 1 — светлая, 0 — тёмная, иное — не узнать. */
+    private val theme: () -> Int = { -1 },
+    override val notifier: DesktopNotifier = TrayNotify(),
 ) : DesktopHost {
     override val id: String = "windows"
 
@@ -43,6 +51,12 @@ class WindowsHost(
     fun tunnelUp(): Boolean = route?.let { parseRoute(it()).tunUp } ?: false
 
     override val checksUnderTunnel: Boolean = false
+
+    override fun systemDark(): Boolean? = when (theme()) {
+        0 -> true
+        1 -> false
+        else -> null
+    }
 
     override val absent: String =
         "На Windows нет раздачи с ПК (D-84) и подключения через устройство раздачи (D-85) — вкладок для них здесь нет (D-97). " +
@@ -110,24 +124,15 @@ class WindowsTunnels(private val selfPackage: String, private val log: Logger, p
 
     companion object {
         /**
-         * Адаптер по [TunnelSpec]: адрес — первый хост сети (`172.19.0.1/30`,
-         * а не номер сети: Windows его не назначит); маршруты — как есть
-         * (исключённое уже выпало дополнением, [WindowsHost.TRAITS]); DNS —
-         * внутренний адрес.
+         * Адаптер по [TunnelSpec]: адреса узла (`172.19.0.1/30`); маршруты —
+         * как есть (исключённое уже выпало дополнением, [WindowsHost.TRAITS]);
+         * DNS — внутренний адрес.
          */
         fun systemTun(spec: TunnelSpec): Outcome<SystemTun> {
             if (spec.excludedRoutes.isNotEmpty()) {
                 return Outcome.failure(DiagCode.TUN_ESTABLISH_FAILED, "исключающих маршрутов у адаптера ядра нет — TunnelSpec собран не для Windows")
             }
-            val addresses = listOfNotNull(spec.address4, spec.address6).map { firstHost(it) }
-            return Outcome.Success(SystemTun(addresses, spec.routes, spec.dnsServers))
-        }
-
-        /** Первый адрес хоста подсети: номер сети + 1 (у /30 и /126 биты хоста — нули). */
-        fun firstHost(cidr: Cidr): HostAddress {
-            val b = cidr.network.toBytes()
-            b[b.size - 1] = (b[b.size - 1] + 1).toByte()
-            return HostAddress(IpAddress.of(b), cidr.prefix)
+            return Outcome.Success(SystemTun(listOfNotNull(spec.address4, spec.address6), spec.routes, spec.dnsServers))
         }
     }
 }
@@ -188,3 +193,45 @@ class WindowsProbeNetwork(private val tunnelUp: () -> Boolean) : DesktopProbeNet
 
 /** Имя адаптера, который создаёт ядро: его пропускает маршрут по умолчанию. */
 internal val WINDOWS_TUN_ALIAS: String = XrayBackend.TUN_NAME
+
+/**
+ * Уведомление на Windows (D-92, D-97): всплывающее сообщение значка DPpass
+ * в области уведомлений. Значок ставится на время сообщения и снимается;
+ * области уведомлений нет (без экрана, старая оболочка) — false, и окно
+ * покажет полосу, как на Linux без `notify-send`.
+ */
+class TrayNotify(
+    private val supported: () -> Boolean = { !GraphicsEnvironment.isHeadless() && SystemTray.isSupported() },
+) : DesktopNotifier {
+    override fun show(title: String, text: String): Boolean {
+        if (!supported()) return false
+        return try {
+            onEdt {
+                val tray = SystemTray.getSystemTray()
+                val icon = TrayIcon(AppIcon.image(TRAY_SIZE), "DPpass").apply { isImageAutoSize = true }
+                tray.add(icon)
+                icon.displayMessage(title, text, TrayIcon.MessageType.WARNING)
+                Timer(SHOWN_MILLIS) { tray.remove(icon) }.apply { isRepeats = false }.start()
+            }
+            true
+        } catch (e: AWTException) {
+            false
+        } catch (e: SecurityException) {
+            false
+        }
+    }
+
+    private fun onEdt(block: () -> Unit) {
+        if (EventQueue.isDispatchThread()) return block()
+        var failure: Throwable? = null
+        EventQueue.invokeAndWait { runCatching(block).onFailure { failure = it } }
+        failure?.let { throw it }
+    }
+
+    private companion object {
+        const val TRAY_SIZE = 16
+
+        /** Сообщение Windows показывает само; значок — столько, чтобы его успели прочитать. */
+        const val SHOWN_MILLIS = 15_000
+    }
+}

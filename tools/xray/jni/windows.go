@@ -36,6 +36,20 @@ func Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeElevated(env *C.JNIEnv, 
 	return C.JNI_FALSE
 }
 
+// Тема приложений Windows (D-97): 1 — светлая, 0 — тёмная, -1 — не узнать.
+//
+//export Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeSystemTheme
+func Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeSystemTheme(env *C.JNIEnv, _ C.jclass) C.jint {
+	light, ok := bridge.AppsUseLightTheme()
+	switch {
+	case !ok:
+		return -1
+	case light:
+		return 1
+	}
+	return 0
+}
+
 // Маршрут по умолчанию мимо адаптера tunAlias (D-97): статус 0, затем строка
 // «поднят ли адаптер (0/1)», и если маршрут есть — псевдоним, шлюз и вид
 // через табуляцию; иначе — вид отказа и текст.

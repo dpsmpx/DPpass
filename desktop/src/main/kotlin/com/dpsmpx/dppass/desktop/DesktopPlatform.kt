@@ -43,6 +43,12 @@ interface DesktopHost {
 
     /** Чего на этой системе нет и почему — для окна (D-97); null — есть всё. */
     val absent: String?
+
+    /** Уведомления рабочего стола (D-92). */
+    val notifier: DesktopNotifier
+
+    /** Тёмная ли тема системы; null — система не говорит, решает окно по своим признакам. */
+    fun systemDark(): Boolean?
 }
 
 /** Сокеты проб проверки сети (D-79) — мимо туннеля; [ready] — причина, по которой сейчас нельзя. */
@@ -83,6 +89,11 @@ class LinuxHost(private val platform: LinuxPlatform) : DesktopHost {
     override val checksUnderTunnel: Boolean = true
 
     override val absent: String? = null
+
+    override val notifier: DesktopNotifier = DesktopNotify()
+
+    /** Тему Linux окно узнаёт само: `GTK_THEME`, `kdeglobals` ([com.dpsmpx.dppass.desktop.ui.Theme]). */
+    override fun systemDark(): Boolean? = null
 }
 
 /** Туннель Linux — TUN с fd и правилами `ip` ([LinuxTunnelProvider]). */

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Значок DPpass для Linux — свой рисунок (D-01): кнопка питания в цветах системы дизайна (D-34). -->
+<!-- Значок DPpass — свой рисунок (D-01): кнопка питания в цветах системы дизайна (D-34). Пакет Linux ставит его как есть; значок окна рисует ui/AppIcon.kt, значок dppass.exe — tools/desktop/app_icon.py (только круг, дуга и отрезок). -->
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
   <circle cx="64" cy="64" r="58" fill="#213875" stroke="#92B1FF" stroke-width="6"/>
   <path d="M44 42 A30 30 0 1 0 84 42" fill="none" stroke="#ECEEF3" stroke-width="9" stroke-linecap="round"/>

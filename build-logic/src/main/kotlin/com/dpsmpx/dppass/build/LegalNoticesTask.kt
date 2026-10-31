@@ -32,6 +32,15 @@ abstract class LegalNoticesTask : DefaultTask() {
     @get:Internal
     abstract val script: RegularFileProperty
 
+    /**
+     * jar пакета ПК (D-74, D-97): библиотеки Maven в уведомлениях — только
+     * они, и у каждой сторонней должна быть строка матрицы. Пусто — APK:
+     * все строки матрицы с «APK».
+     */
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract val jars: ConfigurableFileCollection
+
     @get:OutputDirectory
     abstract val outputDir: DirectoryProperty
 
@@ -43,8 +52,9 @@ abstract class LegalNoticesTask : DefaultTask() {
         val out = outputDir.get().asFile
         out.deleteRecursively()
         out.mkdirs()
+        val jarArgs = jars.files.map { it.name }.filter { it.endsWith(".jar") }.sorted().flatMap { listOf("--jar", it) }
         exec.exec {
-            commandLine("python3", script.get().asFile.path, "--out", out.path)
+            commandLine(listOf("python3", script.get().asFile.path, "--out", out.path) + jarArgs)
         }
     }
 }

@@ -1,3 +1,4 @@
+import com.dpsmpx.dppass.build.LegalNoticesTask
 import com.dpsmpx.dppass.build.XrayGeodataTask
 
 // Оболочка Linux (D-74): окно Swing и туннель TUN над теми же модулями, что у Android.
@@ -9,7 +10,7 @@ plugins {
 val addExports = "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED"
 
 // Версия оболочки — своя (D-74): в имени пакета и в `User-Agent` подписки (D-33), из манифеста jar.
-version = "0.1.20-dev"
+version = "0.1.21-dev"
 
 tasks.jar { manifest { attributes("Implementation-Version" to project.version) } }
 
@@ -73,11 +74,26 @@ val geodata = tasks.register<XrayGeodataTask>("xrayGeodataDesktop") {
     outputDir.set(layout.buildDirectory.dir("geodata"))
 }
 
+// Уведомления о сторонних компонентах пакета (D-43): библиотеки Maven — по jar пакета, ядро и модули Go — из матрицы.
+val notices = tasks.register<LegalNoticesTask>("legalNoticesDesktop") {
+    description = "уведомления о лицензиях пакета ПК: tools/legal/notices.py"
+    sources.from(
+        rootProject.layout.projectDirectory.file("docs/legal/THIRD_PARTY_MATRIX.md"),
+        xray.file("go.mod"),
+        xray.file("go.sum"),
+        rootProject.layout.projectDirectory.file("tools/legal/notices.py"),
+    )
+    script.set(rootProject.layout.projectDirectory.file("tools/legal/notices.py"))
+    jars.from(configurations.runtimeClasspath)
+    outputDir.set(layout.buildDirectory.dir("legal"))
+}
+
 // Пакет: bin/, lib/ (jar), native/libdppassxray.so, geodata/, package/ (запуск, polkit, ярлык, значок),
-// LICENSE. PKGBUILD с суммой архива пишет tools/desktop/package.py.
+// LICENSE и NOTICES.txt. PKGBUILD с суммой архива пишет tools/desktop/package.py.
 distributions.named("main") {
     contents {
         from(xrayNative) { into("native") }
+        from(notices.flatMap { it.outputDir.dir("notices") }) { include("NOTICES.txt") }
         from(geodata)
         from(layout.projectDirectory.dir("package")) {
             into("package")

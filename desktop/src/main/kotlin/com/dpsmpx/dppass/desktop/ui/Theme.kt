@@ -78,9 +78,10 @@ object Theme {
      * Metal со своей темой из токенов: Metal берёт цвета темы для всех
      * элементов (вкладки, меню, списки, диалоги), а не только для части.
      */
-    fun apply(choice: ThemeChoice, env: Map<String, String>, home: String) {
+    fun apply(choice: ThemeChoice, env: Map<String, String>, home: String, hostDark: Boolean? = null) {
         val dark = when (choice) {
-            ThemeChoice.AUTO -> systemIsDark(env, home)
+            // Система сказала сама (Windows, D-97) — так; иначе — признаки рабочего стола Linux.
+            ThemeChoice.AUTO -> hostDark ?: systemIsDark(env, home)
             ThemeChoice.LIGHT -> false
             ThemeChoice.DARK -> true
         }

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 )
 
@@ -113,5 +114,37 @@ func TestDefaultRouteSkipsOwnAdapterAndKnowsKinds(t *testing.T) {
 		if got := kindOf(winipcfg.IfType(typ)); got != want {
 			t.Errorf("тип %d: %d, ждали %d", typ, got, want)
 		}
+	}
+}
+
+// Тема приложений (D-97): значение пользователя читается как есть; нет
+// параметра — «не узнать». Прежнее значение возвращается на место.
+func TestAppsUseLightThemeReadsUserValue(t *testing.T) {
+	k, _, err := registry.CreateKey(registry.CURRENT_USER, personalizeKey, registry.QUERY_VALUE|registry.SET_VALUE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer k.Close()
+	old, _, had := k.GetIntegerValue("AppsUseLightTheme")
+	defer func() {
+		if had == nil {
+			_ = k.SetDWordValue("AppsUseLightTheme", uint32(old))
+		} else {
+			_ = k.DeleteValue("AppsUseLightTheme")
+		}
+	}()
+	for _, v := range []uint32{0, 1} {
+		if err := k.SetDWordValue("AppsUseLightTheme", v); err != nil {
+			t.Fatal(err)
+		}
+		if light, ok := AppsUseLightTheme(); !ok || light != (v == 1) {
+			t.Fatalf("AppsUseLightTheme=%d: light=%v ok=%v", v, light, ok)
+		}
+	}
+	if err := k.DeleteValue("AppsUseLightTheme"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := AppsUseLightTheme(); ok {
+		t.Fatal("параметра нет — тема не узнана, а не «тёмная»")
 	}
 }

@@ -27,4 +27,5 @@ package() {
     install -Dm644 package/dppass.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/dppass.svg"
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
     install -Dm644 geodata/NOTICE.txt "$pkgdir/usr/share/licenses/$pkgname/NOTICE-geodata.txt"
+    install -Dm644 NOTICES.txt "$pkgdir/usr/share/licenses/$pkgname/NOTICES.txt"
 }

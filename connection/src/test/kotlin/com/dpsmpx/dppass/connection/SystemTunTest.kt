@@ -1,6 +1,7 @@
 package com.dpsmpx.dppass.connection
 
 import com.dpsmpx.dppass.core.Cidr
+import com.dpsmpx.dppass.core.HostAddress
 import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.core.ManualClock
 import com.dpsmpx.dppass.diagnostics.DiagCode
@@ -10,7 +11,6 @@ import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.engine.CompiledConfig
 import com.dpsmpx.dppass.engine.EngineSession
 import com.dpsmpx.dppass.engine.EngineState
-import com.dpsmpx.dppass.engine.HostAddress
 import com.dpsmpx.dppass.engine.ProxyEngine
 import com.dpsmpx.dppass.engine.SystemTun
 import com.dpsmpx.dppass.engine.TrafficStats

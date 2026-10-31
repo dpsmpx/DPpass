@@ -71,8 +71,8 @@ class LinuxRoutesTest {
         assertEquals(
             listOf(
                 "link set dev dppass0 mtu 1500",
-                "-4 addr add 172.19.0.0/30 dev dppass0",
-                "-6 addr add fdfe:dcba:9876::/126 dev dppass0 nodad",
+                "-4 addr add 172.19.0.1/30 dev dppass0",
+                "-6 addr add fdfe:dcba:9876::1/126 dev dppass0 nodad",
                 "link set dev dppass0 up",
             ),
             cmds.take(4),

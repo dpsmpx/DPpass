@@ -8,6 +8,7 @@ import com.dpsmpx.dppass.config.TransportSpec
 import com.dpsmpx.dppass.core.Cidr
 import com.dpsmpx.dppass.core.Endpoint
 import com.dpsmpx.dppass.core.Host
+import com.dpsmpx.dppass.core.HostAddress
 import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.core.Json
 import com.dpsmpx.dppass.core.JsonArray
@@ -21,7 +22,6 @@ import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Secret
 import com.dpsmpx.dppass.engine.CompilePlan
 import com.dpsmpx.dppass.engine.CompiledConfig
-import com.dpsmpx.dppass.engine.HostAddress
 import com.dpsmpx.dppass.engine.LocalProxySpec
 import com.dpsmpx.dppass.engine.ServerlessPlan
 import com.dpsmpx.dppass.engine.ShareSpec

@@ -46,8 +46,8 @@ class AndroidTunnelProvider(private val service: VpnService) : TunnelProvider {
         val b = service.Builder()
         b.setSession("DPpass")
         b.setMtu(spec.mtu)
-        b.addAddress(spec.address4.network.toInet(), spec.address4.prefix)
-        spec.address6?.let { b.addAddress(it.network.toInet(), it.prefix) }
+        b.addAddress(spec.address4.address.toInet(), spec.address4.prefix)
+        spec.address6?.let { b.addAddress(it.address.toInet(), it.prefix) }
         for (r in spec.routes) b.addRoute(r.network.toInet(), r.prefix)
         if (spec.excludedRoutes.isNotEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             for (r in spec.excludedRoutes) b.excludeRoute(IpPrefix(r.network.toInet(), r.prefix))

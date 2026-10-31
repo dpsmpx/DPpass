@@ -47,7 +47,8 @@ class DesktopWindow(
     private var redrawConnect: () -> Unit = {}
 
     fun show() {
-        Theme.apply(prefs.theme, System.getenv(), System.getProperty("user.home"))
+        Theme.apply(prefs.theme, System.getenv(), System.getProperty("user.home"), graph.host.systemDark())
+        frame.iconImages = AppIcon.SIZES.map(AppIcon::image)
         lateinit var servers: ServersPanel
         lateinit var subscriptions: SubscriptionsPanel
         lateinit var connect: ConnectPanel

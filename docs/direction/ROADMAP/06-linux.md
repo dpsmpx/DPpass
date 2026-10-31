@@ -39,11 +39,14 @@
 
 ## Критерии выхода
 
-- [ ] `LinuxRoutesTest`, `XrayCompilerTest.dnsHijackAnyAddressOnLinux`,
-      `go test` моста и `native.py desktop` зелёные.
-- [ ] `tools/desktop/netns_check.py`: TUN, маршруты, правила, метка и
-      уборка на настоящем ядре Linux.
+- [x] `LinuxRoutesTest`, `XrayCompilerTest.dnsHijackAnyAddressOnLinux`,
+      `go test` моста и `native.py desktop` зелёные (шаги `project.build`,
+      `project.xray-bridge`, `--full` 31.10.2026).
+- [x] `tools/desktop/netns_check.py`: TUN, маршруты, правила, метка и
+      уборка на настоящем ядре Linux — 21.10.2026 и 31.10.2026 (адрес
+      узла `172.19.0.1/30`); IPv6 в ядре облачной машины нет — ветка IPv6
+      на ПК автора.
 - [ ] На ПК автора: пакет ставится `makepkg -si`, подключение через
       сервер подписки, нет утечки DNS и IPv6, отключение убирает правила
       (`TODO.md`, «На устройстве»).
-- [ ] Работы пункта 6 — сделаны или вынесены новым решением.
+- [x] Работы пункта 6 — сделаны (D-77…D-85).

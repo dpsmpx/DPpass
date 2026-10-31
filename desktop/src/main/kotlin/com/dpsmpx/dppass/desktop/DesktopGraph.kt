@@ -180,7 +180,11 @@ class DesktopGraph(
         private fun windows(loaded: Boolean, logger: Logger): Parts {
             val elevated: () -> Boolean = if (loaded) WindowsNative::nativeElevated else { { false } }
             val alias = WINDOWS_TUN_ALIAS.toByteArray(Charsets.UTF_8)
-            val host = WindowsHost(if (loaded) { { WindowsNative.nativeDefaultRoute(alias) } } else null, elevated)
+            val host = WindowsHost(
+                if (loaded) { { WindowsNative.nativeDefaultRoute(alias) } } else null,
+                elevated,
+                if (loaded) WindowsNative::nativeSystemTheme else { { -1 } },
+            )
             return Parts(
                 host = host,
                 tunnels = WindowsTunnels(SELF, logger, elevated),

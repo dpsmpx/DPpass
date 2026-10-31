@@ -23,9 +23,10 @@ sum.golang.org, `goenv.py`, T10). Одинаковые тексты — один
 номером. Для библиотек Kotlin (Apache-2.0) — тот же текст Apache-2.0 из
 модуля Go с этой лицензией.
 
-Комплект Windows (D-97, `tools/desktop/windows_package.py`) зовёт
-`build(out, jars)`: библиотеки Maven — только с jar комплекта, а
-сторонний jar без строки §1.1 — отказ.
+Пакет ПК — с `--jar ИМЯ` на каждый jar (пакет Linux, задача
+`legalNoticesDesktop`) или `build(out, jars)` (комплект Windows,
+`tools/desktop/windows_package.py`): библиотеки Maven — только с jar
+пакета, а сторонний jar без строки §1.1 — отказ.
 
 Код возврата: 0 — готово; 1 — нет строки в матрице, текста лицензии или
 архива модуля; 3 — нет Go.
@@ -246,13 +247,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=DEFAULT_OUT)
     ap.add_argument("--list", action="store_true")
+    ap.add_argument("--jar", action="append", help="jar комплекта (имя файла): библиотеки Maven — только из них (пакет ПК)")
     a = ap.parse_args()
     if a.list:
         for kind, name, version, license_ in components():
             print(f"{kind}\t{name}\t{version}\t{license_}")
         return 0
     try:
-        build(a.out)
+        build(a.out, a.jar)
     except Missing:
         print("✗ notices: нет Go — тексты лицензий модулей ядра не получить")
         return 3

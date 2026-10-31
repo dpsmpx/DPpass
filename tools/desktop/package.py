@@ -25,7 +25,7 @@ TEMPLATE = os.path.join(PROJ, "desktop", "package", "PKGBUILD.in")
 NAME = re.compile(r"^dppass-desktop-([0-9][0-9A-Za-z.]*(?:-[0-9A-Za-z.]+)?)\.tar$")
 # То, что ставит PKGBUILD.in (относительно каталога пакета в архиве).
 REQUIRED = [
-    "bin/dppass-desktop", "native/libdppassxray.so", "geodata/manifest.json", "geodata/NOTICE.txt", "LICENSE",
+    "bin/dppass-desktop", "native/libdppassxray.so", "geodata/manifest.json", "geodata/NOTICE.txt", "LICENSE", "NOTICES.txt",
     "package/dppass-launch", "package/dppass", "package/com.dpsmpx.dppass.policy", "package/dppass.desktop", "package/dppass.svg",
 ]
 

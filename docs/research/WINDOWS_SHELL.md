@@ -206,6 +206,23 @@ Xray обращается к DLL только через экспорт `wintun.
   `--strip-java-debug-attributes` все 72 `.exe` и `.dll` рантайма
   побайтно совпадают с jmods, и две сборки комплекта дают одну сумму.
 
+- **Тема приложений** (31.10.2026). Режим приложений по умолчанию
+  («Параметры» → «Персонализация» → «Цвета») хранится у пользователя:
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`,
+  DWORD `AppsUseLightTheme`, 1 — светлый, 0 — тёмный (ответ сотрудника
+  Microsoft, https://learn.microsoft.com/en-us/answers/questions/41785/how-to-let-my-wpf-app-respond-to-default-app-mode).
+  Описанный путь Microsoft — цвет `UISettings` WinRT
+  (https://learn.microsoft.com/windows/apps/desktop/modernize/apply-windows-themes),
+  из Go без WinRT его не достать; значение реестра читается
+  `RegGetValueW`. В Wine 9.0 тест моста записал значение, прочитал его и
+  вернул прежнее; что Windows меняет его при смене режима — ПК автора.
+- **Значок `dppass.exe`** (31.10.2026). Преобразователя SVG в Python и
+  JDK нет. Рисунок `dppass.svg` — круг, дуга и отрезок: его рисует
+  `tools/desktop/app_icon.py` (покрытие пикселя по расстоянию до края) в
+  ICO с записями PNG — их Windows читает с Vista. `windres` 2.41.90 (mingw-w64 Ubuntu) кладёт
+  записи как есть, `objdump -p` видит `RT_ICON` (6 размеров) и
+  `RT_GROUP_ICON`; две сборки дают одни байты.
+
 ## 5. Права
 
 - Создать адаптер Wintun и поставить фильтры WFP может только процесс с
@@ -226,4 +243,6 @@ Xray обращается к DLL только через экспорт `wintun.
 - маршруты и DNS по `TunnelSpec`;
 - что фильтр WFP `"dns"` не ломает подключение к серверу по имени;
 - отсутствие утечки DNS и IPv6;
-- уборка после отключения и после снятия процесса.
+- уборка после отключения и после снятия процесса;
+- тема окна по режиму приложений и всплывающее уведомление о пороге
+  трафика из области уведомлений; значок `dppass.exe` в Проводнике.

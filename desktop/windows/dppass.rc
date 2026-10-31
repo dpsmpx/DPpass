@@ -1,8 +1,10 @@
-// Ресурсы запускателя (D-97): манифест с правами администратора и сведения о версии.
-// DPPASS_VERSION ("0.1.19-dev") и DPPASS_VERSION_NUM (0,1,19,0) задаёт tools/desktop/windows_package.py.
+// Ресурсы запускателя (D-97): манифест с правами администратора, значок и сведения о версии.
+// DPPASS_VERSION ("0.1.19-dev") и DPPASS_VERSION_NUM (0,1,19,0) задаёт tools/desktop/windows_package.py;
+// dppass.ico он же рисует из desktop/package/dppass.svg (tools/desktop/app_icon.py) в каталог сборки.
 #include <winver.h>
 
 1 24 "dppass.manifest"
+1 ICON "dppass.ico"
 
 VS_VERSION_INFO VERSIONINFO
 FILEVERSION DPPASS_VERSION_NUM

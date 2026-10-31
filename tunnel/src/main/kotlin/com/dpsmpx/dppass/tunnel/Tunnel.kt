@@ -2,6 +2,7 @@ package com.dpsmpx.dppass.tunnel
 
 import com.dpsmpx.dppass.config.ConfigIr
 import com.dpsmpx.dppass.core.Cidr
+import com.dpsmpx.dppass.core.HostAddress
 import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Outcome
@@ -14,8 +15,9 @@ import com.dpsmpx.dppass.routing.AppPolicy
  * спецификацию в вызовы Builder один к одному и ничего не решает сам.
  */
 data class TunnelSpec(
-    val address4: Cidr,
-    val address6: Cidr?,
+    /** Адрес TUN — узла, а не номер сети (`172.19.0.1/30`): так его получает интерфейс. */
+    val address4: HostAddress,
+    val address6: HostAddress?,
     /** Маршруты в туннель. */
     val routes: List<Cidr>,
     /** Исключённые маршруты (только если платформа умеет excludeRoute). */
@@ -43,8 +45,8 @@ data class PlatformTraits(
 )
 
 object TunnelSpecBuilder {
-    val ADDRESS4: Cidr = Cidr.parse("172.19.0.1/30")!!.cidr
-    val ADDRESS6: Cidr = Cidr.parse("fdfe:dcba:9876::1/126")!!.cidr
+    val ADDRESS4: HostAddress = HostAddress.parse("172.19.0.1/30")!!
+    val ADDRESS6: HostAddress = HostAddress.parse("fdfe:dcba:9876::1/126")!!
 
     /** Внутренний адрес DNS в туннеле: запросы к нему перехватывает ядро. */
     val TUN_DNS4: IpAddress = IpAddress.parse("172.19.0.2")!!

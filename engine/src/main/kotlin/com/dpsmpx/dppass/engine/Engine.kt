@@ -6,6 +6,7 @@ import com.dpsmpx.dppass.config.SecurityKind
 import com.dpsmpx.dppass.config.TransportKind
 import com.dpsmpx.dppass.config.VlessFlow
 import com.dpsmpx.dppass.core.Cidr
+import com.dpsmpx.dppass.core.HostAddress
 import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.diagnostics.DiagCode
@@ -127,15 +128,6 @@ data class SystemTun(
         // его адресов и маршрутов был бы просто закрыт (WINDOWS_SHELL.md, §2.3).
         require(dns.all { ip -> routes.any { ip in it } }) { "DNS TUN ядра вне его маршрутов" }
     }
-}
-
-/** Адрес интерфейса: хост и длина префикса его сети (`172.19.0.1/30`). */
-data class HostAddress(val address: IpAddress, val prefix: Int) {
-    init {
-        require(prefix in 1..address.bitLength) { "длина префикса вне диапазона" }
-    }
-
-    override fun toString(): String = "$address/$prefix"
 }
 
 /**
