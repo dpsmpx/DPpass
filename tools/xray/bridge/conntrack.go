@@ -261,7 +261,7 @@ func (d *trackingDispatcher) Dispatch(ctx context.Context, dest xnet.Destination
 	}
 	return &transport.Link{
 		Reader: &countingReader{Reader: link.Reader, c: c, up: false, ends: true},
-		Writer: &countingWriter{Writer: link.Writer, c: c, up: true},
+		Writer: &countingWriter{Writer: link.Writer, c: c, up: true, owned: true},
 	}, nil
 }
 
@@ -331,9 +331,13 @@ func (r *countingReader) Close() error { return common.Close(r.Reader) }
 
 type countingWriter struct {
 	buf.Writer
-	c           *trackedConn
-	up          bool
-	ends        bool // ответ (DispatchLink): Interrupt — исходящий оборвался
+	c    *trackedConn
+	up   bool
+	ends bool // ответ (DispatchLink): Interrupt — исходящий оборвался
+	// Запрос (Dispatch): канал держит вход, и его Close или Interrupt — конец
+	// соединения. Вход простого HTTP закрывает канал, дочитав ответ, но не
+	// до конца потока: без этого соединение осталось бы открытым навсегда.
+	owned       bool
 	interrupted atomic.Bool
 }
 
@@ -350,9 +354,18 @@ func (w *countingWriter) Interrupt() {
 		w.interrupted.Store(true)
 	}
 	common.Interrupt(w.Writer)
+	if w.owned {
+		w.c.finish(true)
+	}
 }
 
-func (w *countingWriter) Close() error { return common.Close(w.Writer) }
+func (w *countingWriter) Close() error {
+	err := common.Close(w.Writer)
+	if w.owned {
+		w.c.finish(false)
+	}
+	return err
+}
 
 // ConnSnapshot — учтённые соединения сейчас: открытые и закрытые за
 // [connRetain], новые первыми; enabled — учёт включён; skipped — сколько

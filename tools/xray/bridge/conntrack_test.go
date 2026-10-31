@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"context"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -131,5 +132,50 @@ func TestConnTrackerLimitsLiveAndClosed(t *testing.T) {
 func TestCleanKeepsSnapshotLinesWhole(t *testing.T) {
 	if got := clean("a\tb\nc\rd"); got != "a b c d" {
 		t.Fatalf("clean: %q", got)
+	}
+}
+
+// Ответ входа прокси: ошибка чтения — конец соединения (EOF — штатный).
+type endReader struct{ err error }
+
+func (r endReader) ReadMultiBuffer() (buf.MultiBuffer, error) { return nil, r.err }
+
+func TestDispatchLinksEndTheConnection(t *testing.T) {
+	clock := &fakeClock{t: time.Unix(1_800_000_000, 0)}
+	tr := newConnTracker(clock.now)
+	tr.setEnabled(true)
+	dest := xnet.TCPDestination(xnet.ParseAddress("198.51.100.7"), 80)
+	state := func(c *trackedConn) string {
+		tr.mu.Lock()
+		defer tr.mu.Unlock()
+		return c.state
+	}
+	cases := []struct {
+		name string
+		end  func(c *trackedConn)
+		want string
+	}{
+		// Вход простого HTTP закрывает запрос, дочитав ответ: соединение закончено.
+		{"запрос закрыт входом", func(c *trackedConn) { (&countingWriter{Writer: buf.Discard, c: c, up: true, owned: true}).Close() }, connClosed},
+		{"запрос прерван входом", func(c *trackedConn) { (&countingWriter{Writer: buf.Discard, c: c, up: true, owned: true}).Interrupt() }, connFailed},
+		{"ответ дочитан", func(c *trackedConn) {
+			(&countingReader{Reader: endReader{io.EOF}, c: c, ends: true}).ReadMultiBuffer()
+		}, connClosed},
+		{"ответ оборван", func(c *trackedConn) {
+			(&countingReader{Reader: endReader{io.ErrClosedPipe}, c: c, ends: true}).ReadMultiBuffer()
+		}, connFailed},
+	}
+	for _, tc := range cases {
+		_, c := tr.open(context.Background(), dest)
+		tc.end(c)
+		if got := state(c); got != tc.want {
+			t.Errorf("%s: состояние %q, а не %q", tc.name, got, tc.want)
+		}
+	}
+	// Канал ответа DispatchLink закрывает исходящий: это не конец, конец — возврат DispatchLink.
+	_, c := tr.open(context.Background(), dest)
+	(&countingWriter{Writer: buf.Discard, c: c, ends: true}).Close()
+	if got := state(c); got != connOpen {
+		t.Errorf("закрытие канала ответа DispatchLink закончило соединение: %q", got)
 	}
 }
