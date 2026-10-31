@@ -80,6 +80,10 @@ Xray, проверки `check_apk.py` (16 КБ), `code.forbidden`
       `com.android.lint` (удаляется в Gradle 11) — внутри AGP, своим кодом
       не убрать: пройдёт с обновлением AGP по D-18. (`android.useAndroidX`
       снят — D-88.)
+- [ ] Пути API 26–34 на JVM (D-104): экраны и ключевые пути идут в
+      Robolectric только на API 36, на устройстве — Android 15. Прогон на
+      API 26 потребует образа `android-all` 8.0 — новая зависимость по
+      D-18 (матрица, PROVENANCE, сумма в `verification-metadata.xml`).
 
 ## Linux — этап 6 (D-74)
 

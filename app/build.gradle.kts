@@ -40,8 +40,8 @@ android {
 
     defaultConfig {
         // Личность по умолчанию — стабильная (отладка, проверки); release её
-        // переопределяет (D-47). Публичный applicationId фиксируется перед
-        // выпуском (D-01, этап 5) — рандомизация туда не идёт.
+        // переопределяет (D-47). Публичный applicationId — com.dpsmpx.dppass
+        // (D-103) — рандомизация туда не идёт.
         applicationId = AppIdentity.STABLE.applicationId
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
