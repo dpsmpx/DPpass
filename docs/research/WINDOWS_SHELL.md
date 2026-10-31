@@ -309,3 +309,30 @@ Xray обращается к DLL только через экспорт `wintun.
 - **Не проверено** и остаётся ПК автора: виден ли «Мобильный хот-спот»
   частным подключением ICS, какой адрес у его адаптера, спрашивает ли
   брандмауэр Windows разрешение на вход и в какой сети оно нужно.
+
+## 8. Буфер обмена: история и облачный буфер — 31.10.2026
+
+Повод — обзор безопасности перед выпуском (`docs/audits/SECURITY_REVIEW_0.7.48.md`,
+F-1). Источник — Microsoft, «Clipboard Formats», раздел «Cloud Clipboard
+and Clipboard History Formats»
+(learn.microsoft.com/windows/win32/dataxchg/clipboard-formats),
+просмотрено 31.10.2026.
+
+- Текст в буфере обмена Windows может попасть в историю буфера (Win+V) и
+  в облачный буфер, который синхронизирует его на другие устройства
+  пользователя, — если пользователь их включил.
+- Программа, которая кладёт данные, может это запретить
+  зарегистрированными форматами (`RegisterClipboardFormat`):
+  - `ExcludeClipboardContentFromMonitorProcessing` — ни в историю, ни в
+    облако;
+  - `CanIncludeInClipboardHistory` — попадёт ли в историю, на облако не
+    влияет;
+  - `CanUploadToCloudClipboard` — уйдёт ли в облако, на историю не влияет.
+- AWT (`Toolkit.systemClipboard`, `StringSelection`) кладёт только текст:
+  этих форматов он сам не ставит. Вид данных, которому в карте AWT
+  (`SystemFlavorMap`) сопоставлено имя формата Windows, AWT на Windows
+  кладёт под этим именем, регистрируя его через `RegisterClipboardFormat`
+  (`sun.awt.windows.WDataTransferer` OpenJDK).
+- **Не проверено** и остаётся ПК автора: что текст DPpass с этими
+  форматами действительно не виден в Win+V.
+

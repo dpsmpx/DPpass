@@ -1,8 +1,8 @@
 # Модель безопасности DPpass
 
-Срез на 6 октября 2026 (версия 0.5.0: адаптивная устойчивость D-44,
-автосплит D-45, защита от обнаружения VPN D-46 и анализа на устройстве
-D-47). Угрозы пронумерованы (T1…); код и документы
+Срез на 31 октября 2026: приложение 0.7.48, ПК 0.1.27 — Linux и
+Windows. Обзор перед выпуском — `docs/audits/SECURITY_REVIEW_0.7.48.md`.
+Угрозы пронумерованы (T1…); код и документы
 ссылаются на номер, `docs.refs` DP Verify (`tools/dpverify.toml`) проверяет, что он
 здесь определён. Номер не переиспользуется.
 
@@ -126,9 +126,14 @@ id слоя своих настроек у поставщика — отказ �
 секретов»; с секретами — только в файл, через системный выбор файла и
 после предупреждения, документ в памяти до записи); журнал Xray выключен в самой конфигурации
 ядра (его журнал доступа пишет адреса назначения мимо `Redactor`).
+**На Windows** пароль раздачи или локального прокси и копия журнала
+кладутся в буфер вместе с форматами, которые не пускают их в историю
+буфера обмена (Win+V) и облачный буфер (`SecretClipboard`; обзор 0.7.48,
+F-1; `docs/research/WINDOWS_SHELL.md`, §8). На Linux пометки секрета для
+менеджеров буфера нет — скопированное может остаться в их истории.
 **Проверка:** `SecretLeakTest`, `RedactorTest`,
 `LoggerTest`, `XrayCompilerTest.xrayLogIsOff`, корпус `invalid-redacted-export`,
-`LogExportTest`, `CrashRecordTest`, `ExportTest`.
+`LogExportTest`, `CrashRecordTest`, `ExportTest`, `SecretClipboardTest`.
 
 ### T4 — Трафик мимо туннеля
 
@@ -210,11 +215,16 @@ DPpass, а не в никуда и не петлёй; при следующем 
 ПК: план не перебирает серверы и не наказывает их. Исключающих маршрутов нет:
 локальные сети выпадают из маршрутов дополнением. Политика приложений
 не выражается — отказ, как на Linux. Адаптер и фильтры живут, пока
-работает ядро, и уходят вместе с процессом. Проверка сети при поднятом
-туннеле — отказ с причиной: пробы ушли бы в туннель (D-05). Чего фильтры
+работает ядро, и уходят вместе с процессом. Пробы проверки сети при
+поднятом туннеле привязаны к тому же интерфейсу, что сокеты ядра
+(`IP_UNICAST_IF`), имена резолвят серверы DNS этого интерфейса; сокет не
+привязался — проба отказывает, а не идёт в туннель (D-99). В сеансе через
+устройство раздачи сокеты ядра привязаны к сети, где оно ответило (D-102);
+политика моста не пускает привязку пустую или к самому адаптеру. Чего фильтры
 не закрывают — LLMNR, mDNS, NetBIOS (`docs/research/WINDOWS_SHELL.md`,
 §2.3). **Проверка:** `XrayCompilerTest.systemTunOnWindowsCarriesAdapterSettings`,
-`TestWindowsPolicyAcceptsOnlyCompilerSystemTun`, `WindowsTest`; утечки
+`TestWindowsPolicyAcceptsOnlyCompilerSystemTun`, `TestBindToInterfaceSetsUnicastIfForBothFamilies`,
+`WindowsTest`, `WindowsRelayNetworksTest`; утечки
 DNS и IPv6 — на ПК автора (этап 7).
 
 ### T5 — Подмена TLS
@@ -290,8 +300,9 @@ VpnService в `dumpsys`, host-route `/32`, аномалию MTU и несовп�
 адресе раздачи, и это сказано на её экране);
 быстрая пауза кнопкой и плиткой (D-40); имя пакета и ярлык случайны и без
 слова «VPN» (D-47) — приложение не выделяется в списке по имени. Режим
-без `VpnService` (локальный прокси) не создаёт `TRANSPORT_VPN` —
-отложенное решение. **Проверка:** `PolicyBuilderTest`,
+без `VpnService` (D-95: локальный прокси с паролем на 127.0.0.1, по
+выбору пользователя) не создаёт `TRANSPORT_VPN`; через него идут только
+программы, где этот прокси указан (T11). **Проверка:** `PolicyBuilderTest`,
 `TunnelSpecBuilderTest`, `check_manifest.py`, `go test` моста (T11).
 
 ### T9 — Секреты на экране
@@ -575,7 +586,8 @@ Wintun и WFP без них не работают, а одной возможн�
 не тихий запуск без защиты; библиотека моста загружается по
 абсолютному пути из комплекта, `wintun.dll` — только из каталога
 `javaw.exe` и `System32` (`WINDOWS_SHELL.md`, §2.5); входы ядра — только
-loopback с паролем (T11). Запускатель `dppass.exe` (`desktop/windows/`)
+loopback с паролем и, если включена раздача, вход с паролем на адресах
+точки доступа (T11, D-101). Запускатель `dppass.exe` (`desktop/windows/`)
 до запуска JVM:
 - сверяет права каждого файла и каталога комплекта. Владелец — только
   администраторы, SYSTEM или TrustedInstaller; право изменить, удалить
@@ -649,6 +661,8 @@ DPpass с правами администратора через задачу б
 | `check_apk.py` (нативный код), `native.py` | чужая `.so` в APK, библиотека не той машины, без выравнивания 16 КБ или с экспортом JNI не по договору (T10) |
 | `StabilityModelTest`, `StabilityBookTest`, `SessionSupervisorTest`, `QuietWindowTest` | одиночный сбой как постоянный выбор, секреты или идентификаторы в модели, переключение чаще предела, нагрузка своего замера как сбой сервера (T14; D-44, D-61) |
 | `IdentityTest` | случайная личность личной сборки — валидный пакет, ярлык без «VPN» (D-47) |
+| `DesktopLaunchTest`, `SystemCommandTest`, `LinuxRoutesTest`, `DesktopStorageTest`, `tools/desktop/netns_check.py` | на Linux: запуск с лишними правами или грязным окружением, команда из `PATH`, правила маршрутов мимо туннеля, файлы данных, открытые другим пользователям (T4, T7, T17) |
+| `WindowsTest`, `WindowsShareInterfacesTest`, `WindowsRelayNetworksTest`, `go test` моста для Windows (Wine), шаг `project.windows-package` | на Windows: адаптер без исключений, привязка сокетов, пробы и поиск устройства мимо туннеля; раздача не на частной стороне ICS; права файлов комплекта, окружение JVM, подменённый файл в установщике, список доступа задачи (T4, T7, T11, T15, T18) |
 | `RelayTest`, `ProfileValidationTest.relayDeviceIsOnlyPrivateIpv4WithPasswordOverPlainTcp`, `XrayJniTest.relayDeviceOutboundPassesFullValidation` | устройство раздачи на публичном адресе или из документа и подписки; список, принятый без проверки; подстановка других серверов при отказе устройства (T15; D-55) |
 | `PairingTest`, `ShareSettingsTest.pairedDevicesHaveOwnLoginAndCanBeRevoked` | вход, выданный без подтверждения кода на обоих экранах; подмена ключей, не видная по коду; обязательство, которое не проверяется; испорченный вход, принятый гостем; отзыв, задевший другие устройства (T16; D-56) |
 | `XrayCompilerTest.shareInboundsListenOnlyOnTetherAddressesWithAuth`, `XrayCompilerTest.shareDirectIsClosedToPhoneLoopback`, `TetherInterfacesTest`, `ShareSettingsTest`, `OrchestratorTest.cancelDuringHealthCheckStopsTheStartedCore`, `LinuxShareInterfacesTest`, `LinuxRoutesTest.shareSubnetsGoToMainBeforeEverythingElse` | вход раздачи без пароля, на `0.0.0.0`, Wi-Fi-клиенте или мобильной сети; на ПК — на сети, которую NetworkManager не назвал общей, или на маршруте по умолчанию; ответы гостям в туннель; прокси раздачи, доступный приложениям телефона; «напрямую» клиента раздачи на loopback телефона; ядро с входом раздачи, оставшееся после остановки; раздача, включённая по умолчанию или после порчи настроек (T11; D-51) |

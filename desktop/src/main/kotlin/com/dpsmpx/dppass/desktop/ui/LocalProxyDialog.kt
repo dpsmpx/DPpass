@@ -9,8 +9,6 @@ import java.awt.Component
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
-import java.awt.Toolkit
-import java.awt.datatransfer.StringSelection
 import javax.swing.JCheckBox
 import javax.swing.JComponent
 import javax.swing.JLabel
@@ -126,7 +124,8 @@ object LocalProxyDialog {
 
     private fun copy(text: String) {
         if (text.isBlank()) return
-        Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null)
+        // Пароль — не в историю буфера Windows и не в облачный буфер (обзор 0.7.48, F-1).
+        SecretClipboard.copy(text)
     }
 
     private fun field() = JTextField(FIELD_COLUMNS).apply { isEditable = false }

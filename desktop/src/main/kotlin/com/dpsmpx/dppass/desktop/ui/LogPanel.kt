@@ -4,8 +4,6 @@ import com.dpsmpx.dppass.desktop.DesktopGraph
 import java.awt.BorderLayout
 import java.awt.FlowLayout
 import java.awt.Font
-import java.awt.Toolkit
-import java.awt.datatransfer.StringSelection
 import javax.swing.JPanel
 import javax.swing.JScrollPane
 import javax.swing.JTextArea
@@ -36,7 +34,8 @@ class LogPanel(private val graph: DesktopGraph) : JPanel(BorderLayout()) {
                 add(
                     Widgets.button("Копировать журнал") {
                         reload()
-                        Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(area.text), null)
+                        // Журнал — не в историю буфера Windows и не в облако (обзор 0.7.48, F-1).
+                        SecretClipboard.copy(area.text)
                     },
                 )
             },

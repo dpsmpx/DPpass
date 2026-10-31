@@ -284,6 +284,7 @@ DLL проверяется: машина AMD64, экспорт JNI = `external` 
 `SplitSitesDialogTest` (D-82: неверная строка и неизвестный geosite — отказ),
 `DesktopServerlessTest` (D-83: когда без сервера, что Linux выражает, переход к серверу),
 `LinuxShareInterfacesTest` (D-84: раздача — только общие сети NetworkManager; сомнение — не раздавать),
+`SecretClipboardTest` (обзор 0.7.48, F-1: пароли и журнал в буфере Windows — с форматами запрета истории и облачного буфера; на Linux — только текст),
 `WindowsShareInterfacesTest` (D-101: раздача — только частная сторона ICS по ответу моста; сомнение — не раздавать, журнал без адресов),
 `ShareWatchTest` (D-84: смена точки доступа — одно переподключение),
 `SystemCommandTest` (T17: программа по абсолютному пути, без shell, с пределом времени),
