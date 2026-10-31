@@ -497,9 +497,14 @@ class DesktopSession(
         usageTick?.cancel()
         val meter = UsageMeter().also { usageMeter = it }
         usageTick = scope.launch(Dispatchers.IO) {
+            var ticks = 0L
             while (true) {
                 delay(USAGE_TICK_MILLIS)
                 recordUsage(s, meter)
+                // Журнал уникальных соединений (D-106) — и с закрытой вкладкой: раз в 10 с, пока он включён.
+                if (++ticks % ANALYZER_EVERY_TICKS == 0L && graph.core.analyzer.settings().let { it.enabled && it.keepUnique }) {
+                    graph.core.analyzer.poll(graph.owners)
+                }
             }
         }
     }
@@ -518,7 +523,10 @@ class DesktopSession(
         val meter = usageMeter
         usageMeter = null
         session?.let { s -> meter?.let { m -> withContext(Dispatchers.IO) { recordUsage(s, m) } } }
-        withContext(NonCancellable + Dispatchers.IO) { graph.core.usage.flush().diagnostics.forEach(graph.core.log::diagnostic) }
+        withContext(NonCancellable + Dispatchers.IO) {
+            graph.core.usage.flush().diagnostics.forEach(graph.core.log::diagnostic)
+            graph.core.analyzer.flush().diagnostics.forEach(graph.core.log::diagnostic)
+        }
         watch?.cancel()
         watch = null
         networkWatch?.cancel()
@@ -556,6 +564,9 @@ class DesktopSession(
 
         /** Опрос счётчиков для учёта трафика: на ПК экрана, который гаснет, нет — реже, чем окно. */
         const val USAGE_TICK_MILLIS = 5_000L
+
+        /** Опрос анализатора для журнала уникальных (D-106): раз в 2 тика учёта, то есть в 10 с. */
+        private const val ANALYZER_EVERY_TICKS = 2L
 
         /** Имя сеанса без сервера в окне (D-83), как на телефоне. */
         const val SERVERLESS_NAME = "Без сервера"

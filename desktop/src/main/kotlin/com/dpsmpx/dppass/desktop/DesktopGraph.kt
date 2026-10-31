@@ -1,5 +1,6 @@
 package com.dpsmpx.dppass.desktop
 
+import com.dpsmpx.dppass.connection.ConnectionOwners
 import com.dpsmpx.dppass.connection.DPpassCore
 import com.dpsmpx.dppass.core.Clock
 import com.dpsmpx.dppass.diagnostics.Diagnostic
@@ -53,6 +54,8 @@ class DesktopGraph(
     val shares: DesktopShares?,
     /** Что не поднялось при сборке: показывается в окне. */
     val problems: List<Diagnostic>,
+    /** Процесс у соединения для анализатора (D-106): Linux — `/proc`, Windows — таблицы сокетов от моста. */
+    val owners: ConnectionOwners = ConnectionOwners.NONE,
 ) {
     /** Чем сборка различается по системе (D-74, D-97). */
     private class Parts(
@@ -123,6 +126,14 @@ class DesktopGraph(
                 engineDetails = listOf("geodata" to geodataSummary, "platform" to parts.host.id),
             )
             core.restore().filter { it.isError }.forEach { problems += it }
+            // Учёт соединений — у ядра процесса: после запуска включается по сохранённой настройке (D-106).
+            core.analyzer.applyToEngine()
+            core.analyzer.loadNotes.forEach(logger::diagnostic)
+            val owners = when {
+                !paths.windows -> SocketOwners({ LinuxSockets.read() })
+                loaded -> SocketOwners({ WindowsSockets.parse(WindowsNative.nativeSocketOwners()) })
+                else -> ConnectionOwners.NONE
+            }
             return DesktopGraph(
                 core = core,
                 engine = engine,
@@ -137,6 +148,7 @@ class DesktopGraph(
                 relayNetworks = parts.relayNetworks,
                 shares = parts.shares,
                 problems = problems,
+                owners = owners,
             )
         }
 

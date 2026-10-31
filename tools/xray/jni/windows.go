@@ -171,3 +171,25 @@ func sealed(env *C.JNIEnv, f func([]byte) ([]byte, error), in C.jbyteArray) C.jb
 	}
 	return newBytes(env, append([]byte{statusOK}, out...))
 }
+
+// Сокеты системы с процессами (D-106): статус 0, затем по строке на сокет —
+// сеть, свой адрес, адрес собеседника (у UDP пусто), номер и имя процесса,
+// через табуляцию; иначе — вид отказа и текст.
+//
+//export Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeSocketOwners
+func Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeSocketOwners(env *C.JNIEnv, _ C.jclass) C.jbyteArray {
+	owners, err := bridge.SocketOwners()
+	if err != nil {
+		return statusOf(env, err)
+	}
+	clean := strings.NewReplacer("\t", " ", "\n", " ", "\r", " ")
+	lines := make([]string, 0, len(owners))
+	for _, o := range owners {
+		remote := ""
+		if o.Remote.IsValid() {
+			remote = o.Remote.String()
+		}
+		lines = append(lines, strings.Join([]string{o.Network, o.Local.String(), remote, strconv.FormatUint(uint64(o.PID), 10), clean.Replace(o.Name)}, "\t"))
+	}
+	return status(env, statusOK, strings.Join(lines, "\n"))
+}

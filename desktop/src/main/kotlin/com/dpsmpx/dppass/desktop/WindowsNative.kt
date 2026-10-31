@@ -53,4 +53,11 @@ internal object WindowsNative {
      * и адреса IPv4 через запятую, псевдоним ([WindowsRelayNetworks.parse]).
      */
     @JvmStatic external fun nativeRelayNetworks(tunAlias: ByteArray): ByteArray
+
+    /**
+     * Сокеты системы с процессами (D-106): после статуса — по строке на
+     * сокет: сеть, свой адрес, адрес собеседника (у UDP пусто), номер и имя
+     * процесса, через табуляцию.
+     */
+    @JvmStatic external fun nativeSocketOwners(): ByteArray
 }

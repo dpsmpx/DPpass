@@ -27,7 +27,8 @@ import javax.swing.WindowConstants
 /**
  * Окно DPpass для ПК (D-74, D-97): «Подключение», «Серверы», «Подписки»,
  * «Сеть» (проверка сети, D-79), «Раздача» (точка доступа ПК, D-84),
- * «Устройства раздачи» (подключение через телефон, D-85, D-102), «Журнал».
+ * «Устройства раздачи» (подключение через телефон, D-85, D-102),
+ * «Соединения» (анализатор соединений, D-106), «Журнал».
  * Меню «Импорт» — буфер обмена и
  * файл (D-42); «Подключение» — автопереключение сервера (D-78), разбиение
  * ClientHello к серверу (D-81), сайты напрямую с разбиением (D-82) и
@@ -74,6 +75,7 @@ class DesktopWindow(
             relays?.render()
         }
         val log = LogPanel(graph)
+        val connections = ConnectionsPanel(graph.core.analyzer, graph.owners, scope)
         val network = NetworkPanel(graph.networkCheck, scope)
         // Раздача и устройства раздачи — на Linux и Windows (D-84, D-85, D-101, D-102).
         val share = graph.shares?.let { SharePanel(graph, session, it) }
@@ -89,6 +91,7 @@ class DesktopWindow(
             addTab("Сеть", network)
             share?.let { addTab("Раздача", it) }
             relaysPanel?.let { addTab("Устройства раздачи", it) }
+            addTab("Соединения", connections)
             addTab("Журнал", log)
             addChangeListener {
                 when (selectedComponent) {
