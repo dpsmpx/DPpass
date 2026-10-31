@@ -104,7 +104,16 @@ class ConnectScreen(host: Host) : Screen(host) {
     private val usageRow = Ui.ListRow(context, R.drawable.ic_down, context.getString(R.string.usage_title))
         .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
         .onClick { host.push(UsageScreen(host)) }
-    private val usageCard = Ui.listCard(context).apply { addView(usageRow, Ui.matchWidth()) }
+
+    /** Анализатор соединений (D-106): таблица соединений и журнал уникальных. */
+    private val connectionsRow = Ui.ListRow(context, R.drawable.ic_speed, context.getString(R.string.conn_title))
+        .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+        .onClick { host.push(ConnectionsScreen(host)) }
+    private val usageCard = Ui.listCard(context).apply {
+        addView(usageRow, Ui.matchWidth())
+        addView(Ui.divider(context, 16))
+        addView(connectionsRow, Ui.matchWidth())
+    }
 
     private val failureTitle = Ui.text(context, R.style.Text_DPpass_Title).apply { setTextColor(context.getColor(R.color.error)) }
     private val failureText = Ui.text(context, R.style.Text_DPpass_Secondary).apply { setTextIsSelectable(true) }
@@ -351,6 +360,7 @@ class ConnectScreen(host: Host) : Screen(host) {
         val line = context.getString(R.string.usage_row, bytes(s.todayTotal.total), UsageAlerts.date(context, s.periodStart), bytes(s.periodTotal.total))
         val limit = s.settings.mobileLimitBytes?.let { context.getString(R.string.usage_row_limit, bytes(s.mobilePeriodBytes), bytes(it)) }
         usageRow.subtitle(listOfNotNull(line, limit).joinToString(ServerList.SEPARATOR))
+        connectionsRow.subtitle(context.getString(if (core.analyzer.settings().enabled) R.string.conn_entry_on else R.string.conn_entry_off))
     }
 
     private fun renderTraffic(t: Traffic, status: TunnelStatus) {

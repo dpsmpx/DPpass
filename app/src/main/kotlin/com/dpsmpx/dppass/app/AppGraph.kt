@@ -45,6 +45,8 @@ object AppGraph {
         val appVersion: String,
         /** Из чего собран набор геоданных (D-27) — для «О программе». */
         val geodata: String,
+        /** Приложение у соединения для анализатора (D-106). */
+        val owners: AppOwners,
     )
 
     @Volatile
@@ -102,7 +104,10 @@ object AppGraph {
             logSink = DeviceLog.sink,
             engineDetails = listOf("geodata" to geodataSummary),
         )
-        return Graph(core, engine, HttpsSubscriptionFetcher(Clock.SYSTEM), appVersion(context), geodataSummary)
+        // Учёт соединений — у ядра процесса: после запуска процесса включается по сохранённой настройке (D-106).
+        core.analyzer.applyToEngine()
+        core.analyzer.loadNotes.forEach(DeviceLog.log::diagnostic)
+        return Graph(core, engine, HttpsSubscriptionFetcher(Clock.SYSTEM), appVersion(context), geodataSummary, AppOwners(context.applicationContext))
     }
 
     /** `versionName` из манифеста: в журнале и в `User-Agent` подписки (D-33). */

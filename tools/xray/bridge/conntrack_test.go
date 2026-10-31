@@ -179,3 +179,31 @@ func TestDispatchLinksEndTheConnection(t *testing.T) {
 		t.Errorf("закрытие канала ответа DispatchLink закончило соединение: %q", got)
 	}
 }
+
+// Отказ исходящего у входа прокси (Dispatch): маршрут уже выбран — он в таблице,
+// а не «ещё не выбран». Конец от самого входа маршрут не читает: его могли ещё не выбрать.
+func TestDispatchFailureKeepsTheRouteOnlyWhenTheOutboundEnded(t *testing.T) {
+	clock := &fakeClock{t: time.Unix(1_800_000_000, 0)}
+	tr := newConnTracker(clock.now)
+	tr.setEnabled(true)
+	dest := xnet.TCPDestination(xnet.ParseAddress("198.51.100.53"), 443)
+	route := func(c *trackedConn) string {
+		tr.mu.Lock()
+		defer tr.mu.Unlock()
+		return c.route
+	}
+	_, byOutbound := tr.open(context.Background(), dest)
+	byOutbound.ob.Tag = "proxy"
+	(&countingReader{Reader: endReader{io.ErrClosedPipe}, c: byOutbound, ends: true}).ReadMultiBuffer()
+	if got := route(byOutbound); got != "proxy" {
+		t.Errorf("исходящий оборвал ответ — маршрут %q, а не proxy", got)
+	}
+	_, byInbound := tr.open(context.Background(), dest)
+	byInbound.ob.Tag = "proxy"
+	r := &countingReader{Reader: endReader{io.ErrClosedPipe}, c: byInbound, ends: true}
+	r.Interrupt()
+	r.ReadMultiBuffer()
+	if got := route(byInbound); got != "" {
+		t.Errorf("вход сам прервал ответ — маршрут прочитан (%q), хотя мог быть ещё не выбран", got)
+	}
+}

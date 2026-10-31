@@ -288,6 +288,9 @@ type countingReader struct {
 	c    *trackedConn
 	up   bool
 	ends bool // ответ: ошибка чтения — конец соединения (Dispatch)
+	// Вход сам закрыл или прервал ответ: маршрут мог быть ещё не выбран, и
+	// читать его из сессии ядра нельзя — диспетчер пишет его в своей горутине.
+	stopped atomic.Bool
 }
 
 func (r *countingReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
@@ -316,18 +319,31 @@ func (r *countingReader) after(mb buf.MultiBuffer, err error) {
 		r.c.capture()
 	}
 	if r.ends && err != nil {
+		// Ответ закрыл или прервал исходящий — он запущен после выбора маршрута,
+		// и закрытие канала (под его замком) видно этой горутине после записи маршрута.
+		if !r.stopped.Load() {
+			r.c.capture()
+		}
 		r.c.finish(err != io.EOF)
 	}
 }
 
 func (r *countingReader) Interrupt() {
+	if r.ends {
+		r.stopped.Store(true)
+	}
 	common.Interrupt(r.Reader)
 	if r.ends {
 		r.c.finish(true)
 	}
 }
 
-func (r *countingReader) Close() error { return common.Close(r.Reader) }
+func (r *countingReader) Close() error {
+	if r.ends {
+		r.stopped.Store(true)
+	}
+	return common.Close(r.Reader)
+}
 
 type countingWriter struct {
 	buf.Writer

@@ -496,8 +496,13 @@ class DPpassVpnService : VpnService() {
             val core = AppGraph.core(this@DPpassVpnService)
             // Учёт трафика (D-92) — и с выключенным экраном: приращения сеанса, сеть — та, что под туннелем.
             val usage = UsageMeter()
+            val owners = AppGraph.graph(this@DPpassVpnService).owners
+            var ticks = 0L
             while (isActive) {
                 core.usage.record(usage.delta(session.stats()), underlyingType)?.let { UsageAlerts.show(this@DPpassVpnService, core, it) }
+                // Журнал уникальных соединений (D-106) пополняется и с закрытым экраном: закрытые ядро держит
+                // 5 минут, опроса раз в 10 с хватает. Без журнала опрашивать незачем — таблицу опрашивает её экран.
+                if (ticks++ % ANALYZER_EVERY_TICKS == 0L && core.analyzer.settings().let { it.enabled && it.keepUnique }) core.analyzer.poll(owners)
                 val interactive = power.isInteractive
                 val notify = pace.tick(interactive)
                 if (interactive) {
@@ -849,6 +854,7 @@ class DPpassVpnService : VpnService() {
             val core = AppGraph.graph(this@DPpassVpnService).core
             core.persistStability()
             core.usage.flush().diagnostics.forEach(core.log::diagnostic)
+            core.analyzer.flush().diagnostics.forEach(core.log::diagnostic)
         }
     }
 
@@ -984,6 +990,9 @@ class DPpassVpnService : VpnService() {
         /** Наблюдатель сессии (D-44): период пробы здоровья и как часто сохранять модель. */
         private const val SUPERVISION_INTERVAL_MILLIS = 15_000L
         private const val PERSIST_EVERY_SAMPLES = 8
+
+        /** Опрос анализатора для журнала уникальных (D-106): раз в 10 тиков, то есть в 10 с. */
+        private const val ANALYZER_EVERY_TICKS = 10L
 
         /** Проверка новой сети (D-67) ждёт проверку по кнопке, начатую раньше: как часто смотреть, кончилась ли. */
         private const val BUSY_POLL_MILLIS = 1_000L
