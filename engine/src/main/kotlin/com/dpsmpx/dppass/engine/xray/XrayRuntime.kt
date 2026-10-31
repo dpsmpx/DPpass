@@ -5,6 +5,12 @@ import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.ErrorSummary
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Redactor
+import com.dpsmpx.dppass.engine.ConnNetwork
+import com.dpsmpx.dppass.engine.ConnState
+import com.dpsmpx.dppass.engine.EngineConnection
+import com.dpsmpx.dppass.engine.EngineConnections
+import com.dpsmpx.dppass.engine.InboundKind
+import com.dpsmpx.dppass.engine.RouteKind
 import com.dpsmpx.dppass.engine.SocketProtector
 import com.dpsmpx.dppass.engine.TrafficStats
 
@@ -58,6 +64,12 @@ interface XrayRuntime {
      * набора; потом сопоставитель берётся из памяти моста.
      */
     fun geoMatch(kind: GeoKind, code: String, value: ByteArray): GeoMatchResult
+
+    /** Учёт соединений моста (D-106): включить или выключить; выключение стирает учтённое. */
+    fun setConnectionTracking(on: Boolean)
+
+    /** Снимок учёта соединений моста (D-106): работает и без запущенного ядра. */
+    fun connections(): EngineConnections
 }
 
 /** Вид кода геоданных; [code] — договор с `bridge.GeoKind` (Go). */
@@ -181,6 +193,79 @@ internal object XrayJni {
 
     @JvmStatic external fun nativeGeoMatch(kind: Int, code: ByteArray, value: ByteArray): ByteArray
 
+    @JvmStatic external fun nativeConnTracking(on: Boolean)
+
+    @JvmStatic external fun nativeConnections(): ByteArray
+
+    /**
+     * Снимок учёта соединений (D-106): текст UTF-8, строки через перевод
+     * строки. Первая — `v1`, включён ли учёт (`1`/`0`) и сколько не учтено,
+     * через табуляцию; остальные — по [CONN_FIELDS] полей через табуляцию:
+     * номер, сеть, вход, источник, назначение, имя, протокол, маршрут,
+     * состояние (`o`, `c`, `e`), с начала, длится, простой и до первого
+     * байта (мс, -1 — не было), байты и порции к серверу и от него. Строка
+     * не по договору не теряется молча — она в [EngineConnections.malformed].
+     */
+    fun decodeConnections(answer: ByteArray): EngineConnections {
+        val lines = answer.decodeToString().split('\n')
+        val head = lines.first().split('\t')
+        if (head.size != 3 || head[0] != CONN_VERSION || head[1] !in setOf("0", "1")) {
+            return EngineConnections(enabled = false, skipped = 0, connections = emptyList(), malformed = lines.size)
+        }
+        val skipped = head[2].toLongOrNull()?.takeIf { it >= 0 }
+            ?: return EngineConnections(enabled = head[1] == "1", skipped = 0, connections = emptyList(), malformed = lines.size)
+        val out = ArrayList<EngineConnection>(lines.size - 1)
+        var malformed = 0
+        for (line in lines.drop(1)) {
+            if (line.isEmpty()) continue
+            connection(line)?.let(out::add) ?: malformed++
+        }
+        return EngineConnections(enabled = head[1] == "1", skipped = skipped, connections = out, malformed = malformed)
+    }
+
+    private fun connection(line: String): EngineConnection? {
+        val f = line.split('\t')
+        if (f.size != CONN_FIELDS) return null
+        val n = LongArray(CONN_FIELDS - NUMBERS_FROM)
+        for (i in n.indices) n[i] = f[NUMBERS_FROM + i].toLongOrNull() ?: return null
+        val network = when (f[1]) {
+            "tcp" -> ConnNetwork.TCP
+            "udp" -> ConnNetwork.UDP
+            else -> return null
+        }
+        val state = when (f[8]) {
+            "o" -> ConnState.OPEN
+            "c" -> ConnState.CLOSED
+            "e" -> ConnState.FAILED
+            else -> return null
+        }
+        val id = f[0].toLongOrNull()?.takeIf { it > 0 } ?: return null
+        if (n.withIndex().any { (i, v) -> v < if (i == FIRST_BYTE) -1 else 0 }) return null
+        return EngineConnection(
+            id = id, network = network, inbound = f[2], source = f[3], target = f[4], domain = f[5], protocol = f[6], route = f[7],
+            state = state, ageMillis = n[0], durationMillis = n[1], idleMillis = n[2], firstByteMillis = n[3],
+            upBytes = n[4], downBytes = n[5], upChunks = n[6], downChunks = n[7],
+            routeKind = routeKind(f[7]), inboundKind = inboundKind(f[2]),
+        )
+    }
+
+    /** Смысл тега исходящего — по тегам компилятора ([XrayBackend]). */
+    fun routeKind(tag: String): RouteKind = when (tag) {
+        "" -> RouteKind.NONE
+        XrayBackend.TAG_PROXY -> RouteKind.PROXY
+        XrayBackend.TAG_DIRECT, XrayBackend.TAG_DIRECT_SHARE, XrayBackend.TAG_DIRECT_SPLIT -> RouteKind.DIRECT
+        XrayBackend.TAG_BLOCK -> RouteKind.BLOCK
+        XrayBackend.TAG_DNS_OUT -> RouteKind.DNS
+        else -> RouteKind.OTHER
+    }
+
+    fun inboundKind(tag: String): InboundKind = when {
+        tag == XrayBackend.TAG_TUN_IN -> InboundKind.TUN
+        tag == XrayBackend.TAG_LOCAL -> InboundKind.LOCAL
+        tag.startsWith(XrayBackend.SHARE_TAG_PREFIX) -> InboundKind.SHARE
+        else -> InboundKind.OTHER
+    }
+
     /** Ответ сопоставления: статус 0 и байт 1 (попадает) или 0 (нет); отказ — как у [decode]. */
     fun decodeGeo(answer: ByteArray): GeoMatchResult = when (val r = decode(answer)) {
         is XrayResult.Failed -> r
@@ -235,6 +320,14 @@ internal object XrayJni {
     private const val STATUS_PARTIAL = 5
     private const val PROBE_HEADER = 9
     private const val GEO_ANSWER = 2
+    private const val CONN_VERSION = "v1"
+    private const val CONN_FIELDS = 17
+
+    /** С этого поля строки снимка — числа. */
+    private const val NUMBERS_FROM = 9
+
+    /** Номер числа «до первого байта» среди чисел строки: единственное, где бывает -1. */
+    private const val FIRST_BYTE = 3
 }
 
 /** Мост через JNI: библиотека `libdppassxray.so` в этом процессе. */
@@ -258,6 +351,10 @@ class JniXrayRuntime private constructor() : XrayRuntime {
 
     override fun geoMatch(kind: GeoKind, code: String, value: ByteArray): GeoMatchResult =
         XrayJni.decodeGeo(XrayJni.nativeGeoMatch(kind.code, code.encodeToByteArray(), value))
+
+    override fun setConnectionTracking(on: Boolean): Unit = XrayJni.nativeConnTracking(on)
+
+    override fun connections(): EngineConnections = XrayJni.decodeConnections(XrayJni.nativeConnections())
 
     companion object {
         const val LIBRARY: String = "dppassxray"

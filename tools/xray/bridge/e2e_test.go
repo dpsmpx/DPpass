@@ -179,3 +179,55 @@ func TestTestInboundOnlyOnLoopback(t *testing.T) {
 		t.Fatalf("вход на 0.0.0.0 должен быть отвергнут политикой, получено %v", err)
 	}
 }
+
+// Учёт соединений (D-106) через настоящее ядро: соединение видно с
+// назначением, маршрутом и итогом.
+func TestConnTrackingSeesCoreConnection(t *testing.T) {
+	setup(t)
+	SetConnTracking(true)
+	t.Cleanup(func() { SetConnTracking(false) })
+	echo, _ := echoServer(t)
+	in := freePort(t)
+	p := &recorder{allow: true, fds: make(chan int, 16)}
+	if err := Start(cfg(testInbound(in, echo)), NoTun, p); err != nil {
+		t.Fatal(err)
+	}
+	c := dialCore(t, in)
+	msg := []byte("dppass-conntrack")
+	if _, err := c.Write(msg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadFull(c, make([]byte, len(msg))); err != nil {
+		t.Fatalf("эхо через ядро: %v", err)
+	}
+	_ = c.Close()
+	target := fmt.Sprintf("127.0.0.1:%d", echo)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		lines, on, _ := ConnSnapshot()
+		for _, l := range lines {
+			f := strings.Split(l, "\t")
+			if len(f) == 17 && f[4] == target {
+				if f[1] != "tcp" || f[2] != "test-in" {
+					t.Fatalf("соединение учтено не так: %q", l)
+				}
+				// Маршрут известен к первым данным ответа или к закрытию. Байты
+				// ответа здесь могут быть нулём: freedom сращивает сокеты входа
+				// dokodemo (splice) мимо каналов ядра; у входа TUN сращивания нет.
+				if f[8] == "c" {
+					if f[7] != "proxy" || f[13] != fmt.Sprint(len(msg)) {
+						t.Fatalf("закрытое учтено не так: %q", l)
+					}
+					return
+				}
+			}
+		}
+		if !on {
+			t.Fatal("учёт выключился сам")
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("закрытого соединения к %s в снимке нет: %v", target, lines)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}

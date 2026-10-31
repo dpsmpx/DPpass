@@ -5,6 +5,7 @@ import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.engine.CompiledConfig
 import com.dpsmpx.dppass.engine.EngineCapabilities
+import com.dpsmpx.dppass.engine.EngineConnections
 import com.dpsmpx.dppass.engine.EngineSession
 import com.dpsmpx.dppass.engine.EngineState
 import com.dpsmpx.dppass.engine.ProxyEngine
@@ -162,6 +163,13 @@ class XrayProxyEngine(private val runtime: Outcome<XrayRuntime>) : ProxyEngine {
             Outcome.failure(DiagCode.BACKEND_REJECTED_CONFIG, "конфигурация для Xray ${config.backendVersion}, а ядро — ${capabilities.backendVersion} (D-18)")
         else -> null
     }
+
+    /** Учёт соединений моста (D-106); библиотека не загружена — нечего включать. */
+    override fun setConnectionTracking(on: Boolean) {
+        (runtime as? Outcome.Success)?.value?.setConnectionTracking(on)
+    }
+
+    override fun connections(): EngineConnections? = (runtime as? Outcome.Success)?.value?.connections()
 
     private inner class Session(override val compiled: CompiledConfig, private val rt: XrayRuntime) : EngineSession {
         @Volatile

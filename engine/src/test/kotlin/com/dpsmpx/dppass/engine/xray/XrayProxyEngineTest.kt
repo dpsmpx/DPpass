@@ -9,8 +9,14 @@ import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Severity
 import com.dpsmpx.dppass.engine.CompilePlan
 import com.dpsmpx.dppass.engine.CompiledConfig
+import com.dpsmpx.dppass.engine.ConnNetwork
+import com.dpsmpx.dppass.engine.ConnState
+import com.dpsmpx.dppass.engine.EngineConnection
+import com.dpsmpx.dppass.engine.EngineConnections
 import com.dpsmpx.dppass.engine.EngineSession
 import com.dpsmpx.dppass.engine.EngineState
+import com.dpsmpx.dppass.engine.InboundKind
+import com.dpsmpx.dppass.engine.RouteKind
 import com.dpsmpx.dppass.engine.SocketProtector
 import com.dpsmpx.dppass.engine.TrafficStats
 import com.dpsmpx.dppass.engine.TunInput
@@ -86,6 +92,15 @@ private class FakeRuntime : XrayRuntime {
         val set = geodata[kind to code] ?: return XrayResult.Failed(XrayFailureKind.CONFIG, "failed to load code ${code.uppercase()} from geo.dat")
         return GeoMatchResult.Answer(text in set)
     }
+
+    var tracking = false
+    var snapshot = EngineConnections(enabled = false, skipped = 0, connections = emptyList())
+
+    override fun setConnectionTracking(on: Boolean) {
+        tracking = on
+    }
+
+    override fun connections(): EngineConnections = snapshot
 }
 
 private const val UUID = "00000000-0000-4000-8000-000000000001"
@@ -345,5 +360,83 @@ class XrayProxyEngineTest {
         assertEquals(XrayIpv6.TARGETS + XrayIpv6.CONTROL, rt.probes)
 
         assertEquals(Ipv6Egress.UNKNOWN, XrayProxyEngine(Outcome.failure(DiagCode.BACKEND_NOT_AVAILABLE, "нет моста")).probeIpv6().egress)
+    }
+
+    @Test
+    fun connectionSnapshotFollowsTheBridgeContract() {
+        // Строки снимка — как у bridge.ConnSnapshot (tools/xray/bridge/conntrack_test.go).
+        val text = listOf(
+            "v1\t1\t3",
+            "2\tudp\ttun-in\t172.19.0.1:5353\t198.51.100.53:53\t\tdns\tdns-out\te\t900\t40\t860\t-1\t60\t0\t1\t0",
+            "1\ttcp\ttun-in\t172.19.0.1:40000\t198.51.100.7:443\texample.com\ttls\tproxy\to\t2100\t2100\t2000\t100\t517\t3000\t1\t3",
+        ).joinToString("\n")
+        val snap = XrayJni.decodeConnections(text.encodeToByteArray())
+        assertTrue(snap.enabled)
+        assertEquals(3, snap.skipped)
+        assertEquals(0, snap.malformed)
+        val (dns, web) = snap.connections
+        assertEquals(
+            EngineConnection(
+                id = 1, network = ConnNetwork.TCP, inbound = "tun-in", source = "172.19.0.1:40000", target = "198.51.100.7:443",
+                domain = "example.com", protocol = "tls", route = "proxy", state = ConnState.OPEN, ageMillis = 2100, durationMillis = 2100,
+                idleMillis = 2000, firstByteMillis = 100, upBytes = 517, downBytes = 3000, upChunks = 1, downChunks = 3,
+                routeKind = RouteKind.PROXY, inboundKind = InboundKind.TUN,
+            ),
+            web,
+        )
+        assertEquals(ConnState.FAILED, dns.state)
+        assertEquals(ConnNetwork.UDP, dns.network)
+        assertEquals(-1, dns.firstByteMillis)
+        assertEquals("", dns.domain)
+        assertEquals(RouteKind.DNS, dns.routeKind)
+    }
+
+    @Test
+    fun routeAndInboundKindsFollowCompilerTags() {
+        assertEquals(RouteKind.NONE, XrayJni.routeKind(""))
+        assertEquals(RouteKind.DIRECT, XrayJni.routeKind(XrayBackend.TAG_DIRECT_SPLIT))
+        assertEquals(RouteKind.DIRECT, XrayJni.routeKind(XrayBackend.TAG_DIRECT_SHARE))
+        assertEquals(RouteKind.BLOCK, XrayJni.routeKind(XrayBackend.TAG_BLOCK))
+        assertEquals(RouteKind.OTHER, XrayJni.routeKind("relay-1"))
+        assertEquals(InboundKind.SHARE, XrayJni.inboundKind(XrayBackend.SHARE_TAG_PREFIX + 1))
+        assertEquals(InboundKind.LOCAL, XrayJni.inboundKind(XrayBackend.TAG_LOCAL))
+        assertEquals(InboundKind.OTHER, XrayJni.inboundKind("test-in"))
+    }
+
+    @Test
+    fun brokenSnapshotLinesAreCountedNotDropped() {
+        val good = "1\ttcp\ttun-in\t\t198.51.100.7:443\t\t\t\to\t1\t1\t1\t-1\t0\t0\t0\t0"
+        val lines = listOf(
+            "v1\t0\t0",
+            good,
+            "2\tsctp" + good.substringAfter("tcp"),
+            "3\ttcp\ttun-in",
+            good.replace("\to\t", "\tx\t"),
+            good.replace("\t-1\t", "\t-2\t"),
+            "0" + good.drop(1),
+            "",
+        )
+        val snap = XrayJni.decodeConnections(lines.joinToString("\n").encodeToByteArray())
+        assertFalse(snap.enabled)
+        assertEquals(1, snap.connections.size)
+        assertEquals(5, snap.malformed, "не по договору — посчитано, а не потеряно молча (D-05)")
+        val foreign = XrayJni.decodeConnections("v2\t1\t0\n$good".encodeToByteArray())
+        assertTrue(foreign.connections.isEmpty())
+        assertEquals(2, foreign.malformed)
+    }
+
+    @Test
+    fun connectionTrackingGoesToTheBridgeAndIsQuietWithoutIt() {
+        val rt = FakeRuntime()
+        val engine = XrayProxyEngine(Outcome.Success(rt))
+        engine.setConnectionTracking(true)
+        assertTrue(rt.tracking)
+        rt.snapshot = EngineConnections(enabled = true, skipped = 0, connections = emptyList())
+        assertEquals(rt.snapshot, engine.connections())
+        engine.setConnectionTracking(false)
+        assertFalse(rt.tracking)
+        val none = XrayProxyEngine(Outcome.failure(DiagCode.BACKEND_NOT_AVAILABLE, "нет моста"))
+        none.setConnectionTracking(true)
+        assertNull(none.connections(), "без моста учёта нет — null, а не пустой снимок")
     }
 }

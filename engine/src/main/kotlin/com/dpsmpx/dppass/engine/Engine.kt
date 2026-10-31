@@ -297,6 +297,97 @@ enum class EngineState { STOPPED, STARTING, RUNNING, STOPPING, FAILED }
 
 data class TrafficStats(val uplinkBytes: Long, val downlinkBytes: Long)
 
+/** Сеть соединения ядра (D-106). */
+enum class ConnNetwork { TCP, UDP }
+
+/** Состояние соединения в учёте ядра (D-106). */
+enum class ConnState {
+    OPEN,
+
+    /** Закрыто штатно. */
+    CLOSED,
+
+    /** Прервано: исходящий не открылся или оборвался. */
+    FAILED,
+}
+
+/** Куда ядро ведёт соединение (D-106) — смысл тега исходящего, который знает только бэкенд. */
+enum class RouteKind {
+    /** Через сервер профиля. */
+    PROXY,
+
+    /** Напрямую, мимо сервера (в том числе с разбиением ClientHello). */
+    DIRECT,
+
+    /** Закрыто правилом. */
+    BLOCK,
+
+    /** Запрос DNS ядру. */
+    DNS,
+
+    /** Исходящий ещё не выбран. */
+    NONE,
+
+    /** Иной исходящий. */
+    OTHER,
+}
+
+/** Откуда соединение пришло в ядро (D-106). */
+enum class InboundKind {
+    /** Из TUN: приложения устройства через VPN. */
+    TUN,
+
+    /** Локальный прокси подключения без VPN (D-95). */
+    LOCAL,
+
+    /** Вход раздачи — другое устройство (D-51). */
+    SHARE,
+
+    OTHER,
+}
+
+/**
+ * Соединение, которое ведёт ядро (D-106), — строка снимка учёта.
+ * [target] — куда ядро соединяется (`адрес:порт`; у входов прокси может
+ * быть имя); [domain] — имя сайта после распознавания, пусто — имени нет;
+ * [protocol] — что распознало ядро (`tls`, `http`, `quic`…), пусто — не
+ * распознано; [route] — тег исходящего, пусто — ещё не выбран; его смысл —
+ * [routeKind], смысл входа [inbound] — [inboundKind].
+ * [firstByteMillis] — от начала до первого байта ответа, -1 — ответа не
+ * было. Порции ([upChunks], [downChunks]) — буферы данных, которые ядро
+ * передаёт за раз, а не IP-пакеты: пакетов ядро не видит.
+ */
+data class EngineConnection(
+    val id: Long,
+    val network: ConnNetwork,
+    val inbound: String,
+    val source: String,
+    val target: String,
+    val domain: String,
+    val protocol: String,
+    val route: String,
+    val state: ConnState,
+    val ageMillis: Long,
+    val durationMillis: Long,
+    val idleMillis: Long,
+    val firstByteMillis: Long,
+    val upBytes: Long,
+    val downBytes: Long,
+    val upChunks: Long,
+    val downChunks: Long,
+    val routeKind: RouteKind = RouteKind.OTHER,
+    val inboundKind: InboundKind = InboundKind.OTHER,
+)
+
+/**
+ * Снимок учёта соединений ядра (D-106): открытые и закрытые за последние
+ * пять минут, новые первыми. [enabled] — учёт включён; [skipped] — сколько
+ * соединений не учтено (открытых больше предела моста); [malformed] —
+ * строк не по договору моста (ошибка сборки: показывается, а не теряется
+ * молча, D-05).
+ */
+data class EngineConnections(val enabled: Boolean, val skipped: Long, val connections: List<EngineConnection>, val malformed: Int = 0)
+
 /** Запущенное ядро. */
 interface EngineSession {
     val compiled: CompiledConfig
@@ -333,4 +424,15 @@ interface ProxyEngine {
      */
     fun explain(policy: RoutingPolicy, query: RouteQuery): Outcome<RouteDecision> =
         Outcome.Success(RouteEvaluator(policy).decide(query))
+
+    /**
+     * Учёт соединений (D-106): включить или выключить; выключение стирает
+     * учтённое. Учёт — у ядра процесса, а не у сессии: недавние соединения
+     * прошлой сессии остаются видны. По умолчанию ядро учёта не умеет —
+     * ничего не делает (так у фиктивного ядра).
+     */
+    fun setConnectionTracking(on: Boolean) {}
+
+    /** Снимок учёта соединений (D-106); null — ядро учёта не умеет или не загружено. */
+    fun connections(): EngineConnections? = null
 }

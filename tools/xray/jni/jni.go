@@ -23,7 +23,10 @@
 //     начала в мкс (4 байта) — старшим вперёд, — затем текст ошибки;
 //   - сопоставление с геоданными (D-27): вид (bridge.GeoKind), код и
 //     значение — имя байтами UTF-8 или адрес 4 или 16 байт; ответ успеха —
-//     статус 0 и байт 1 (попадает) или 0 (нет), отказа — как у остальных.
+//     статус 0 и байт 1 (попадает) или 0 (нет), отказа — как у остальных;
+//   - учёт соединений (D-106): снимок — текст UTF-8, строки через перевод
+//     строки; первая — «v1», включён ли учёт (1 или 0) и сколько не учтено,
+//     через табуляцию; остальные — строки bridge.ConnSnapshot.
 package main
 
 /*
@@ -120,6 +123,8 @@ import "C"
 import (
 	"encoding/binary"
 	"errors"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -289,4 +294,25 @@ func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeGeoMatch(env *C.JNIEnv, _ 
 		match = 1
 	}
 	return newBytes(env, []byte{statusOK, match})
+}
+
+//export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeConnTracking
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeConnTracking(env *C.JNIEnv, cls C.jclass, on C.jboolean) {
+	bridge.SetConnTracking(on != 0)
+}
+
+//export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeConnections
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeConnections(env *C.JNIEnv, _ C.jclass) C.jbyteArray {
+	lines, enabled, skipped := bridge.ConnSnapshot()
+	on := "0"
+	if enabled {
+		on = "1"
+	}
+	var b strings.Builder
+	b.WriteString("v1\t" + on + "\t" + strconv.FormatUint(skipped, 10))
+	for _, l := range lines {
+		b.WriteByte('\n')
+		b.WriteString(l)
+	}
+	return newBytes(env, []byte(b.String()))
 }

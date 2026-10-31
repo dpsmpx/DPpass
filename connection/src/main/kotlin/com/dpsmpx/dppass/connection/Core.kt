@@ -151,6 +151,9 @@ class DPpassCore(
     /** Подключение без VPN (D-95): локальный прокси с паролем на 127.0.0.1. */
     val localProxy: LocalProxyService = LocalProxyService(LocalProxyStore(store, quarantine))
 
+    /** Анализатор соединений ядра и журнал уникальных соединений (D-106). */
+    val analyzer: ConnectionAnalyzer = ConnectionAnalyzer(engine, store, quarantine, clock)
+
     fun restore(): List<Diagnostic> = activation.restore().also { it.forEach(log::diagnostic) }
 
     /**

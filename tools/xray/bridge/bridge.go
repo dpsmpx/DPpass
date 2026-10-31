@@ -165,7 +165,8 @@ func Start(config []byte, tun Tun, p Protector) error {
 	if err != nil {
 		return &Error{Kind: KindStart, Err: err}
 	}
-	inst, err := core.New(cfg)
+	// Учёт соединений (D-106): обёртка диспетчера — всегда, учёт — по SetConnTracking.
+	inst, err := core.New(withConnTracking(cfg))
 	if err != nil {
 		detachTun(coreFD, tun)
 		return &Error{Kind: KindConfig, Err: err}

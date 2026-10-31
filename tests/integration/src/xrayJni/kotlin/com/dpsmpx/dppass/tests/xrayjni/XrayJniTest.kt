@@ -13,6 +13,8 @@ import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Secret
 import com.dpsmpx.dppass.engine.CompilePlan
 import com.dpsmpx.dppass.engine.CompiledConfig
+import com.dpsmpx.dppass.engine.ConnNetwork
+import com.dpsmpx.dppass.engine.ConnState
 import com.dpsmpx.dppass.engine.EngineState
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.SocketProtector
@@ -46,6 +48,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -206,6 +209,47 @@ class XrayJniTest {
             Thread.sleep(20)
         }
         echo.close()
+    }
+
+    // ---- учёт соединений (D-106) ----
+
+    @Test
+    fun connectionTrackingSeesCoreConnectionAndForgetsWhenOff() {
+        val echo = EchoServer()
+        val inbound = freePort()
+        runtime.setConnectionTracking(true)
+        try {
+            assertEquals(XrayResult.Ok, runtime.start(config(testInbound(inbound, echo.port)), NO_TUN, 0, SocketProtector { true }))
+            val message = "dppass-conn-".repeat(32).encodeToByteArray()
+            dialCore(inbound).use { s ->
+                s.getOutputStream().write(message)
+                s.getInputStream().readNBytes(message.size)
+            }
+            val target = "127.0.0.1:${echo.port}"
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+            while (true) {
+                val snap = runtime.connections()
+                assertTrue(snap.enabled)
+                assertEquals(0, snap.malformed, "строки снимка — по договору моста")
+                val c = snap.connections.firstOrNull { it.target == target }
+                if (c != null && c.state != ConnState.OPEN) {
+                    assertEquals(ConnNetwork.TCP, c.network)
+                    assertEquals("test-in", c.inbound)
+                    assertEquals("proxy", c.route)
+                    assertEquals(message.size.toLong(), c.upBytes, "к серверу — ровно отправленное")
+                    assertTrue(c.upChunks >= 1)
+                    break
+                }
+                if (System.nanoTime() > deadline) fail("соединение к $target не закрылось в учёте: ${snap.connections}")
+                Thread.sleep(20)
+            }
+        } finally {
+            runtime.setConnectionTracking(false)
+            echo.close()
+        }
+        val off = runtime.connections()
+        assertFalse(off.enabled)
+        assertTrue(off.connections.isEmpty(), "выключение стирает учтённое")
     }
 
     @Test
