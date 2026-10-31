@@ -82,6 +82,12 @@ Xray 26.9.30 (модуль `github.com/xtls/xray-core`
 - `autoOutboundsInterface` (`"auto"` — по таблице маршрутов) включает
   `InterfaceUpdater`. Ядро выбирает интерфейс с маршрутом по умолчанию и
   наименьшей метрикой, кроме самого TUN; при наличии Wi-Fi — Wi-Fi.
+- **Выбор интерфейса** (уточнено 31.10.2026, `findOutboundInterface` в
+  `proxy/tun/tun_windows.go` Xray 26.9.30): метрика — маршрута плюс
+  интерфейса IPv4 (нет IPv4 — IPv6). Есть маршрут по умолчанию через
+  Wi-Fi (`IF_TYPE_IEEE80211`) — берётся Wi-Fi с наименьшей метрикой среди
+  Wi-Fi, даже если у провода метрика меньше; нет — наименьшая метрика.
+  Оболочка DPpass выбирает сеть так же (пробы D-99, вид и ключ сети D-97).
 - Через `internet.RegisterDialerController` ядро ставит хук: каждый
   исходящий сокет, кроме loopback, привязывается к этому интерфейсу
   (`IP_UNICAST_IF`, `IPV6_UNICAST_IF`). Это замена `protect()` Android и

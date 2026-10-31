@@ -8,8 +8,8 @@ import (
 )
 
 // Сеть ПК для оболочки Windows (D-97, к D-79 и D-92): маршрут по
-// умолчанию с наименьшей метрикой — не через адаптер DPpass — и есть ли
-// этот адаптер. Так оболочка знает тип сети для учёта трафика, ключ сети
+// умолчанию, который выбрало бы для своих сокетов ядро (pickDefault), — не
+// через адаптер DPpass — и есть ли этот адаптер. Так оболочка знает тип сети для учёта трафика, ключ сети
 // для памяти режима (D-64) и поднят ли туннель, не обращаясь к командам
 // Windows.
 
@@ -33,9 +33,10 @@ type Network struct {
 	LUID    winipcfg.LUID
 }
 
-// DefaultRoute — маршрут по умолчанию с наименьшей метрикой (маршрута и
-// интерфейса), кроме адаптера tunAlias; ok=false — такого нет. tunUp —
-// адаптер tunAlias сейчас поднят. Выбор — pickDefault.
+// DefaultRoute — маршрут по умолчанию мимо адаптера tunAlias, который
+// выбрало бы для своих сокетов ядро (`autoOutboundsInterface: "auto"`);
+// ok=false — такого нет. tunUp — адаптер tunAlias сейчас поднят. Выбор —
+// pickDefault.
 func DefaultRoute(tunAlias string) (net Network, ok bool, tunUp bool, err error) {
 	table, err := winipcfg.GetIPForwardTable2(windows.AF_UNSPEC)
 	if err != nil {
@@ -50,11 +51,12 @@ func DefaultRoute(tunAlias string) (net Network, ok bool, tunUp bool, err error)
 		}
 		row := routeRow{alias: ifrow.Alias(), gateway: r.NextHop.Addr().String(), kind: kindOf(ifrow.Type), index: ifrow.InterfaceIndex, luid: r.InterfaceLUID}
 		if r.DestinationPrefix.PrefixLength == 0 {
-			family := winipcfg.AddressFamily(windows.AF_INET)
-			if r.DestinationPrefix.Prefix().Addr().Is6() {
-				family = windows.AF_INET6
+			// Метрика — как у ядра: маршрута плюс интерфейса IPv4, а нет IPv4 — IPv6.
+			ipif, e := r.InterfaceLUID.IPInterface(windows.AF_INET)
+			if e != nil {
+				ipif, e = r.InterfaceLUID.IPInterface(windows.AF_INET6)
 			}
-			if ipif, e := r.InterfaceLUID.IPInterface(family); e == nil {
+			if e == nil {
 				row.isDefault = true
 				row.metric = uint64(r.Metric) + uint64(ipif.Metric)
 			}
@@ -78,23 +80,42 @@ type routeRow struct {
 	luid      winipcfg.LUID
 }
 
-// pickDefault — маршрут по умолчанию с наименьшей метрикой, кроме адаптера
-// tunAlias; любая строка адаптера значит, что он поднят. При равной метрике
-// — первый в таблице: выбор не скачет между опросами.
+// pickDefault — интерфейс, к которому ядро привяжет свои сокеты, кроме
+// адаптера tunAlias (Xray 26.9.30, `proxy/tun/tun_windows.go`,
+// `findOutboundInterface`): есть маршрут по умолчанию через Wi-Fi — Wi-Fi с
+// наименьшей метрикой среди Wi-Fi, даже если у другого метрика меньше;
+// нет — наименьшая метрика. Тот же выбор нужен оболочке: пробы мимо туннеля
+// (D-99), вид сети для учёта трафика и ключ сети (D-97) — о той сети, по
+// которой идёт трафик ядра. Любая строка адаптера значит, что он поднят. При
+// равной метрике — первый в таблице: выбор не скачет между опросами.
 func pickDefault(rows []routeRow, tunAlias string) (net Network, ok bool, tunUp bool) {
-	best := ^uint64(0)
-	for _, r := range rows {
+	var best, bestWifi *routeRow
+	for i := range rows {
+		r := &rows[i]
 		if r.alias == tunAlias {
 			tunUp = true
 			continue
 		}
-		if r.isDefault && r.metric < best {
-			best = r.metric
-			net = Network{Alias: r.alias, Gateway: r.gateway, Kind: r.kind, Index: r.index, LUID: r.luid}
-			ok = true
+		if !r.isDefault {
+			continue
+		}
+		if r.kind == NetWifi {
+			if bestWifi == nil || r.metric < bestWifi.metric {
+				bestWifi = r
+			}
+			continue
+		}
+		if best == nil || r.metric < best.metric {
+			best = r
 		}
 	}
-	return net, ok, tunUp
+	if bestWifi != nil {
+		best = bestWifi
+	}
+	if best == nil {
+		return Network{}, false, tunUp
+	}
+	return Network{Alias: best.alias, Gateway: best.gateway, Kind: best.kind, Index: best.index, LUID: best.luid}, true, tunUp
 }
 
 func kindOf(t winipcfg.IfType) NetKind {

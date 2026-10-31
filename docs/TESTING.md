@@ -219,7 +219,9 @@ JNI из закреплённого JDK Temurin. Тесты моста для Wi
   `TestBindToInterfaceSetsUnicastIfForBothFamilies`), резолв серверами
   интерфейса сокетом с привязкой (`TestResolveViaAsksGivenServerOverBoundSocket`,
   свой сервер по TCP: UDP Go в Wine 9.0 не создать);
-- маршрут по умолчанию — наименьшая метрика мимо адаптера DPpass, а
+- маршрут по умолчанию — тот, что выбрало бы для своих сокетов ядро
+  (есть Wi-Fi — Wi-Fi, даже при меньшей метрике у провода; иначе —
+  наименьшая метрика), мимо адаптера DPpass, а
   строка адаптера значит «туннель поднят»
   (`TestDefaultRouteSkipsOwnAdapterAndKnowsKinds`). Таблицу маршрутов
   Wine 9.0 не отдаёт (`GetIPForwardTable2` — «Request not supported»):

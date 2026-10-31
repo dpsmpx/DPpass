@@ -31,9 +31,10 @@ import javax.swing.Timer
 
 /**
  * Windows (D-97): права администратора (UAC), сеть — маршрут по умолчанию
- * мимо адаптера DPpass от моста ([WindowsNative.nativeDefaultRoute]): по
- * нему видна и смена сети под туннелем (D-80). Проверка сети — только без
- * туннеля ([WindowsProbeNetwork]).
+ * мимо адаптера DPpass от моста ([WindowsNative.nativeDefaultRoute]), тот
+ * же, что выбирает для своих сокетов ядро (есть Wi-Fi — Wi-Fi): по нему
+ * видна и смена сети под туннелем (D-80). Проверка сети и под туннелем —
+ * [WindowsProbeNetwork] (D-99).
  */
 class WindowsHost(
     /** Ответ моста о маршруте по умолчанию; null — библиотеки ядра нет. */

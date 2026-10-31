@@ -89,8 +89,9 @@ func TestWindowsPolicyAcceptsOnlyCompilerSystemTun(t *testing.T) {
 	}
 }
 
-// Маршрут по умолчанию (D-97): наименьшая метрика, адаптер DPpass в маршрут
-// не попадает, но значит «туннель поднят»; вид интерфейса — по его типу.
+// Маршрут по умолчанию (D-97) — тот, что выбрало бы ядро: есть Wi-Fi —
+// Wi-Fi, иначе наименьшая метрика; адаптер DPpass в маршрут не попадает, но
+// значит «туннель поднят»; вид интерфейса — по его типу.
 // Таблицу маршрутов Wine не отдаёт (GetIPForwardTable2 — «Request not
 // supported»): системный вызов проверяется на ПК с Windows
 // (docs/research/WINDOWS_SHELL.md, §6), здесь — выбор по таблице.
@@ -105,6 +106,24 @@ func TestDefaultRouteSkipsOwnAdapterAndKnowsKinds(t *testing.T) {
 	net, ok, up := pickDefault(rows, tunName)
 	if !ok || !up || net != (Network{Alias: "Wi-Fi", Gateway: "198.51.100.1", Kind: NetWifi}) {
 		t.Fatalf("ждали Wi-Fi и поднятый адаптер, получено %+v ok=%v up=%v", net, ok, up)
+	}
+	// Как у ядра: есть маршрут по умолчанию через Wi-Fi — Wi-Fi, даже если
+	// у провода метрика меньше; иначе — наименьшая метрика.
+	both := []routeRow{
+		{alias: "Ethernet", gateway: "192.0.2.1", kind: NetEthernet, isDefault: true, metric: 10},
+		{alias: "Wi-Fi 2", gateway: "198.51.100.9", kind: NetWifi, isDefault: true, metric: 80},
+		{alias: "Wi-Fi", gateway: "198.51.100.1", kind: NetWifi, isDefault: true, metric: 50},
+	}
+	if net, ok, _ := pickDefault(both, tunName); !ok || net.Alias != "Wi-Fi" {
+		t.Fatalf("при Wi-Fi ядро берёт Wi-Fi с наименьшей метрикой среди Wi-Fi, а выбрано %+v", net)
+	}
+	wired := []routeRow{
+		{alias: "Ethernet 2", gateway: "192.0.2.9", kind: NetEthernet, isDefault: true, metric: 40},
+		{alias: "Cellular", gateway: "203.0.113.1", kind: NetMobile, isDefault: true, metric: 30},
+		{alias: "Ethernet", gateway: "192.0.2.1", kind: NetEthernet, isDefault: true, metric: 30},
+	}
+	if net, ok, _ := pickDefault(wired, tunName); !ok || net.Alias != "Cellular" {
+		t.Fatalf("без Wi-Fi — наименьшая метрика, при равной — первый в таблице, а выбрано %+v", net)
 	}
 	if _, ok, up := pickDefault(rows[1:2], tunName); ok || !up {
 		t.Fatalf("только адаптер DPpass — маршрута нет, туннель поднят: ok=%v up=%v", ok, up)
