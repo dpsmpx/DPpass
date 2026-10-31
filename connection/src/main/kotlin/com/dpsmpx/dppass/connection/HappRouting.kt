@@ -172,6 +172,7 @@ object HappRouting {
                         }
                     }
                 }
+                k == "globalproxy" -> globalProxy(value)?.let { skipped += HappSkip(key, it) }
                 k in SKIPPED_FIELDS -> SKIPPED_FIELDS.getValue(k).takeIf { it.isNotEmpty() && !isEmptyValue(value) }?.let { skipped += HappSkip(key, it) }
                 else -> skipped += HappSkip(key.take(ENTRY_SHOWN), "неизвестное поле: DPpass не знает, что оно значит, и не угадывает (D-05)")
             }
@@ -194,6 +195,18 @@ object HappRouting {
             lists = lists.with(kind, SiteList(kept))
         }
         return Outcome.Success(HappRoutingImport(name, lists, skipped))
+    }
+
+    /**
+     * `GlobalProxy`: «false» — всё, что не в списках, напрямую. В DPpass это
+     * идёт через туннель, и смысл профиля меняется: сказать громче, а не
+     * промолчать как о пустом значении (D-05). «true» — так DPpass и делает.
+     */
+    private fun globalProxy(v: com.dpsmpx.dppass.core.JsonValue): String? = when {
+        v is JsonString && v.value.trim().equals("false", ignoreCase = true) ->
+            "профиль ведёт напрямую всё, что не в его списках, а в DPpass это идёт через туннель: «всё напрямую» профилем не включается (D-11)"
+        isEmptyValue(v) -> null
+        else -> SKIPPED_FIELDS.getValue("globalproxy")
     }
 
     /** Пустое значение («», [], {}, "false") — не настройка, о нём молчать. */

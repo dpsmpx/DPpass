@@ -1,0 +1,9 @@
+{
+  "outcome": "ready",
+  "profiles": 1,
+  "provider_profile": true,
+  "provider_skipped": [
+    "GlobalProxy"
+  ],
+  "codes": []
+}

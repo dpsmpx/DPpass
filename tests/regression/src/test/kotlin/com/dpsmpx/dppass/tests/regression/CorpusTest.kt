@@ -8,6 +8,7 @@ import com.dpsmpx.dppass.connection.CandidatePlanner
 import com.dpsmpx.dppass.connection.ConnectionReport
 import com.dpsmpx.dppass.connection.DPpassCore
 import com.dpsmpx.dppass.connection.EngineProfileFilter
+import com.dpsmpx.dppass.connection.HappRouting
 import com.dpsmpx.dppass.connection.HealthBook
 import com.dpsmpx.dppass.connection.ServerlessMode
 import com.dpsmpx.dppass.connection.ServerlessSettings
@@ -235,6 +236,13 @@ class CorpusTest {
                         // Профиль маршрутизации поставщика (D-94): принят рядом с серверами, а не отброшен.
                         (expect["provider_profile"] as? JsonBool)?.let {
                             assertEquals(it.value, ready.candidate.providerProfile != null, "$name: профиль поставщика")
+                        }
+                        // Что из профиля не взято (D-05): поле, смысл которого DPpass меняет, — в сводке, а не молча.
+                        (expect["provider_skipped"] as? JsonArray)?.let { want ->
+                            val text = ready.candidate.providerProfile ?: fail("$name: профиля поставщика нет")
+                            val parsed = HappRouting.provider(text).valueOrNull() ?: fail("$name: профиль поставщика не разобран")
+                            val fields = parsed.skipped.map { it.field }
+                            for (f in want.items.map { (it as JsonString).value }) assertTrue(f in fields, "$name: «$f» не в сводке «не взято», есть $fields")
                         }
                     }
                     "failed" -> assertTrue(r is UpdateResult.Failed, "$name: ожидался отказ")

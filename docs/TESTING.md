@@ -91,11 +91,14 @@
 
 `ИМЯ.txt` — тело как пришло, `ИМЯ.headers.json` (необязательно) —
 заголовки ответа, `ИМЯ.expect.json`:
-`{"outcome": "ready" | "failed", "profiles": N, "provider_profile": true | false, "codes": [...]}`;
+`{"outcome": "ready" | "failed", "profiles": N, "provider_profile": true | false, "provider_skipped": [...], "codes": [...]}`;
 `profiles` — сколько серверов прошло проверку и фильтр ядра (`mock`);
 `provider_profile` (необязательно) — принят ли профиль маршрутизации
 поставщика (D-94): заголовок `routing` или ссылка в теле
-(`links-with-routing`).
+(`links-with-routing`); `provider_skipped` (необязательно, только с
+`provider_profile: true`) — поля профиля, которые должны быть в сводке
+«не взято»: так `GlobalProxy: "false"` (всё напрямую) не теряется молча
+(`links-with-routing-global-direct`, D-05).
 `remnawave-*` — синтетическая копия формы ответа панели Remnawave
 (`docs/research/REMNAWAVE_SUBSCRIPTIONS.md`): те же схемы, параметры и
 заголовки, но значения выдуманные; заглушки при лимите устройств (D-33).

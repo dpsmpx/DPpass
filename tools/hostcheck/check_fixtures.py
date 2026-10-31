@@ -253,7 +253,7 @@ def check_subscriptions():
     for n in sorted(expects & bodies):
         path = os.path.join(root, n + ".expect.json")
         e = load(path)
-        if e is None or not keys(path, e, {"outcome", "profiles", "provider_profile", "codes"}, ("outcome",)):
+        if e is None or not keys(path, e, {"outcome", "profiles", "provider_profile", "provider_skipped", "codes"}, ("outcome",)):
             continue
         one_of(path, "outcome", e.get("outcome"), {"ready", "failed"})
         if e.get("outcome") == "ready" and not isinstance(e.get("profiles"), int):
@@ -261,6 +261,11 @@ def check_subscriptions():
         # Профиль маршрутизации поставщика (D-94) проверяется только у Ready.
         if "provider_profile" in e and (not isinstance(e["provider_profile"], bool) or e.get("outcome") != "ready"):
             bad(path, "provider_profile — true или false, и только у ready")
+        # Поля профиля поставщика в сводке «не взято» (D-05) — только у принятого профиля.
+        skipped = e.get("provider_skipped")
+        if skipped is not None and (e.get("provider_profile") is not True or not isinstance(skipped, list) or not skipped
+                                    or not all(isinstance(f, str) and f for f in skipped)):
+            bad(path, "provider_skipped — непустой список имён полей, и только при provider_profile: true")
         codes(path, e)
     for n in sorted(headers & bodies):
         path = os.path.join(root, n + ".headers.json")

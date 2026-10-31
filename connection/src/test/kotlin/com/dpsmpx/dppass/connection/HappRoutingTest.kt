@@ -76,6 +76,20 @@ class HappRoutingTest {
     }
 
     @Test
+    fun globalDirectProfileIsNamedNotSilent() {
+        // «false» — всё, что не в списках, напрямую: DPpass ведёт это через туннель — смысл меняется, и это видно (D-05).
+        for (value in listOf("false", "FALSE", " false ")) {
+            val r = HappRouting.parse("""{"ProxySites":["example.com"],"GlobalProxy":"$value"}""").valueOrNull()
+            val reason = r?.skipped?.firstOrNull { it.field == "GlobalProxy" }?.reason
+            assertTrue(reason != null && "напрямую" in reason && "через туннель" in reason, "GlobalProxy=$value: $reason")
+        }
+        val provider = HappRouting.provider("""{"ProxySites":["example.com"],"GlobalProxy":"false"}""").valueOrNull()
+        assertTrue(provider?.skipped?.any { it.field == "GlobalProxy" } == true, "и у профиля поставщика (D-94)")
+        // Пустое — не настройка.
+        assertTrue(HappRouting.parse("""{"ProxySites":["example.com"],"GlobalProxy":""}""").valueOrNull()?.skipped?.isEmpty() == true)
+    }
+
+    @Test
     fun linksAddAndOnaddInBothBase64Alphabets() {
         val json = """{"ProxySites":["example.com"],"BlockIp":["198.51.100.0/24"]}"""
         val std = Base64.getEncoder().encodeToString(json.toByteArray())

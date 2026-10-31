@@ -79,10 +79,16 @@ sealed interface SiteEntry {
                 lower.startsWith("domain:") -> domain(line.substring("domain:".length).trim(), ::Domain)
                 lower.startsWith("keyword:") -> {
                     val k = lower.removePrefix("keyword:").trim()
-                    if (k.length in KEYWORD_LENGTH && k.all { it.isLetterOrDigit() || it == '-' || it == '.' }) {
+                    // Имена в DNS — латиница: кириллица в имени приходит как punycode (xn--…), и такое слово
+                    // не совпало бы ни с чем — правило, которое молча не действует (D-05).
+                    if (k.length in KEYWORD_LENGTH && k.all { it in 'a'..'z' || it in '0'..'9' || it == '-' || it == '.' }) {
                         Outcome.Success(Keyword(k))
                     } else {
-                        Outcome.failure(DiagCode.DOMAIN_INVALID, "ключевое слово — ${KEYWORD_LENGTH.first}…${KEYWORD_LENGTH.last} букв, цифр, «-» и «.»")
+                        Outcome.failure(
+                            DiagCode.DOMAIN_INVALID,
+                            "ключевое слово — ${KEYWORD_LENGTH.first}…${KEYWORD_LENGTH.last} латинских букв, цифр, «-» и «.»: " +
+                                "имена с другими буквами в DNS записаны как xn--…",
+                        )
                     }
                 }
                 lower.startsWith("regexp:") -> Outcome.failure(

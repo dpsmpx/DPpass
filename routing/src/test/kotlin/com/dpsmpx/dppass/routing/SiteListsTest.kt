@@ -37,6 +37,9 @@ class SiteListsTest {
             "10.0.0.0/33" to DiagCode.CIDR_INVALID,
             "not a domain" to DiagCode.DOMAIN_INVALID,
             "keyword:a" to DiagCode.DOMAIN_INVALID,
+            // Имена в DNS — латиница (кириллица — как xn--…): такое слово не совпало бы ни с чем (D-05).
+            "keyword:яндекс" to DiagCode.DOMAIN_INVALID,
+            "keyword:straße" to DiagCode.DOMAIN_INVALID,
             "full:" to DiagCode.DOMAIN_INVALID,
         )
         for ((text, code) in cases) {
