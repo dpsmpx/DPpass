@@ -26,7 +26,8 @@ dppass.exe — AMD64, окно, манифест `requireAdministrator`, зна�
     правах файлов Wine (они не настоящие), обход каждого файла комплекта,
     командная строка JVM и окружение без JAVA_TOOL_OPTIONS и подобных;
   * самопроверка оболочки на рантайме комплекта (`--windows-self-check`):
-    DLL моста загружена, граф Windows собран без отказов, DPAPI вернул ключ.
+    DLL моста загружена, граф Windows собран без отказов, DPAPI вернул ключ,
+    сокет канала пробы виден (флаг для проб мимо туннеля, D-99).
 
 Архив — zip без дат и прав (сумма воспроизводится) и SHA256SUMS — в DIR
 (по умолчанию `build/windows/dist`).
@@ -65,7 +66,8 @@ MINGW_COPYRIGHT = "/usr/share/doc/mingw-w64-common/copyright"
 MINGW_VERSION_HEADER = "/usr/share/mingw-w64/include/_mingw_mac.h"
 MAIN_CLASS = "com.dpsmpx.dppass.desktop.MainKt"
 # Флаги JVM — те же, что пишет запускатель (desktop/windows/dppass.c).
-JVM_FLAGS = ["-Dfile.encoding=UTF-8", "-XX:+DisableAttachMechanism", "--enable-native-access=ALL-UNNAMED"]
+JVM_FLAGS = ["-Dfile.encoding=UTF-8", "-XX:+DisableAttachMechanism", "--enable-native-access=ALL-UNNAMED",
+             "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED"]
 EXE_IMPORTS = {"kernel32.dll", "user32.dll", "advapi32.dll", "msvcrt.dll"}
 PE_SUBSYSTEM_GUI = 2
 TOP = {"dppass.exe", "runtime", "lib", "native", "geodata", "LICENSE", "NOTICES.txt"}
@@ -383,7 +385,8 @@ def wine_checks(root, test_exe, wine):
             raise RuntimeError(f"самопроверка оболочки: отчёта нет, код {r.returncode}\n{tail}")
         with open(report, encoding="utf-8") as f:
             rep = json.load(f)
-        if r.returncode != 0 or rep.get("host") != "windows" or not rep.get("engine") or rep.get("problems") or not rep.get("dpapi"):
+        if r.returncode != 0 or rep.get("host") != "windows" or not rep.get("engine") or rep.get("problems") or not rep.get("dpapi") \
+                or not rep.get("probe_socket"):
             raise RuntimeError(f"самопроверка оболочки: код {r.returncode}, отчёт {json.dumps({k: v for k, v in rep.items() if k != 'log'}, ensure_ascii=False)}")
         return rep["engine"]
     finally:
@@ -444,7 +447,7 @@ def package(dist, require_tests):
     check_tree(root, jar_names)
     if wine:
         engine = wine_checks(root, test_exe, wine)
-        wine_note = f"в Wine: права — {len(SDDL_CASES)} случаев, обход всего комплекта, командная строка и окружение JVM, самопроверка оболочки (ядро {engine}, DPAPI)"
+        wine_note = f"в Wine: права — {len(SDDL_CASES)} случаев, обход всего комплекта, командная строка и окружение JVM, самопроверка оболочки (ядро {engine}, DPAPI, сокет пробы)"
     else:
         wine_note = "Wine нет: запускатель и рантайм в Wine не проверены"
     os.makedirs(dist, exist_ok=True)

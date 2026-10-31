@@ -17,6 +17,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -106,7 +107,8 @@ class WindowsTest {
         assertEquals(false, host.tunnelAllowed())
         assertTrue("администратора" in host.tunnelRefusal)
         // Чего на Windows нет — окно говорит, а не прячет молча (D-97).
-        assertEquals(false, host.checksUnderTunnel)
+        assertEquals(false, host.checksUnderTunnel, "без моста туннеля нет — и проверки под ним")
+        assertTrue(WindowsHost({ reply(0, "0") }, { true }).checksUnderTunnel, "с мостом пробы идут мимо туннеля (D-99)")
         assertTrue("раздачи" in host.absent)
     }
 
@@ -144,12 +146,56 @@ class WindowsTest {
     }
 
     @Test
-    fun networkCheckOnlyWithoutTunnel() {
+    fun withoutTunnelProbesUseSystemSockets() {
         var up = false
-        val probes = WindowsProbeNetwork { up }
+        val probes = WindowsProbeNetwork({ up }, { error("без туннеля мост не спрашивают") })
         assertNull(probes.ready())
+        probes.tcpSocket().close()
+        // Туннель поднялся после начала проверки — сокет системы ушёл бы в него: отказ, а не проба сервера.
         up = true
-        assertEquals(DiagCode.NETWORK_CHECK_UNAVAILABLE, probes.ready()?.code)
+        assertFailsWith<java.io.IOException> { probes.tcpSocket() }
+    }
+
+    @Test
+    fun underTunnelProbesAreBoundToTheOutsideInterface() {
+        val bound = mutableListOf<Pair<Long, Int>>()
+        val asked = mutableListOf<Triple<String, List<String>, Int>>()
+        val probes = WindowsProbeNetwork(
+            { true },
+            { reply(0, "12\n192.0.2.53\n2001:db8::53") },
+            { handle, index -> bound += handle to index; reply(0, "") },
+        ) { host, servers, index -> asked += Triple(host, servers, index); reply(0, "198.51.100.7") }
+        assertNull(probes.ready())
+        assertEquals(12, bound.single().second, "пробная привязка — до проб")
+        probes.udpSocket().close()
+        assertEquals(2, bound.size, "сокет пробы привязан до соединения")
+        assertEquals(listOf("198.51.100.7"), probes.resolve("probe.example.com").map { it.hostAddress })
+        assertEquals(Triple("probe.example.com", listOf("192.0.2.53", "2001:db8::53"), 12), asked.single())
+    }
+
+    @Test
+    fun underTunnelWithoutBindingTheCheckIsRefusedWithReason() {
+        fun reason(probes: WindowsProbeNetwork) = assertNotNull(probes.ready()).also {
+            assertEquals(DiagCode.NETWORK_CHECK_UNAVAILABLE, it.code)
+        }.message
+        assertTrue("библиотеки моста" in reason(WindowsProbeNetwork({ true })))
+        assertTrue("нет маршрута" in reason(WindowsProbeNetwork({ true }, { reply(1, "нет маршрута") })))
+        assertTrue("серверов DNS" in reason(WindowsProbeNetwork({ true }, { reply(0, "12") })))
+        val refused = WindowsProbeNetwork({ true }, { reply(0, "12\n192.0.2.53") }, { _, _ -> reply(3, "WSAEOPNOTSUPP") })
+        assertTrue("не привязался" in reason(refused) && "WSAEOPNOTSUPP" in reason(refused))
+        // Сервер DNS — только литерал IP: имя значило бы ещё один резолв; номер 0 — не интерфейс.
+        assertNull(WindowsProbeNetwork.parseInterface(reply(0, "12\ndns.example.com")))
+        assertNull(WindowsProbeNetwork.parseInterface(reply(0, "0\n192.0.2.53")))
+        assertEquals(WindowsProbeNetwork.Outside(12, emptyList()), WindowsProbeNetwork.parseInterface(reply(0, "12")))
+    }
+
+    @Test
+    fun socketThatDidNotBindIsClosedNotSentIntoTunnel() {
+        var calls = 0
+        val probes = WindowsProbeNetwork({ true }, { reply(0, "12\n192.0.2.53") }, { _, _ -> if (calls++ == 0) reply(0, "") else reply(3, "отказ") })
+        assertNull(probes.ready())
+        val socket = probes.tcpSocket()
+        assertTrue(socket.isClosed, "сокет без привязки закрыт: соединение — отказ пробы, а не путь в туннель")
     }
 
     @Test

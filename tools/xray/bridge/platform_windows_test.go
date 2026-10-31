@@ -4,9 +4,16 @@ package bridge
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
+	"io"
+	"net"
+	"net/netip"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
@@ -148,3 +155,143 @@ func TestAppsUseLightThemeReadsUserValue(t *testing.T) {
 		t.Fatal("параметра нет — тема не узнана, а не «тёмная»")
 	}
 }
+
+// Сокет пробы мимо туннеля (D-99): у сокета IPv6 (двойного стека JDK) —
+// IPV6_UNICAST_IF и IP_UNICAST_IF, у IPv4 — одна; номер IPv4 — в сетевом
+// порядке байт; ошибка опции или чтения семейства — отказ; номер 0 — отказ
+// без вызовов. Опции — подменой: IP_UNICAST_IF Wine 9.0 не поддерживает
+// (WSAEOPNOTSUPP), системный вызов — ПК автора.
+func TestBindToInterfaceSetsUnicastIfForBothFamilies(t *testing.T) {
+	type call struct{ level, opt, value int }
+	fake := func(family error, setErr error) (sockopts, *[]call) {
+		var calls []call
+		return sockopts{
+			set: func(_ windows.Handle, level, opt, value int) error {
+				calls = append(calls, call{level, opt, value})
+				return setErr
+			},
+			get: func(windows.Handle, int, int) (int, error) { return 0, family },
+		}, &calls
+	}
+	var be [4]byte
+	binary.BigEndian.PutUint32(be[:], 7)
+	v4value := int(int32(binary.NativeEndian.Uint32(be[:])))
+
+	o, calls := fake(nil, nil)
+	if err := o.bind(1, 7); err != nil {
+		t.Fatal(err)
+	}
+	if want := []call{{windows.IPPROTO_IPV6, ipv6UnicastIf, 7}, {windows.IPPROTO_IP, ipUnicastIf, v4value}}; !slices.Equal(*calls, want) {
+		t.Fatalf("сокет IPv6: %v, ждали %v", *calls, want)
+	}
+	o, calls = fake(windows.WSAENOPROTOOPT, nil)
+	if err := o.bind(1, 7); err != nil || !slices.Equal(*calls, []call{{windows.IPPROTO_IP, ipUnicastIf, v4value}}) {
+		t.Fatalf("сокет IPv4: %v, %v", *calls, err)
+	}
+	if o, _ := fake(nil, windows.WSAEOPNOTSUPP); o.bind(1, 7) == nil {
+		t.Fatal("отказ опции не стал отказом привязки")
+	}
+	if o, _ := fake(windows.WSAENOTSOCK, nil); o.bind(1, 7) == nil {
+		t.Fatal("ошибка сокета прочитана как «IPv4»")
+	}
+	if o, calls := fake(nil, nil); o.bind(1, 0) == nil || len(*calls) != 0 {
+		t.Fatal("номер интерфейса 0 принят")
+	}
+}
+
+// Резолв пробы (D-99): спрашивается данный сервер сокетом с привязкой, а не
+// системный резолвер; привязка не встала — отказ, сервер не спрошен; без
+// серверов — отказ, а не запрос в туннель. Сервер — свой на loopback, по
+// TCP: UDP Go в Wine 9.0 не создать.
+func TestResolveViaAsksGivenServerOverBoundSocket(t *testing.T) {
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	var asked atomic.Int32
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			asked.Add(1)
+			go serveTCPDNS(c, [4]byte{192, 0, 2, 7})
+		}
+	}()
+	server := netip.MustParseAddrPort(ln.Addr().String())
+	var bound atomic.Int32
+	bind := func(uintptr) error { bound.Add(1); return nil }
+	got, err := resolveVia("probe.example.com", []netip.AddrPort{server}, 7, 5*time.Second, "tcp", bind)
+	if err != nil || len(got) != 1 || got[0] != "192.0.2.7" || bound.Load() == 0 {
+		t.Fatalf("ждали 192.0.2.7 от своего сервера сокетом с привязкой, получено %v, %v, привязок %d", got, err, bound.Load())
+	}
+	before := asked.Load()
+	refused := func(uintptr) error { return windows.WSAEOPNOTSUPP }
+	if _, err := resolveVia("probe.example.com", []netip.AddrPort{server}, 7, time.Second, "tcp", refused); err == nil {
+		t.Fatal("привязка не встала, а имя разрешено")
+	}
+	if asked.Load() != before {
+		t.Fatal("сервер спрошен сокетом без привязки")
+	}
+	if _, err := ResolveVia("probe.example.com", nil, 7, time.Second); err == nil {
+		t.Fatal("без серверов интерфейса — не отказ")
+	}
+	if _, err := ResolveVia("probe.example.com", []netip.Addr{server.Addr()}, 0, time.Second); err == nil {
+		t.Fatal("интерфейс 0 принят")
+	}
+}
+
+// serveTCPDNS — запросы DNS по TCP (длина двумя байтами перед сообщением).
+func serveTCPDNS(c net.Conn, ip [4]byte) {
+	defer func() { _ = c.Close() }()
+	for {
+		var n [2]byte
+		if _, err := io.ReadFull(c, n[:]); err != nil {
+			return
+		}
+		q := make([]byte, binary.BigEndian.Uint16(n[:]))
+		if _, err := io.ReadFull(c, q); err != nil {
+			return
+		}
+		a := answerA(q, ip)
+		if a == nil {
+			return
+		}
+		binary.BigEndian.PutUint16(n[:], uint16(len(a)))
+		if _, err := c.Write(append(n[:], a...)); err != nil {
+			return
+		}
+	}
+}
+
+// answerA — ответ на запрос q: на A — адрес ip, на прочее — без записей.
+// Раздел дополнительных записей запроса (OPT) в ответ не идёт.
+func answerA(q []byte, ip [4]byte) []byte {
+	if len(q) < 12 {
+		return nil
+	}
+	end := 12
+	for end < len(q) && q[end] != 0 {
+		end += int(q[end]) + 1
+	}
+	end += 5 // ноль имени, тип и класс
+	if end > len(q) {
+		return nil
+	}
+	qtype := binary.BigEndian.Uint16(q[end-4 : end-2])
+	out := append([]byte{}, q[:end]...)
+	out[2] |= 0x80 // QR
+	out[3] = 0x80  // RA, NOERROR
+	binary.BigEndian.PutUint16(out[8:10], 0)
+	binary.BigEndian.PutUint16(out[10:12], 0)
+	if qtype != 1 {
+		binary.BigEndian.PutUint16(out[6:8], 0)
+		return out
+	}
+	binary.BigEndian.PutUint16(out[6:8], 1)
+	out = append(out, 0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4)
+	return append(out, ip[:]...)
+}
+

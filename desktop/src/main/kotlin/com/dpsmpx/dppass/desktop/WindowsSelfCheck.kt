@@ -5,6 +5,7 @@ import com.dpsmpx.dppass.core.JsonNull
 import com.dpsmpx.dppass.core.JsonString
 import com.dpsmpx.dppass.core.JsonValue
 import java.io.File
+import java.nio.channels.DatagramChannel
 
 /**
  * Самопроверка комплекта Windows (D-97) для `tools/desktop/windows_package.py`
@@ -12,7 +13,8 @@ import java.io.File
  * набор геоданных, хранилище, — и ключ проходит DPAPI туда и обратно. Окна и
  * туннеля нет. Данные — в [data], а не в `%LOCALAPPDATA%`: проверка не
  * трогает данные пользователя. Отчёт — JSON в [out]; true — ядро загружено,
- * сборка без отказов, DPAPI вернул тот же ключ.
+ * сборка без отказов, DPAPI вернул тот же ключ, сокет канала пробы виден
+ * (флаг запуска для проб мимо туннеля, D-99).
  */
 object WindowsSelfCheck {
     fun run(install: File, data: File, out: File): Boolean {
@@ -26,12 +28,15 @@ object WindowsSelfCheck {
         } catch (e: Exception) {
             false
         }
-        val ok = version != null && graph.problems.isEmpty() && dpapi
+        // Сокет канала JDK — тот, что проба привязывает к интерфейсу мимо туннеля (D-99).
+        val probeSocket = DatagramChannel.open().use { LinuxProbeNetwork.fdOf(it) != null }
+        val ok = version != null && graph.problems.isEmpty() && dpapi && probeSocket
         val report = linkedMapOf<String, JsonValue>(
             "host" to JsonString(graph.host.id),
             "engine" to (Json.str(version) ?: JsonNull),
             "problems" to Json.strings(graph.problems.flatMap { it.renderWithCauses() }),
             "dpapi" to Json.bool(dpapi),
+            "probe_socket" to Json.bool(probeSocket),
             "tunnel_allowed" to Json.bool(graph.host.tunnelAllowed()),
             "log" to Json.strings(graph.log.snapshot().map { it.render() }),
         )

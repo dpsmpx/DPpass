@@ -23,11 +23,14 @@ const (
 	NetMobile   NetKind = 3
 )
 
-// Network — маршрут по умолчанию: интерфейс (его псевдоним Windows), шлюз и вид.
+// Network — маршрут по умолчанию: интерфейс (его псевдоним Windows), шлюз и
+// вид; Index и LUID — для проб мимо туннеля (D-99).
 type Network struct {
 	Alias   string
 	Gateway string
 	Kind    NetKind
+	Index   uint32
+	LUID    winipcfg.LUID
 }
 
 // DefaultRoute — маршрут по умолчанию с наименьшей метрикой (маршрута и
@@ -45,7 +48,7 @@ func DefaultRoute(tunAlias string) (net Network, ok bool, tunUp bool, err error)
 		if e != nil || ifrow.OperStatus != winipcfg.IfOperStatusUp {
 			continue
 		}
-		row := routeRow{alias: ifrow.Alias(), gateway: r.NextHop.Addr().String(), kind: kindOf(ifrow.Type)}
+		row := routeRow{alias: ifrow.Alias(), gateway: r.NextHop.Addr().String(), kind: kindOf(ifrow.Type), index: ifrow.InterfaceIndex, luid: r.InterfaceLUID}
 		if r.DestinationPrefix.PrefixLength == 0 {
 			family := winipcfg.AddressFamily(windows.AF_INET)
 			if r.DestinationPrefix.Prefix().Addr().Is6() {
@@ -71,6 +74,8 @@ type routeRow struct {
 	kind      NetKind
 	isDefault bool
 	metric    uint64
+	index     uint32
+	luid      winipcfg.LUID
 }
 
 // pickDefault — маршрут по умолчанию с наименьшей метрикой, кроме адаптера
@@ -85,7 +90,7 @@ func pickDefault(rows []routeRow, tunAlias string) (net Network, ok bool, tunUp 
 		}
 		if r.isDefault && r.metric < best {
 			best = r.metric
-			net = Network{Alias: r.alias, Gateway: r.gateway, Kind: r.kind}
+			net = Network{Alias: r.alias, Gateway: r.gateway, Kind: r.kind, Index: r.index, LUID: r.luid}
 			ok = true
 		}
 	}

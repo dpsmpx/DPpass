@@ -190,7 +190,22 @@ class DesktopGraph(
                 tunnels = WindowsTunnels(SELF, logger, elevated),
                 keyWrapper = if (loaded) DpapiKeyWrapper() else DpapiKeyWrapper(NO_BRIDGE, NO_BRIDGE),
                 traits = WindowsHost.TRAITS,
-                probeNetwork = WindowsProbeNetwork(host::tunnelUp),
+                probeNetwork = if (loaded) {
+                    WindowsProbeNetwork(
+                        host::tunnelUp,
+                        { WindowsNative.nativeProbeInterface(alias) },
+                        WindowsNative::nativeBindSocket,
+                    ) { host, servers, index ->
+                        WindowsNative.nativeResolveVia(
+                            host.toByteArray(Charsets.UTF_8),
+                            servers.joinToString("\n").toByteArray(Charsets.UTF_8),
+                            index,
+                            LinuxProbeNetwork.RESOLVE_TIMEOUT_MILLIS,
+                        )
+                    }
+                } else {
+                    WindowsProbeNetwork(host::tunnelUp)
+                },
                 relayNetworks = null,
                 shares = null,
             )

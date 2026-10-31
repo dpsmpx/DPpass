@@ -97,6 +97,12 @@ Xray 26.9.30 (модуль `github.com/xtls/xray-core`
   (`tools/xray/bridge/protect.go`). На Windows длину среза нужно
   запоминать до запуска и возвращать после остановки — срез и его
   блокировка (`ControllersLock`) экспортированы.
+- **Фильтр DNS и свои пробы** (31.10.2026, исходник Xray 26.9.30,
+  `proxy/tun/tun_windows_wfp.go`). Разрешение «permit Xray» —
+  жёсткое (сбрасывает право блокировать другим подслоям) и дано по
+  образу процесса: `FwpmGetAppIdFromFileName0(os.Executable())`. Ядро
+  DPpass — в процессе JVM, поэтому запросы имён проб DPpass мимо
+  адаптера фильтр «dns» тоже пропускает (D-99).
 - **Имена серверов.** Пока DNS ограничен фильтром и действует
   `autoOutboundsInterface`, ядро резолвит имена серверов само — своими
   запросами к DNS-серверам других интерфейсов, мимо кеша Windows
@@ -175,6 +181,12 @@ Xray обращается к DLL только через экспорт `wintun.
   Адаптер Wintun и фильтры WFP Wine не даёт: их проверяет только ПК с
   Windows. Таблицу маршрутов тоже: `GetIPForwardTable2` в Wine 9.0
   отвечает «Request not supported» (проверено 30.10.2026 тестом моста).
+  Ещё (31.10.2026, тесты моста): `GetAdaptersAddresses` (список
+  интерфейсов Go) — «Request not supported»; `setsockopt` с
+  `IP_UNICAST_IF` — `WSAEOPNOTSUPP`; сокет UDP Go не создаётся
+  (`WSAIoctl` с `SIO_UDP_CONNRESET` — `WSAEOPNOTSUPP`); сокет IPv6 —
+  `WSAEAFNOSUPPORT` (IPv6 нет в ядре машины). Привязку проб (D-99)
+  тесты в Wine проверяют подменой опций, резолв — своим сервером по TCP.
 - **Граф оболочки в Wine** (30.10.2026, оболочка 0.1.18-dev):
   - `jdeps` jar оболочки и её модулей называет модули `java.base`,
     `java.desktop`, `java.instrument`, `jdk.unsupported`;

@@ -1,6 +1,7 @@
 package com.dpsmpx.dppass.desktop
 
 import com.dpsmpx.dppass.core.Cidr
+import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.desktop.ui.AppIcon
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
@@ -10,7 +11,6 @@ import com.dpsmpx.dppass.engine.SystemTun
 import com.dpsmpx.dppass.engine.TunInput
 import com.dpsmpx.dppass.engine.xray.XrayBackend
 import com.dpsmpx.dppass.network.NetworkType
-import com.dpsmpx.dppass.network.ProbeNetwork
 import com.dpsmpx.dppass.network.SystemProbeNetwork
 import com.dpsmpx.dppass.storage.KeyWrapper
 import com.dpsmpx.dppass.tunnel.PlatformTraits
@@ -20,6 +20,13 @@ import java.awt.EventQueue
 import java.awt.GraphicsEnvironment
 import java.awt.SystemTray
 import java.awt.TrayIcon
+import java.io.IOException
+import java.net.DatagramSocket
+import java.net.InetAddress
+import java.net.Socket
+import java.nio.channels.Channel
+import java.nio.channels.DatagramChannel
+import java.nio.channels.SocketChannel
 import javax.swing.Timer
 
 /**
@@ -47,10 +54,11 @@ class WindowsHost(
 
     override fun network(): DesktopNetwork? = route?.let { parseRoute(it()).network }
 
-    /** Поднят ли адаптер DPpass: пока он есть, пробы ушли бы в туннель. */
+    /** Поднят ли адаптер DPpass: пока он есть, пробы привязываются к интерфейсу мимо него (D-99). */
     fun tunnelUp(): Boolean = route?.let { parseRoute(it()).tunUp } ?: false
 
-    override val checksUnderTunnel: Boolean = false
+    /** Пробы мимо туннеля — через мост (D-99); без библиотеки моста туннеля нет. */
+    override val checksUnderTunnel: Boolean = route != null
 
     override fun systemDark(): Boolean? = when (theme()) {
         0 -> true
@@ -59,8 +67,7 @@ class WindowsHost(
     }
 
     override val absent: String =
-        "На Windows нет раздачи с ПК (D-84) и подключения через устройство раздачи (D-85) — вкладок для них здесь нет (D-97). " +
-            "Проверка сети — только без туннеля: через туннель она мерила бы сервер, а не сеть."
+        "На Windows нет раздачи с ПК (D-84) и подключения через устройство раздачи (D-85) — вкладок для них здесь нет (D-97)."
 
     /** Ответ [WindowsNative.nativeDefaultRoute] — сеть и поднят ли адаптер. */
     data class Route(val network: WindowsNetwork?, val tunUp: Boolean)
@@ -175,19 +182,102 @@ class DpapiKeyWrapper(
 }
 
 /**
- * Пробы проверки сети на Windows (D-79, D-97): сокеты системы — мимо
- * туннеля они идут, только пока адаптера DPpass нет. Пока туннель поднят,
- * проверка отказывает с причиной: через туннель она мерила бы сервер, а не
- * сеть (D-05). Вывести пробы из туннеля — следующей версией.
+ * Пробы проверки сети на Windows (D-79, D-99). Без адаптера DPpass — сокеты
+ * системы. Пока туннель поднят, сокет пробы до соединения привязывается к
+ * физическому интерфейсу маршрута по умолчанию (IP_UNICAST_IF — как сокеты
+ * ядра, `autoOutboundsInterface`), а имена резолвят серверы DNS этого
+ * интерфейса сокетами с той же привязкой: системный резолвер спросил бы
+ * через туннель. Не привязался — сокет закрыт, проба отказывает, а не идёт
+ * в туннель (D-05): через туннель она мерила бы сервер, а не сеть.
  */
-class WindowsProbeNetwork(private val tunnelUp: () -> Boolean) : DesktopProbeNetwork, ProbeNetwork by SystemProbeNetwork {
-    override fun ready(): Diagnostic? = if (!tunnelUp()) {
-        null
-    } else {
-        Diagnostic.error(
-            DiagCode.NETWORK_CHECK_UNAVAILABLE,
-            "на Windows проверка сети — только без туннеля (D-97): отключитесь и проверьте; через туннель она мерила бы сервер, а не сеть",
-        )
+class WindowsProbeNetwork(
+    private val tunnelUp: () -> Boolean,
+    /** Ответ моста об интерфейсе мимо туннеля ([WindowsNative.nativeProbeInterface]); null — библиотеки моста нет. */
+    private val probeInterface: (() -> ByteArray)? = null,
+    /** Привязка сокета к интерфейсу: ответ моста — статус ([WindowsNative.nativeBindSocket]). */
+    private val bind: (Long, Int) -> ByteArray = { _, _ -> byteArrayOf() },
+    /** Резолв серверами интерфейса ([WindowsNative.nativeResolveVia]): имя, серверы, интерфейс. */
+    private val resolveVia: (String, List<String>, Int) -> ByteArray = { _, _, _ -> byteArrayOf() },
+) : DesktopProbeNetwork {
+    /** Интерфейс мимо туннеля: номер и его серверы DNS. */
+    data class Outside(val index: Int, val dns: List<String>)
+
+    /** Интерфейс этой проверки; null — туннеля не было, когда она началась. */
+    @Volatile
+    private var outside: Outside? = null
+
+    /**
+     * Туннеля нет — сокеты системы. Есть — интерфейс мимо него с серверами
+     * DNS и пробная привязка сокета; не вышло — причина до проб: отказ
+     * одной пробы прочитался бы как свойство сети.
+     */
+    override fun ready(): Diagnostic? {
+        outside = null
+        if (!tunnelUp()) return null
+        val query = probeInterface ?: return unavailable("нет библиотеки моста")
+        val o = parseInterface(query()) ?: return unavailable("мост не назвал интерфейс мимо туннеля: ${failure(query())}")
+        if (o.dns.isEmpty()) return unavailable("у интерфейса мимо туннеля нет серверов DNS")
+        DatagramChannel.open().use { ch ->
+            val handle = LinuxProbeNetwork.fdOf(ch) ?: return unavailable("не узнать сокет JDK (нужен флаг запуска --add-exports java.base/sun.nio.ch)")
+            failure(bind(handle.toLong(), o.index))?.let { return unavailable("сокет не привязался к интерфейсу: $it") }
+        }
+        outside = o
+        return null
+    }
+
+    override fun resolve(host: String): List<InetAddress> {
+        val o = outside ?: return plain { SystemProbeNetwork.resolve(host) }
+        return LinuxProbeNetwork.parseResolve(host, resolveVia(host, o.dns, o.index))
+    }
+
+    override fun tcpSocket(): Socket {
+        val o = outside ?: return plain { SystemProbeNetwork.tcpSocket() }
+        return SocketChannel.open().also { bound(it, o) }.socket()
+    }
+
+    override fun udpSocket(): DatagramSocket {
+        val o = outside ?: return plain { SystemProbeNetwork.udpSocket() }
+        return DatagramChannel.open().also { bound(it, o) }.socket()
+    }
+
+    /** Страницу входа на ПК система DPpass не сообщает. */
+    override fun captivePortal(): Boolean? = null
+
+    /** Сокеты системы — только пока туннеля нет: поднялся после [ready] — отказ, а не путь в туннель. */
+    private fun <T> plain(open: () -> T): T {
+        if (tunnelUp()) throw IOException("туннель поднялся во время проверки — пробы ушли бы в него")
+        return open()
+    }
+
+    private fun bound(ch: Channel, o: Outside) {
+        val handle = LinuxProbeNetwork.fdOf(ch)
+        // Не вышло — закрыть: соединение закрытого сокета — отказ пробы, а не путь в туннель.
+        if (handle == null || failure(bind(handle.toLong(), o.index)) != null) ch.close()
+    }
+
+    private fun unavailable(why: String): Diagnostic = Diagnostic.error(
+        DiagCode.NETWORK_CHECK_UNAVAILABLE,
+        "проверке сети не пустить пробы мимо туннеля: $why — через туннель она мерила бы сервер, а не сеть",
+    )
+
+    companion object {
+        /** Ответ [WindowsNative.nativeProbeInterface] → номер и серверы; отказ или не разобрано — null. */
+        fun parseInterface(reply: ByteArray): Outside? {
+            if (reply.isEmpty() || reply[0].toInt() != 0) return null
+            val lines = String(reply, 1, reply.size - 1, Charsets.UTF_8).lines().filter { it.isNotBlank() }
+            val index = lines.firstOrNull()?.toIntOrNull()?.takeIf { it > 0 } ?: return null
+            val dns = lines.drop(1)
+            // Сервер — литерал IP: имя здесь означало бы ещё один резолв.
+            if (dns.any { IpAddress.parse(it) == null }) return null
+            return Outside(index, dns)
+        }
+
+        /** Текст отказа ответа моста со статусом; null — успех. */
+        fun failure(reply: ByteArray): String? = when {
+            reply.isEmpty() -> "мост не ответил"
+            reply[0].toInt() == 0 -> null
+            else -> String(reply, 1, reply.size - 1, Charsets.UTF_8)
+        }
     }
 }
 

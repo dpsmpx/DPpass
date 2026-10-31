@@ -17,7 +17,9 @@
  *
  * Свои аргументы запускатель не передаёт: командную строку JVM с правами
  * администратора задаёт только он. Подключение к JVM отладчиком и агентами
- * выключено (-XX:+DisableAttachMechanism).
+ * выключено (-XX:+DisableAttachMechanism). Пакет sun.nio.ch открыт, как и на
+ * Linux: без него не узнать сокет канала пробы, чтобы привязать её к
+ * интерфейсу мимо туннеля (D-99).
  *
  * С DPPASS_LAUNCHER_TEST собирается тестовая программа для Wine
  * (tools/desktop/windows_package.py): причины — в вывод, JVM не
@@ -290,6 +292,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR args, int show
         || swprintf(javaw, PATH_CHARS, L"%ls\\javaw.exe", runtime_bin) < 0
         || swprintf(command, PATH_CHARS * 2,
                L"\"%ls\" -Dfile.encoding=UTF-8 -XX:+DisableAttachMechanism --enable-native-access=ALL-UNNAMED "
+               L"--add-exports=java.base/sun.nio.ch=ALL-UNNAMED "
                L"-cp \"%ls\\lib\\*\" com.dpsmpx.dppass.desktop.MainKt",
                javaw, home) < 0) {
         show(L"Слишком длинный путь к комплекту DPpass.");
