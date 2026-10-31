@@ -74,12 +74,18 @@ func TestWindowsPolicyAcceptsOnlyCompilerSystemTun(t *testing.T) {
 	if _, tunIn, err := build(config(good)); err != nil || tunIn == nil {
 		t.Fatalf("вход TUN компилятора должен проходить: %v", err)
 	}
+	// Через устройство раздачи (D-102) — интерфейс его сети по имени.
+	viaRelay := strings.Replace(good, `"autoOutboundsInterface": "auto"`, `"autoOutboundsInterface": "Ethernet 3"`, 1)
+	if _, tunIn, err := build(config(viaRelay)); err != nil || tunIn == nil {
+		t.Fatalf("интерфейс сети устройства раздачи должен проходить: %v", err)
+	}
 	bad := map[string]string{
 		"чужое имя":         strings.Replace(good, `"dppass0"`, `"other"`, 1),
 		"без маршрутов":     `"name": "dppass0", "mtu": 1500, "gateway": ["172.19.0.1/30"], "dns": ["172.19.0.2"]`,
 		"без фильтра DNS":   strings.Replace(good, `["dns", "misconfigtun"]`, `["misconfigtun"]`, 1),
 		"без misconfigtun":  strings.Replace(good, `["dns", "misconfigtun"]`, `["dns"]`, 1),
-		"интерфейс задан":   strings.Replace(good, `"autoOutboundsInterface": "auto"`, `"autoOutboundsInterface": "Ethernet"`, 1),
+		"без привязки":      strings.Replace(good, `"autoOutboundsInterface": "auto"`, `"autoOutboundsInterface": ""`, 1),
+		"привязка к себе":   strings.Replace(good, `"autoOutboundsInterface": "auto"`, `"autoOutboundsInterface": "dppass0"`, 1),
 		"без адаптера ядра": `"name": "dppass0", "mtu": 1500`,
 	}
 	for name, settings := range bad {
@@ -314,3 +320,65 @@ func answerA(q []byte, ip [4]byte) []byte {
 	return append(out, ip[:]...)
 }
 
+
+// Сети для устройства раздачи (D-102): поднятые интерфейсы без адаптера
+// DPpass; шлюзы — только частные IPv4, адреса — только IPv4; вид — по типу,
+// среде и описанию RNDIS.
+func TestRelayNetsArePrivateGatewaysOfUpInterfaces(t *testing.T) {
+	a := netip.MustParseAddr
+	p := netip.MustParsePrefix
+	rows := []relayRow{
+		{net: RelayNet{Index: 7, Alias: "Ethernet 3", Medium: RelayUSB}, up: true,
+			gateways: []netip.Addr{a("192.168.42.129"), a("192.168.42.129")}, prefixes: []netip.Prefix{p("192.168.42.33/24")}},
+		{net: RelayNet{Index: 3, Alias: "Wi-Fi", Medium: RelayWifi}, up: true,
+			gateways: []netip.Addr{a("192.168.43.1"), a("fe80::1")}, prefixes: []netip.Prefix{p("192.168.43.20/24"), p("fe80::2/64")}},
+		{net: RelayNet{Index: 2, Alias: "Ethernet", Medium: RelayWired}, up: true,
+			gateways: []netip.Addr{a("203.0.113.1")}, prefixes: []netip.Prefix{p("203.0.113.50/24")}},
+		{net: RelayNet{Index: 9, Alias: tunName}, up: true, gateways: []netip.Addr{a("172.19.0.2")}, prefixes: []netip.Prefix{p("172.19.0.1/30")}},
+		{net: RelayNet{Index: 5, Alias: "Bluetooth Network Connection", Medium: RelayBluetooth}, up: false, gateways: []netip.Addr{a("192.168.44.1")}},
+		{net: RelayNet{Index: 0, Alias: "?"}, up: true, gateways: []netip.Addr{a("192.168.45.1")}},
+		{net: RelayNet{Index: 4, Alias: "Loopback"}, up: true},
+		{net: RelayNet{Index: 1, Alias: "Loopback Pseudo-Interface 1"}, up: true, loopback: true, prefixes: []netip.Prefix{p("127.0.0.1/8")}},
+	}
+	got := pickRelayNets(rows, tunName)
+	want := []RelayNet{
+		{Index: 2, Alias: "Ethernet", Medium: RelayWired, Prefixes: []netip.Prefix{p("203.0.113.50/24")}},
+		{Index: 3, Alias: "Wi-Fi", Medium: RelayWifi, Gateways: []netip.Addr{a("192.168.43.1")}, Prefixes: []netip.Prefix{p("192.168.43.20/24")}},
+		{Index: 7, Alias: "Ethernet 3", Medium: RelayUSB, Gateways: []netip.Addr{a("192.168.42.129")}, Prefixes: []netip.Prefix{p("192.168.42.33/24")}},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("сети: %+v, ожидалось %+v", got, want)
+	}
+	for i := range want {
+		g, w := got[i], want[i]
+		if g.Index != w.Index || g.Alias != w.Alias || g.Medium != w.Medium || !slices.Equal(g.Gateways, w.Gateways) || !slices.Equal(g.Prefixes, w.Prefixes) {
+			t.Fatalf("сеть %d: %+v, ожидалось %+v", i, g, w)
+		}
+	}
+	for _, c := range []struct {
+		t    uint32
+		ph   winipcfg.NdisPhysicalMedium
+		desc string
+		want RelayMedium
+	}{
+		{windows.IF_TYPE_IEEE80211, winipcfg.NdisPhysicalMediumNative802_11, "Intel(R) Wi-Fi 6", RelayWifi},
+		{windows.IF_TYPE_ETHERNET_CSMACD, winipcfg.NdisPhysicalMediumBluetooth, "Bluetooth Device (Personal Area Network)", RelayBluetooth},
+		{windows.IF_TYPE_ETHERNET_CSMACD, winipcfg.NdisPhysicalMedium802_3, "Remote NDIS based Internet Sharing Device", RelayUSB},
+		{windows.IF_TYPE_ETHERNET_CSMACD, winipcfg.NdisPhysicalMedium802_3, "Realtek PCIe GbE Family Controller", RelayWired},
+	} {
+		if got := mediumOf(winipcfg.IfType(c.t), c.ph, c.desc); got != c.want {
+			t.Errorf("%s: вид %d, ожидался %d", c.desc, got, c.want)
+		}
+	}
+}
+
+// Настоящие таблицы: в Wine 9.0 таблицы маршрутов нет — ошибка, а не падение.
+func TestRelayNetworksSystemDoesNotCrash(t *testing.T) {
+	nets, err := RelayNetworks(tunName)
+	t.Logf("сети: %+v, %v", nets, err)
+	for _, n := range nets {
+		if slices.ContainsFunc(n.Prefixes, func(p netip.Prefix) bool { return p.Addr().IsLoopback() }) {
+			t.Fatalf("loopback в сетях устройства раздачи: %+v", n)
+		}
+	}
+}

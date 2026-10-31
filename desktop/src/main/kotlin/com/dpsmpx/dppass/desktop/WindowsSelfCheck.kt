@@ -16,7 +16,7 @@ import java.nio.channels.DatagramChannel
  * сборка без отказов, DPAPI вернул тот же ключ, сокет канала пробы виден
  * (флаг запуска для проб мимо туннеля, D-99), поиск точки доступа (ICS,
  * D-101) ответил через мост — в Wine её объектов нет, и ответ — отказ, но
- * не падение.
+ * не падение; сети ПК для устройства раздачи (D-102) разобраны.
  */
 object WindowsSelfCheck {
     fun run(install: File, data: File, out: File): Boolean {
@@ -34,7 +34,12 @@ object WindowsSelfCheck {
         val probeSocket = DatagramChannel.open().use { LinuxProbeNetwork.fdOf(it) != null }
         // Поиск точки доступа через мост (D-101): что-то ответил — путь JNI и COM цел.
         val share = graph.shares?.find()?.seen
-        val ok = version != null && graph.problems.isEmpty() && dpapi && probeSocket && share?.startsWith("ics=") == true
+        // Сети ПК для устройства раздачи (D-102): ответ моста разобран — сколько интерфейсов.
+        val relayNets = version?.let {
+            WindowsRelayNetworks.parse(WindowsNative.nativeRelayNetworks(WINDOWS_TUN_ALIAS.toByteArray(Charsets.UTF_8)))?.size
+        }
+        val ok = version != null && graph.problems.isEmpty() && dpapi && probeSocket &&
+            share?.startsWith("ics=") == true && relayNets != null
         val report = linkedMapOf<String, JsonValue>(
             "host" to JsonString(graph.host.id),
             "engine" to (Json.str(version) ?: JsonNull),
@@ -42,6 +47,7 @@ object WindowsSelfCheck {
             "dpapi" to Json.bool(dpapi),
             "probe_socket" to Json.bool(probeSocket),
             "share" to (Json.str(share) ?: JsonNull),
+            "relay_networks" to (relayNets?.let { Json.num(it) } ?: JsonNull),
             "tunnel_allowed" to Json.bool(graph.host.tunnelAllowed()),
             "log" to Json.strings(graph.log.snapshot().map { it.render() }),
         )

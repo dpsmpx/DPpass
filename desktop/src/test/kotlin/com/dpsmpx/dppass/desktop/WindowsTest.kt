@@ -59,14 +59,14 @@ class WindowsTest {
 
     @Test
     fun tunnelGivesSystemTunAndNoFd() {
-        val t = assertIs<Outcome.Success<DesktopTunnel>>(WindowsTunnels(SELF, log) { true }.establish(spec(), emptyList())).value
+        val t = assertIs<Outcome.Success<DesktopTunnel>>(WindowsTunnels(SELF, log) { true }.establish(spec(), emptyList(), null)).value
         assertNull(t.tunInput)
         assertEquals("172.19.0.1/30", t.systemTun?.addresses?.first().toString())
     }
 
     @Test
     fun withoutAdministratorNoTunnel() {
-        val f = assertIs<Outcome.Failure>(WindowsTunnels(SELF, log) { false }.establish(spec(), emptyList()))
+        val f = assertIs<Outcome.Failure>(WindowsTunnels(SELF, log) { false }.establish(spec(), emptyList(), null))
         assertEquals(DiagCode.TUN_ESTABLISH_FAILED, f.errors.first().code)
         assertTrue("администратор" in f.errors.first().message)
     }
@@ -75,7 +75,7 @@ class WindowsTest {
     fun shareSubnetStaysOutOfTheAdapter() {
         // Подсеть «Мобильного хот-спота» (D-101): ответы гостям — в её интерфейс, а не в туннель.
         val hotspot = Cidr.parse("192.168.137.0/24")!!.cidr
-        val t = assertIs<Outcome.Success<DesktopTunnel>>(WindowsTunnels(SELF, log) { true }.establish(spec(), listOf(hotspot))).value
+        val t = assertIs<Outcome.Success<DesktopTunnel>>(WindowsTunnels(SELF, log) { true }.establish(spec(), listOf(hotspot), null)).value
         val routes = t.systemTun!!.routes
         assertTrue(routes.none { it.isWithin(hotspot) || hotspot.isWithin(it) }, "маршрут адаптера накрывает подсеть раздачи: $routes")
         // Остальное — по-прежнему в туннель: соседние адреса и IPv6.
@@ -87,9 +87,19 @@ class WindowsTest {
     }
 
     @Test
+    fun relaySessionBindsCoreSocketsToTheDevicesNetwork() {
+        // Через устройство раздачи (D-102): сокеты ядра — к сети, где ответил телефон; иначе — выбор ядра.
+        val tunnels = WindowsTunnels(SELF, log) { true }
+        val via = assertIs<Outcome.Success<DesktopTunnel>>(tunnels.establish(spec(), emptyList(), "Ethernet 3")).value
+        assertEquals("Ethernet 3", via.systemTun?.outboundsInterface)
+        val plain = assertIs<Outcome.Success<DesktopTunnel>>(tunnels.establish(spec(), emptyList(), null)).value
+        assertNull(plain.systemTun?.outboundsInterface)
+    }
+
+    @Test
     fun appChoiceIsRefusedWithReason() {
         val tunnels = WindowsTunnels(SELF, log) { true }
-        val apps = assertIs<Outcome.Failure>(tunnels.establish(spec(apps = AppPolicy.OnlyApps(setOf("browser"))), emptyList()))
+        val apps = assertIs<Outcome.Failure>(tunnels.establish(spec(apps = AppPolicy.OnlyApps(setOf("browser"))), emptyList(), null))
         assertEquals(DiagCode.APP_POLICY_CONFLICT, apps.errors.first().code)
         assertTrue("на Windows программы не различаются" in apps.errors.first().message)
     }
@@ -123,7 +133,7 @@ class WindowsTest {
         // Чего на Windows нет — окно говорит, а не прячет молча (D-97).
         assertEquals(false, host.checksUnderTunnel, "без моста туннеля нет — и проверки под ним")
         assertTrue(WindowsHost({ reply(0, "0") }, { true }).checksUnderTunnel, "с мостом пробы идут мимо туннеля (D-99)")
-        assertTrue("раздачи" in host.absent)
+        assertNull(host.absent, "раздача (D-101) и устройство раздачи (D-102) на Windows есть")
     }
 
     @Test

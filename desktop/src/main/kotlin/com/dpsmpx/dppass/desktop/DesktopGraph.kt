@@ -47,8 +47,8 @@ class DesktopGraph(
     val paths: DesktopPaths,
     /** Проверка сети (D-79): пробы мимо туннеля, память режима (D-64). */
     val networkCheck: DesktopNetworkCheck,
-    /** Поиск устройства раздачи и сопряжение (D-85): сокеты мимо туннеля, как у проб; null — на Windows их нет (D-97). */
-    val relayNetworks: LinuxRelayNetworks?,
+    /** Поиск устройства раздачи и сопряжение (D-85, D-102): сокеты мимо туннеля, как у проб; null — без библиотеки моста на Windows. */
+    val relayNetworks: RelayNetworks?,
     /** Точка доступа ПК для раздачи (D-84, D-101); null — без библиотеки моста на Windows её не узнать. */
     val shares: DesktopShares?,
     /** Что не поднялось при сборке: показывается в окне. */
@@ -61,7 +61,7 @@ class DesktopGraph(
         val keyWrapper: KeyWrapper,
         val traits: PlatformTraits,
         val probeNetwork: DesktopProbeNetwork,
-        val relayNetworks: LinuxRelayNetworks?,
+        val relayNetworks: RelayNetworks?,
         val shares: DesktopShares?,
     )
 
@@ -167,7 +167,7 @@ class DesktopGraph(
                 keyWrapper = PlainKeyWrapper(),
                 traits = PlatformTraits(supportsExcludeRoute = true),
                 probeNetwork = probeNetwork,
-                relayNetworks = LinuxRelayNetworks(probeNetwork::tcpSocket),
+                relayNetworks = LinuxRelayNetworks.create(probeNetwork::tcpSocket),
                 shares = LinuxShareInterfaces(),
             )
         }
@@ -206,7 +206,11 @@ class DesktopGraph(
                 } else {
                     WindowsProbeNetwork(host::tunnelUp)
                 },
-                relayNetworks = null,
+                relayNetworks = if (loaded) {
+                    WindowsRelayNetworks.create({ WindowsNative.nativeRelayNetworks(alias) }, host::tunnelUp, WindowsNative::nativeBindSocket)
+                } else {
+                    null
+                },
                 shares = if (loaded) WindowsShareInterfaces { WindowsNative.nativeSharedInterfaces(alias) } else null,
             )
         }

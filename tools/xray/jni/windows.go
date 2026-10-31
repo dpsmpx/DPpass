@@ -137,6 +137,33 @@ func Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeSharedInterfaces(env *C.
 	return status(env, statusOK, strings.Join(lines, "\n"))
 }
 
+// Сети ПК для устройства раздачи (D-102): статус 0, затем по строке на
+// интерфейс — номер, вид, шлюзы через запятую, адреса с длиной префикса через
+// запятую и псевдоним, через табуляцию; иначе — вид отказа и текст.
+//
+//export Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeRelayNetworks
+func Java_com_dpsmpx_dppass_desktop_WindowsNative_nativeRelayNetworks(env *C.JNIEnv, _ C.jclass, tunAlias C.jbyteArray) C.jbyteArray {
+	nets, err := bridge.RelayNetworks(string(bytesOf(env, tunAlias)))
+	if err != nil {
+		return statusOf(env, err)
+	}
+	lines := make([]string, 0, len(nets))
+	for _, n := range nets {
+		gws := make([]string, 0, len(n.Gateways))
+		for _, g := range n.Gateways {
+			gws = append(gws, g.String())
+		}
+		prefixes := make([]string, 0, len(n.Prefixes))
+		for _, p := range n.Prefixes {
+			prefixes = append(prefixes, p.String())
+		}
+		lines = append(lines, strings.Join([]string{
+			strconv.FormatUint(uint64(n.Index), 10), strconv.Itoa(int(n.Medium)), strings.Join(gws, ","), strings.Join(prefixes, ","), n.Alias,
+		}, "\t"))
+	}
+	return status(env, statusOK, strings.Join(lines, "\n"))
+}
+
 func sealed(env *C.JNIEnv, f func([]byte) ([]byte, error), in C.jbyteArray) C.jbyteArray {
 	out, err := f(bytesOf(env, in))
 	if err != nil {

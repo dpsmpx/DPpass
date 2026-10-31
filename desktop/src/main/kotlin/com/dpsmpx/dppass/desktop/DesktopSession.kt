@@ -77,8 +77,8 @@ data class ShareStatus(val endpoints: List<ShareSpec.Endpoint>, val refused: Boo
  * (D-83). Раздача туннеля — на точке доступа ПК (D-84, на Windows — частная
  * сторона ICS, D-101): вход прокси на её адресах, смена набора —
  * переподключение. Выбрано устройство раздачи — подключение только через
- * него (D-85). На Windows устройств раздачи нет (D-97): выбранное
- * устройство — отказ с причиной.
+ * него (D-85; на Windows сокеты ядра — к интерфейсу сети, где оно
+ * ответило, D-102).
  */
 class DesktopSession(
     private val graph: DesktopGraph,
@@ -257,7 +257,7 @@ class DesktopSession(
             val relays = graph.relayNetworks ?: return fail(
                 Diagnostic.error(
                     DiagCode.CAPABILITY_FEATURE_UNSUPPORTED,
-                    "устройств раздачи на Windows нет (D-97) — выбранное в настройках устройство здесь не подключить",
+                    "без библиотеки ядра DPpass сетей ПК не узнать — выбранное в настройках устройство раздачи здесь не подключить",
                 ),
             )
             when (val t = withContext(Dispatchers.IO) { relays.locate(d) }) {
@@ -304,7 +304,7 @@ class DesktopSession(
         val share = if (scan != null) shareSettings?.spec(scan.endpoints) else null
         val shareSubnets = share?.endpoints.orEmpty().map { it.subnet }
         val handle = spec?.let { tunSpec ->
-            when (val t = withContext(Dispatchers.IO) { graph.tunnels.establish(tunSpec, shareSubnets) }) {
+            when (val t = withContext(Dispatchers.IO) { graph.tunnels.establish(tunSpec, shareSubnets, target?.iface) }) {
                 is Outcome.Failure -> {
                     t.errors.drop(1).forEach(core.log::diagnostic)
                     return fail(t.errors.first())
@@ -326,7 +326,7 @@ class DesktopSession(
         val failingUnderRegime = regime?.let(core::failingUnder).orEmpty()
         val report = try {
             if (relay != null && target != null) {
-                core.connectVia(relay, target.address, checker, handle?.tunInput, share, local) { delay(it) }
+                core.connectVia(relay, target.address, checker, handle?.tunInput, share, local, handle?.systemTun) { delay(it) }
             } else {
                 // Разбиение ClientHello к серверу (D-68, D-81) — выбор пользователя; отказ сервера — повтор без него (D-69, ядро).
                 // К устройству раздачи — нет.
@@ -418,7 +418,7 @@ class DesktopSession(
             is Outcome.Failure -> return fail(s.errors.first())
             is Outcome.Success -> s.value
         }
-        val handle = when (val t = withContext(Dispatchers.IO) { graph.tunnels.establish(spec, emptyList()) }) {
+        val handle = when (val t = withContext(Dispatchers.IO) { graph.tunnels.establish(spec, emptyList(), null) }) {
             is Outcome.Failure -> {
                 t.errors.drop(1).forEach(core.log::diagnostic)
                 return fail(t.errors.first())

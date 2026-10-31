@@ -37,7 +37,7 @@ class RelayPairingTest {
     private val dialed = mutableListOf<String>()
 
     /** Шлюз Wi-Fi телефона — 192.168.43.1; соединение уходит на loopback, где ждёт хозяин. */
-    private val networks = LinuxRelayNetworks(
+    private val networks = LinuxRelayNetworks.create(
         sockets = {
             object : Socket() {
                 override fun connect(endpoint: SocketAddress, timeout: Int) {
@@ -48,7 +48,7 @@ class RelayPairingTest {
             }
         },
         route = { "h\nwlp2s0\t00000000\t012BA8C0\t3\t0\t0\t600\t00000000\n" },
-        medium = { LinuxRelayNetworks.Medium.WIFI },
+        medium = { RelayNetworks.Medium.WIFI },
         interfaces = { emptyList() },
     )
 

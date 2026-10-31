@@ -46,4 +46,11 @@ internal object WindowsNative {
      * адаптера [tunAlias] и сети «вверх по течению» ([WindowsShareInterfaces]).
      */
     @JvmStatic external fun nativeSharedInterfaces(tunAlias: ByteArray): ByteArray
+
+    /**
+     * Сети ПК для устройства раздачи (D-102): после статуса — по строке на
+     * поднятый интерфейс, кроме адаптера [tunAlias]: номер, вид, частные шлюзы
+     * и адреса IPv4 через запятую, псевдоним ([WindowsRelayNetworks.parse]).
+     */
+    @JvmStatic external fun nativeRelayNetworks(tunAlias: ByteArray): ByteArray
 }

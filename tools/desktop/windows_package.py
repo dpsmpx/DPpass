@@ -28,7 +28,8 @@ dppass.exe — AMD64, окно, манифест `requireAdministrator`, зна�
   * самопроверка оболочки на рантайме комплекта (`--windows-self-check`):
     DLL моста загружена, граф Windows собран без отказов, DPAPI вернул ключ,
     сокет канала пробы виден (флаг для проб мимо туннеля, D-99), поиск точки
-    доступа (ICS, D-101) ответил через мост — в Wine отказом, без падения.
+    доступа (ICS, D-101) ответил через мост — в Wine отказом, без падения;
+    сети ПК для устройства раздачи (D-102) разобраны.
 
 Архив — zip без дат и прав (сумма воспроизводится) и SHA256SUMS — в DIR
 (по умолчанию `build/windows/dist`).
@@ -543,7 +544,8 @@ def wine_checks(root, test_exe, wine):
         with open(report, encoding="utf-8") as f:
             rep = json.load(f)
         if r.returncode != 0 or rep.get("host") != "windows" or not rep.get("engine") or rep.get("problems") or not rep.get("dpapi") \
-                or not rep.get("probe_socket") or not str(rep.get("share") or "").startswith("ics="):
+                or not rep.get("probe_socket") or not str(rep.get("share") or "").startswith("ics=") \
+                or not isinstance(rep.get("relay_networks"), int):
             raise RuntimeError(f"самопроверка оболочки: код {r.returncode}, отчёт {json.dumps({k: v for k, v in rep.items() if k != 'log'}, ensure_ascii=False)}")
         return rep["engine"]
     finally:
@@ -613,7 +615,7 @@ def package(dist, require_tests):
         engine = wine_checks(root, test_exe, wine)
         setup_checks(root, setup_test, wine, n_payload)
         wine_note = (f"в Wine: права — {len(SDDL_CASES)} случаев, обход всего комплекта, командная строка и окружение JVM, "
-                     f"самопроверка оболочки (ядро {engine}, DPAPI, сокет пробы, ответ ICS), установщик — установка {n_payload} файлов со сверкой SHA-256, "
+                     f"самопроверка оболочки (ядро {engine}, DPAPI, сокет пробы, ответ ICS, сети ПК), установщик — установка {n_payload} файлов со сверкой SHA-256, "
                      f"задача и запись удаления, повторная установка, подменённый файл — отказ, удаление")
     else:
         wine_note = "Wine нет: запускатель, установщик и рантайм в Wine не проверены"

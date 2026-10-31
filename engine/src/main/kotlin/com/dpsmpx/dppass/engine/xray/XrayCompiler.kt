@@ -895,11 +895,11 @@ class XrayCompiler(
             "gateway" to Json.strings(system.addresses.map { it.toString() }),
             "dns" to Json.strings(system.dns.map { it.toString() }),
             "autoSystemRoutingTable" to Json.strings(system.routes.map { it.toString() }),
-            "autoOutboundsInterface" to Json.str(SYSTEM_TUN_OUTBOUNDS_INTERFACE),
+            "autoOutboundsInterface" to Json.str(system.outboundsInterface ?: SYSTEM_TUN_OUTBOUNDS_INTERFACE),
             "autoSystemWfpBlockLeak" to Json.strings(SYSTEM_TUN_BLOCK_LEAK),
         )
 
-        /** Как выбирать физический интерфейс для сокетов ядра: по маршрутам системы. */
+        /** Как выбирать физический интерфейс для сокетов ядра, если платформа не назвала его (D-102): по маршрутам системы. */
         const val SYSTEM_TUN_OUTBOUNDS_INTERFACE: String = "auto"
 
         /** Фильтры WFP: DNS только через TUN; версия IP без маршрутов в TUN — закрыта. */

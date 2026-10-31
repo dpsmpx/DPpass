@@ -121,9 +121,18 @@ data class SystemTun(
     val routes: List<Cidr>,
     /** DNS адаптера — внутренний адрес, запросы к которому перехватывает ядро. */
     val dns: List<IpAddress>,
+    /**
+     * Интерфейс (псевдоним Windows) для сокетов ядра; null — выбирает ядро по
+     * маршрутам. Через устройство раздачи (D-102) — сеть, где оно ответило:
+     * ядро по маршрутам взяло бы Wi-Fi, а телефон мог ответить по USB.
+     */
+    val outboundsInterface: String? = null,
 ) {
     init {
         require(addresses.isNotEmpty() && routes.isNotEmpty() && dns.isNotEmpty()) { "у TUN ядра нет адреса, маршрута или DNS" }
+        require(outboundsInterface == null || (outboundsInterface.isNotBlank() && outboundsInterface.none { it.isISOControl() })) {
+            "интерфейс сокетов ядра пуст или с управляющими знаками"
+        }
         // Фильтр WFP «dns» пускает запросы к DNS адаптера только через TUN: адрес вне
         // его адресов и маршрутов был бы просто закрыт (WINDOWS_SHELL.md, §2.3).
         require(dns.all { ip -> routes.any { ip in it } }) { "DNS TUN ядра вне его маршрутов" }

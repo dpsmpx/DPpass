@@ -5,7 +5,7 @@ import com.dpsmpx.dppass.connection.RelayDraft
 import com.dpsmpx.dppass.desktop.DesktopGraph
 import com.dpsmpx.dppass.desktop.DesktopPrefs
 import com.dpsmpx.dppass.desktop.DesktopSession
-import com.dpsmpx.dppass.desktop.LinuxRelayNetworks
+import com.dpsmpx.dppass.desktop.RelayNetworks
 import com.dpsmpx.dppass.desktop.RelayPairing
 import com.dpsmpx.dppass.desktop.SessionStatus
 import com.dpsmpx.dppass.diagnostics.Diagnostic
@@ -39,8 +39,8 @@ import javax.swing.JTextField
  */
 class RelaysPanel(
     private val graph: DesktopGraph,
-    /** Сети ПК для поиска и сопряжения (D-85): есть только на Linux. */
-    private val nets: LinuxRelayNetworks,
+    /** Сети ПК для поиска и сопряжения (D-85, на Windows — D-102). */
+    private val nets: RelayNetworks,
     private val session: DesktopSession,
     private val prefs: DesktopPrefs,
     private val scope: CoroutineScope,
@@ -50,8 +50,8 @@ class RelaysPanel(
     private val networks = rows()
     private val status = Widgets.caption(" ")
     private val problem = Widgets.Banner(error = true)
-    private var found: Map<String, LinuxRelayNetworks.Target> = emptyMap()
-    private var gateways: List<LinuxRelayNetworks.Gateway> = emptyList()
+    private var found: Map<String, RelayNetworks.Target> = emptyMap()
+    private var gateways: List<RelayNetworks.Gateway> = emptyList()
     private var checking = false
     private var scan: Job? = null
     private var pairing: Job? = null
@@ -315,11 +315,11 @@ class RelaysPanel(
             insets = Insets(Widgets.STEP, 0, Widgets.STEP, Widgets.STEP * 4)
         }
 
-        fun medium(m: LinuxRelayNetworks.Medium): String = when (m) {
-            LinuxRelayNetworks.Medium.WIFI -> "Wi-Fi"
-            LinuxRelayNetworks.Medium.USB -> "USB"
-            LinuxRelayNetworks.Medium.BLUETOOTH -> "Bluetooth"
-            LinuxRelayNetworks.Medium.WIRED -> "провод"
+        fun medium(m: RelayNetworks.Medium): String = when (m) {
+            RelayNetworks.Medium.WIFI -> "Wi-Fi"
+            RelayNetworks.Medium.USB -> "USB"
+            RelayNetworks.Medium.BLUETOOTH -> "Bluetooth"
+            RelayNetworks.Medium.WIRED -> "провод"
         }
 
         const val FIELD_COLUMNS = 20
@@ -338,7 +338,7 @@ class RelaysPanel(
             "с паролем, USB, Bluetooth.\n" +
             "• Подключение идёт только через выбранное устройство: если его нет рядом, DPpass скажет почему, а не подключится к " +
             "другим серверам.\n" +
-            "• USB-модем телефона ПК видит как проводную сеть, если в Linux есть драйвер RNDIS или NCM; Bluetooth-модем " +
+            "• USB-модем телефона ПК видит как проводную сеть, если у системы ПК есть драйвер RNDIS или NCM; Bluetooth-модем " +
             "подключается в настройках Bluetooth ПК — DPpass этого не делает."
     }
 }

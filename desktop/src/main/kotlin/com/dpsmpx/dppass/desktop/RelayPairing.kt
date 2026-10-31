@@ -22,7 +22,7 @@ object RelayPairing {
     const val DEFAULT_NAME: String = "Устройство раздачи"
 
     suspend fun pair(
-        networks: LinuxRelayNetworks,
+        networks: RelayNetworks,
         relays: RelayService,
         log: Logger,
         random: SecureRandom = SecureRandom(),

@@ -59,7 +59,7 @@ class LinuxRelayNetworksTest {
         LinuxShareInterfaces.Iface("wlp2s0", true, listOf(ip("192.168.43.20") to 24)),
         LinuxShareInterfaces.Iface("enx0a", true, listOf(ip("192.168.42.33") to 24)),
     )
-    private val relays = LinuxRelayNetworks(
+    private val relays = LinuxRelayNetworks.create(
         sockets,
         { route },
         { i -> LinuxRelayNetworks.medium(i, wireless = i.startsWith("wl"), bus = if (i.startsWith("enx")) "usb" else "pci") },
@@ -75,25 +75,25 @@ class LinuxRelayNetworksTest {
     fun gatewaysAreDefaultRoutesWithPrivateGateways() {
         val g = relays.gateways()
         assertEquals(listOf("192.168.43.1", "192.168.42.129"), g.map { it.address.toString() }, "публичный шлюз провода — не устройство раздачи")
-        assertEquals(listOf(LinuxRelayNetworks.Medium.WIFI, LinuxRelayNetworks.Medium.USB), g.map { it.medium })
+        assertEquals(listOf(RelayNetworks.Medium.WIFI, RelayNetworks.Medium.USB), g.map { it.medium })
         route = "Iface\tDestination\n"
         assertTrue(relays.gateways().isEmpty())
     }
 
     @Test
     fun mediumByInterface() {
-        assertEquals(LinuxRelayNetworks.Medium.WIFI, LinuxRelayNetworks.medium("wlan0", wireless = true, bus = "pci"))
-        assertEquals(LinuxRelayNetworks.Medium.BLUETOOTH, LinuxRelayNetworks.medium("bnep0", wireless = false, bus = null))
-        assertEquals(LinuxRelayNetworks.Medium.USB, LinuxRelayNetworks.medium("usb0", wireless = false, bus = "usb"))
-        assertEquals(LinuxRelayNetworks.Medium.WIRED, LinuxRelayNetworks.medium("enp3s0", wireless = false, bus = "pci"))
+        assertEquals(RelayNetworks.Medium.WIFI, LinuxRelayNetworks.medium("wlan0", wireless = true, bus = "pci"))
+        assertEquals(RelayNetworks.Medium.BLUETOOTH, LinuxRelayNetworks.medium("bnep0", wireless = false, bus = null))
+        assertEquals(RelayNetworks.Medium.USB, LinuxRelayNetworks.medium("usb0", wireless = false, bus = "usb"))
+        assertEquals(RelayNetworks.Medium.WIRED, LinuxRelayNetworks.medium("enp3s0", wireless = false, bus = "pci"))
     }
 
     @Test
     fun deviceIsFoundWhereItAcceptsLoginAndPassword() {
         replies["192.168.43.1:41234"] = byteArrayOf(5, 2) // вход без нашего пароля — не тот
         replies["192.168.42.129:41234"] = byteArrayOf(5, 2, 1, 0)
-        val t = assertIs<Outcome.Success<LinuxRelayNetworks.Target>>(relays.locate(device())).value
-        assertEquals(LinuxRelayNetworks.Target(LinuxRelayNetworks.Medium.USB, ip("192.168.42.129")), t)
+        val t = assertIs<Outcome.Success<RelayNetworks.Target>>(relays.locate(device())).value
+        assertEquals(RelayNetworks.Target(RelayNetworks.Medium.USB, ip("192.168.42.129"), "enx0a"), t, "и интерфейс той сети (D-102)")
         assertEquals(listOf("192.168.43.1:41234", "192.168.42.129:41234"), dialed, "только шлюзы, только сокетами фабрики")
     }
 
@@ -112,8 +112,9 @@ class LinuxRelayNetworksTest {
     @Test
     fun explicitAddressOnlyInsideASubnetOfThePc() {
         replies["192.168.43.7:41234"] = byteArrayOf(5, 2, 1, 0)
-        val t = assertIs<Outcome.Success<LinuxRelayNetworks.Target>>(relays.locate(device(ip("192.168.43.7")))).value
-        assertEquals(LinuxRelayNetworks.Medium.WIFI, t.medium)
+        val t = assertIs<Outcome.Success<RelayNetworks.Target>>(relays.locate(device(ip("192.168.43.7")))).value
+        assertEquals(RelayNetworks.Medium.WIFI, t.medium)
+        assertEquals("wlp2s0", t.iface)
         assertEquals(listOf("192.168.43.7:41234"), dialed, "шлюзы не спрашиваются")
         dialed.clear()
         assertIs<Outcome.Failure>(relays.locate(device(ip("10.9.9.9"))))

@@ -288,6 +288,11 @@ class XrayCompilerTest {
         assertEquals(listOf(XrayBackend.TUN_DNS4), s["dns"].items.map { it.text })
         assertEquals("auto", s["autoOutboundsInterface"].text)
         assertEquals(listOf("dns", "misconfigtun"), s["autoSystemWfpBlockLeak"].items.map { it.text })
+        // Через устройство раздачи (D-102) — сеть, где оно ответило, а не выбор ядра по маршрутам.
+        val viaUsb = tun(CompilePlan(config.profiles[0].id, withTun = true, systemTun = system.copy(outboundsInterface = "Ethernet 3")))["settings"]
+        assertEquals("Ethernet 3", viaUsb["autoOutboundsInterface"].text)
+        assertFailsWith<IllegalArgumentException> { system.copy(outboundsInterface = " ") }
+        assertFailsWith<IllegalArgumentException> { system.copy(outboundsInterface = "Wi-Fi\n") }
         // Android и Linux: TUN даёт платформа — полей Windows во входе нет.
         val plain = tun(CompilePlan(config.profiles[0].id, withTun = true))["settings"] as JsonObject
         assertEquals(setOf("name", "mtu"), plain.fields.keys)

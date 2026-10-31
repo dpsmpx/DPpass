@@ -236,9 +236,14 @@ JNI из закреплённого JDK Temurin. Тесты моста для Wi
   интерфейсов, IPv4 «предпочтительные», без адаптера DPpass и сети
   «вверх по течению» (`TestPickSharedExcludesUpstreamAndTunnel`);
   настоящая ICS в Wine — ошибка, а не падение;
+- сети ПК для устройства раздачи (D-102): поднятые интерфейсы без
+  loopback и адаптера DPpass, шлюзы — только частные IPv4, вид — по
+  типу, среде и описанию RNDIS (`TestRelayNetsArePrivateGatewaysOfUpInterfaces`);
+  настоящие таблицы в Wine — без падения;
 - вход TUN проходит, только если он такой, как пишет компилятор: имя
-  `dppass0`, адреса, DNS, маршруты, `autoOutboundsInterface = "auto"`
-  и оба фильтра WFP (`TestWindowsPolicyAcceptsOnlyCompilerSystemTun`).
+  `dppass0`, адреса, DNS, маршруты, `autoOutboundsInterface` —
+  `"auto"` или интерфейс сети устройства раздачи (D-102), но не пустой и
+  не сам адаптер, и оба фильтра WFP (`TestWindowsPolicyAcceptsOnlyCompilerSystemTun`).
   На Linux и Android те же поля — отказ
   (`TestPolicyRejectsSystemTunFieldsOffWindows`).
 
@@ -284,6 +289,7 @@ DLL проверяется: машина AMD64, экспорт JNI = `external` 
 `SystemCommandTest` (T17: программа по абсолютному пути, без shell, с пределом времени),
 `SessionLineTest` (D-87: первая строка «Журнала» — версия без идентификаторов),
 `LinuxRelayNetworksTest` (D-85: устройство раздачи — шлюзы сетей ПК, вход SOCKS5, сокеты мимо туннеля),
+`WindowsRelayNetworksTest` (D-102: сети ПК от моста, сомнение — сетей нет, под туннелем сокет поиска привязан к интерфейсу своей сети, не привязался — закрыт),
 `RelayPairingTest` (D-85: сопряжение ПК-гостя с настоящим ходом хозяина по loopback),
 `go test` моста (`TestResolverUpstream`, метка резолвера,
 копия fd TUN). На настоящем ядре — `tools/desktop/netns_check.py` от root:

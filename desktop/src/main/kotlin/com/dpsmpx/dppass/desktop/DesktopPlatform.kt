@@ -90,9 +90,14 @@ interface DesktopShares {
  */
 data class ShareScan(val endpoints: List<ShareSpec.Endpoint>, val absent: String, val seen: String)
 
-/** Поднять туннель по [TunnelSpec]; [share] — подсети раздачи мимо туннеля (D-84, D-101). */
+/**
+ * Поднять туннель по [TunnelSpec]; [share] — подсети раздачи мимо туннеля
+ * (D-84, D-101); [via] — интерфейс сети устройства раздачи (D-102): на
+ * Windows к нему привязываются сокеты ядра, на Linux путь к нему и так
+ * знает таблица `main`.
+ */
 fun interface DesktopTunnels {
-    fun establish(spec: TunnelSpec, share: List<Cidr>): Outcome<DesktopTunnel>
+    fun establish(spec: TunnelSpec, share: List<Cidr>, via: String?): Outcome<DesktopTunnel>
 }
 
 /** Linux (D-74): `CAP_NET_ADMIN` у процесса, сеть — из `/proc/net/route`, смена сети — наблюдается. */
@@ -120,7 +125,7 @@ class LinuxHost(private val platform: LinuxPlatform) : DesktopHost {
 
 /** Туннель Linux — TUN с fd и правилами `ip` ([LinuxTunnelProvider]). */
 class LinuxTunnels(private val provider: LinuxTunnelProvider) : DesktopTunnels {
-    override fun establish(spec: TunnelSpec, share: List<Cidr>): Outcome<DesktopTunnel> = when (val t = provider.establish(spec, share)) {
+    override fun establish(spec: TunnelSpec, share: List<Cidr>, via: String?): Outcome<DesktopTunnel> = when (val t = provider.establish(spec, share)) {
         is Outcome.Failure -> t
         is Outcome.Success -> Outcome.Success(Fd(t.value), t.diagnostics)
     }

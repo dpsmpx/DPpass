@@ -3,6 +3,10 @@ package com.dpsmpx.dppass.connection
 import com.dpsmpx.dppass.core.Cidr
 import com.dpsmpx.dppass.core.HostAddress
 import com.dpsmpx.dppass.core.IpAddress
+import com.dpsmpx.dppass.core.Json
+import com.dpsmpx.dppass.core.JsonArray
+import com.dpsmpx.dppass.core.JsonObject
+import com.dpsmpx.dppass.core.JsonString
 import com.dpsmpx.dppass.core.ManualClock
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Logger
@@ -113,6 +117,22 @@ class SystemTunTest {
         assertTrue(LocalProxyOffer.applies(failed.reason, enabled = false))
         assertEquals(1, engine.starts)
         assertTrue(plan.attempts.all { book.of(it.profile.id).state == HealthState.UNKNOWN }, "ни один сервер не наказан")
+    }
+
+    @Test
+    fun relayOnWindowsBindsCoreSocketsToTheDevicesNetwork() = runBlocking {
+        // Через устройство раздачи (D-102): ядро с TUN Windows, сокеты — к сети, где ответил телефон.
+        val engine = Recording()
+        val blobs = InMemoryBlobStore()
+        val core = DPpassCore(XrayCompiler(dnsHijackAnyAddress = true), engine, blobs, clock, "com.dpsmpx.dppass", PlatformTraits(false))
+        val device = core.relays.add(RelayDraft("Телефон", "", 41234, "u-test", "p-test-0123456789")).valueOrNull()!!
+        val at = IpAddress.parseV4("192.168.42.129")!!
+        val report = core.connectVia(device, at, { _, _ -> Outcome.Success(Unit) }, null, systemTun = system.copy(outboundsInterface = "Ethernet 3")) {}
+        assertIs<ConnectionReport.Connected>(report)
+        assertNull(engine.tuns.single(), "fd TUN на Windows нет: адаптер создаёт ядро")
+        val config = Json.parse(engine.payloads.single()) as JsonObject
+        val tun = (config["inbounds"] as JsonArray).items.map { it as JsonObject }.first { (it["tag"] as JsonString).value == XrayBackend.TAG_TUN_IN }
+        assertEquals(JsonString("Ethernet 3"), (tun["settings"] as JsonObject)["autoOutboundsInterface"])
     }
 
     @Test

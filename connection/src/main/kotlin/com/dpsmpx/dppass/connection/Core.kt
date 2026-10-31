@@ -330,6 +330,8 @@ class DPpassCore(
         share: ShareSpec? = null,
         /** Без VPN (D-95): локальный прокси вместо [tun]. */
         local: LocalProxySpec? = null,
+        /** TUN, который создаёт ядро (Windows, D-97), — вместо [tun]; сокеты ядра — к сети устройства (D-102). */
+        systemTun: SystemTun? = null,
         pause: suspend (Long) -> Unit,
     ): ConnectionReport {
         val ir = relayConfig(device, at)
@@ -338,7 +340,7 @@ class DPpassCore(
         )
         log.info("relay_connect", "device" to Safe(device.id), "port" to device.port)
         val orchestrator = ConnectionOrchestrator(compiler, engine, checker, health, clock, log, policy, stability, null, pause = pause)
-        val report = orchestrator.connect(ir, plan, tun, share, local = local)
+        val report = orchestrator.connect(ir, plan, tun, share, local = local, systemTun = systemTun)
         // Вход раздачи ответил, а данные не пошли (D-59): сбоит туннель того телефона, а не сервер.
         val failure = (report as? ConnectionReport.Failed)?.attempts?.singleOrNull()?.failure
         if (report !is ConnectionReport.Failed || failure == null || failure.code !in RELAY_HEALTH_CODES) return report
