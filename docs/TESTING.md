@@ -101,7 +101,8 @@
 (`links-with-routing-global-direct`, D-05).
 `remnawave-*` — синтетическая копия формы ответа панели Remnawave
 (`docs/research/REMNAWAVE_SUBSCRIPTIONS.md`): те же схемы, параметры и
-заголовки, но значения выдуманные; заглушки при лимите устройств (D-33).
+заголовки, но значения выдуманные; заглушки при лимите устройств (D-33);
+`remnawave-fm-*` — `fm` (finalmask Xray) у Hysteria2 и VLESS (D-48, D-107).
 
 ### `routing/` — решения маршрутизации
 

@@ -23,6 +23,46 @@ object ConfigValidator {
     internal const val SERVICE_NAME_MESSAGE = "service_name (в ссылке — serviceName) — непустой, без пробелов, не длиннее 256"
 
     /**
+     * Параметры Hysteria2 формата 3 (D-107) — пределы ядра Xray 26.9.30
+     * (`infra/conf/transport_internet.go`, `transport_finalmask.go`): что ядро
+     * отвергло бы при запуске, отвергается здесь, с путём.
+     */
+    private fun hysteria2(proto: ProtocolSpec.Hysteria2, path: String, err: (DiagCode, String, String) -> Unit) {
+        val q = proto.quic
+        if (proto.congestion == Hysteria2Congestion.FORCE_BRUTAL && q?.brutalUp == null) {
+            err(DiagCode.TRANSPORT_SETTING_INVALID, "force-brutal требует скорость отдачи quic.brutal_up", "$path.congestion")
+        }
+        if (q != null) {
+            val at = "$path.quic"
+            for ((key, v) in listOf("brutal_up" to q.brutalUp, "brutal_down" to q.brutalDown)) {
+                if (v != null && v < Hysteria2Quic.MIN_BRUTAL) err(DiagCode.TRANSPORT_SETTING_INVALID, "скорость Brutal — не меньше 65536 байт/с", "$at.$key")
+                if (v != null && v > Hysteria2Quic.MAX_BRUTAL) err(DiagCode.TRANSPORT_SETTING_INVALID, "скорость Brutal — слишком большая", "$at.$key")
+            }
+            val windows = listOf(
+                "init_stream_receive_window" to q.initStreamReceiveWindow,
+                "max_stream_receive_window" to q.maxStreamReceiveWindow,
+                "init_connection_receive_window" to q.initConnReceiveWindow,
+                "max_connection_receive_window" to q.maxConnReceiveWindow,
+            )
+            for ((key, v) in windows) {
+                if (v != null && v < Hysteria2Quic.MIN_WINDOW) err(DiagCode.TRANSPORT_SETTING_INVALID, "окно приёма QUIC — не меньше 16384 байт", "$at.$key")
+            }
+            q.maxIdleTimeoutSecs?.takeIf { it !in Hysteria2Quic.IDLE_TIMEOUT }?.let {
+                err(DiagCode.TRANSPORT_SETTING_INVALID, "max_idle_timeout — от 4 до 120 секунд", "$at.max_idle_timeout")
+            }
+            q.keepAlivePeriodSecs?.takeIf { it !in Hysteria2Quic.KEEP_ALIVE }?.let {
+                err(DiagCode.TRANSPORT_SETTING_INVALID, "keep_alive_period — от 2 до 60 секунд", "$at.keep_alive_period")
+            }
+        }
+        val h = proto.hop ?: return
+        if (h.modes.isEmpty()) err(DiagCode.TRANSPORT_SETTING_INVALID, "у перескока портов нет режима", "$path.hop.modes")
+        if (h.ports.isEmpty()) err(DiagCode.TRANSPORT_SETTING_INVALID, "у перескока портов нет портов", "$path.hop.ports")
+        h.interval?.takeIf { it.from < Hysteria2Hop.MIN_INTERVAL }?.let {
+            err(DiagCode.TRANSPORT_SETTING_INVALID, "интервал перескока — не меньше 5 секунд", "$path.hop.interval")
+        }
+    }
+
+    /**
      * Правила значений транспорта — одни для разбора документа
      * (`DocumentMapper`) и для проверки профиля из любого источника, чтобы
      * они не разошлись.
@@ -152,6 +192,7 @@ object ConfigValidator {
                     err(DiagCode.TRANSPORT_PROTOCOL_MISMATCH, "Hysteria2 работает поверх своего QUIC: transport должен быть native", "$path.transport")
                 }
                 if (p.security !is SecuritySpec.Tls) err(DiagCode.SECURITY_REQUIRED, "Hysteria2 требует TLS", "$path.security")
+                hysteria2(proto, "$path.protocol", ::err)
             }
             is ProtocolSpec.Socks -> {
                 secretPresent(proto.user, "$path.protocol.user")

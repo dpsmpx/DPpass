@@ -14,15 +14,17 @@ import com.dpsmpx.dppass.diagnostics.Outcome
  */
 object ConfigFormat {
     const val MARKER: String = "dppass.config"
-    const val CURRENT_VERSION: Int = 2
+    const val CURRENT_VERSION: Int = 3
 
     /**
-     * Производственные миграции. 1 → 2 (D-37) — тождественная: версия 2
-     * только добавляет значения и поля, а прежние понимает так же. Её
-     * ждут документы, сохранённые на устройстве до версии 2 (D-07).
+     * Производственные миграции. 1 → 2 (D-37) и 2 → 3 (D-107) —
+     * тождественные: новая версия только добавляет значения и поля, а
+     * прежние понимает так же. Их ждут документы, сохранённые на
+     * устройстве до новой версии (D-07).
      */
     val MIGRATIONS: Map<Int, ConfigMigration> = mapOf(
         1 to ConfigMigration { doc -> Outcome.Success(JsonObject(doc.fields + ("format_version" to JsonNumber("2")))) },
+        2 to ConfigMigration { doc -> Outcome.Success(JsonObject(doc.fields + ("format_version" to JsonNumber("3")))) },
     )
 }
 

@@ -89,6 +89,17 @@ class RedactorTest {
         assertEquals("lookup srv.example.org: no such host", Redactor().redact("lookup srv.example.org: no such host"), "STANDARD имена оставляет")
     }
 
+    // Журнал телефона 31.10.2026: ключи finalmask в сообщении о ссылке (D-107) —
+    // не имена хостов; имя с меткой `udp` или `tcp` в середине — по-прежнему имя.
+    @Test
+    fun strictLevelKeepsFinalMaskKeys() {
+        val strict = Redactor(Redactor.Level.STRICT)
+        val text = "неподдержанные параметры: fm.quicParams.up, fm.tcp, fm.udp[0] (маска noise), fm.udp[1].settings.packetSize"
+        assertEquals(text, strict.redact(text))
+        assertEquals("lookup <host>: no such host", strict.redact("lookup srv.udp.example.org: no such host"))
+        assertEquals("host <host> refused", strict.redact("host tcp.example.net refused"))
+    }
+
     // Журнал устройства 17 октября 2026: в ошибке ядра «dial tcp <ip><ip> connect» —
     // порт с двоеточиями по краям принят за IPv6. Адрес скрыт, порт — нет.
     @Test

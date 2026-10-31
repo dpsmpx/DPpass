@@ -1,7 +1,9 @@
 package com.dpsmpx.dppass.subscriptions
 
+import com.dpsmpx.dppass.config.BbrProfile
 import com.dpsmpx.dppass.config.ConfigValidator
 import com.dpsmpx.dppass.config.CountRange
+import com.dpsmpx.dppass.config.HopMode
 import com.dpsmpx.dppass.config.Hysteria2Congestion
 import com.dpsmpx.dppass.config.ProtocolSpec
 import com.dpsmpx.dppass.config.SecuritySpec
@@ -13,6 +15,7 @@ import com.dpsmpx.dppass.config.XHttpExtra
 import com.dpsmpx.dppass.config.XHttpMode
 import com.dpsmpx.dppass.config.Xmux
 import com.dpsmpx.dppass.core.ManualClock
+import com.dpsmpx.dppass.core.PortRange
 import com.dpsmpx.dppass.core.SubscriptionId
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Outcome
@@ -113,6 +116,8 @@ class ShareLinkParserTest {
         assertTrue("xyz" in e.causes.single().message)
     }
 
+    private fun enc(json: String): String = java.net.URLEncoder.encode(json, Charsets.UTF_8).replace("+", "%20")
+
     private fun unsupportedNames(r: Outcome<*>): String {
         val e = r.errors.single()
         assertEquals(DiagCode.SHARE_LINK_INVALID, e.code)
@@ -138,9 +143,10 @@ class ShareLinkParserTest {
     @Test
     fun hysteria2RejectsWhatIrCannotExpress() {
         val base = "hysteria2://test-password-2@192.0.2.30:8443/?sni=hy2.example.com"
-        // Маски finalmask (кроме quicParams.congestion, D-37) и pinSHA256 (пиннинг) IR не выражает.
+        // Маски finalmask, кроме salamander и udphop (D-107), маски TCP и pinSHA256 (пиннинг) IR не выражает.
         assertTrue("pinsha256" in unsupportedNames(ShareLinkParser.parse("$base&pinSHA256=AA", "s")))
-        assertTrue("fm.udp" in unsupportedNames(ShareLinkParser.parse("$base&fm=%7B%22udp%22%3A%5B%5D%7D", "s")))
+        assertTrue("fm.udp[0] (маска noise)" in unsupportedNames(ShareLinkParser.parse("$base&fm=" + enc("""{"udp":[{"type":"noise"}]}"""), "s")))
+        assertTrue("fm.tcp" in unsupportedNames(ShareLinkParser.parse("$base&fm=" + enc("""{"tcp":[]}"""), "s")))
         val obfs = unsupportedNames(ShareLinkParser.parse("$base&obfs=gecko&obfs-password=x", "s"))
         assertTrue("obfs" in obfs && "gecko" !in obfs, obfs)
         assertEquals(DiagCode.INSECURE_TLS_REJECTED, ShareLinkParser.parse("$base&insecure=1", "s").errors.single().code)
@@ -203,8 +209,110 @@ class ShareLinkParserTest {
             DiagCode.SHARE_LINK_INVALID,
             ShareLinkParser.parse(base + "%7B%22quicParams%22%3A%7B%22debug%22%3A%22yes%22%7D%7D", "s").errors.single().code,
         )
-        val other = unsupportedNames(ShareLinkParser.parse(base + "%7B%22quicParams%22%3A%7B%22debug%22%3Atrue%2C%22disableGSO%22%3Atrue%7D%7D", "s"))
-        assertTrue("fm.quicParams.disableGSO" in other && "debug" !in other, other)
+        val other = unsupportedNames(ShareLinkParser.parse(base + enc("""{"quicParams":{"debug":true,"fancyKnob":true}}"""), "s"))
+        assertTrue("fm.quicParams.fancyKnob" in other && "debug" !in other, other)
+    }
+
+    /**
+     * Формат 3 (D-107): `fm` Hysteria2 — параметры QUIC клиента, Salamander и
+     * перескок портов — по исходникам Xray 26.9.30; серверные ключи — с
+     * находкой; прочее — отказ с названием.
+     */
+    @Test
+    fun finalMaskQuicParamsSalamanderAndHop() {
+        val base = "hysteria2://test-password-7@192.0.2.37:8443/?sni=hy2.example.com&fm="
+        val fm = """{"quicParams":{"congestion":"Brutal","brutalUp":"100 mbps","brutalDown":"50mbps","bbrProfile":"aggressive",""" +
+            """"initStreamReceiveWindow":8388608,"maxIdleTimeout":30,"keepAlivePeriod":10,"disablePathMTUDiscovery":true,""" +
+            """"maxIncomingStreams":1024,"disableStatelessReset":true},"udp":[{"type":"salamander","settings":{"password":"test-obfs-7"}},""" +
+            """{"type":"udphop","settings":{"mode":"intervalRemote,perConnRemote","interval":"10-30","remotePorts":"20000-20010, 8443"}}]}"""
+        val r = ShareLinkParser.parse(base + enc(fm), "s")
+        val p = assertIs<ProtocolSpec.Hysteria2>(r.valueOrNull()?.protocol, r.diagnostics.joinToString { it.renderWithCauses().joinToString(" ") })
+        assertEquals(Hysteria2Congestion.BRUTAL, p.congestion)
+        assertEquals("test-obfs-7", p.obfsPassword?.reveal(), "маска salamander — тот же пароль obfs")
+        val q = p.quic!!
+        assertEquals(100L * 1024 * 1024 / 8, q.brutalUp, "100 mbps — как у ядра: по 1024, биты в байты")
+        assertEquals(50L * 1024 * 1024 / 8, q.brutalDown)
+        assertEquals(BbrProfile.AGGRESSIVE, q.bbrProfile)
+        assertEquals(8_388_608L, q.initStreamReceiveWindow)
+        assertEquals(30, q.maxIdleTimeoutSecs)
+        assertEquals(10, q.keepAlivePeriodSecs)
+        assertTrue(q.disablePathMtuDiscovery)
+        val hop = p.hop!!
+        assertEquals(setOf(HopMode.INTERVAL_REMOTE, HopMode.PER_CONN_REMOTE), hop.modes)
+        assertEquals(listOf(PortRange(20000, 20010), PortRange(8443, 8443)), hop.ports)
+        assertEquals(CountRange(10, 30), hop.interval)
+        val ignored = r.diagnostics.filter { it.code == DiagCode.SHARE_LINK_PARAM_IGNORED }.map { it.message }
+        assertTrue(ignored.any { "maxIncomingStreams" in it } && ignored.any { "disableStatelessReset" in it }, "серверные ключи — с находкой: $ignored")
+        assertTrue(ConfigValidator.validateProfile(r.valueOrNull()!!, "p").none { it.isError })
+
+        // Чего IR не выражает — отказ с названием, без значений.
+        val hopIps = """{"udp":[{"type":"udphop","settings":{"mode":"intervalRemote","remotePorts":"20000","remoteIPs":["198.51.100.9"]}}]}"""
+        val ips = unsupportedNames(ShareLinkParser.parse(base + enc(hopIps), "s"))
+        assertTrue("fm.udp[0].settings.remoteIPs" in ips && "198.51.100.9" !in ips, ips)
+        val packetSize = """{"udp":[{"type":"salamander","settings":{"password":"secret-7","packetSize":"100-200"}}]}"""
+        val gecko = unsupportedNames(ShareLinkParser.parse(base + enc(packetSize), "s"))
+        assertTrue("packetSize" in gecko && "secret-7" !in gecko, gecko)
+        for (bad in listOf(
+            """{"udp":[{"type":"udphop","settings":{"remotePorts":"20000"}}]}""",
+            """{"udp":[{"type":"udphop","settings":{"mode":"sometimes","remotePorts":"20000"}}]}""",
+            """{"udp":[{"type":"udphop","settings":{"mode":"intervalLocal","remotePorts":"0-5"}}]}""",
+            """{"quicParams":{"brutalUp":"100 furlongs"}}""",
+            """{"quicParams":{"brutalUp":100}}""",
+            """{"quicParams":{"maxIdleTimeout":"30"}}""",
+            """{"udp":[{"type":"salamander","settings":{}}]}""",
+        )) {
+            assertEquals(DiagCode.SHARE_LINK_INVALID, ShareLinkParser.parse(base + enc(bad), "s").errors.single().code, bad)
+        }
+        // Пароль obfs и маски salamander — разные: какой верный, не понять.
+        val clash = ShareLinkParser.parse(
+            "hysteria2://test-password-7@192.0.2.37:8443/?sni=hy2.example.com&obfs=salamander&obfs-password=test-obfs-a&fm=" +
+                enc("""{"udp":[{"type":"salamander","settings":{"password":"test-obfs-b"}}]}"""),
+            "s",
+        )
+        assertEquals(DiagCode.SHARE_LINK_INVALID, clash.errors.single().code)
+        // force-brutal без скорости отдачи ядро не принимает — и проверка профиля тоже.
+        val force = ShareLinkParser.parse(base + enc("""{"quicParams":{"congestion":"force-brutal"}}"""), "s").valueOrNull()!!
+        assertTrue(ConfigValidator.validateProfile(force, "p").any { it.code == DiagCode.TRANSPORT_SETTING_INVALID })
+    }
+
+    /** Скорость Brutal — как `Bandwidth.Bps` Xray 26.9.30: единицы по 1024, биты в байты. */
+    @Test
+    fun brutalBandwidthReadsLikeTheCore() {
+        assertEquals(125L, ShareLinkParser.bandwidth("1000"))
+        assertEquals(128L, ShareLinkParser.bandwidth("1k"))
+        assertEquals(131_072L, ShareLinkParser.bandwidth("1 Mbps"))
+        assertEquals(1024L * 1024 * 1024 / 8, ShareLinkParser.bandwidth("1gb"))
+        assertEquals(196_608L, ShareLinkParser.bandwidth("1.5m"))
+        assertEquals(0L, ShareLinkParser.bandwidth(" "))
+        assertEquals(null, ShareLinkParser.bandwidth("fast"))
+        assertEquals(null, ShareLinkParser.bandwidth("10 mibps"))
+    }
+
+    /**
+     * `fm` у VLESS и Trojan (D-107): журнал телефона 31.10.2026 — «неподдержанные
+     * параметры: fm» без ключей. Теперь отказ называет ключи и типы масок,
+     * без значений, и имена переживают строгую копию журнала; `fm` без масок
+     * — как без него.
+     */
+    @Test
+    fun finalMaskOnVlessNamesItsKeys() {
+        val base = "vless://$UUID1@203.0.113.11:443?security=tls&sni=www.example.com"
+        val fm = enc(
+            """{"tcp":[{"type":"fragment","settings":{"packets":"tlshello","length":"100-200"}}],""" +
+                """"udp":[{"type":"noise"},{"type":"Bad Type!"}],"quicParams":{"congestion":"bbr"},"other":1}""",
+        )
+        val names = unsupportedNames(ShareLinkParser.parse("$base&fm=$fm", "s")).removePrefix("неподдержанные параметры: ")
+        assertEquals("fm.other, fm.quicParams.congestion, fm.tcp[0] (маска fragment), fm.udp[0] (маска noise), fm.udp[1]", names)
+        assertFalse("tlshello" in names || "100-200" in names || "Bad" in names, names)
+        // Ключи Xray переживают строгую копию журнала; незнакомое имя в строчных — как имя хоста.
+        val strict = com.dpsmpx.dppass.diagnostics.Redactor(com.dpsmpx.dppass.diagnostics.Redactor.Level.STRICT).redact(names)
+        assertEquals(names.replace("fm.other", "<host>"), strict)
+        val trojan = ShareLinkParser.parse("trojan://test-password-2@203.0.113.12:443?sni=www.example.com&fm=%5B1%5D", "s")
+        assertEquals("неподдержанные параметры: fm (не объект JSON)", unsupportedNames(trojan))
+        for (empty in listOf("", "%7B%7D", "%20")) {
+            val r = ShareLinkParser.parse("$base&fm=$empty", "s")
+            assertTrue(r is Outcome.Success, "fm=«$empty» — как без него: ${r.diagnostics.map { it.render() }}")
+        }
     }
 
     /** Формат 2 (D-37): отпечатки, `extra` XHTTP и `fm` Hysteria2 из ссылок панели. */
@@ -236,10 +344,9 @@ class ShareLinkParserTest {
             ),
         )
         assertTrue("extra.headers" in headers && "secret-9" !in headers, headers)
-        val brutal = unsupportedNames(
-            ShareLinkParser.parse("hysteria2://test-password-2@192.0.2.30:8443/?fm=%7B%22quicParams%22%3A%7B%22congestion%22%3A%22brutal%22%7D%7D", "s"),
-        )
-        assertTrue("congestion" in brutal, brutal)
+        // brutal — с формата 3 (D-107); незнакомое управление перегрузкой — отказ.
+        val cubic = ShareLinkParser.parse("hysteria2://test-password-2@192.0.2.30:8443/?fm=" + enc("""{"quicParams":{"congestion":"cubic"}}"""), "s")
+        assertEquals(DiagCode.SHARE_LINK_INVALID, cubic.errors.single().code)
         // extra у другого транспорта и не-JSON — отказ.
         assertTrue("extra" in unsupportedNames(ShareLinkParser.parse("vless://$UUID1@203.0.113.1:443?security=tls&sni=a.example.com&extra=%7B%7D", "s")))
         assertEquals(

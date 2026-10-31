@@ -7,7 +7,8 @@
 Правила журнала:
 
 - Номер не переиспользуется и не меняется. Новое решение — следующий
-  свободный номер (сейчас — **98**).
+  свободный номер (сейчас — **108**); шапку с журналом сверяет
+  `tools/hostcheck/check_decisions.py`.
 - Решение не переписывается задним числом: если оно меняется, старое
   получает статус «заменено D-NN», новое объясняет, что изменилось и
   почему.
@@ -5498,6 +5499,88 @@ B и личной).
   соединением; сортировка заголовком; журнал записал её и очищается с
   подтверждением; выключение — учёта нет.
 - На устройствах — `TODO.md` («На устройстве», «Анализатор соединений»).
+
+### D-107 — Формат конфигурации версии 3: Brutal, параметры QUIC и перескок портов Hysteria2; `fm` называет свои ключи
+
+Принято 31 октября 2026 по просьбе автора: разобрать по исходникам Xray
+пропуски `fm` в журнале телефона (31.10.2026, 0.7.49-dev). Факты — из
+исходников Xray 26.9.30 (модуль `xray-core`
+`v1.260327.1-0.20260930074004-b26a91de4f32`, проверено 31 октября 2026):
+`infra/conf/transport_internet.go`, `infra/conf/transport_finalmask.go`,
+`infra/conf/transport_method.go`, `transport/internet/hysteria/dialer.go`,
+`transport/internet/hysteria/hub.go`.
+
+**Почему.** В журнале телефона записи `entry[6]` и `entry[12]` подписки
+автора пропущены с причиной «неподдержанные параметры: fm». Такое
+сообщение с одним словом `fm` даёт только разбор ссылок VLESS и Trojan:
+у них `fm` не было в списке параметров вовсе. У Hysteria2 отказ называл
+бы ключ (`fm.<ключ>`). Значит, эти записи — скорее всего не Hysteria2, и
+какие в них маски, журнал не говорит. Кроме того, у Hysteria2 DPpass
+выражал из `fm` только `congestion` (`bbr`, `reno`, D-37), а ядро на
+клиенте понимает больше.
+
+**Факты.**
+- `finalmask` — `{tcp: [маска], udp: [маска], quicParams}` у любого
+  транспорта. Маски `tcp`: `header-custom`, `fragment`, `sudoku`, `xmc`;
+  `udp`: `header-custom`, `mkcp-legacy`, `noise`, `salamander`, `sudoku`,
+  `xdns`, `xicmp`, `realm`, `udphop`.
+- Клиент Hysteria2 (`dialer.go`) берёт из `quicParams`: `congestion`
+  (`reno`, `bbr`, `brutal`, `force-brutal`), `bbrProfile`, `brutalUp`,
+  `brutalDown`, `brutalDisableLossCompensation`, четыре окна приёма,
+  `maxIdleTimeout`, `keepAlivePeriod`, `disablePathMTUDiscovery`,
+  `disableChromeParrot`, `disableGSO`. `maxIncomingStreams` и
+  `disableStatelessReset` читает только сервер (`hub.go`), `debug` —
+  только переменные окружения (D-48).
+- Пределы ядра: скорость Brutal ≥ 65536 байт/с (`Bandwidth.Bps`: число и
+  `b`/`k`/`m`/`g`/`t` по 1024, в битах); окна ≥ 16384; `maxIdleTimeout`
+  4…120 с; `keepAlivePeriod` 2…60 с; `force-brutal` без скорости отдачи
+  ядро не запускает.
+- Маска `udphop`: `mode` — `intervalLocal`, `intervalRemote`,
+  `perConnRemote` через запятую; `remotePorts`; `interval` — по умолчанию
+  30, не меньше 5; `remoteIPs` — другие адреса сервера. У `salamander`
+  `packetSize` — отдельный режим маски (не только пароль).
+
+**Решение.**
+- **Версия формата 3**, только добавляет (D-06): у `hysteria2` —
+  `congestion` `brutal` и `force-brutal`, объект `quic` (ключи выше в
+  написании DPpass, скорость — в байтах) и объект `hop` (`modes`,
+  `ports`, `interval`; `docs/CONFIG_FORMAT.md`, §3.1.1). Пределы ядра —
+  ошибки при чтении с путём (`TRANSPORT_SETTING_INVALID`): ядро отвергло
+  бы их при запуске.
+- **Миграция 2 → 3 — тождественная**, как 1 → 2 (D-37): документы на
+  устройстве версии 2.
+- **Компилятор Xray** пишет `finalmask.quicParams` (скорость — в битах,
+  строкой) и маски `udp` `salamander` (из `obfs_password`) и `udphop`.
+- **Ссылки Hysteria2:** `fm` — `quicParams` с ключами выше и `udp` с
+  масками `salamander` (только `password`; пароль, отличный от
+  `obfs-password`, — отказ) и `udphop` (без `remoteIPs`: сервер профиля —
+  один адрес). `maxIncomingStreams` и `disableStatelessReset` —
+  отбрасываются поимённо с находкой, по правилу D-48 и фактам выше.
+  Остальное — отказ с названием, без значений.
+- **Ссылки VLESS и Trojan:** `fm` пустой или `{}` — как без него. С
+  содержимым — отказ, но с именами ключей и типов масок
+  (`fm.tcp[0] (маска fragment)`), без значений: маски этих транспортов
+  IR не выражает, а `fragment` поставщика — это разбиение по его слову
+  вместо выбора пользователя (D-11, D-68).
+- **Строгая копия журнала** (`Redactor`, `STRICT`) не считает `fm.udp` и
+  `fm.tcp` именами хостов: иначе имя ключа ушло бы под `<host>`. Метки
+  `udp` и `tcp` — не домены верхнего уровня; имя с ними в середине
+  (`srv.udp.example.org`) по-прежнему скрывается.
+
+**Следствия.** Записи Hysteria2 с параметрами QUIC, Brutal и перескоком
+портов теперь принимаются. Что в `entry[6]` и `entry[12]` подписки
+автора, покажет следующий журнал телефона — с именами ключей (`TODO.md`).
+
+**Проверка.**
+- `ConfigFormatV3Test` — `quic` и `hop` туда и обратно; документ версии 2
+  — через миграцию; пределы ядра — ошибки с путём;
+- `XrayCompilerTest.formatV3Hysteria2QuicAndHopReachFinalmask`;
+- `ShareLinkParserTest`: `finalMaskQuicParamsSalamanderAndHop`,
+  `brutalBandwidthReadsLikeTheCore`, `finalMaskOnVlessNamesItsKeys`;
+- `RedactorTest.strictLevelKeepsFinalMaskKeys`;
+- корпус `tests/data/configs/valid-format-v3`, `invalid-format-v3-limits`
+  (эталоны принимает само ядро, шаг «Xray»),
+  `tests/data/subscriptions/remnawave-fm-finalmask`, `remnawave-fm-vless`.
 
 ## Отложено
 

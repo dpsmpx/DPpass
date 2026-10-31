@@ -1,6 +1,7 @@
 package com.dpsmpx.dppass.config
 
 import com.dpsmpx.dppass.core.Endpoint
+import com.dpsmpx.dppass.core.PortRange
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.diagnostics.Secret
 import com.dpsmpx.dppass.routing.DnsPolicy
@@ -62,8 +63,18 @@ sealed interface ProtocolSpec {
         override val kind: ProtocolKind get() = ProtocolKind.SHADOWSOCKS
     }
 
-    /** [congestion] — управление перегрузкой QUIC (формат 2, D-37); null — по умолчанию ядра. */
-    data class Hysteria2(val password: Secret, val obfsPassword: Secret? = null, val congestion: Hysteria2Congestion? = null) : ProtocolSpec {
+    /**
+     * [congestion] — управление перегрузкой QUIC (формат 2, D-37); null — по
+     * умолчанию ядра. [quic] — прочие параметры QUIC, [hop] — перескок портов
+     * (формат 3, D-107); null — нет.
+     */
+    data class Hysteria2(
+        val password: Secret,
+        val obfsPassword: Secret? = null,
+        val congestion: Hysteria2Congestion? = null,
+        val quic: Hysteria2Quic? = null,
+        val hop: Hysteria2Hop? = null,
+    ) : ProtocolSpec {
         override val kind: ProtocolKind get() = ProtocolKind.HYSTERIA2
     }
 
@@ -80,10 +91,71 @@ sealed interface ProtocolSpec {
 }
 
 /**
- * Управление перегрузкой Hysteria2 (D-37). Brutal нет: ему нужны скорости
- * канала, которых в IR нет; без них Xray и так берёт BBR.
+ * Управление перегрузкой Hysteria2 (D-37, D-107). `brutal` без скоростей
+ * ([Hysteria2Quic.brutalUp]) Xray заменяет на BBR — так понимает ядро;
+ * `force-brutal` без скорости отдачи ядро не принимает — и IR тоже.
  */
-enum class Hysteria2Congestion(val wire: String) { BBR("bbr"), RENO("reno") }
+enum class Hysteria2Congestion(val wire: String) { BBR("bbr"), RENO("reno"), BRUTAL("brutal"), FORCE_BRUTAL("force-brutal") }
+
+/** Профиль BBR у Hysteria2 (формат 3, D-107); нет — `standard`, как у ядра. */
+enum class BbrProfile(val wire: String) { CONSERVATIVE("conservative"), STANDARD("standard"), AGGRESSIVE("aggressive") }
+
+/**
+ * Параметры QUIC Hysteria2 (формат 3, D-107) — те из `finalmask.quicParams`
+ * Xray 26.9.30, что действуют у клиента (`transport/internet/hysteria/
+ * dialer.go`). null и false — по умолчанию ядра. Скорости Brutal — байт в
+ * секунду; окна приёма — байт; время — секунды. Пределы — как у ядра
+ * (`infra/conf/transport_internet.go`); проверяет `ConfigValidator`.
+ */
+data class Hysteria2Quic(
+    val bbrProfile: BbrProfile? = null,
+    val brutalUp: Long? = null,
+    val brutalDown: Long? = null,
+    val brutalDisableLossCompensation: Boolean = false,
+    val initStreamReceiveWindow: Long? = null,
+    val maxStreamReceiveWindow: Long? = null,
+    val initConnReceiveWindow: Long? = null,
+    val maxConnReceiveWindow: Long? = null,
+    val maxIdleTimeoutSecs: Int? = null,
+    val keepAlivePeriodSecs: Int? = null,
+    val disablePathMtuDiscovery: Boolean = false,
+    val disableChromeParrot: Boolean = false,
+    val disableGso: Boolean = false,
+) {
+    val isEmpty: Boolean get() = this == Hysteria2Quic()
+
+    companion object {
+        /** Скорость Brutal — не меньше 64 КиБ/с (так у ядра). */
+        const val MIN_BRUTAL: Long = 65_536
+
+        /** Наибольшая скорость Brutal: ядру она уходит в битах (×8) и должна уместиться в Long. */
+        const val MAX_BRUTAL: Long = Long.MAX_VALUE / 8
+
+        /** Окно приёма — не меньше 16 КиБ (так у ядра). */
+        const val MIN_WINDOW: Long = 16_384
+        val IDLE_TIMEOUT: IntRange = 4..120
+        val KEEP_ALIVE: IntRange = 2..60
+    }
+}
+
+/** Когда менять порт при перескоке (`udphop`, D-107): свой порт по таймеру, порт сервера по таймеру, порт сервера на каждое соединение. */
+enum class HopMode(val wire: String, val xray: String) {
+    INTERVAL_LOCAL("interval_local", "intervalLocal"),
+    INTERVAL_REMOTE("interval_remote", "intervalRemote"),
+    PER_CONN_REMOTE("per_conn_remote", "perConnRemote"),
+}
+
+/**
+ * Перескок портов Hysteria2 (формат 3, D-107) — маска `udphop` Xray: порты
+ * сервера [ports], режимы [modes], смена раз в [interval] секунд (null — 30,
+ * как у ядра; не меньше 5). Других адресов сервера (`remoteIPs`) IR не
+ * выражает: сервер — один адрес профиля.
+ */
+data class Hysteria2Hop(val modes: Set<HopMode>, val ports: List<PortRange>, val interval: CountRange? = null) {
+    companion object {
+        const val MIN_INTERVAL: Int = 5
+    }
+}
 
 enum class VlessFlow(val wire: String) { NONE("none"), VISION("vision") }
 

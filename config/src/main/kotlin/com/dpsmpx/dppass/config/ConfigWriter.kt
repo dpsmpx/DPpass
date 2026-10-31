@@ -1,6 +1,7 @@
 package com.dpsmpx.dppass.config
 
 import com.dpsmpx.dppass.core.Json
+import com.dpsmpx.dppass.core.JsonBool
 import com.dpsmpx.dppass.core.JsonObject
 import com.dpsmpx.dppass.core.JsonValue
 import com.dpsmpx.dppass.diagnostics.Secret
@@ -40,6 +41,8 @@ object ConfigWriter {
                     "password" to secret(pr.password),
                     "obfs_password" to secret(pr.obfsPassword),
                     "congestion" to Json.str(pr.congestion?.wire),
+                    "quic" to pr.quic?.let(::quic),
+                    "hop" to pr.hop?.let(::hop),
                 )
                 // Устройство раздачи (D-55) живёт только в списке устройств, в IR активации
                 // его не бывает; в формате документа такого протокола нет.
@@ -150,6 +153,29 @@ object ConfigWriter {
             "dns" to dns,
         )
     }
+
+    /** Параметры QUIC Hysteria2 (формат 3, D-107): по умолчанию ядра — поля нет. */
+    private fun quic(q: Hysteria2Quic): JsonObject = Json.obj(
+        "bbr_profile" to q.bbrProfile?.let { Json.str(it.wire) },
+        "brutal_up" to q.brutalUp?.let(Json::num),
+        "brutal_down" to q.brutalDown?.let(Json::num),
+        "brutal_disable_loss_compensation" to JsonBool(true).takeIf { q.brutalDisableLossCompensation },
+        "init_stream_receive_window" to q.initStreamReceiveWindow?.let(Json::num),
+        "max_stream_receive_window" to q.maxStreamReceiveWindow?.let(Json::num),
+        "init_connection_receive_window" to q.initConnReceiveWindow?.let(Json::num),
+        "max_connection_receive_window" to q.maxConnReceiveWindow?.let(Json::num),
+        "max_idle_timeout" to q.maxIdleTimeoutSecs?.let(Json::num),
+        "keep_alive_period" to q.keepAlivePeriodSecs?.let(Json::num),
+        "disable_path_mtu_discovery" to JsonBool(true).takeIf { q.disablePathMtuDiscovery },
+        "disable_chrome_parrot" to JsonBool(true).takeIf { q.disableChromeParrot },
+        "disable_gso" to JsonBool(true).takeIf { q.disableGso },
+    )
+
+    private fun hop(h: Hysteria2Hop): JsonObject = Json.obj(
+        "modes" to Json.strings(HopMode.entries.filter { it in h.modes }.map { it.wire }),
+        "ports" to Json.strings(h.ports.map { it.toString() }),
+        "interval" to h.interval?.let { if (it.from == it.to) Json.num(it.from) else Json.str(it.toString()) },
+    )
 
     /** Настройки XHTTP формата 2 (D-37): только заданные — значения по умолчанию ядра не пишутся. */
     private fun xhttpExtra(e: XHttpExtra): JsonObject {

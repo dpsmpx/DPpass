@@ -1,11 +1,12 @@
-# Формат конфигурации DPpass, версия 2
+# Формат конфигурации DPpass, версия 3
 
 Собственный документ DPpass (D-06): JSON с маркером
 `"format": "dppass.config"` и версией формата, не связанной с версиями
 ядер, геоданных и приложения. Разбор — `config/` (`ConfigLoader`,
 `DocumentMapper`, `ConfigValidator`), запись — `ConfigWriter`. Набор
 протоколов — IR v1 (D-16); версия 2 формата (D-37) добавила отпечатки
-TLS, управление перегрузкой Hysteria2 и настройки XHTTP.
+TLS, управление перегрузкой Hysteria2 и настройки XHTTP, версия 3
+(D-107) — Brutal, параметры QUIC и перескок портов Hysteria2.
 
 ## 1. Общие правила
 
@@ -36,7 +37,7 @@ TLS, управление перегрузкой Hysteria2 и настройки
 | Поле | Тип | Обяз. | Смысл |
 |---|---|---|---|
 | `format` | строка | да | ровно `dppass.config`, иначе `FORMAT_NOT_DPPASS` |
-| `format_version` | целое | да | `2`; `1` — через миграцию (§8); новее — `FORMAT_VERSION_UNSUPPORTED` «создано более новой версией» |
+| `format_version` | целое | да | `3`; `1` и `2` — через миграцию (§8); новее — `FORMAT_VERSION_UNSUPPORTED` «создано более новой версией» |
 | `name` | строка | нет | 1…128 символов после обрезки пробелов, без управляющих (`NAME_INVALID`) |
 | `profiles` | массив объектов | да | профили серверов, хотя бы один (`PROFILES_EMPTY`) |
 | `routing` | объект | нет | маршрутизация (§4); нет — всё через прокси, локальные сети мимо туннеля |
@@ -62,11 +63,40 @@ TLS, управление перегрузкой Hysteria2 и настройки
 | `vless` | `id` — UUID (секрет); `flow` — `none` (по умолчанию) или `vision` | нужна защита `tls` или `reality` (`SECURITY_REQUIRED`); `vision` — только транспорт `tcp` с `tls`/`reality` (`FLOW_REQUIRES_TCP_TLS`) |
 | `trojan` | `password` (секрет) | только с `tls` |
 | `shadowsocks` | `method` — `2022-blake3-aes-128-gcm`, `2022-blake3-aes-256-gcm`, `2022-blake3-chacha20-poly1305`; `password` — ключ base64 (16 байт для aes-128, иначе 32; секрет) | защита `none`, транспорт `tcp` (`TRANSPORT_PROTOCOL_MISMATCH`); неверная длина ключа — `PASSWORD_FORMAT_INVALID`. Старые AEAD-методы не поддерживаются (D-16) |
-| `hysteria2` | `password` (секрет); `obfs_password` — необязательный (секрет); `congestion` — `bbr` или `reno` (формат 2; нет — по умолчанию ядра: Xray без скоростей Brutal берёт BBR) | транспорт `native`, защита `tls` |
+| `hysteria2` | `password` (секрет); `obfs_password` — необязательный (секрет); `congestion` — `bbr` или `reno` (формат 2), `brutal` или `force-brutal` (формат 3; нет — по умолчанию ядра: Xray без скоростей Brutal берёт BBR); `quic` и `hop` — необязательные объекты формата 3 (§3.1.1) | транспорт `native`, защита `tls` |
 
 Секрет не может быть пустым (`PASSWORD_EMPTY`) и не может быть меткой
 `<redacted>` из отредактированного экспорта (`SECRET_PLACEHOLDER`: такой
 документ можно показать, но не активировать).
+
+#### 3.1.1. Hysteria2: `quic` и `hop` (формат 3)
+
+То, что у Xray 26.9.30 действует на клиенте (D-107): `finalmask.quicParams`
+(`transport/internet/hysteria/dialer.go`) и маска `udphop`. Числа — целые
+без знака, `0` — то же, что поля нет; пределы — как у ядра
+(`infra/conf/transport_internet.go`): что ядро отвергло бы при запуске,
+отвергается при чтении — `TRANSPORT_SETTING_INVALID` с путём.
+
+| Поле `quic` | Значение |
+|---|---|
+| `bbr_profile` | `conservative`, `standard`, `aggressive` |
+| `brutal_up`, `brutal_down` | скорость Brutal, **байт** в секунду, ≥ 65536; Xray получает её в битах |
+| `brutal_disable_loss_compensation` | логическое |
+| `init_stream_receive_window`, `max_stream_receive_window`, `init_connection_receive_window`, `max_connection_receive_window` | байты, ≥ 16384 |
+| `max_idle_timeout` | секунды, 4…120 |
+| `keep_alive_period` | секунды, 2…60 |
+| `disable_path_mtu_discovery`, `disable_chrome_parrot`, `disable_gso` | логическое |
+
+`force-brutal` без `brutal_up` — ошибка (ядро не запустится).
+
+| Поле `hop` | Значение |
+|---|---|
+| `modes` | непустой массив: `interval_local`, `interval_remote`, `per_conn_remote` |
+| `ports` | непустой массив портов сервера: `"N"` или `"N-M"`, 1…65535 |
+| `interval` | диапазон секунд `N` или `"N-M"`, начало ≥ 5; нет — 30, как у ядра |
+
+Адреса перескока (`remoteIPs` у Xray) в формате нет: сервер профиля — один
+адрес.
 
 ### 3.2. Транспорт (`transport.type`)
 
@@ -268,6 +298,7 @@ REALITY — только с `vless` и транспортом `tcp`, `xhttp` и�
 |---|---|---|
 | 1 | первая (D-06, D-16) | — |
 | 2 | новые отпечатки TLS, `congestion` у Hysteria2, настройки `xhttp` (D-37) | 1 → 2 — тождественная: версия 2 только добавляет; её ждут документы, сохранённые на устройстве до версии 2 (D-07). Отсутствие конструкций версии 2 в документе версии 1 она не проверяет |
+| 3 | `brutal` и `force-brutal`, `quic` и `hop` у Hysteria2 (D-107) | 2 → 3 — тождественная, по тем же причинам |
 
 Новое поле, новое значение в закрытом наборе, изменение смысла поля —
 это **новая версия формата**: `ConfigFormat.CURRENT_VERSION`, миграция с
@@ -286,7 +317,7 @@ IR, известный «по умолчанию» принимается, **л�
 |---|---|
 | `vless://UUID@хост:порт?…#имя` | `type` (`tcp`/`raw`, `ws`, `httpupgrade`, `grpc` + `serviceName`, `xhttp`/`splithttp` + `mode` и `extra`), `security` (`none`, `tls`, `reality` + `pbk`, `sid`, `spx`), `sni`, `fp`, `alpn`, `flow` (`xtls-rprx-vision`), `path`, `host`, `encryption` (только `none`), `headerType` (только `none`) |
 | `trojan://пароль@хост:порт?…#имя` | те же, кроме `pbk`/`sid`/`spx`/`flow`/`encryption`; `security` по умолчанию `tls` |
-| `hysteria2://пароль@хост:порт/?…#имя` (и `hy2://`) | `sni`, `obfs` (только `salamander`) вместе с `obfs-password`, `insecure` (только `0`), `fm` (только `{"quicParams":{"congestion":…}}` со значением `bbr` или `reno`; `quicParams.debug` отбрасывается с находкой `SHARE_LINK_PARAM_IGNORED` — на соединение не влияет, D-48); пароль — вся часть до `@`; порт — один (диапазоны портов IR не выражает); защита — TLS без `alpn` и `fingerprint` (§3) |
+| `hysteria2://пароль@хост:порт/?…#имя` (и `hy2://`) | `sni`, `obfs` (только `salamander`) вместе с `obfs-password`, `insecure` (только `0`), `fm` — finalmask Xray: `quicParams` (ключи §3.1.1 в написании Xray — `bbrProfile`, `brutalUp`…; скорость Brutal — строкой вида `100 mbps`, как у ядра; `debug` и серверные `maxIncomingStreams`, `disableStatelessReset` отбрасываются с находкой `SHARE_LINK_PARAM_IGNORED` — на соединение клиента не влияют, D-48) и `udp` — маски `salamander` (только `password`; пароль, отличный от `obfs-password`, — отказ) и `udphop` (`mode`, `remotePorts`, `interval`; D-107); пароль — вся часть до `@`; порт — один (диапазоны портов IR не выражает); защита — TLS без `alpn` и `fingerprint` (§3) |
 | `ss://ДАННЫЕ@хост:порт#имя` | без параметров (`plugin` и др. — отказ); ДАННЫЕ — `метод:пароль` в base64 (стандартный или для URL, с `=` или без) либо открыто с %-кодированием (SIP002); метод — только `2022-blake3-*` (D-16): старый AEAD (`chacha20-ietf-poly1305`, `aes-*-gcm`) отвергается с причиной |
 
 `allowInsecure=1`/`insecure=1` — профиль отвергается
@@ -303,8 +334,13 @@ IR, известный «по умолчанию» принимается, **л�
 `hKeepAlivePeriod`); значения — как в §3.2, `0` — «не задано». Другой
 ключ (`headers`, `downloadSettings`…) — `SHARE_LINK_PARAM_UNSUPPORTED`
 с именем `extra.<ключ>`, без значения; у другого транспорта `extra` —
-отказ. `fm` у Hysteria2 — маски и прочие параметры QUIC — отказ с именем
-`fm.<ключ>`. Корпус — `tests/data/subscriptions/remnawave-format-v2`.
+отказ. В `fm` у Hysteria2 прочее — маски `tcp`, другие маски `udp`
+(`noise`, `header-custom`…), `packetSize` у `salamander`, `remoteIPs` у
+`udphop` — отказ с именем `fm.<ключ>` или `fm.udp[N] (маска тип)`, без
+значений. У VLESS и Trojan `fm` пустой или `{}` — как без него; с
+содержимым — отказ с именами его ключей и типов масок (D-107). Корпус —
+`tests/data/subscriptions/remnawave-format-v2`, `remnawave-fm-finalmask`,
+`remnawave-fm-vless`.
 
 Запрос подписки (D-33): собственный `User-Agent` `DPpass/<версия>` и
 `x-hwid` — только если пользователь включил идентификатор для этой

@@ -2,6 +2,9 @@ package com.dpsmpx.dppass.engine.xray
 
 import com.dpsmpx.dppass.config.ConfigIr
 import com.dpsmpx.dppass.config.CountRange
+import com.dpsmpx.dppass.config.HopMode
+import com.dpsmpx.dppass.config.Hysteria2Hop
+import com.dpsmpx.dppass.config.Hysteria2Quic
 import com.dpsmpx.dppass.config.ProtocolSpec
 import com.dpsmpx.dppass.config.SecuritySpec
 import com.dpsmpx.dppass.config.ServerProfile
@@ -12,6 +15,7 @@ import com.dpsmpx.dppass.core.Checksums
 import com.dpsmpx.dppass.core.Cidr
 import com.dpsmpx.dppass.core.Host
 import com.dpsmpx.dppass.core.Json
+import com.dpsmpx.dppass.core.JsonBool
 import com.dpsmpx.dppass.core.JsonObject
 import com.dpsmpx.dppass.core.JsonString
 import com.dpsmpx.dppass.core.JsonValue
@@ -354,13 +358,11 @@ class XrayCompiler(
                 "hysteriaSettings" to Json.obj("version" to Json.num(2), "auth" to Json.str(proto.password.reveal())),
                 "security" to Json.str("tls"),
                 "tlsSettings" to Json.obj("serverName" to Json.str(tls?.serverName)),
-                // Salamander — маска UDP; управление перегрузкой (формат 2, D-37) — quicParams.
-                // Без congestion поле не пишется: Xray без скорости Brutal и так берёт BBR.
+                // Маски UDP: Salamander и перескок портов (D-107); управление перегрузкой (формат 2,
+                // D-37) и прочие параметры QUIC (формат 3) — quicParams. По умолчанию ядра — поля нет.
                 "finalmask" to Json.obj(
-                    "udp" to obfs?.let {
-                        Json.arr(listOf(Json.obj("type" to Json.str("salamander"), "settings" to Json.obj("password" to Json.str(it)))))
-                    },
-                    "quicParams" to proto.congestion?.let { Json.obj("congestion" to Json.str(it.wire)) },
+                    "udp" to udpMasks(obfs, proto.hop).takeIf { it.isNotEmpty() }?.let(Json::arr),
+                    "quicParams" to quicParams(proto).takeIf { it.fields.isNotEmpty() },
                 ).takeIf { it.fields.isNotEmpty() },
             )
             return Json.obj(
@@ -368,6 +370,47 @@ class XrayCompiler(
                 "protocol" to Json.str("hysteria"),
                 "settings" to Json.obj("version" to Json.num(2), "address" to address, "port" to port),
                 "streamSettings" to stream,
+            )
+        }
+
+        /** Маски UDP Hysteria2: Salamander (D-37) и перескок портов `udphop` (D-107). */
+        private fun udpMasks(obfs: String?, hop: Hysteria2Hop?): List<JsonObject> = listOfNotNull(
+            obfs?.let { Json.obj("type" to Json.str("salamander"), "settings" to Json.obj("password" to Json.str(it))) },
+            hop?.let { h ->
+                Json.obj(
+                    "type" to Json.str("udphop"),
+                    "settings" to Json.obj(
+                        "mode" to Json.str(HopMode.entries.filter { it in h.modes }.joinToString(",") { it.xray }),
+                        "remotePorts" to Json.str(h.ports.joinToString(",")),
+                        "interval" to h.interval?.let { Json.str(it.toString()) },
+                    ),
+                )
+            },
+        )
+
+        /**
+         * `quicParams` Hysteria2 (D-37, D-107). Скорость Brutal ядро читает
+         * строкой с единицей и делит на 8 (биты в байты): пишется число бит в
+         * секунду без единицы — байт в секунду получается ровно столько, сколько в IR.
+         */
+        private fun quicParams(proto: ProtocolSpec.Hysteria2): JsonObject {
+            val q = proto.quic ?: Hysteria2Quic()
+            fun flag(on: Boolean): JsonValue? = JsonBool(true).takeIf { on }
+            return Json.obj(
+                "congestion" to proto.congestion?.let { Json.str(it.wire) },
+                "bbrProfile" to q.bbrProfile?.let { Json.str(it.wire) },
+                "brutalUp" to q.brutalUp?.let { Json.str((it * 8).toString()) },
+                "brutalDown" to q.brutalDown?.let { Json.str((it * 8).toString()) },
+                "brutalDisableLossCompensation" to flag(q.brutalDisableLossCompensation),
+                "initStreamReceiveWindow" to q.initStreamReceiveWindow?.let(Json::num),
+                "maxStreamReceiveWindow" to q.maxStreamReceiveWindow?.let(Json::num),
+                "initConnectionReceiveWindow" to q.initConnReceiveWindow?.let(Json::num),
+                "maxConnectionReceiveWindow" to q.maxConnReceiveWindow?.let(Json::num),
+                "maxIdleTimeout" to q.maxIdleTimeoutSecs?.let(Json::num),
+                "keepAlivePeriod" to q.keepAlivePeriodSecs?.let(Json::num),
+                "disablePathMTUDiscovery" to flag(q.disablePathMtuDiscovery),
+                "disableChromeParrot" to flag(q.disableChromeParrot),
+                "disableGSO" to flag(q.disableGso),
             )
         }
 

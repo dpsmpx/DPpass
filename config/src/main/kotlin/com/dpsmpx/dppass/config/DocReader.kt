@@ -50,6 +50,17 @@ internal class ObjReader(private val obj: JsonObject, val path: String, private 
         return n
     }
 
+    /** Целое до 2^63 (скорости и окна QUIC, формат 3); вне [range] — ошибка с путём. */
+    fun long(key: String, required: Boolean = true, range: LongRange = Long.MIN_VALUE..Long.MAX_VALUE): Long? {
+        val v = field(key, required) ?: return null
+        val n = (v as? JsonNumber)?.toLongOrNull() ?: return typeError(key, "целое число")
+        if (n !in range) {
+            diags.error(DiagCode.FIELD_TYPE, "значение «$key» вне диапазона ${range.first}..${range.last}", "$path.$key")
+            return null
+        }
+        return n
+    }
+
     fun bool(key: String, default: Boolean): Boolean = when (val v = field(key, required = false)) {
         null -> default
         is JsonBool -> v.value

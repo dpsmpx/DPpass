@@ -7,6 +7,7 @@ import com.dpsmpx.dppass.core.Json
 import com.dpsmpx.dppass.core.JsonNumber
 import com.dpsmpx.dppass.core.JsonObject
 import com.dpsmpx.dppass.core.JsonString
+import com.dpsmpx.dppass.core.PortRange
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.core.RuleId
 import com.dpsmpx.dppass.diagnostics.DiagCode
@@ -278,6 +279,69 @@ class WriterAndNormalizerTest {
     }
 }
 
+/** Формат 3 (D-107): параметры QUIC и перескок портов Hysteria2. */
+class ConfigFormatV3Test {
+    private val loader = ConfigLoader()
+
+    @Test
+    fun quicAndHopRoundTripAndOlderVersionsMigrate() {
+        val r = loader.load(Fixtures.text("configs/valid-format-v3.json"))
+        val ir = assertNotNull(r.valueOrNull(), r.diagnostics.map { it.render() }.toString()).ir
+        val hy = ir.profiles.first { it.id.value == "hy2-brutal-hop" }.protocol as ProtocolSpec.Hysteria2
+        assertEquals(Hysteria2Congestion.BRUTAL, hy.congestion)
+        assertEquals(
+            Hysteria2Quic(
+                bbrProfile = BbrProfile.AGGRESSIVE, brutalUp = 13_107_200, brutalDown = 6_553_600, initStreamReceiveWindow = 8_388_608,
+                maxStreamReceiveWindow = 8_388_608, initConnReceiveWindow = 20_971_520, maxConnReceiveWindow = 20_971_520,
+                maxIdleTimeoutSecs = 30, keepAlivePeriodSecs = 10, disablePathMtuDiscovery = true,
+            ),
+            hy.quic,
+        )
+        val ports = listOf(PortRange(20000, 20010), PortRange(8443, 8443))
+        assertEquals(Hysteria2Hop(setOf(HopMode.INTERVAL_REMOTE, HopMode.PER_CONN_REMOTE), ports, CountRange(10, 30)), hy.hop)
+        val written = ConfigWriter.write(ir, ConfigWriter.Mode.FULL)
+        assertEquals(ir, loader.load(written).valueOrNull()!!.ir, "туда и обратно — тот же IR")
+        // Документ версии 2 — через миграцию 2 → 3, без потерь.
+        val v2 = loader.load(Fixtures.text("configs/valid-format-v2.json"))
+        assertTrue(v2.diagnostics.any { it.code == DiagCode.MIGRATION_APPLIED }, v2.diagnostics.map { it.render() }.toString())
+    }
+
+    @Test
+    fun coreLimitsAreRejectedWithPaths() {
+        val r = loader.load(Fixtures.text("configs/invalid-format-v3-limits.json"))
+        val at = r.errors.map { it.code to it.path }
+        val p = "$.profiles[0].protocol"
+        assertEquals(
+            setOf(
+                DiagCode.TRANSPORT_SETTING_INVALID to "$p.congestion",
+                DiagCode.TRANSPORT_SETTING_INVALID to "$p.quic.brutal_down",
+                DiagCode.TRANSPORT_SETTING_INVALID to "$p.quic.max_idle_timeout",
+                DiagCode.TRANSPORT_SETTING_INVALID to "$p.hop.interval",
+            ),
+            at.toSet(),
+        )
+        fun codesAt(text: String) = loader.load(text).errors.map { it.code to it.path }
+        val base = Fixtures.text("configs/valid-format-v3.json")
+        assertEquals(
+            listOf(DiagCode.VALUE_UNKNOWN to "$.profiles[0].protocol.hop.modes[0]"),
+            codesAt(base.replace("\"interval_remote\", \"per_conn_remote\"", "\"sometimes\"")),
+        )
+        assertEquals(
+            listOf(DiagCode.TRANSPORT_SETTING_INVALID to "$.profiles[0].protocol.hop.ports[0]"),
+            codesAt(base.replace("\"20000-20010\"", "\"0-5\"")),
+        )
+        assertEquals(
+            listOf(DiagCode.TRANSPORT_SETTING_INVALID to "$.profiles[0].protocol.quic.brutal_up"),
+            codesAt(base.replace("\"brutal_up\": 13107200", "\"brutal_up\": ${Long.MAX_VALUE}")),
+            "скорость в битах (×8) не переполняет Long",
+        )
+        assertEquals(
+            listOf(DiagCode.FIELD_UNKNOWN to "$.profiles[0].protocol.quic.debug"),
+            codesAt(base.replace("\"bbr_profile\": \"aggressive\",", "\"bbr_profile\": \"aggressive\", \"debug\": true,")),
+        )
+    }
+}
+
 /** Формат 2 (D-37): новые значения и поля, миграция 1 → 2. */
 class ConfigFormatV2Test {
     private val loader = ConfigLoader()
@@ -298,7 +362,8 @@ class ConfigFormatV2Test {
         assertEquals(Xmux(CountRange(16, 32), null, CountRange(64, 128), CountRange(600, 900), CountRange(1800, 3000), 30), extra.xmux)
 
         val written = ConfigWriter.write(ir, ConfigWriter.Mode.FULL)
-        assertTrue("\"format_version\": 2" in written || "\"format_version\":2" in written, "пишется текущая версия")
+        val version = ConfigFormat.CURRENT_VERSION
+        assertTrue("\"format_version\": $version" in written || "\"format_version\":$version" in written, "пишется текущая версия")
         assertEquals(ir, loader.load(written).valueOrNull()!!.ir)
     }
 
@@ -329,7 +394,8 @@ class ConfigFormatV2Test {
         )
         assertEquals(
             listOf(DiagCode.VALUE_UNKNOWN to "$.profiles[3].protocol.congestion"),
-            codesAt(base.replace("\"congestion\": \"bbr\"", "\"congestion\": \"brutal\"")),
+            // brutal с формата 3 (D-107) — значение ядра; незнакомое — по-прежнему отказ.
+            codesAt(base.replace("\"congestion\": \"bbr\"", "\"congestion\": \"cubic\"")),
         )
         // «0» — то же, что поля нет: так понимает Xray.
         val zero = loader.load(base.replace("\"sc_min_posts_interval_ms\": \"10-50\"", "\"sc_min_posts_interval_ms\": 0")).valueOrNull()!!.ir

@@ -1,0 +1,8 @@
+{
+  "load": {
+    "outcome": "rejected",
+    "codes": [
+      "TRANSPORT_SETTING_INVALID"
+    ]
+  }
+}

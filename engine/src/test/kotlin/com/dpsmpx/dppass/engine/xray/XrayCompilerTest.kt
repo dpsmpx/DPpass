@@ -752,6 +752,31 @@ class XrayCompilerTest {
         }
     }
 
+    /** Формат 3 (D-107): параметры QUIC и перескок портов — в finalmask Xray, скорость Brutal — в битах. */
+    @Test
+    fun formatV3Hysteria2QuicAndHopReachFinalmask() {
+        val v3 = corpus("valid-format-v3.json")
+        val fm = outbound(payload(v3, profile = 0), "proxy")["streamSettings"]["finalmask"]
+        val q = fm["quicParams"]
+        assertEquals("brutal", q["congestion"].text)
+        assertEquals("aggressive", q["bbrProfile"].text)
+        assertEquals((13_107_200L * 8).toString(), q["brutalUp"].text, "ядро делит на 8: в IR — байт в секунду")
+        assertEquals((6_553_600L * 8).toString(), q["brutalDown"].text)
+        assertEquals(30, q["maxIdleTimeout"].int)
+        assertEquals(10, q["keepAlivePeriod"].int)
+        assertEquals(Json.bool(true), q["disablePathMTUDiscovery"])
+        assertEquals(null, q["disableGSO"], "по умолчанию ядра — поля нет")
+        val masks = (fm["udp"] as JsonArray).items.map { it as JsonObject }
+        assertEquals(listOf("salamander", "udphop"), masks.map { (it["type"] as JsonString).value })
+        val hop = masks[1]["settings"]
+        assertEquals("intervalRemote,perConnRemote", hop["mode"].text)
+        assertEquals("20000-20010,8443", hop["remotePorts"].text)
+        assertEquals("10-30", hop["interval"].text)
+        val force = outbound(payload(v3, profile = 1), "proxy")["streamSettings"]["finalmask"]
+        assertEquals("force-brutal", force["quicParams"]["congestion"].text)
+        assertEquals(null, force["udp"])
+    }
+
     /** Формат 2 (D-37): отпечатки, настройки XHTTP прямо в xhttpSettings (не через extra), перегрузка Hysteria2. */
     @Test
     fun formatV2FieldsReachXray() {

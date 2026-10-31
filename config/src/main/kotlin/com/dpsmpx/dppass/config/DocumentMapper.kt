@@ -92,7 +92,9 @@ internal class DocumentMapper(private val diags: DiagnosticCollector, private va
                 val password = r.secret("password")
                 val obfs = r.secret("obfs_password", required = false)
                 val congestion = r.enum("congestion", CONGESTIONS, required = false)
-                password?.let { ProtocolSpec.Hysteria2(it, obfs, congestion) }
+                val quic = r.obj("quic", required = false)?.let(::quic)
+                val hop = r.obj("hop", required = false)?.let(::hop)
+                password?.let { ProtocolSpec.Hysteria2(it, obfs, congestion, quic?.takeUnless { q -> q.isEmpty }, hop) }
             }
             // В PROTOCOLS его нет: устройство раздачи в документе не бывает (D-55).
             ProtocolKind.SOCKS -> null
@@ -126,6 +128,42 @@ internal class DocumentMapper(private val diags: DiagnosticCollector, private va
         }
         r.finish()
         return spec
+    }
+
+    /** Параметры QUIC Hysteria2 (формат 3, D-107); пределы значений — `ConfigValidator`. */
+    private fun quic(r: ObjReader): Hysteria2Quic {
+        fun long(key: String): Long? = r.long(key, required = false, range = 0..Long.MAX_VALUE)?.takeIf { it > 0 }
+        val q = Hysteria2Quic(
+            bbrProfile = r.enum("bbr_profile", BBR_PROFILES, required = false),
+            brutalUp = long("brutal_up"),
+            brutalDown = long("brutal_down"),
+            brutalDisableLossCompensation = r.bool("brutal_disable_loss_compensation", false),
+            initStreamReceiveWindow = long("init_stream_receive_window"),
+            maxStreamReceiveWindow = long("max_stream_receive_window"),
+            initConnReceiveWindow = long("init_connection_receive_window"),
+            maxConnReceiveWindow = long("max_connection_receive_window"),
+            maxIdleTimeoutSecs = r.int("max_idle_timeout", required = false, range = 0..Int.MAX_VALUE)?.takeIf { it > 0 },
+            keepAlivePeriodSecs = r.int("keep_alive_period", required = false, range = 0..Int.MAX_VALUE)?.takeIf { it > 0 },
+            disablePathMtuDiscovery = r.bool("disable_path_mtu_discovery", false),
+            disableChromeParrot = r.bool("disable_chrome_parrot", false),
+            disableGso = r.bool("disable_gso", false),
+        )
+        r.finish()
+        return q
+    }
+
+    /** Перескок портов Hysteria2 (формат 3, D-107). */
+    private fun hop(r: ObjReader): Hysteria2Hop? {
+        val modes = r.strings("modes", required = true).mapNotNull { (v, at) ->
+            HOP_MODES[v] ?: null.also { diags.error(DiagCode.VALUE_UNKNOWN, "неизвестный режим перескока; допустимо: ${HOP_MODES.keys.joinToString()}", at) }
+        }
+        val ports = r.strings("ports", required = true).mapNotNull { (v, at) ->
+            PortRange.parse(v) ?: null.also { diags.error(DiagCode.TRANSPORT_SETTING_INVALID, "порт или диапазон портов «N» или «N-M», 1…65535", at) }
+        }
+        val interval = r.range("interval")
+        r.finish()
+        if (modes.isEmpty() || ports.isEmpty()) return null
+        return Hysteria2Hop(modes.toSet(), ports, interval)
     }
 
     /** Настройки XHTTP формата 2 (D-37) — поля того же объекта `transport`. */
@@ -407,6 +445,8 @@ internal class DocumentMapper(private val diags: DiagnosticCollector, private va
         )
         val XHTTP_MODES = XHttpMode.entries.associateBy { it.wire }
         val CONGESTIONS = Hysteria2Congestion.entries.associateBy { it.wire }
+        val BBR_PROFILES = BbrProfile.entries.associateBy { it.wire }
+        val HOP_MODES = HopMode.entries.associateBy { it.wire }
         val SECURITIES = mapOf("none" to SecurityKind.NONE, "tls" to SecurityKind.TLS, "reality" to SecurityKind.REALITY)
         val FINGERPRINTS = TlsFingerprint.entries.associateBy { it.wire }
         val ACTIONS = mapOf("direct" to RouteAction.DIRECT, "proxy" to RouteAction.PROXY, "block" to RouteAction.BLOCK)

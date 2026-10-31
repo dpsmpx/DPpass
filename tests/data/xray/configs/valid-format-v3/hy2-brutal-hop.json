@@ -1,0 +1,154 @@
+{
+  "log": {
+    "loglevel": "none",
+    "dnsLog": false
+  },
+  "dns": {
+    "tag": "dppass:dns",
+    "servers": [
+      {
+        "address": "https://dns.example.net/dns-query",
+        "tag": "dns:remote",
+        "finalQuery": true
+      }
+    ],
+    "queryStrategy": "UseIP",
+    "disableFallbackIfMatch": true
+  },
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "ruleTag": "dppass:dns-hijack",
+        "inboundTag": [
+          "tun-in"
+        ],
+        "ip": [
+          "172.19.0.2"
+        ],
+        "port": "53",
+        "outboundTag": "dns-out"
+      },
+      {
+        "ruleTag": "dppass:dns:remote",
+        "inboundTag": [
+          "dns:remote"
+        ],
+        "outboundTag": "proxy"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "tag": "tun-in",
+      "protocol": "tun",
+      "settings": {
+        "name": "dppass0",
+        "mtu": 1500
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "routeOnly": true
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "proxy",
+      "protocol": "hysteria",
+      "settings": {
+        "version": 2,
+        "address": "192.0.2.31",
+        "port": 8443
+      },
+      "streamSettings": {
+        "network": "hysteria",
+        "hysteriaSettings": {
+          "version": 2,
+          "auth": "test-password-3"
+        },
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "hy2.example.com"
+        },
+        "finalmask": {
+          "udp": [
+            {
+              "type": "salamander",
+              "settings": {
+                "password": "test-obfs-3"
+              }
+            },
+            {
+              "type": "udphop",
+              "settings": {
+                "mode": "intervalRemote,perConnRemote",
+                "remotePorts": "20000-20010,8443",
+                "interval": "10-30"
+              }
+            }
+          ],
+          "quicParams": {
+            "congestion": "brutal",
+            "bbrProfile": "aggressive",
+            "brutalUp": "104857600",
+            "brutalDown": "52428800",
+            "initStreamReceiveWindow": 8388608,
+            "maxStreamReceiveWindow": 8388608,
+            "initConnectionReceiveWindow": 20971520,
+            "maxConnectionReceiveWindow": 20971520,
+            "maxIdleTimeout": 30,
+            "keepAlivePeriod": 10,
+            "disablePathMTUDiscovery": true
+          }
+        }
+      }
+    },
+    {
+      "tag": "direct",
+      "protocol": "freedom",
+      "streamSettings": {
+        "sockopt": {
+          "domainStrategy": "ForceIPv4v6"
+        }
+      }
+    },
+    {
+      "tag": "block",
+      "protocol": "blackhole",
+      "settings": {
+        "response": {
+          "type": "none"
+        }
+      }
+    },
+    {
+      "tag": "dns-out",
+      "protocol": "dns",
+      "settings": {
+        "rules": [
+          {
+            "action": "hijack",
+            "qType": "1,28"
+          },
+          {
+            "action": "return",
+            "rCode": 0
+          }
+        ]
+      }
+    }
+  ],
+  "stats": {},
+  "policy": {
+    "system": {
+      "statsOutboundUplink": true,
+      "statsOutboundDownlink": true
+    }
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "format": "dppass.config",
+  "format_version": 3,
+  "name": "Format 3 limits",
+  "profiles": [
+    {
+      "id": "hy2-bad",
+      "name": "Hysteria2 bad limits",
+      "server": "192.0.2.33",
+      "port": 8443,
+      "protocol": {
+        "type": "hysteria2",
+        "password": "test-password-5",
+        "congestion": "force-brutal",
+        "quic": {
+          "brutal_down": 1000,
+          "max_idle_timeout": 200
+        },
+        "hop": {
+          "modes": ["interval_local"],
+          "ports": ["20000-20010"],
+          "interval": "2-10"
+        }
+      },
+      "transport": {
+        "type": "native"
+      },
+      "security": {
+        "type": "tls",
+        "server_name": "hy2.example.com"
+      }
+    }
+  ],
+  "dns": {
+    "servers": [
+      {
+        "id": "remote",
+        "type": "https",
+        "url": "https://dns.example.net/dns-query",
+        "route": "tunnel"
+      }
+    ],
+    "default": "remote"
+  }
+}

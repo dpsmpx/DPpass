@@ -1,8 +1,12 @@
 package com.dpsmpx.dppass.subscriptions
 
+import com.dpsmpx.dppass.config.BbrProfile
 import com.dpsmpx.dppass.config.CandidateHints
 import com.dpsmpx.dppass.config.CountRange
+import com.dpsmpx.dppass.config.HopMode
 import com.dpsmpx.dppass.config.Hysteria2Congestion
+import com.dpsmpx.dppass.config.Hysteria2Hop
+import com.dpsmpx.dppass.config.Hysteria2Quic
 import com.dpsmpx.dppass.config.ProtocolSpec
 import com.dpsmpx.dppass.config.SecuritySpec
 import com.dpsmpx.dppass.config.ServerProfile
@@ -17,11 +21,13 @@ import com.dpsmpx.dppass.core.Checksums
 import com.dpsmpx.dppass.core.Endpoint
 import com.dpsmpx.dppass.core.Host
 import com.dpsmpx.dppass.core.Json
+import com.dpsmpx.dppass.core.JsonArray
 import com.dpsmpx.dppass.core.JsonBool
 import com.dpsmpx.dppass.core.JsonNumber
 import com.dpsmpx.dppass.core.JsonObject
 import com.dpsmpx.dppass.core.JsonParseException
 import com.dpsmpx.dppass.core.JsonString
+import com.dpsmpx.dppass.core.PortRange
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
@@ -68,7 +74,15 @@ object ShareLinkParser {
      * исходникам Xray 26.9.30 на соединение не влияют. Только поимённо —
      * всё прочее по-прежнему отказ (D-05).
      */
-    private val QUIC_IGNORED = listOf("debug")
+    private val QUIC_IGNORED = listOf("debug", "maxIncomingStreams", "disableStatelessReset")
+
+    /** Ключи `fm.quicParams`, которые выражает IR (формат 2 и 3, D-37, D-107). */
+    private val WINDOW_KEYS = listOf("initStreamReceiveWindow", "maxStreamReceiveWindow", "initConnectionReceiveWindow", "maxConnectionReceiveWindow")
+    private val FLAG_KEYS = listOf("brutalDisableLossCompensation", "disablePathMTUDiscovery", "disableChromeParrot", "disableGSO")
+    private val QUIC_KEYS = setOf("congestion", "bbrProfile", "brutalUp", "brutalDown", "maxIdleTimeout", "keepAlivePeriod") + WINDOW_KEYS + FLAG_KEYS
+
+    /** Ключи настроек маски `udphop`, которые выражает IR (D-107). */
+    private val HOP_KEYS = setOf("mode", "interval", "remotePorts")
 
     /** Ключи `extra` XHTTP, которые выражает IR (формат 2, D-37); прочие — отказ с названием. */
     private val XHTTP_EXTRA = setOf("xPaddingBytes", "scMaxEachPostBytes", "scMinPostsIntervalMs", "noGRPCHeader", "xmux")
@@ -103,7 +117,9 @@ object ShareLinkParser {
         }
         val q = parts.query
         val known = if (scheme == "vless") VLESS_PARAMS else TROJAN_PARAMS
-        val unknown = q.keys.filter { it !in known }
+        // `fm` без масок — то же, что без него; с масками — отказ с их именами (D-107).
+        val fm = q["fm"]?.takeUnless { emptyFinalMask(it) }
+        val unknown = q.keys.filter { it !in known && it != "fm" } + listOfNotNull(fm?.let(::finalMaskNames))
         if (unknown.isNotEmpty()) return unsupported(unknown.sorted().joinToString())
         if (q["encryption"].let { it != null && it != "none" }) return unsupported("encryption (кроме none)")
         if (q["headertype"].let { it != null && it != "none" }) return unsupported("headerType (кроме none)")
@@ -187,7 +203,12 @@ object ShareLinkParser {
             is Outcome.Failure -> return c
             is Outcome.Success -> c
         }
-        val protocol = ProtocolSpec.Hysteria2(Secret(parts.user), obfsPassword?.let(::Secret), mask?.value)
+        val fm = mask?.value
+        if (fm?.salamander != null && obfsPassword != null && fm.salamander != obfsPassword) {
+            return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "у obfs-password и маски salamander в fm разные пароли")
+        }
+        val salamander = obfsPassword ?: fm?.salamander
+        val protocol = ProtocolSpec.Hysteria2(Secret(parts.user), salamander?.let(::Secret), fm?.congestion, fm?.quic, fm?.hop)
         val security = SecuritySpec.Tls(domainParam(q["sni"]), emptyList(), null)
         return Outcome.Success(profile(text, parts, endpoint, idPrefix, protocol, TransportSpec.Native, security), mask?.diagnostics.orEmpty())
     }
@@ -280,32 +301,213 @@ object ShareLinkParser {
         return Outcome.Success(extra)
     }
 
+    /** Что взято из `fm` Hysteria2 (D-37, D-107). */
+    private class FinalMask(
+        val congestion: Hysteria2Congestion?,
+        val quic: Hysteria2Quic?,
+        val hop: Hysteria2Hop?,
+        /** Пароль маски Salamander из `fm.udp` — то же, что `obfs-password`. */
+        val salamander: String?,
+    )
+
     /**
-     * `fm` у Hysteria2 — finalmask Xray в JSON. Выражается только
-     * `{"quicParams":{"congestion":"bbr"|"reno"}}` (формат 2, D-37); маски
-     * и прочие параметры QUIC — отказ с названием. `quicParams.debug`
-     * отбрасывается с находкой (D-48): в Xray он только включает отладочный
-     * журнал управления перегрузкой во всём процессе.
+     * `fm` у Hysteria2 — finalmask Xray 26.9.30 в JSON (D-37, D-107):
+     * - `quicParams` — управление перегрузкой и параметры QUIC, которые
+     *   действуют у клиента (`transport/internet/hysteria/dialer.go`);
+     *   `debug` и серверные `maxIncomingStreams`, `disableStatelessReset`
+     *   (только `hub.go`) отбрасываются с находкой (D-48);
+     * - `udp` — маски `salamander` (без `packetSize`) и `udphop` (без
+     *   `remoteIPs`: сервер в IR — один адрес).
+     * Прочее — отказ с названием (D-05). Значения в сообщениях не
+     * цитируются: в масках бывают пароли.
      */
-    private fun finalMask(text: String): Outcome<Hysteria2Congestion?> {
+    private fun finalMask(text: String): Outcome<FinalMask> {
         val root = json(text) ?: return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "fm — не объект JSON")
-        val unknown = root.fields.keys.filter { it != "quicParams" }.map { "fm.$it" }.toMutableList()
+        val unknown = root.fields.keys.filter { it != "quicParams" && it != "udp" }.map { "fm.$it" }.toMutableList()
         val quic = root["quicParams"]
         if (quic != null && quic !is JsonObject) return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "fm.quicParams — не объект")
-        quic?.fields?.keys?.filter { it != "congestion" && it !in QUIC_IGNORED }?.forEach { unknown += "fm.quicParams.$it" }
+        quic?.fields?.keys?.filter { it !in QUIC_KEYS && it !in QUIC_IGNORED }?.forEach { unknown += "fm.quicParams.$it" }
+        val udp = root["udp"]
+        if (udp != null && udp !is JsonArray) return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "fm.udp — не массив")
+        val masks = udp?.items.orEmpty()
+        for ((i, m) in masks.withIndex()) {
+            val o = m as? JsonObject ?: return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "fm.udp[$i] — не объект")
+            val type = (o["type"] as? JsonString)?.value ?: return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "fm.udp[$i].type — не строка")
+            o.fields.keys.filter { it != "type" && it != "settings" }.forEach { unknown += "fm.udp[$i].$it" }
+            val settings = o["settings"] as? JsonObject
+            if (o["settings"] != null && settings == null) return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "fm.udp[$i].settings — не объект")
+            when (type) {
+                "salamander" -> settings?.fields?.keys?.filter { it != "password" }?.forEach { unknown += "fm.udp[$i].settings.$it" }
+                "udphop" -> settings?.fields?.keys?.filter { it !in HOP_KEYS }?.forEach { unknown += "fm.udp[$i].settings.$it" }
+                else -> unknown += if (MASK_TYPE.matches(type)) "fm.udp[$i] (маска $type)" else "fm.udp[$i]"
+            }
+        }
         if (unknown.isNotEmpty()) return unsupported(unknown.sorted().joinToString())
         val notes = mutableListOf<Diagnostic>()
         for (key in QUIC_IGNORED) {
             val v = quic?.get(key) ?: continue
-            if (v !is JsonBool) return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "fm.quicParams.$key — не true/false")
-            notes += Diagnostic.info(DiagCode.SHARE_LINK_PARAM_IGNORED, "fm.quicParams.$key отброшен: на соединение не влияет (D-48)")
+            if (v !is JsonBool && v !is JsonNumber) return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "fm.quicParams.$key — не того типа")
+            notes += Diagnostic.info(DiagCode.SHARE_LINK_PARAM_IGNORED, "fm.quicParams.$key отброшен: на соединение клиента не влияет (D-48)")
         }
-        val value = quic?.get("congestion") ?: return Outcome.Success(null, notes)
-        val name = (value as? JsonString)?.value?.lowercase()
-        val congestion = Hysteria2Congestion.entries.firstOrNull { it.wire == name }
-            ?: return unsupported("fm.quicParams.congestion (кроме bbr и reno)")
-        return Outcome.Success(congestion, notes)
+        val q = quic ?: JsonObject(emptyMap())
+        fun bad(key: String, what: String): Outcome.Failure = Outcome.failure(DiagCode.SHARE_LINK_INVALID, "fm.quicParams.$key — $what")
+        fun flag(key: String): Boolean? = when (val v = q[key]) {
+            null -> false
+            is JsonBool -> v.value
+            else -> null
+        }
+        fun count(key: String): Long? = when (val v = q[key]) {
+            null -> 0
+            is JsonNumber -> v.toLongOrNull()?.takeIf { it >= 0 }
+            else -> null
+        }
+        val congestion = when (val v = q["congestion"]) {
+            null -> null
+            is JsonString -> v.value.lowercase().ifEmpty { null }?.let { name ->
+                Hysteria2Congestion.entries.firstOrNull { it.wire == name } ?: return bad("congestion", "не bbr, reno, brutal или force-brutal")
+            }
+            else -> return bad("congestion", "не строка")
+        }
+        val profile = when (val v = q["bbrProfile"]) {
+            null -> null
+            is JsonString -> v.value.lowercase().ifEmpty { null }?.let { name ->
+                BbrProfile.entries.firstOrNull { it.wire == name } ?: return bad("bbrProfile", "не conservative, standard или aggressive")
+            }
+            else -> return bad("bbrProfile", "не строка")
+        }
+        fun speed(key: String): Outcome<Long?> = when (val v = q[key]) {
+            null -> Outcome.Success(null)
+            is JsonString -> bandwidth(v.value)?.let { Outcome.Success(it.takeIf { b -> b > 0 }) }
+                ?: bad(key, "скорость не понята (число и b, k, m, g, t или с bps)")
+            else -> bad(key, "не строка")
+        }
+        val up = when (val r = speed("brutalUp")) {
+            is Outcome.Failure -> return r
+            is Outcome.Success -> r.value
+        }
+        val down = when (val r = speed("brutalDown")) {
+            is Outcome.Failure -> return r
+            is Outcome.Success -> r.value
+        }
+        val numbers = WINDOW_KEYS.associateWith { k -> count(k) ?: return bad(k, "не целое без знака") }
+        val idle = count("maxIdleTimeout") ?: return bad("maxIdleTimeout", "не целое без знака")
+        val keepAlive = count("keepAlivePeriod") ?: return bad("keepAlivePeriod", "не целое без знака")
+        val flags = FLAG_KEYS.associateWith { k -> flag(k) ?: return bad(k, "не true/false") }
+        val quicSpec = Hysteria2Quic(
+            bbrProfile = profile,
+            brutalUp = up,
+            brutalDown = down,
+            brutalDisableLossCompensation = flags.getValue("brutalDisableLossCompensation"),
+            initStreamReceiveWindow = numbers.getValue("initStreamReceiveWindow").takeIf { it > 0 },
+            maxStreamReceiveWindow = numbers.getValue("maxStreamReceiveWindow").takeIf { it > 0 },
+            initConnReceiveWindow = numbers.getValue("initConnectionReceiveWindow").takeIf { it > 0 },
+            maxConnReceiveWindow = numbers.getValue("maxConnectionReceiveWindow").takeIf { it > 0 },
+            maxIdleTimeoutSecs = idle.takeIf { it > 0 }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+            keepAlivePeriodSecs = keepAlive.takeIf { it > 0 }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+            disablePathMtuDiscovery = flags.getValue("disablePathMTUDiscovery"),
+            disableChromeParrot = flags.getValue("disableChromeParrot"),
+            disableGso = flags.getValue("disableGSO"),
+        )
+        var salamander: String? = null
+        var hop: Hysteria2Hop? = null
+        for ((i, m) in masks.withIndex()) {
+            val o = m as JsonObject
+            val settings = o["settings"] as? JsonObject ?: JsonObject(emptyMap())
+            when ((o["type"] as JsonString).value) {
+                "salamander" -> {
+                    val pw = (settings["password"] as? JsonString)?.value?.takeIf { it.isNotEmpty() }
+                        ?: return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "fm.udp[$i]: у маски salamander нет пароля")
+                    if (salamander != null) return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "fm.udp: маска salamander повторяется")
+                    salamander = pw
+                }
+                "udphop" -> {
+                    if (hop != null) return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "fm.udp: маска udphop повторяется")
+                    hop = when (val h = udpHop(settings, "fm.udp[$i].settings")) {
+                        is Outcome.Failure -> return h
+                        is Outcome.Success -> h.value
+                    }
+                }
+            }
+        }
+        return Outcome.Success(FinalMask(congestion, quicSpec.takeUnless { it.isEmpty }, hop, salamander), notes)
     }
+
+    /** Маска `udphop` (D-107): режимы, порты сервера, интервал — как их читает Xray (`infra/conf/transport_finalmask.go`). */
+    private fun udpHop(s: JsonObject, at: String): Outcome<Hysteria2Hop> {
+        val mode = (s["mode"] as? JsonString)?.value ?: return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "$at.mode — нет режима перескока")
+        val modes = mode.split(',').map { m ->
+            HopMode.entries.firstOrNull { it.xray.equals(m.trim(), ignoreCase = true) }
+                ?: return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "$at.mode — не intervalLocal, intervalRemote или perConnRemote")
+        }.toSet()
+        val ports = when (val v = s["remotePorts"]) {
+            is JsonString -> v.value.split(',').map { it.trim() }.filter { it.isNotEmpty() }.map { part ->
+                PortRange.parse(part) ?: return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "$at.remotePorts — порт или диапазон 1…65535")
+            }
+            is JsonNumber -> listOfNotNull(v.toIntOrNull()?.takeIf { it in 1..65535 }?.let { PortRange(it, it) })
+            else -> emptyList()
+        }
+        if (ports.isEmpty()) return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "$at.remotePorts — нет портов сервера")
+        val interval = when (val v = s["interval"]) {
+            null -> null
+            is JsonNumber -> v.toIntOrNull()?.takeIf { it >= 0 }?.let { CountRange(it, it) }
+                ?: return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "$at.interval — не целое без знака")
+            is JsonString -> CountRange.parse(v.value) ?: return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "$at.interval — не «N» или «N-M»")
+            else -> return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "$at.interval — не того типа")
+        }
+        return Outcome.Success(Hysteria2Hop(modes, ports, interval?.takeUnless { it.from == 0 && it.to == 0 }))
+    }
+
+    /**
+     * Скорость Brutal, как её читает Xray 26.9.30 (`infra/conf/transport_method.go`,
+     * `Bandwidth.Bps`): число и единица `b`/`k`/`m`/`g`/`t` (по 1024, можно с
+     * `b` или `bps`), — биты в секунду; ответ — байт в секунду. Не понять — null.
+     */
+    internal fun bandwidth(text: String): Long? {
+        val s = text.trim().lowercase()
+        if (s.isEmpty()) return 0
+        val idx = s.indexOfFirst { (it < '0' || it > '9') && it != '.' }.let { if (it < 0) s.length else it }
+        val value = s.substring(0, idx).toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0 } ?: return null
+        val mul = when (s.substring(idx).trim()) {
+            "", "b", "bps" -> 1.0
+            "k", "kb", "kbps" -> 1024.0
+            "m", "mb", "mbps" -> 1024.0 * 1024
+            "g", "gb", "gbps" -> 1024.0 * 1024 * 1024
+            "t", "tb", "tbps" -> 1024.0 * 1024 * 1024 * 1024
+            else -> return null
+        }
+        val bits = value * mul
+        if (bits >= Long.MAX_VALUE.toDouble()) return null
+        return bits.toLong() / 8
+    }
+
+    /** `fm` без содержания: пусто или `{}`. */
+    private fun emptyFinalMask(text: String): Boolean = text.isBlank() || json(text)?.fields?.isEmpty() == true
+
+    /**
+     * Что внутри `fm` у ссылки VLESS или Trojan (D-107): finalmask Xray
+     * бывает у любого транспорта — маски `tcp`, `udp` и `quicParams`; IR их
+     * у этих протоколов не выражает. Журнал телефона 31.10.2026 говорил
+     * только «неподдержанные параметры: fm» — теперь называются ключи и
+     * типы масок, без значений: в масках бывают пароли.
+     */
+    private fun finalMaskNames(text: String): String {
+        val root = json(text) ?: return "fm (не объект JSON)"
+        val names = mutableListOf<String>()
+        for ((key, value) in root.fields) {
+            when {
+                (key == "tcp" || key == "udp") && value is JsonArray && value.items.isNotEmpty() -> value.items.forEachIndexed { i, m ->
+                    val type = ((m as? JsonObject)?.get("type") as? JsonString)?.value?.takeIf { MASK_TYPE.matches(it) }
+                    names += if (type != null) "fm.$key[$i] (маска $type)" else "fm.$key[$i]"
+                }
+                key == "quicParams" && value is JsonObject && value.fields.isNotEmpty() -> value.fields.keys.forEach { names += "fm.quicParams.$it" }
+                else -> names += "fm.$key"
+            }
+        }
+        return names.sorted().joinToString()
+    }
+
+    /** Тип маски Xray в сообщении — только имя вида `header-custom`; прочее не цитируется. */
+    private val MASK_TYPE = Regex("[a-z0-9-]{1,32}")
 
     /** Объект JSON из параметра ссылки; не JSON или не объект — null (без цитаты значения: в нём бывают секреты). */
     private fun json(text: String): JsonObject? = try {

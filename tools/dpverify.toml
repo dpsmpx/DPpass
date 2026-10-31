@@ -191,6 +191,11 @@ run = ["python3", "tools/hostcheck/check_docs.py"]
 level = "static"
 
 [[command]]
+id = "project.decisions"
+run = ["python3", "tools/hostcheck/check_decisions.py"]
+level = "static"
+
+[[command]]
 id = "project.deps"
 run = ["python3", "tools/provenance/check_dependencies.py"]
 level = "static"

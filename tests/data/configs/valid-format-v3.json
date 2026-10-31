@@ -1,0 +1,77 @@
+{
+  "format": "dppass.config",
+  "format_version": 3,
+  "name": "Format 3",
+  "profiles": [
+    {
+      "id": "hy2-brutal-hop",
+      "name": "Hysteria2 Brutal hop",
+      "server": "192.0.2.31",
+      "port": 8443,
+      "protocol": {
+        "type": "hysteria2",
+        "password": "test-password-3",
+        "obfs_password": "test-obfs-3",
+        "congestion": "brutal",
+        "quic": {
+          "bbr_profile": "aggressive",
+          "brutal_up": 13107200,
+          "brutal_down": 6553600,
+          "init_stream_receive_window": 8388608,
+          "max_stream_receive_window": 8388608,
+          "init_connection_receive_window": 20971520,
+          "max_connection_receive_window": 20971520,
+          "max_idle_timeout": 30,
+          "keep_alive_period": 10,
+          "disable_path_mtu_discovery": true
+        },
+        "hop": {
+          "modes": ["interval_remote", "per_conn_remote"],
+          "ports": ["20000-20010", "8443"],
+          "interval": "10-30"
+        }
+      },
+      "transport": {
+        "type": "native"
+      },
+      "security": {
+        "type": "tls",
+        "server_name": "hy2.example.com"
+      }
+    },
+    {
+      "id": "hy2-force-brutal",
+      "name": "Hysteria2 force-brutal",
+      "server": "192.0.2.32",
+      "port": 443,
+      "protocol": {
+        "type": "hysteria2",
+        "password": "test-password-4",
+        "congestion": "force-brutal",
+        "quic": {
+          "brutal_up": 1310720,
+          "disable_chrome_parrot": true,
+          "disable_gso": true
+        }
+      },
+      "transport": {
+        "type": "native"
+      },
+      "security": {
+        "type": "tls",
+        "server_name": "hy2.example.com"
+      }
+    }
+  ],
+  "dns": {
+    "servers": [
+      {
+        "id": "remote",
+        "type": "https",
+        "url": "https://dns.example.net/dns-query",
+        "route": "tunnel"
+      }
+    ],
+    "default": "remote"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "outcome": "ready",
+  "profiles": 1,
+  "codes": [
+    "SUBSCRIPTION_ENTRY_SKIPPED",
+    "SHARE_LINK_PARAM_UNSUPPORTED"
+  ]
+}
