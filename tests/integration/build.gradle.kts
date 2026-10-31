@@ -12,7 +12,7 @@ dependencies {
 // tools/xray, собранный для JVM хоста (tools/xray/native.py host), в этой JVM.
 // Отдельный набор исходников: без библиотеки он не запускается, поэтому в
 // `check` не входит; его запускает шаг hostcheck «Xray: мост и JNI».
-val xrayJni: SourceSet by sourceSets.creating
+val xrayJni: SourceSet = sourceSets.create("xrayJni")
 configurations[xrayJni.implementationConfigurationName].extendsFrom(configurations.testImplementation.get())
 configurations[xrayJni.runtimeOnlyConfigurationName].extendsFrom(configurations.testRuntimeOnly.get())
 

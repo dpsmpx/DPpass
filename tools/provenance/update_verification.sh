@@ -44,7 +44,9 @@ XML
 ./gradlew --console=plain --warning-mode=summary --refresh-dependencies --write-verification-metadata sha256 \
   build :cli:installDist :build-logic:test ktlintCheck :app:lint :app:assembleRelease -Pdppass.abiSplit=true
 # Экраны на JVM (D-86, шаг project.android-screens): Robolectric и образ Android — только по свойству;
-# второй вызов дописывает их суммы в тот же файл.
+# второй вызов дописывает их суммы в тот же файл. Ключевым путям (D-90) нужно ядро Xray для хоста —
+# как в шаге: без него тесты путей падают, и сборка обрывается раньше проверки зависимостей.
+python3 tools/xray/native.py host
 ./gradlew --console=plain --warning-mode=summary --refresh-dependencies --write-verification-metadata sha256 \
-  -Pdppass.robolectric :app:testDebugUnitTest
+  -Pdppass.robolectric -Pdppass.xray.lib=build/xray/host/libdppassxray.so :app:testDebugUnitTest
 python3 tools/provenance/check_dependencies.py

@@ -29,7 +29,7 @@ val repoRoot: File = rootDir
 val xrayHostLib: Provider<File> = providers.gradleProperty("dppass.xray.lib").map { repoRoot.resolve(it).absoluteFile }
 
 /** Образ «Android целиком» для Robolectric — через Gradle, с проверкой суммы (аудит A-7), а не загрузкой из теста. */
-val robolectricAndroid: Configuration by configurations.creating {
+val robolectricAndroid: Configuration = configurations.create("robolectricAndroid") {
     isCanBeConsumed = false
     isTransitive = false
 }

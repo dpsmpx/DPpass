@@ -74,8 +74,8 @@ APK проверяет `check_apk.py`. Транзитивные зависимо
 | `gradle` (Gradle Build Tool, через wrapper) | 9.8.0 | Apache-2.0 | сборка | разрешён | сборка; SHA-256 дистрибутива и wrapper — `docs/PROVENANCE.md` |
 | `org.jetbrains.kotlin:kotlin-gradle-plugin` | 2.4.20 | Apache-2.0 | сборка (`build-logic`) | разрешён | компилятор Kotlin; convention-плагины |
 | `org.jetbrains.kotlin.jvm` | 2.4.20 | Apache-2.0 | сборка | разрешён | id плагина Kotlin/JVM (запись `[plugins]` каталога; реализация — `kotlin-gradle-plugin` той же версии) |
-| `com.android.tools.build:gradle` | 9.4.1 | Apache-2.0 | сборка (`build-logic`) | разрешён | Android Gradle Plugin: сборка APK, D8, Android Lint (и для JVM-модулей) |
-| `com.android.application` | 9.4.1 | Apache-2.0 | сборка | разрешён | id плагина приложения (запись `[plugins]` каталога; реализация — AGP той же версии) |
+| `com.android.tools.build:gradle` | 9.5.0 | Apache-2.0 | сборка (`build-logic`) | разрешён | Android Gradle Plugin: сборка APK, D8, Android Lint (и для JVM-модулей) |
+| `com.android.application` | 9.5.0 | Apache-2.0 | сборка | разрешён | id плагина приложения (запись `[plugins]` каталога; реализация — AGP той же версии) |
 | `com.pinterest.ktlint:ktlint-cli` (классификатор `all` — один файл со своими зависимостями внутри) | 1.8.0 | MIT | проверка стиля (`ktlintCheck`, `ktlintFormat`) | разрешён | форматтер Kotlin (D-63); в APK и `cli` не попадает |
 
 ### 1.4. CI

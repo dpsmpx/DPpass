@@ -4,7 +4,7 @@
 // Стиль Kotlin — ktlint (D-63): правила — в .editorconfig. ktlint берётся
 // одним файлом из своей конфигурации и только этими задачами: сборке APK и
 // cli он не нужен. Проверка — шаг project.build (tools/hostcheck/steps.sh).
-val ktlint: Configuration by configurations.creating
+val ktlint: Configuration = configurations.create("ktlint")
 
 dependencies {
     ktlint(variantOf(libs.ktlint.cli) { classifier("all") }) { isTransitive = false }
