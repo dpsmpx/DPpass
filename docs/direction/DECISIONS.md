@@ -5480,12 +5480,16 @@ B и личной).
 - Мост: `TestDispatchLinksEndTheConnection`,
   `TestDispatchFailureKeepsTheRouteOnlyWhenTheOutboundEnded` (с `-race`).
 - ПК:
+  - `AppOwnersTest` (JVM, D-108): на API 26 из TUN — не узнать (Android
+    8–9), на API 29+ путь разрешения UID действует, входы без TUN и
+    неразбираемый адрес — не узнать;
   - `ConnectionsPanelTest`: порядок как у `top`, заголовок меняет
     порядок, стрелка, поиск по подписям, цвета состояния и подсветки,
     числа вправо, журнал и его очистка, подсказка выключенного;
   - `SocketOwnersTest`: таблицы `/proc` (IPv4, IPv6, UDP без `connect`),
     раздача — не узнать, чтение не чаще раза в секунду, ответ моста
-    Windows, одна запись адресов;
+    Windows, одна запись адресов, сотни соединений — одно чтение таблицы
+    (нагрузка опроса);
   - мост: `TestSocketTablesParse`, `TestSocketTablesRefuseShortData`; в
     Wine — `TestSocketOwnersSeeOwnListener` (свой сокет в таблице;
     владельца Wine 9.0 не называет — номер процесса проверяется на ПК) и
@@ -5624,6 +5628,8 @@ Robolectric — модели), поведение производителей. 
 - `project.android-screens` — экраны и пути на API 36, 26 и 29;
 - `UnexpectedErrorPathTest` — неожиданная ошибка в пути подключения —
   отказ с причиной на экране;
+- `AppOwnersTest` — приложение у соединения: на API 26 из TUN — не
+  узнать (Android 8–9), на API 29+ путь разрешения UID действует;
 - `project.device-tests` — у каждого класса путей один тест.
 
 ## Отложено

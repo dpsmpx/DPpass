@@ -82,6 +82,22 @@ class SocketOwnersTest {
     }
 
     @Test
+    fun hundredsOfConnectionsResolveFromOneTableRead() {
+        // Нагрузка опроса (D-106, TODO «на ПК»): таблица строится раз, поиск по каждому
+        // соединению — из памяти по адресам, а не чтение /proc на соединение.
+        val n = 500
+        var reads = 0
+        val table = (0 until n).map { i ->
+            OwnedSocket(ConnNetwork.TCP, "172.19.0.1:${40000 + i}", "198.51.100.${i % 254 + 1}:443", "app$i")
+        }
+        val owners = SocketOwners({ reads++; table }, ManualClock(10_000))
+        for (i in 0 until n) {
+            assertEquals("app$i", owners.owner(conn("172.19.0.1:${40000 + i}", "198.51.100.${i % 254 + 1}:443")))
+        }
+        assertEquals(1, reads, "сотни соединений — одно чтение таблицы, дальше из памяти")
+    }
+
+    @Test
     fun windowsAnswerOfTheBridge() {
         val text = "tcp\t172.19.0.1:40000\t198.51.100.7:443\t4242\tfirefox.exe\nudp\t[::]:5353\t\t4\t\nbad line"
         val sockets = WindowsSockets.parse(byteArrayOf(0) + text.encodeToByteArray())!!
