@@ -22,6 +22,9 @@ DP Verify нет:
     (`tools/provenance/update_verification.sh`);
   * `kotlin("test")` — строка матрицы с версией Kotlin (версию задаёт
     плагин, а не каталог);
+  * `-checklinkname=0` в сборке под Android (D-18): флаг снимает запрет Go
+    1.23+ на `//go:linkname` ради `wlynxg/anet`; обоснован, лишь пока модуль
+    в `go.mod` той же версии, что в PROVENANCE, и не задан для ПК;
   * источники геоданных (D-27, D-31): версии `geodata-dlc` и `geodata-dbip`
     из каталога — строки матрицы («разрешён») и PROVENANCE (§2 «Геоданные»:
     версия и сумма `h1:` модуля dlc; выпуск DB-IP); файл выпуска DB-IP —
@@ -51,7 +54,13 @@ VERIFICATION_NS = "{https://schema.gradle.org/dependency-verification}"
 TRUSTED_WITHOUT_SUMS = {".*-javadoc[.]jar", ".*-sources[.]jar"}
 GOMOD = os.path.join(PROJ, "tools", "xray", "go.mod")
 GOSUM = os.path.join(PROJ, "tools", "xray", "go.sum")
+NATIVE = os.path.join(PROJ, "tools", "xray", "native.py")
 XRAY_MODULE = "github.com/xtls/xray-core"
+# Снятие проверки //go:linkname компоновщиком Go только для Android: обосновано, лишь
+# пока жив модуль, которому это нужно (D-18, аудит A-9/TODO). Привязано к версии в
+# PROVENANCE — обновление модуля перечитывается вручную и ломает проверку до записи.
+ANET_MODULE = "github.com/wlynxg/anet"
+CHECKLINKNAME_FLAG = "-checklinkname=0"
 DLC_MODULE = "github.com/v2fly/domain-list-community"
 GEODATA_SOURCES = os.path.join(PROJ, "tools", "xray", "geodata", "sources")
 # Директивы go.mod, которые проверка понимает; любая другая (replace, exclude,
@@ -161,6 +170,38 @@ def check_windows(versions, mrows, provenance, problems):
         rows = [r for r in wrows if f"`{file}`" in r and f"`{ver}`" in r]
         if len({m for r in rows for m in re.findall(r"`([0-9a-f]{64})`", r)}) != 1:
             problems.append(f"PROVENANCE.md, «Windows»: нет строки `{file}` версии `{ver}` с одной суммой SHA-256")
+
+
+def check_linkname(provenance, prows, problems):
+    """`-checklinkname=0` в сборке под Android (D-18, TODO): флаг снимает запрет Go 1.23+
+    на `//go:linkname` ради `wlynxg/anet` (`net.zoneCache`). Обоснован, лишь пока модуль в
+    go.mod той же версии, что в PROVENANCE; обновление модуля требует перечитать его исходник
+    и обновить запись — иначе проверка красная. Так ручной пересмотр при каждом обновлении
+    Go/Xray становится обязательным шагом, а не памяткой."""
+    if not os.path.isfile(NATIVE):
+        return
+    native = read(NATIVE)
+    android = next((line for line in native.splitlines() if line.startswith("LDFLAGS_ANDROID")), "")
+    desktop = next((line for line in native.splitlines() if line.startswith("LDFLAGS_DESKTOP")), "")
+    if CHECKLINKNAME_FLAG not in android:
+        # Нет флага — anet собралась бы с ошибкой компоновки под Android; это поймала бы сборка.
+        return
+    if CHECKLINKNAME_FLAG in desktop:
+        problems.append(f"tools/xray/native.py: {CHECKLINKNAME_FLAG} в LDFLAGS_DESKTOP — запрет снят шире Android без нужды (PROVENANCE: только Android)")
+    anet = re.search(re.escape(ANET_MODULE) + r"\s+(v\S+)", read(GOMOD) if os.path.isfile(GOMOD) else "")
+    if not anet:
+        problems.append(f"tools/xray/native.py: {CHECKLINKNAME_FLAG} задан, а модуля {ANET_MODULE} в go.mod нет — флаг больше не обоснован, убрать (D-18)")
+        return
+    row = next((r for r in prows if ANET_MODULE in r and CHECKLINKNAME_FLAG in r), None)
+    if not row:
+        problems.append(f"PROVENANCE.md: нет строки `{CHECKLINKNAME_FLAG}` с модулем `{ANET_MODULE}` (D-18)")
+        return
+    recorded = re.search(re.escape(ANET_MODULE) + r"`?\s+(v\d+\.\d+\.\d+)", row)
+    if not recorded or recorded.group(1) != anet.group(1):
+        problems.append(
+            f"PROVENANCE.md: {ANET_MODULE} в go.mod — {anet.group(1)}, а обоснование {CHECKLINKNAME_FLAG} — для "
+            f"{recorded.group(1) if recorded else '?'}: перечитать //go:linkname в новой версии и обновить запись (D-18)",
+        )
 
 
 def check_go(versions, matrix, mrows, prows, problems):
@@ -317,6 +358,7 @@ def main():
 
     verified = check_verification(resolved, problems)
     go_modules = check_go(versions, matrix, mrows, prows, problems)
+    check_linkname(provenance, prows, problems)
     check_geodata(versions, mrows, provenance, problems)
     check_windows(versions, mrows, provenance, problems)
 
