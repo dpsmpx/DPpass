@@ -69,6 +69,14 @@ tools/dpv/dpv report --md         # итог последнего прогона
 представлении поддерева, `--full` — только на закоммиченном `dppass/`
 (D-52).
 
+Исключение — правка только Linux-оболочки (D-74: `desktop/`,
+`tools/desktop/` и документы `*.md`): перед вливанием `--full` и сборка
+APK не нужны — нужны проверки её Linux-части: `:ktlintCheck`,
+`:desktop:test`, `tools/desktop/netns_check.py` от root,
+`tools/hostcheck/run.sh --quick` и `DPmetaApp:tools/check/run.sh` (static);
+итог — в описании PR (`DPmetaApp:D-32`). Мост Go `tools/xray/`, модули
+ядра и сборка Gradle вне `desktop/` — по-прежнему с `--full`.
+
 Подробно — `docs/PROCESS.md`, «Проверки»; что ловит проверка и как
 чинить — `tools/dpv/dpv explain ID`. Изменение готово, когда проверки
 зелёные; падающий тест не отключается и не ослабляется, а чинится или
