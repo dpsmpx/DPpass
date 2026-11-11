@@ -35,6 +35,7 @@ class LinuxRelayNetworksTest {
     /** Что отвечает адрес: байты ответа входа; нет в карте — соединение отвергнуто. */
     private val replies = mutableMapOf<String, ByteArray>()
     private val dialed = mutableListOf<String>()
+    private val sent = ByteArrayOutputStream()
 
     private val sockets: () -> Socket = {
         object : Socket() {
@@ -49,7 +50,7 @@ class LinuxRelayNetworksTest {
 
             override fun getInputStream(): InputStream = ByteArrayInputStream(reply)
 
-            override fun getOutputStream(): OutputStream = ByteArrayOutputStream()
+            override fun getOutputStream(): OutputStream = sent
 
             override fun setSoTimeout(timeout: Int) = Unit
         }
@@ -89,24 +90,21 @@ class LinuxRelayNetworksTest {
     }
 
     @Test
-    fun deviceIsFoundWhereItAcceptsLoginAndPassword() {
-        replies["192.168.43.1:41234"] = byteArrayOf(5, 2) // вход без нашего пароля — не тот
-        replies["192.168.42.129:41234"] = byteArrayOf(5, 2, 1, 0)
-        val t = assertIs<Outcome.Success<RelayNetworks.Target>>(relays.locate(device())).value
-        assertEquals(RelayNetworks.Target(RelayNetworks.Medium.USB, ip("192.168.42.129"), "enx0a"), t, "и интерфейс той сети (D-102)")
-        assertEquals(listOf("192.168.43.1:41234", "192.168.42.129:41234"), dialed, "только шлюзы, только сокетами фабрики")
+    fun candidatePortDoesNotReceiveCredentialsAndDoesNotProveIdentity() {
+        // Чужой шлюз имитирует SOCKS5 accept. Ни пароля, ни иной аутентификации ему не отправляется.
+        replies["192.168.43.1:41234"] = byteArrayOf(5, 2, 1, 0)
+        val candidate = assertIs<Outcome.Success<RelayNetworks.Target>>(relays.locate(device())).value
+        assertEquals(ip("192.168.43.1"), candidate.address)
+        assertEquals(0, sent.size())
+        assertEquals(listOf("192.168.43.1:41234"), dialed)
+        // Дальше транспорт требует криптографические ключи; availability не означает аутентификацию.
     }
 
     @Test
-    fun wrongPasswordAndSilenceHaveTheirOwnReasons() {
-        replies["192.168.43.1:41234"] = byteArrayOf(5, 2, 1, 1)
-        assertEquals(DiagCode.AUTHENTICATION_FAILED, assertIs<Outcome.Failure>(relays.locate(device())).errors.single().code)
-        replies.clear()
+    fun unavailablePortHasAnExplicitReason() {
         assertEquals(DiagCode.RELAY_NOT_FOUND, assertIs<Outcome.Failure>(relays.locate(device())).errors.single().code)
         route = ""
-        val none = assertIs<Outcome.Failure>(relays.locate(device())).errors.single()
-        assertEquals(DiagCode.RELAY_NOT_FOUND, none.code)
-        assertTrue("ПК не подключён" in none.message)
+        assertEquals(DiagCode.RELAY_NOT_FOUND, assertIs<Outcome.Failure>(relays.locate(device())).errors.single().code)
     }
 
     @Test

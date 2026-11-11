@@ -25,6 +25,8 @@ import com.dpsmpx.dppass.subscriptions.SubscriptionUpdater
 import com.dpsmpx.dppass.subscriptions.SubscriptionsState
 import com.dpsmpx.dppass.subscriptions.UpdateResult
 import com.dpsmpx.dppass.subscriptions.UpdateSchedule
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Хранение подписок одной записью `subscriptions/state` (D-36):
@@ -134,6 +136,7 @@ class SubscriptionService(
 ) {
     @Volatile
     private var cached: SubscriptionsState? = null
+    private val mutations = Mutex()
 
     /** Пропущенные записи последнего разбора каждой подписки — в памяти процесса ([SkippedEntries]). */
     private val skipped = java.util.concurrent.ConcurrentHashMap<SubscriptionId, SkippedEntries>()
@@ -141,6 +144,7 @@ class SubscriptionService(
     /** Что из последнего разобранного ответа поставщика не стало серверами; null — в этом запуске не разбирался. */
     fun skipped(id: SubscriptionId): SkippedEntries? = skipped[id]
 
+    @Synchronized
     fun state(): Outcome<SubscriptionsState> = cached?.let { Outcome.Success(it) } ?: book.load().also { r ->
         if (r is Outcome.Success) cached = r.value
     }
@@ -182,7 +186,10 @@ class SubscriptionService(
         return insert(n, SubscriptionSource.Inline(Secret(text)), autoUpdate = false, byUser = given.isNotEmpty())
     }
 
-    private fun insert(name: String, source: SubscriptionSource, autoUpdate: Boolean = true, byUser: Boolean): Outcome<Subscription> {
+    private fun insert(name: String, source: SubscriptionSource, autoUpdate: Boolean = true, byUser: Boolean): Outcome<Subscription> =
+        mutate { insertLocked(name, source, autoUpdate, byUser) }
+
+    private fun insertLocked(name: String, source: SubscriptionSource, autoUpdate: Boolean, byUser: Boolean): Outcome<Subscription> {
         val current = when (val s = state()) {
             is Outcome.Failure -> return s
             is Outcome.Success -> s.value
@@ -223,9 +230,16 @@ class SubscriptionService(
         st.copy(items = st.items.map { if (it.id == id && it.deviceId != null) it.copy(deviceId = DeviceId.generate()) else it })
     }
 
-    private fun edit(change: (SubscriptionsState) -> SubscriptionsState): Outcome<SubscriptionsState> = when (val s = state()) {
-        is Outcome.Failure -> s
-        is Outcome.Success -> commit(change(s.value))
+    private inline fun <T> mutate(block: () -> Outcome<T>): Outcome<T> {
+        if (!mutations.tryLock()) return Outcome.failure(DiagCode.SUBSCRIPTION_FETCH_FAILED, "обновление применяется: повторите изменение после его завершения")
+        return try { block() } finally { mutations.unlock() }
+    }
+
+    private fun edit(change: (SubscriptionsState) -> SubscriptionsState): Outcome<SubscriptionsState> = mutate {
+        when (val current = state()) {
+            is Outcome.Failure -> current
+            is Outcome.Success -> commit(change(current.value))
+        }
     }
 
     /**
@@ -256,6 +270,28 @@ class SubscriptionService(
         val forUpdate = binding?.let { fetched.copy(binding = it) } ?: fetched
         val source = SourceFetcher(network = fetcher, inline = InlineSubscriptionFetcher(clock))
         val update = SubscriptionUpdater(source, clock, appVersion).update(forUpdate, core.profileFilter())
+        return mutations.withLock {
+            val latest = when (val current = state()) {
+                is Outcome.Failure -> return@withLock current
+                is Outcome.Success -> current.value
+            }
+            if (latest != st) {
+                return@withLock Outcome.failure(
+                    DiagCode.SUBSCRIPTION_FETCH_FAILED,
+                    "подписки изменились во время загрузки: результат не применён, повторите обновление",
+                )
+            }
+            applyRefresh(latest, sub, update, binding)
+        }
+    }
+
+    private suspend fun applyRefresh(
+        st: SubscriptionsState,
+        sub: Subscription,
+        update: UpdateResult,
+        binding: RoutingBinding?,
+    ): Outcome<SubscriptionRun> {
+        val id = sub.id
         core.subscriptionNotes(update)
         SkippedEntries.of(update, clock.nowMillis())?.let { skipped[id] = it }
         val before = core.activation.state.activeConfig
@@ -312,7 +348,10 @@ class SubscriptionService(
      * применена — смена политики с новыми списками: отказ активации — отказ
      * смены, согласие не записывается.
      */
-    suspend fun setUseProviderLists(id: SubscriptionId, use: Boolean): Outcome<ActivationResult?> {
+    suspend fun setUseProviderLists(id: SubscriptionId, use: Boolean): Outcome<ActivationResult?> =
+        mutations.withLock { setUseProviderListsLocked(id, use) }
+
+    private suspend fun setUseProviderListsLocked(id: SubscriptionId, use: Boolean): Outcome<ActivationResult?> {
         val st = when (val s = state()) {
             is Outcome.Failure -> return s
             is Outcome.Success -> s.value

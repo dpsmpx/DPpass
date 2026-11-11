@@ -30,6 +30,13 @@ private class ManualExecutor : Executor {
 }
 
 class FileLogSinkTest {
+    @Test
+    fun providerCannotForgeAnotherLogLine() {
+        val text = FileLogSink.format(event(1, "value\nFORGED\rentry\u2028hidden"))
+        assertFalse('\n' in text || '\r' in text || '\u2028' in text)
+        assertTrue("value\\nFORGED\\rentry\\u2028hidden" in text)
+    }
+
     private val dir = tempDir()
 
     @AfterTest

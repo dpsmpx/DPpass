@@ -4,7 +4,6 @@ import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.core.ManualClock
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Outcome
-import com.dpsmpx.dppass.diagnostics.Secret
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.storage.InMemoryBlobStore
 import com.dpsmpx.dppass.storage.Quarantine
@@ -32,7 +31,7 @@ class ShareSettingsTest {
 
     @Test
     fun specOnlyWhenEnabledAndOnPrivateAddresses() {
-        val s = ShareSettings(true, 41234, Secret("u"), Secret("p"))
+        val s = ShareSettings.generate().copy(enabled = true, port = 41234)
         val hotspot = ShareSpec.Endpoint(IpAddress.parse("192.168.43.1")!!, 24)
         val spec = s.spec(listOf(hotspot, hotspot))!!
         assertEquals(listOf(hotspot), spec.endpoints, "повтор адреса отброшен")
@@ -90,20 +89,15 @@ class ShareSettingsTest {
         assertEquals(DiagCode.NAME_INVALID, ShareService(ShareStore(InMemoryBlobStore(), Quarantine(blobs, clock))).pair(" ", 0).errors.single().code)
     }
 
-    // Версия 1 (до D-56) читается как раздача без сопряжённых; записывается версия 2.
     @Test
-    fun version1ReadsWithoutPairedAndWritesVersion2() {
-        val v1 = """{"format":"dppass.share","format_version":1,"enabled":true,"port":41234,"user":"u-test","password":"p-test"}"""
-        val s = ShareCodec.read(v1).valueOrNull()!!
-        assertTrue(s.enabled && s.paired.isEmpty())
-        assertTrue("\"format_version\":2" in ShareCodec.write(s))
-        assertEquals(s, ShareCodec.read(ShareCodec.write(s)).valueOrNull())
-        // В версии 1 поля devices нет — его появление там нечитаемо, а не «как-нибудь».
-        assertTrue(ShareCodec.read(v1.replace("}", ",\"devices\":[]}")) is Outcome.Failure)
-        // Логин сопряжённого совпал с основным — ядро заменило бы один пароль другим молча: нечитаемо.
-        val dup = """{"format":"dppass.share","format_version":2,"enabled":true,"port":41234,"user":"u-test","password":"p-test",""" +
-            """"devices":[{"id":"0123456789ab","name":"x","user":"u-test","password":"p2","paired_at":0}]}"""
-        assertTrue(ShareCodec.read(dup) is Outcome.Failure)
+    fun oldShareFormatsRequirePairingAndNewKeysSurviveRoundTrip() {
+        for (version in listOf(1, 2)) {
+            val old = """{"format":"dppass.share","format_version":$version,"enabled":true,"port":41234,"user":"u-test","password":"p-test"}"""
+            assertEquals(DiagCode.FORMAT_VERSION_UNSUPPORTED, ShareCodec.read(old).errors.single().code)
+        }
+        val fresh = ShareSettings.generate()
+        assertEquals(fresh, ShareCodec.read(ShareCodec.write(fresh)).valueOrNull())
+        assertTrue("\"format_version\":3" in ShareCodec.write(fresh))
     }
 
     @Test

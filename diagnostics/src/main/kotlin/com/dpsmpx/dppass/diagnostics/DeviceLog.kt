@@ -182,8 +182,19 @@ class FileLogSink(
         /** Строка файла: время UTC ISO-8601, затем событие как в отчёте. */
         fun format(e: LogEvent): String = buildString {
             append(stamp(e.timestampMillis)).append(' ').append(e.severity.name).append(' ')
-            append(e.component).append(' ').append(e.event)
-            for ((k, v) in e.fields) append(' ').append(k).append('=').append(v)
+            append(singleLine(e.component)).append(' ').append(singleLine(e.event))
+            for ((k, v) in e.fields) append(' ').append(singleLine(k)).append('=').append(singleLine(v))
+        }
+
+        private fun singleLine(value: String): String = buildString {
+            for (c in value.take(4096)) {
+                when (c) {
+                    '\n' -> append("\\n")
+                    '\r' -> append("\\r")
+                    '\t' -> append("\\t")
+                    else -> if (c.isISOControl() || c == '\u2028' || c == '\u2029') append("\\u%04x".format(c.code)) else append(c)
+                }
+            }
         }
 
         fun stamp(millis: Long): String = Instant.ofEpochMilli(millis).toString()

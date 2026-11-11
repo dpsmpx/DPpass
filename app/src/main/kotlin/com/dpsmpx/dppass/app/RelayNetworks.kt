@@ -7,7 +7,6 @@ import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import com.dpsmpx.dppass.connection.RelayDevice
-import com.dpsmpx.dppass.connection.Socks5Login
 import com.dpsmpx.dppass.core.Cidr
 import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.diagnostics.DiagCode
@@ -18,16 +17,9 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 
 /**
- * Где искать устройство раздачи (D-55). Устройство раздачи — шлюз сети,
- * через которую этот телефон к нему подключён: его точки доступа Wi-Fi,
- * Bluetooth-модема или USB-модема (Android раздаёт подсеть с собой во
- * главе). Ничего не объявляется и не рассылается: телефон спрашивает шлюз
- * своей сети по протоколу входа раздачи — SOCKS5 с паролем (RFC 1929), и
- * ответит только вход, который знает этот логин и пароль.
- *
- * Сокеты — привязанные к сети ([Network.getSocketFactory]): сам DPpass
- * идёт мимо своего туннеля, а с Bluetooth- и USB-модема путь к шлюзу не
- * лежит через сеть по умолчанию.
+ * Возможный адрес устройства раздачи. Поиск проверяет только доступность TCP-порта,
+ * без логина, пароля или ключа. Ответ шлюза не удостоверяет устройство (D-110).
+ * Передача данных и проверка ключа выполняются SS2022 при подключении.
  */
 object RelayNetworks {
     enum class Medium { WIFI, BLUETOOTH, USB }
@@ -39,7 +31,6 @@ object RelayNetworks {
     data class Target(val network: Network, val medium: Medium, val address: IpAddress)
 
     private const val CONNECT_TIMEOUT_MILLIS = 1_500
-    private const val READ_TIMEOUT_MILLIS = 1_500
 
     /** Шлюзы сетей Wi-Fi, Bluetooth и Ethernet/USB (не VPN) — снимок на сейчас. */
     fun gateways(context: Context): List<Gateway> = links(context).flatMap { (network, medium, props) ->
@@ -52,8 +43,7 @@ object RelayNetworks {
 
     /**
      * Найти устройство: по его явному адресу — в сети, в подсеть которой он
-     * входит; без адреса — среди шлюзов. Первый вход, принявший логин и
-     * пароль, — ответ. Блокирует поток: до двух коротких соединений на сеть.
+     * входит; без адреса — среди шлюзов. Первый доступный порт — кандидат, не подтверждение личности. Блокирует поток: до двух коротких соединений на сеть.
      */
     fun locate(context: Context, device: RelayDevice): Outcome<Target> {
         val candidates = device.address?.let { at ->
@@ -70,37 +60,23 @@ object RelayNetworks {
                 "телефон не подключён к устройству раздачи: подключитесь к его точке доступа Wi-Fi, Bluetooth- или USB-модему",
             )
         }
-        var rejected = false
+        // Только доступность порта. Личность подтвердит зашифрованное соединение SS2022,
+        // а TCP accept чужого шлюза не разрешает передавать ему открытые учётные данные.
         for (c in candidates) {
-            when (check(c.network, c.address, device)) {
-                Socks5Login.Result.ACCEPTED -> return Outcome.Success(c)
-                Socks5Login.Result.REJECTED -> rejected = true
-                Socks5Login.Result.NOT_SOCKS, null -> Unit
-            }
+            if (check(c.network, c.address, device)) return Outcome.Success(c)
         }
-        return if (rejected) {
-            Outcome.failure(
-                DiagCode.AUTHENTICATION_FAILED,
-                "устройство раздачи не приняло логин и пароль: на нём их сменили («Новые логин, пароль и порт») — добавьте устройство заново",
-            )
-        } else {
-            Outcome.failure(
-                DiagCode.RELAY_NOT_FOUND,
-                "устройство раздачи не ответило: на нём выключена «Раздача туннеля» или DPpass не подключён, либо сменился порт",
-            )
-        }
+        return Outcome.failure(DiagCode.RELAY_NOT_FOUND, "порт устройства раздачи недоступен: проверьте подключение и выполните новое сопряжение")
     }
 
     /** Вход раздачи [device] по [address] в сети [network]; null — не ответил вовсе. */
-    fun check(network: Network, address: IpAddress, device: RelayDevice): Socks5Login.Result? = try {
+    fun check(network: Network, address: IpAddress, device: RelayDevice): Boolean = try {
         network.socketFactory.createSocket().use { s ->
             // Адрес из байтов — без DNS: getByAddress имён не резолвит.
             s.connect(InetSocketAddress(InetAddress.getByAddress(address.toBytes()), device.port), CONNECT_TIMEOUT_MILLIS)
-            s.soTimeout = READ_TIMEOUT_MILLIS
-            Socks5Login.check(s.getInputStream(), s.getOutputStream(), device.user, device.password)
+            true // Ни одного байта аутентификации возможному шлюзу.
         }
     } catch (e: IOException) {
-        null
+        false
     }
 
     /**

@@ -36,6 +36,16 @@ private const val UUID1 = "00000000-0000-4000-8000-000000000011"
 
 class ShareLinkParserTest {
     @Test
+    fun percentDecodingKeepsSupplementaryUnicodeAndDiagnosticsOmitValues() {
+        assertEquals("🇩🇪 Germany 👩\u200d💻", ShareLinkParser.percentDecode("🇩🇪%20Germany%20👩\u200d💻"))
+        val value = "private-value" + "%0A" + "forged".repeat(1000)
+        val failure = ShareLinkParser.parse("vless://$UUID1@203.0.113.1:443?type=$value", "s")
+        val text = failure.diagnostics.joinToString { it.toString() }
+        assertFalse("private-value" in text)
+        assertFalse("forged" in text)
+    }
+
+    @Test
     fun realityVisionLink() {
         val link = "vless://$UUID1@203.0.113.11:443?type=tcp&security=reality&sni=www.example.com&pbk=$KEY&sid=01234567" +
             "&fp=firefox&flow=xtls-rprx-vision&encryption=none#Reality%20NL"

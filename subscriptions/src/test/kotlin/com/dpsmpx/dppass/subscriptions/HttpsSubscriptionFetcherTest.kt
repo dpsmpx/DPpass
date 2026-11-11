@@ -41,6 +41,36 @@ private class FakeConnection(
 }
 
 class HttpsSubscriptionFetcherTest {
+    @Test
+    fun redirectToAnotherOriginDoesNotReceiveDeviceIdentifier() {
+        val first = FakeConnection(URL("https://sub.example.test/one"), 302, mapOf("Location" to "https://other.example.test/two"))
+        val second = FakeConnection(URL("https://other.example.test/two"), 200)
+        val (result, _) = fetch(request("https://sub.example.test/one", Secret("device-id")), first, second)
+        assertIs<Outcome.Success<*>>(result)
+        assertEquals("device-id", first.sent[SubscriptionRequest.DEVICE_ID_HEADER])
+        assertFalse(SubscriptionRequest.DEVICE_ID_HEADER in second.sent)
+    }
+
+    @Test
+    fun continuousSmallReadsCannotExtendTheTotalDeadline() = runBlocking {
+        var reads = 0
+        val connection = FakeConnection(URL("https://sub.example.test/slow"), 200, body = {
+            object : InputStream() {
+                override fun read(): Int = error("используется пакетное чтение")
+                override fun read(bytes: ByteArray, off: Int, len: Int): Int {
+                    reads++
+                    clock.advance(600)
+                    bytes[off] = 1
+                    return 1
+                }
+            }
+        })
+        val fetcher = HttpsSubscriptionFetcher(clock, deadlineClock = clock) { connection }
+        val result = fetcher.fetch(request("https://sub.example.test/slow"), FetchPolicy(timeoutMillis = 1000))
+        assertIs<Outcome.Failure>(result)
+        assertEquals(2, reads)
+    }
+
     private val clock = ManualClock(0)
     private val policy = FetchPolicy()
 

@@ -17,6 +17,34 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class StorageTest {
+    @Test
+    fun concurrentWritersUseIndependentTemporaryFiles() {
+        val dir = Files.createTempDirectory("dppass-store-race").toFile()
+        try {
+            val start = java.util.concurrent.CountDownLatch(1)
+            val pool = java.util.concurrent.Executors.newFixedThreadPool(4)
+            try {
+                val jobs = (1..4).map { n ->
+                    pool.submit<Boolean> {
+                        start.await()
+                        val store = FileBlobStore(dir)
+                        (1..30).all { store.write("shared/key", ByteArray(8192) { n.toByte() }) is Outcome.Success }
+                    }
+                }
+                start.countDown()
+                assertTrue(jobs.all { it.get() })
+                val data = FileBlobStore(dir).read("shared/key").valueOrNull()!!
+                assertEquals(8192, data.size)
+                assertTrue(data.all { it == data[0] })
+                assertFalse(dir.walkTopDown().any { it.name.endsWith(".tmp") })
+            } finally {
+                pool.shutdownNow()
+            }
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     private val key = KeyProvider { Outcome.Success(ByteArray(32) { it.toByte() }) }
 
     @Test

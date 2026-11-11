@@ -29,11 +29,11 @@ sealed interface TunnelStatus {
 
     data object Stopping : TunnelStatus
 
-    /** Последняя попытка не удалась; причина — с кодом (D-22), туннеля нет. */
-    data class Failed(val reason: Diagnostic) : TunnelStatus
+    /** Отказ; при [trafficBlocked] TUN сохранён до явного отключения (D-111). */
+    data class Failed(val reason: Diagnostic, val trafficBlocked: Boolean = false) : TunnelStatus
 
     /** Туннель есть или поднимается: кнопка экрана — «Отключить», выбор сервера — переподключение. */
-    val busy: Boolean get() = this is Connecting || this is Connected
+    val busy: Boolean get() = this is Connecting || this is Connected || (this is Failed && trafficBlocked)
 }
 
 /** Трафик сессии (D-40): итоги с подключения и скорость по счётчикам ядра. */

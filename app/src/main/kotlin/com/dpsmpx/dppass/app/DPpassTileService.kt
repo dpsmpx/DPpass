@@ -68,6 +68,10 @@ class DPpassTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
+        if (isLocked) {
+            unlockAndRun { onClick() }
+            return
+        }
         val status = TunnelState.status.value
         if (status.busy) {
             DPpassVpnService.stop(this)

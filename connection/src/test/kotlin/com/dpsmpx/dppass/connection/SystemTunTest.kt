@@ -125,7 +125,17 @@ class SystemTunTest {
         val engine = Recording()
         val blobs = InMemoryBlobStore()
         val core = DPpassCore(XrayCompiler(dnsHijackAnyAddress = true), engine, blobs, clock, "com.dpsmpx.dppass", PlatformTraits(false))
-        val device = core.relays.add(RelayDraft("Телефон", "", 41234, "u-test", "p-test-0123456789")).valueOrNull()!!
+        val device = core.relays.add(
+            RelayDraft(
+                "Телефон", "", 41234,
+                java.util.Base64.getEncoder().encodeToString(
+                    ByteArray(32) {
+                        1
+                    },
+                ),
+                java.util.Base64.getEncoder().encodeToString(ByteArray(32) { 2 }),
+            ),
+        ).valueOrNull()!!
         val at = IpAddress.parseV4("192.168.42.129")!!
         val report = core.connectVia(device, at, { _, _ -> Outcome.Success(Unit) }, null, systemTun = system.copy(outboundsInterface = "Ethernet 3")) {}
         assertIs<ConnectionReport.Connected>(report)

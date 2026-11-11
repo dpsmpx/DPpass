@@ -117,22 +117,23 @@ func TestPolicyAllowsOnlyAuthenticatedShareInbound(t *testing.T) {
 	share := func(tag, proto, listen string, port int, settings string) string {
 		return fmt.Sprintf(`{"tag": %q, "protocol": %q, "listen": %q, "port": %d, "settings": %s}`, tag, proto, listen, port, settings)
 	}
-	auth := `{"auth": "password", "accounts": [{"user": "u", "pass": "p-0123456789"}], "udp": true}`
-	ok := cfg(tunIn + "," + share("dppass:share-0", "socks", "192.168.43.1", 41234, auth) + "," +
-		share("dppass:share-1", "socks", "192.168.42.129", 41234, auth))
+	auth := `{"method":"2022-blake3-aes-256-gcm","password":"CwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCws=","clients":[{"email":"paired-0","password":"DAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw="}],"network":"tcp,udp"}`
+	ok := cfg(tunIn + "," + share("dppass:share-0", "shadowsocks", "192.168.43.1", 41234, auth) + "," +
+		share("dppass:share-1", "shadowsocks", "192.168.42.129", 41234, auth))
 	if full, err := Validate(ok); err != nil || !full {
 		t.Fatalf("раздача с паролем на адресах модема должна проходить: full=%v err=%v", full, err)
 	}
 	bad := map[string][]byte{
-		"без пароля":      cfg(tunIn + "," + share("dppass:share-0", "socks", "192.168.43.1", 41234, `{"auth": "noauth"}`)),
-		"все интерфейсы":  cfg(tunIn + "," + share("dppass:share-0", "socks", "0.0.0.0", 41234, auth)),
-		"loopback":        cfg(tunIn + "," + share("dppass:share-0", "socks", "127.0.0.1", 41234, auth)),
-		"публичный адрес": cfg(tunIn + "," + share("dppass:share-0", "socks", "203.0.113.1", 41234, auth)),
-		"IPv6":            cfg(tunIn + "," + share("dppass:share-0", "socks", "fd00::1", 41234, auth)),
-		"порт ниже 1024":  cfg(tunIn + "," + share("dppass:share-0", "socks", "192.168.43.1", 80, auth)),
-		"чужой тег":       cfg(tunIn + "," + share("s", "socks", "192.168.43.1", 41234, auth)),
-		"HTTP-вход":       cfg(tunIn + "," + share("dppass:share-0", "http", "192.168.43.1", 41234, `{"accounts": [{"user": "u", "pass": "p"}]}`)),
-		"диапазон портов": cfg(tunIn + `,{"tag": "dppass:share-0", "protocol": "socks", "listen": "192.168.43.1", "port": "40000-40010", "settings": ` + auth + `}`),
+		"старый открытый вход": cfg(tunIn + "," + share("dppass:share-0", "socks", "192.168.43.1", 41234, `{"auth":"password","accounts":[{"user":"u","pass":"old"}]}`)),
+		"без пароля":           cfg(tunIn + "," + share("dppass:share-0", "shadowsocks", "192.168.43.1", 41234, `{"method":"2022-blake3-aes-256-gcm","password":"CwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCws="}`)),
+		"все интерфейсы":       cfg(tunIn + "," + share("dppass:share-0", "shadowsocks", "0.0.0.0", 41234, auth)),
+		"loopback":             cfg(tunIn + "," + share("dppass:share-0", "shadowsocks", "127.0.0.1", 41234, auth)),
+		"публичный адрес":      cfg(tunIn + "," + share("dppass:share-0", "shadowsocks", "203.0.113.1", 41234, auth)),
+		"IPv6":                 cfg(tunIn + "," + share("dppass:share-0", "shadowsocks", "fd00::1", 41234, auth)),
+		"порт ниже 1024":       cfg(tunIn + "," + share("dppass:share-0", "shadowsocks", "192.168.43.1", 80, auth)),
+		"чужой тег":            cfg(tunIn + "," + share("s", "shadowsocks", "192.168.43.1", 41234, auth)),
+		"HTTP-вход":            cfg(tunIn + "," + share("dppass:share-0", "http", "192.168.43.1", 41234, `{"accounts": [{"user": "u", "pass": "p"}]}`)),
+		"диапазон портов":      cfg(tunIn + `,{"tag": "dppass:share-0", "protocol": "shadowsocks", "listen": "192.168.43.1", "port": "40000-40010", "settings": ` + auth + `}`),
 	}
 	for name, c := range bad {
 		_, err := Validate(c)

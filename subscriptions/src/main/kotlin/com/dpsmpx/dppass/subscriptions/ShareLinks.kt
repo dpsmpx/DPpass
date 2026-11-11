@@ -139,7 +139,7 @@ object ShareLinkParser {
                 q["servicename"]?.takeIf { it.isNotEmpty() } ?: return Outcome.failure(DiagCode.SHARE_LINK_INVALID, "grpc без serviceName"),
             )
             "xhttp", "splithttp" -> {
-                val mode = XHttpMode.entries.firstOrNull { it.wire == (q["mode"] ?: "auto") } ?: return unsupported("mode=${q["mode"]}")
+                val mode = XHttpMode.entries.firstOrNull { it.wire == (q["mode"] ?: "auto") } ?: return unsupported("mode")
                 val extra = when (val e = q["extra"]?.takeIf { it.isNotEmpty() }?.let(::xhttpExtra)) {
                     null -> XHttpExtra.NONE
                     is Outcome.Failure -> return e
@@ -147,10 +147,10 @@ object ShareLinkParser {
                 }
                 TransportSpec.XHttp(path, hostHeader, mode, extra)
             }
-            else -> return unsupported("type=$type")
+            else -> return unsupported("type")
         }
         if (q["extra"].let { !it.isNullOrEmpty() } && transport !is TransportSpec.XHttp) return unsupported("extra (только у xhttp)")
-        val fp = q["fp"]?.let { f -> TlsFingerprint.entries.firstOrNull { it.wire == f } ?: return unsupported("fp=$f") }
+        val fp = q["fp"]?.let { f -> TlsFingerprint.entries.firstOrNull { it.wire == f } ?: return unsupported("fp") }
         val sni = domainParam(q["sni"])
         val security = when (val s = q["security"] ?: if (scheme == "trojan") "tls" else "none") {
             "none" -> SecuritySpec.None
@@ -162,7 +162,7 @@ object ShareLinkParser {
                 fingerprint = fp ?: TlsFingerprint.CHROME,
                 spiderX = q["spx"],
             )
-            else -> return unsupported("security=$s")
+            else -> return unsupported("security")
         }
         val secret = Secret(parts.user)
         val protocol = if (scheme == "vless") {
@@ -556,9 +556,13 @@ object ShareLinkParser {
     private fun unsupported(what: String): Outcome.Failure = Outcome.Failure(
         listOf(
             Diagnostic.error(DiagCode.SHARE_LINK_INVALID, "ссылка содержит то, что DPpass пока не выражает без потери смысла")
-                .withCause(Diagnostic.warning(DiagCode.SHARE_LINK_PARAM_UNSUPPORTED, "неподдержанные параметры: $what")),
+                .withCause(Diagnostic.warning(DiagCode.SHARE_LINK_PARAM_UNSUPPORTED, "неподдержанные параметры: ${safeNames(what)}")),
         ),
     )
+
+    private fun safeNames(what: String): String = what.take(256).map { c ->
+        if (c.isISOControl() || c in '\u202a'..'\u202e' || c in '\u2066'..'\u2069') '�' else c
+    }.joinToString("")
 
     private class Parts(val user: String, val host: String, val port: String, val query: Map<String, String>, val fragment: String?)
 
@@ -610,8 +614,9 @@ object ShareLinkParser {
                 out.write(hex.toInt(16))
                 i += 3
             } else {
-                out.write(c.toString().toByteArray(Charsets.UTF_8))
-                i++
+                val count = if (c.isHighSurrogate() && i + 1 < s.length && s[i + 1].isLowSurrogate()) 2 else 1
+                out.write(s.substring(i, i + count).toByteArray(Charsets.UTF_8))
+                i += count
             }
         }
         // String(bytes, charset), а не ByteArrayOutputStream.toString(Charset): второго нет на Android ниже API 33.

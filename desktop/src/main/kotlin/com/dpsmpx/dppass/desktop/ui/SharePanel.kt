@@ -67,7 +67,7 @@ class SharePanel(private val graph: DesktopGraph, private val session: DesktopSe
         column.line(
             JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
                 isOpaque = false
-                add(Widgets.button("Новые логин, пароль и порт") { regenerate() })
+                add(Widgets.button("Новые ключи и порт") { regenerate() })
             },
         )
         column.line(Widgets.caption("Другим устройствам понадобятся новые настройки"))
@@ -94,7 +94,7 @@ class SharePanel(private val graph: DesktopGraph, private val session: DesktopSe
             share == null -> "Адреса появятся после переподключения." to null
             share.refused -> " " to REFUSED
             share.endpoints.isEmpty() -> " " to share.absent
-            else -> "Адрес прокси — для другого устройства (SOCKS5 или HTTP):" to null
+            else -> "Адрес прокси — для другого устройства (защищённая раздача DPpass):" to null
         }
         where.text = text
         problem.show(warning ?: failure)
@@ -126,8 +126,8 @@ class SharePanel(private val graph: DesktopGraph, private val session: DesktopSe
         val rows = listOf<Triple<String, JComponent, () -> String>>(
             Triple("Адрес", address) { address.text },
             Triple("Порт", port) { port.text },
-            Triple("Логин", user) { user.text },
-            Triple("Пароль", password) { String(password.password) },
+            Triple("Ключ сервера", user) { user.text },
+            Triple("Ключ клиента", password) { String(password.password) },
         )
         for ((i, row) in rows.withIndex()) {
             val (label, value, copy) = row
@@ -157,8 +157,8 @@ class SharePanel(private val graph: DesktopGraph, private val session: DesktopSe
     private fun regenerate() {
         val answer = JOptionPane.showConfirmDialog(
             this,
-            "Сменить логин, пароль и порт? Устройства со старыми настройками перестанут работать через ПК.",
-            "Новые логин, пароль и порт",
+            "Сменить ключи и порт? Устройства со старыми настройками перестанут работать через ПК.",
+            "Новые ключи и порт",
             JOptionPane.OK_CANCEL_OPTION,
             JOptionPane.WARNING_MESSAGE,
         )
@@ -193,16 +193,15 @@ class SharePanel(private val graph: DesktopGraph, private val session: DesktopSe
 
         const val FIELD_COLUMNS = 18
 
-        const val INTRO = "Ваши другие устройства могут ходить в интернет через туннель DPpass: ПК открывает прокси с паролем " +
+        const val INTRO = "Ваши другие устройства могут ходить в интернет через туннель DPpass: ПК открывает защищённую раздачу " +
             "на адресе своей точки доступа, а другое устройство указывает его у себя."
 
         const val REFUSED = "Прокси не открылся на адресе точки доступа: её выключили во время подключения, или порт занят " +
-            "другой программой. Туннель работает без раздачи. Включите точку доступа заново или нажмите «Новые логин, пароль и порт»."
+            "другой программой. Туннель работает без раздачи. Включите точку доступа заново или нажмите «Новые ключи и порт»."
 
         /** «Важно знать»; [firewall] — строка о межсетевом экране этой системы. */
-        fun limits(firewall: String): String = "• На другом устройстве нужна программа, которая умеет работать через прокси. Надёжнее всего — " +
-            "клиент SOCKS5 с паролем; HTTP-прокси в настройках Wi-Fi пароль не передаёт: браузер спросит его сам, остальные " +
-            "программы могут не работать.\n" +
+        fun limits(firewall: String): String = "• На другом устройстве нужен DPpass с защищённым форматом. " +
+            "Старые настройки SOCKS5 требуют повторного сопряжения.\n" +
             "• Через прокси идёт только то, что программа другого устройства в него направила, и её DNS тоже.\n" +
             "• Маршрутизация и блокировка — те же, что у ПК.\n" +
             "$firewall\n" +

@@ -22,6 +22,8 @@ import com.dpsmpx.dppass.engine.CompiledConfig
 import com.dpsmpx.dppass.engine.ProxyEngine
 import com.dpsmpx.dppass.storage.BlobStore
 import com.dpsmpx.dppass.storage.Quarantine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 enum class ActivationStatus { ACTIVE, SUPERSEDED, REJECTED, ROLLED_BACK }
 
@@ -92,6 +94,9 @@ class ActivationService(
     private val clock: Clock,
     private val historyLimit: Int = 32,
 ) {
+    private val mutations = Mutex()
+
+    @Volatile
     var state: ActivationState = ActivationState.EMPTY
         private set
 
@@ -106,6 +111,11 @@ class ActivationService(
 
     /** Прочитать сохранённое состояние; повреждённое — в карантин, не «по умолчанию». */
     fun restore(): List<Diagnostic> {
+        if (!mutations.tryLock()) return listOf(Diagnostic.error(DiagCode.ACTIVATION_REJECTED, "активация выполняется: восстановление отложено"))
+        return try { restoreLocked() } finally { mutations.unlock() }
+    }
+
+    private fun restoreLocked(): List<Diagnostic> {
         val r = store.load()
         state = r.valueOrNull() ?: ActivationState.EMPTY
         unreadable = (r as? Outcome.Failure)?.diagnostics
@@ -120,7 +130,7 @@ class ActivationService(
      */
     private fun ensureReadable(): Outcome<Unit> {
         if (restored && unreadable == null) return Outcome.Success(Unit)
-        val notes = restore()
+        val notes = restoreLocked()
         return unreadable?.let { Outcome.Failure(it) } ?: Outcome.Success(Unit, notes)
     }
 
@@ -129,6 +139,15 @@ class ActivationService(
             .copy(causes = causes.filter { it.isError })
 
     suspend fun activate(
+        ir: ConfigIr,
+        source: String,
+        sourceChecksum: String,
+        profileId: ProfileId? = null,
+        withTun: Boolean = true,
+        preCheck: PreActivationCheck? = null,
+    ): ActivationResult = mutations.withLock { activateLocked(ir, source, sourceChecksum, profileId, withTun, preCheck) }
+
+    private suspend fun activateLocked(
         ir: ConfigIr,
         source: String,
         sourceChecksum: String,
@@ -206,6 +225,11 @@ class ActivationService(
      * работе не передаёт данных (L7 «подключено, но пусто»).
      */
     fun rollback(reason: Diagnostic): Outcome<ActivationRecord> {
+        if (!mutations.tryLock()) return Outcome.failure(DiagCode.ACTIVATION_REJECTED, "активация выполняется: повторите откат позднее")
+        return try { rollbackLocked(reason) } finally { mutations.unlock() }
+    }
+
+    private fun rollbackLocked(reason: Diagnostic): Outcome<ActivationRecord> {
         val readable = ensureReadable()
         if (readable is Outcome.Failure) return Outcome.failure(unreadableRejection("откат не выполнен", readable.diagnostics))
         val prev = state.previous

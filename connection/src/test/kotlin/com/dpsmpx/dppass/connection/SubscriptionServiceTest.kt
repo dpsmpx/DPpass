@@ -74,6 +74,37 @@ class SubscriptionBookTest {
 }
 
 class SubscriptionFlowTest {
+    @Test
+    fun refreshCannotOverwriteChangesMadeDuringFetch() = runBlocking {
+        val core = core()
+        val id = added(core)
+        val fetcher = SubscriptionFetcher { _, _ ->
+            core.subscriptions.rename(id, "выбрано пользователем")
+            core.subscriptions.setDeviceId(id, true)
+            core.subscriptions.add("https://second.example.test/sub", "другая")
+            Outcome.Success(FetchedPayload(LINKS.toByteArray(), emptyMap(), 0))
+        }
+        assertTrue(core.subscriptions.refresh(id, fetcher, "test") is Outcome.Failure)
+        val state = core.subscriptions.state().valueOrNull()!!
+        assertEquals(2, state.items.size)
+        assertEquals("выбрано пользователем", state.find(id)!!.name)
+        assertTrue(state.find(id)!!.deviceId != null)
+        assertNull(core.activation.state.activeConfig, "устаревший ответ не активируется")
+    }
+
+    @Test
+    fun refreshCannotResurrectDeletedSubscription() = runBlocking {
+        val core = core()
+        val id = added(core)
+        val fetcher = SubscriptionFetcher { _, _ ->
+            core.subscriptions.remove(id)
+            Outcome.Success(FetchedPayload(LINKS.toByteArray(), emptyMap(), 0))
+        }
+        assertTrue(core.subscriptions.refresh(id, fetcher, "test") is Outcome.Failure)
+        assertTrue(core.subscriptions.state().valueOrNull()!!.items.isEmpty())
+        assertNull(core.activation.state.activeConfig)
+    }
+
     private val clock = ManualClock(1_000_000)
     private val blobs = InMemoryBlobStore()
 

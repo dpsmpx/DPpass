@@ -52,11 +52,13 @@ class RelayPairingTest {
         interfaces = { emptyList() },
     )
 
+    private fun relayKey(n: Int) = java.util.Base64.getEncoder().encodeToString(ByteArray(32) { n.toByte() })
+
     private fun host(says: Boolean, code: AtomicReference<String>) = thread(isDaemon = true) {
         server.accept().use { s ->
             runBlocking {
                 Pairing.host(s.getInputStream(), s.getOutputStream(), random, { c -> code.set(c); says }) {
-                    Outcome.Success(Pairing.Offer(41234, "guest001", "synthetic-password-01", "Телефон"))
+                    Outcome.Success(Pairing.Offer(41234, relayKey(1), relayKey(2), "Телефон"))
                 }
             }
         }
@@ -75,12 +77,12 @@ class RelayPairingTest {
         assertEquals(Pairing.CODE_DIGITS, guestCode.get().length)
         assertEquals("Телефон", d.name)
         assertEquals(41234, d.port)
-        assertEquals("guest001", d.user.reveal())
+        assertEquals(relayKey(1), d.user.reveal())
         assertNull(d.address, "адрес — шлюз сети при каждом подключении, не запомненный")
         assertEquals(listOf("192.168.43.1:${Pairing.PORT}"), dialed, "на шлюз сети ПК, порт сопряжения")
         assertEquals(listOf(d), relays.list().valueOrNull())
         assertTrue(sink.snapshot().any { it.event == "relay_paired" })
-        assertTrue(sink.snapshot().none { e -> e.fields.values.any { "synthetic-password" in it || "guest001" in it } }, "входа в журнале нет")
+        assertTrue(sink.snapshot().none { e -> e.fields.values.any { relayKey(1) in it || relayKey(2) in it } }, "входа в журнале нет")
     }
 
     @Test

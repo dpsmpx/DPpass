@@ -268,7 +268,7 @@ object Pairing {
 
     private fun refused(why: String): Outcome<Nothing> = Outcome.failure(DiagCode.PAIRING_REFUSED, why)
 
-    private val MAGIC = "DPPAIR1".toByteArray(Charsets.US_ASCII)
+    private val MAGIC = "DPPAIR2".toByteArray(Charsets.US_ASCII)
     private val INFO = "dppass-pair-v1 offer".toByteArray(Charsets.US_ASCII)
     private const val CODE_SPACE = 1_000_000L
     private const val NONCE = 16

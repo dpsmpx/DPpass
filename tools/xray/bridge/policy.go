@@ -3,11 +3,13 @@
 package bridge
 
 import (
+	"encoding/base64"
 	"fmt"
 	"strings"
 
 	"github.com/xtls/xray-core/app/proxyman"
 	"github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/proxy/shadowsocks_2022"
 	"github.com/xtls/xray-core/proxy/socks"
 	"github.com/xtls/xray-core/proxy/tun"
 )
@@ -34,6 +36,7 @@ const tunType = "xray.proxy.tun.Config"
 // порту) с паролем, на частном IPv4-адресе интерфейса раздачи.
 const (
 	socksType      = "xray.proxy.socks.ServerConfig"
+	shareType      = "xray.proxy.shadowsocks_2022.MultiUserServerConfig"
 	shareTagPrefix = "dppass:share-" // XrayBackend.SHARE_TAG_PREFIX
 	minSharePort   = 1024
 )
@@ -67,7 +70,7 @@ func checkPolicy(cfg *core.Config) (*tunInbound, error) {
 			return nil, fmt.Errorf("мост: вход %q без протокола", in.Tag)
 		}
 		t := in.ProxySettings.Type
-		if t == socksType && strings.HasPrefix(in.Tag, shareTagPrefix) {
+		if t == shareType && strings.HasPrefix(in.Tag, shareTagPrefix) {
 			if err := checkShareInbound(in); err != nil {
 				return nil, err
 			}
@@ -143,7 +146,45 @@ func checkShareInbound(in *core.InboundHandlerConfig) error {
 	if !addr.Family().IsIPv4() || !addr.IP().IsPrivate() {
 		return fmt.Errorf("мост: вход раздачи %q на %s — только частный IPv4 интерфейса раздачи (D-51)", in.Tag, addr)
 	}
-	return checkProxyInbound(in, recv, "вход раздачи")
+	if recv.PortList == nil || len(recv.PortList.Range) != 1 || recv.PortList.Range[0].From != recv.PortList.Range[0].To || recv.PortList.Range[0].From < minSharePort {
+		return fmt.Errorf("мост: раздача %q — один порт от 1024", in.Tag)
+	}
+	if recv.StreamSettings != nil && (recv.StreamSettings.SecurityType != "" || len(recv.StreamSettings.SecuritySettings) > 0) {
+		return fmt.Errorf("мост: раздача %q — без транспортных надстроек", in.Tag)
+	}
+	msg, err := in.ProxySettings.GetInstance()
+	if err != nil {
+		return err
+	}
+	sc, ok := msg.(*shadowsocks_2022.MultiUserServerConfig)
+	if !ok || sc.Method != "2022-blake3-aes-256-gcm" || !shareKey(sc.Key) || len(sc.Users) == 0 {
+		return fmt.Errorf("мост: раздача %q требует SS2022 и ключи сопряжения (D-110)", in.Tag)
+	}
+	seen := make(map[string]bool)
+	for _, user := range sc.Users {
+		if user == nil || user.Account == nil {
+			return fmt.Errorf("мост: пустой клиент раздачи")
+		}
+		msg, err := user.Account.GetInstance()
+		if err != nil {
+			return err
+		}
+		account, ok := msg.(*shadowsocks_2022.Account)
+		if !ok || !shareKey(account.Key) {
+			return fmt.Errorf("мост: неверный ключ клиента раздачи")
+		}
+		key, _ := base64.StdEncoding.DecodeString(account.Key)
+		if seen[string(key)] {
+			return fmt.Errorf("мост: ключ клиента раздачи повторяется")
+		}
+		seen[string(key)] = true
+	}
+	return nil
+}
+
+func shareKey(key string) bool {
+	bytes, err := base64.StdEncoding.DecodeString(key)
+	return err == nil && len(bytes) == 32
 }
 
 func receiver(in *core.InboundHandlerConfig) (*proxyman.ReceiverConfig, error) {

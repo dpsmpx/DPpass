@@ -96,6 +96,8 @@ private fun outbound(p: JsonObject, tag: String): JsonValue = p["outbounds"].ite
  * здесь — решения самого компилятора.
  */
 class XrayCompilerTest {
+    private fun shareKey(n: Int) = java.util.Base64.getEncoder().encodeToString(ByteArray(32) { n.toByte() })
+
     @Test
     fun matrixLacksOnlyWhatXrayCannotExpress() {
         val diff = capabilityDiff(MockBackend.FULL, XrayBackend.CAPABILITIES)
@@ -399,22 +401,22 @@ class XrayCompilerTest {
     // D-55: устройство раздачи — исходящий socks с паролем ко входу раздачи другого DPpass,
     // без надстроек транспорта (вход раздачи их не принимает, D-51).
     @Test
-    fun relayDeviceCompilesToSocksWithPassword() {
+    fun relayDeviceCompilesToProtectedSs2022() {
         val base = ir()
         val relay = base.profiles.single().copy(
             id = ProfileId("relay.test"),
             name = "Устройство",
             endpoint = Endpoint(Host.Ip(IpAddress.parse("192.168.43.1")!!), 41234),
-            protocol = ProtocolSpec.Socks(Secret("u-test"), Secret("p-test-0123456789")),
+            protocol = ProtocolSpec.Shadowsocks(com.dpsmpx.dppass.config.ShadowsocksMethod.BLAKE3_AES_256_GCM, Secret("${shareKey(1)}:${shareKey(2)}")),
             transport = TransportSpec.Tcp,
             security = SecuritySpec.None,
         )
         val proxy = outbound(payload(base.copy(profiles = listOf(relay))), "proxy")
-        assertEquals("socks", proxy["protocol"].text)
+        assertEquals("shadowsocks", proxy["protocol"].text)
         assertEquals("192.168.43.1", proxy["settings"]["address"].text)
         assertEquals(41234, proxy["settings"]["port"].int)
-        assertEquals("u-test", proxy["settings"]["user"].text)
-        assertEquals("p-test-0123456789", proxy["settings"]["pass"].text)
+        assertEquals("2022-blake3-aes-256-gcm", proxy["settings"]["method"].text)
+        assertEquals("${shareKey(1)}:${shareKey(2)}", proxy["settings"]["password"].text)
         assertEquals("raw", proxy["streamSettings"]["network"].text)
         assertEquals("none", proxy["streamSettings"]["security"].text)
     }
@@ -586,23 +588,23 @@ class XrayCompilerTest {
         val gi = ir(routing = """{"rules": [{"id": "net", "action": "direct", "domain": ["net.example.com"]}]}""")
         val hotspot = ShareSpec.Endpoint(IpAddress.parse("192.168.43.1")!!, 24)
         val usb = ShareSpec.Endpoint(IpAddress.parse("192.168.42.129")!!, 24)
-        val share = ShareSpec(listOf(hotspot, usb), 41234, Secret("u-test"), Secret("p-test-0123456789"))
+        val share = ShareSpec(listOf(hotspot, usb), 41234, Secret(shareKey(1)), Secret(shareKey(2)))
         val p = Json.parse(XrayCompiler().compile(gi, CompilePlan(gi.profiles[0].id, true, share)).valueOrNull()!!.payloadForEngine()) as JsonObject
         val inbounds = p["inbounds"].items
         assertEquals(listOf("tun-in", "dppass:share-0", "dppass:share-1"), inbounds.map { it["tag"].text })
         for ((i, e) in share.endpoints.withIndex()) {
             val inb = inbounds[i + 1]
-            assertEquals("socks", inb["protocol"].text)
+            assertEquals("shadowsocks", inb["protocol"].text)
             assertEquals(e.address.toString(), inb["listen"].text, "только адрес раздачи — не 0.0.0.0")
             assertEquals(41234, inb["port"].int)
-            assertEquals("password", inb["settings"]["auth"].text)
-            assertEquals("u-test", inb["settings"]["accounts"].items.single()["user"].text)
-            assertEquals("p-test-0123456789", inb["settings"]["accounts"].items.single()["pass"].text)
+            assertEquals("2022-blake3-aes-256-gcm", inb["settings"]["method"].text)
+            assertEquals(shareKey(1), inb["settings"]["password"].text)
+            assertEquals(shareKey(2), inb["settings"]["clients"].items.single()["password"].text)
         }
         // D-56: у сопряжённых устройств — свои входы рядом с основным.
-        val paired = share.copy(guests = listOf(ShareSpec.Account(Secret("d-guest01"), Secret("p-guest-0123456789"))))
+        val paired = share.copy(guests = listOf(ShareSpec.Account(Secret("d-guest01"), Secret(shareKey(3)))))
         val pp = Json.parse(XrayCompiler().compile(gi, CompilePlan(gi.profiles[0].id, true, paired)).valueOrNull()!!.payloadForEngine()) as JsonObject
-        assertEquals(listOf("u-test", "d-guest01"), pp["inbounds"].items[1]["settings"]["accounts"].items.map { it["user"].text })
+        assertEquals(listOf(shareKey(2), shareKey(3)), pp["inbounds"].items[1]["settings"]["clients"].items.map { it["password"].text })
         // Первое правило: на вход раздачи — только клиенты из подсетей раздачи, не сам телефон.
         val first = rules(p).first()
         assertEquals("dppass:share-guard", first["ruleTag"].text)
@@ -648,7 +650,7 @@ class XrayCompilerTest {
         val routing = """{"default": "direct", "rules": [{"id": "net", "action": "direct", "domain": ["net.example.com"]}, """ +
             """{"id": "ads", "action": "block", "domain": ["ads.example.com"]}, {"id": "far", "action": "proxy", "domain": ["far.example.com"]}]}"""
         val gi = ir(routing = routing)
-        val share = ShareSpec(listOf(ShareSpec.Endpoint(IpAddress.parse("192.168.43.1")!!, 24)), 41234, Secret("u-test"), Secret("p-test-0123456789"))
+        val share = ShareSpec(listOf(ShareSpec.Endpoint(IpAddress.parse("192.168.43.1")!!, 24)), 41234, Secret(shareKey(1)), Secret(shareKey(2)))
         val p = Json.parse(XrayCompiler().compile(gi, CompilePlan(gi.profiles[0].id, true, share)).valueOrNull()!!.payloadForEngine()) as JsonObject
         val outbounds = p["outbounds"].items
         val direct = outbounds.single { it["tag"].text == "direct" }

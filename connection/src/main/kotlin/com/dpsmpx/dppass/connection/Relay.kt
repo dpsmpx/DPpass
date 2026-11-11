@@ -4,6 +4,8 @@ import com.dpsmpx.dppass.config.ConfigValidator
 import com.dpsmpx.dppass.config.ProtocolSpec
 import com.dpsmpx.dppass.config.SecuritySpec
 import com.dpsmpx.dppass.config.ServerProfile
+import com.dpsmpx.dppass.config.ShadowsocksKeys
+import com.dpsmpx.dppass.config.ShadowsocksMethod
 import com.dpsmpx.dppass.config.TransportSpec
 import com.dpsmpx.dppass.core.Cidr
 import com.dpsmpx.dppass.core.Clock
@@ -24,9 +26,6 @@ import com.dpsmpx.dppass.diagnostics.Secret
 import com.dpsmpx.dppass.diagnostics.map
 import com.dpsmpx.dppass.storage.BlobStore
 import com.dpsmpx.dppass.storage.Quarantine
-import java.io.IOException
-import java.io.InputStream
-import java.io.OutputStream
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.security.SecureRandom
@@ -34,7 +33,8 @@ import java.security.SecureRandom
 /**
  * Устройство раздачи (D-55): другой телефон с DPpass, который раздаёт свой
  * туннель (D-51). Этот телефон подключается к его входу раздачи, как к
- * серверу, — SOCKS5 с логином и паролем.
+ * серверу, — SS2022 AES-256-GCM (D-110).
+ * [user] — ключ сервера; [password] — отдельный ключ клиента, не пароль SOCKS5.
  *
  * [address] — null: шлюз той сети, через которую этот телефон подключён к
  * устройству (его точка доступа Wi-Fi, Bluetooth- или USB-модем). Android
@@ -54,7 +54,11 @@ data class RelayDevice(
 
     /** Профиль для ядра: устройство по найденному адресу [at]. */
     fun profile(at: IpAddress): ServerProfile =
-        ServerProfile(profileId, name, Endpoint(Host.Ip(at), port), ProtocolSpec.Socks(user, password), TransportSpec.Tcp, SecuritySpec.None)
+        ServerProfile(
+            profileId, name, Endpoint(Host.Ip(at), port),
+            ProtocolSpec.Shadowsocks(ShadowsocksMethod.BLAKE3_AES_256_GCM, Secret("${user.reveal()}:${password.reveal()}")),
+            TransportSpec.Tcp, SecuritySpec.None,
+        )
 
     companion object {
         const val PROFILE_PREFIX: String = "relay."
@@ -65,7 +69,7 @@ data class RelayDevice(
 data class RelayDraft(val name: String, val address: String, val port: Int, val user: String, val password: String)
 
 /**
- * Ссылка на вход раздачи (D-55): `socks5://логин:пароль@адрес:порт#имя` —
+ * Ссылка на вход раздачи (D-55): `dppass-relay://ключ-сервера:ключ-клиента@адрес:порт#имя` —
  * её отдаёт «Поделиться входом» на экране раздачи. Адрес — частный IPv4
  * (по нему видно, что ссылка про сеть раздачи), имя — необязательно.
  */
@@ -79,17 +83,27 @@ data class RelayLink(val address: IpAddress, val port: Int, val user: String, va
     }
 
     companion object {
-        const val SCHEME: String = "socks5://"
-        private val SHAPE = Regex("""socks5://([^:@/\s]+):([^@/\s]+)@([0-9.]+):(\d{1,5})(?:#(\S*))?""", RegexOption.IGNORE_CASE)
+        const val SCHEME: String = "dppass-relay://"
+        private val SHAPE = Regex("""dppass-relay://([^:@/\s]+):([^@/\s]+)@([0-9.]+):(\d{1,5})(?:#(\S*))?""", RegexOption.IGNORE_CASE)
 
-        fun looksLike(text: String): Boolean = text.trim().startsWith(SCHEME, ignoreCase = true) && '\n' !in text.trim()
+        fun looksLike(text: String): Boolean =
+            (text.trim().startsWith(SCHEME, ignoreCase = true) || text.trim().startsWith("socks5://", ignoreCase = true)) && '\n' !in text.trim()
 
         /** Строгий разбор: не та форма, не частный IPv4, порт вне диапазона — причина, без значений из ссылки (T3). */
         fun parse(text: String): Outcome<RelayLink> {
+            if (text.trim().startsWith("socks5://", ignoreCase = true)) {
+                return Outcome.failure(
+                    DiagCode.FORMAT_VERSION_UNSUPPORTED,
+                    "старый формат раздачи: обновите оба устройства и выполните сопряжение заново",
+                )
+            }
             val m = SHAPE.matchEntire(text.trim())
-                ?: return Outcome.failure(DiagCode.VALUE_UNKNOWN, "ссылка устройства раздачи — socks5://логин:пароль@адрес:порт")
-            val user = dec(m.groupValues[1]) ?: return Outcome.failure(DiagCode.VALUE_UNKNOWN, "логин в ссылке не раскодирован")
-            val password = dec(m.groupValues[2]) ?: return Outcome.failure(DiagCode.VALUE_UNKNOWN, "пароль в ссылке не раскодирован")
+                ?: return Outcome.failure(DiagCode.VALUE_UNKNOWN, "ссылка защищённой раздачи — dppass-relay://ключ-сервера:ключ-клиента@адрес:порт")
+            val user = dec(m.groupValues[1]) ?: return Outcome.failure(DiagCode.VALUE_UNKNOWN, "ключ сервера в ссылке не раскодирован")
+            val password = dec(m.groupValues[2]) ?: return Outcome.failure(DiagCode.VALUE_UNKNOWN, "ключ клиента в ссылке не раскодирован")
+            if (!ShadowsocksKeys.valid(user) || !ShadowsocksKeys.valid(password)) {
+                return Outcome.failure(DiagCode.PASSWORD_FORMAT_INVALID, "ключи защищённой раздачи — base64, по 32 байта")
+            }
             val address = IpAddress.parseV4(m.groupValues[3])
             if (address == null || !Cidr.isPrivateV4(address)) {
                 return Outcome.failure(DiagCode.RELAY_ADDRESS_NOT_LOCAL, "адрес в ссылке — не частный IPv4 своей сети")
@@ -110,13 +124,13 @@ data class RelayLink(val address: IpAddress, val port: Int, val user: String, va
 }
 
 /**
- * Документ `dppass.relays` версии 1 — запись `settings/relays` (D-55).
+ * Документ `dppass.relays` версии 2 — запись `settings/relays` (D-55).
  * Чтение строгое: что не читается, уходит в карантин (D-06), а список
  * начинается пустым — устройство с чужим паролем не появится «само».
  */
 object RelayCodec {
     const val FORMAT: String = "dppass.relays"
-    const val VERSION: Int = 1
+    const val VERSION: Int = 2
 
     fun write(devices: List<RelayDevice>): String = Json.write(
         Json.obj(
@@ -129,8 +143,8 @@ object RelayCodec {
                         "name" to Json.str(d.name),
                         "address" to Json.str(d.address?.toString()),
                         "port" to Json.num(d.port),
-                        "user" to Json.str(d.user.reveal()),
-                        "password" to Json.str(d.password.reveal()),
+                        "server_key" to Json.str(d.user.reveal()),
+                        "client_key" to Json.str(d.password.reveal()),
                         "added_at" to Json.num(d.addedAtMillis),
                     )
                 },
@@ -147,7 +161,7 @@ object RelayCodec {
         } ?: return Outcome.failure(DiagCode.STORAGE_CORRUPTED, "устройства раздачи — не объект JSON")
         fun bad(what: String): Outcome<List<RelayDevice>> = Outcome.failure(DiagCode.STORAGE_CORRUPTED, "устройства раздачи: $what")
         if ((root["format"] as? JsonString)?.value != FORMAT || (root["format_version"] as? JsonNumber)?.toIntOrNull() != VERSION) {
-            return Outcome.failure(DiagCode.FORMAT_VERSION_UNSUPPORTED, "неизвестный формат списка устройств раздачи")
+            return Outcome.failure(DiagCode.FORMAT_VERSION_UNSUPPORTED, "старый или неизвестный формат: обновите оба устройства и выполните сопряжение заново")
         }
         root.fields.keys.firstOrNull { it !in ROOT_KEYS }?.let { return bad("неизвестное поле «$it»") }
         val items = (root["devices"] as? JsonArray)?.items ?: return bad("devices")
@@ -163,8 +177,8 @@ object RelayCodec {
                 else -> return bad("devices[$i].address")
             }
             val port = (o["port"] as? JsonNumber)?.toIntOrNull()?.takeIf { it in 1..65535 } ?: return bad("devices[$i].port")
-            val user = (o["user"] as? JsonString)?.value?.takeIf { it.isNotEmpty() } ?: return bad("devices[$i].user")
-            val password = (o["password"] as? JsonString)?.value?.takeIf { it.isNotEmpty() } ?: return bad("devices[$i].password")
+            val user = (o["server_key"] as? JsonString)?.value?.takeIf { ShadowsocksKeys.valid(it) } ?: return bad("devices[$i].user")
+            val password = (o["client_key"] as? JsonString)?.value?.takeIf { ShadowsocksKeys.valid(it) } ?: return bad("devices[$i].password")
             val added = (o["added_at"] as? JsonNumber)?.toLongOrNull() ?: return bad("devices[$i].added_at")
             out += RelayDevice(id, name, address, port, Secret(user), Secret(password), added)
         }
@@ -173,7 +187,7 @@ object RelayCodec {
     }
 
     private val ROOT_KEYS = setOf("format", "format_version", "devices")
-    private val DEVICE_KEYS = setOf("id", "name", "address", "port", "user", "password", "added_at")
+    private val DEVICE_KEYS = setOf("id", "name", "address", "port", "server_key", "client_key", "added_at")
     internal val ID = Regex("""[0-9a-f]{12}""")
 }
 
@@ -199,7 +213,10 @@ class RelayStore(private val blobs: BlobStore, private val quarantine: Quarantin
                     is Outcome.Success -> Outcome.Success(
                         emptyList(),
                         listOf(
-                            Diagnostic.warning(DiagCode.STORAGE_CORRUPTED, "список устройств раздачи не прочитан; исходник сохранён в карантин, список пуст")
+                            Diagnostic.warning(
+                                DiagCode.STORAGE_CORRUPTED,
+                                "список устройств раздачи не прочитан; исходник в карантине, выполните сопряжение заново",
+                            )
                                 .copy(causes = parsed.diagnostics),
                         ),
                     )
@@ -325,63 +342,12 @@ class RelayService(private val store: RelayStore, private val clock: Clock, priv
                 return out
             }
             for ((value, field) in listOf(draft.user to "user", draft.password to "password")) {
-                if (value.toByteArray(Charsets.UTF_8).size > MAX_CREDENTIAL_BYTES) {
-                    out += Diagnostic.error(DiagCode.LIMIT_EXCEEDED, "длиннее $MAX_CREDENTIAL_BYTES байт — SOCKS5 столько не передаст", field)
-                }
+                if (!ShadowsocksKeys.valid(value)) out += Diagnostic.error(DiagCode.PASSWORD_FORMAT_INVALID, "ключ защищённой раздачи — 32 байта base64", field)
             }
+            if (out.isNotEmpty()) return out
             val profile = RelayDevice("000000000000", "check", address, draft.port, Secret(draft.user), Secret(draft.password), 0).profile(address)
             out += ConfigValidator.validateProfile(profile, "relay").map { d -> d.copy(path = d.path?.substringAfterLast('.')) }
             return out.distinctBy { it.code to it.path }
         }
     }
-}
-
-/**
- * Проверка входа раздачи по протоколу (D-55, RFC 1928 и 1929): приветствие
- * с единственным методом «логин и пароль», затем логин и пароль. Только
- * разговор с потоками — сокет, привязанный к нужной сети, даёт оболочка.
- * Ничего, кроме входа, не запрашивается: соединение закрывается сразу.
- */
-object Socks5Login {
-    enum class Result {
-        /** Вход раздачи принял логин и пароль. */
-        ACCEPTED,
-
-        /** Это SOCKS5, но логин или пароль не подошли. */
-        REJECTED,
-
-        /** Ответ — не SOCKS5 с паролем: по адресу не вход раздачи. */
-        NOT_SOCKS,
-    }
-
-    @Throws(IOException::class)
-    fun check(input: InputStream, output: OutputStream, user: Secret, password: Secret): Result {
-        val u = user.reveal().toByteArray(Charsets.UTF_8)
-        val p = password.reveal().toByteArray(Charsets.UTF_8)
-        require(u.size in 1..255 && p.size in 1..255) { "логин и пароль SOCKS5 — от 1 до 255 байт" }
-        output.write(byteArrayOf(VERSION, 1, METHOD_PASSWORD))
-        output.flush()
-        val method = readExactly(input, 2) ?: return Result.NOT_SOCKS
-        if (method[0] != VERSION || method[1] != METHOD_PASSWORD) return Result.NOT_SOCKS
-        output.write(byteArrayOf(AUTH_VERSION, u.size.toByte()) + u + byteArrayOf(p.size.toByte()) + p)
-        output.flush()
-        val status = readExactly(input, 2) ?: return Result.NOT_SOCKS
-        if (status[0] != AUTH_VERSION) return Result.NOT_SOCKS
-        return if (status[1].toInt() == 0) Result.ACCEPTED else Result.REJECTED
-    }
-
-    private fun readExactly(input: InputStream, n: Int): ByteArray? {
-        val out = ByteArray(n)
-        var got = 0
-        while (got < n) {
-            val r = input.read(out, got, n - got)
-            if (r < 0) return null
-            got += r
-        }
-        return out
-    }
-
-    private const val VERSION: Byte = 5
-    private const val METHOD_PASSWORD: Byte = 2
-    private const val AUTH_VERSION: Byte = 1
 }

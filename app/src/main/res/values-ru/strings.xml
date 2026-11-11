@@ -190,13 +190,13 @@
     <string name="settings_notifications_note">Состояние туннеля и скорость в шторке</string>
     <string name="settings_share_note">Другие устройства по Wi-Fi, USB или Bluetooth — через туннель</string>
     <string name="share_title">Раздача туннеля</string>
-    <string name="share_intro">Ваши другие устройства могут ходить в интернет через туннель DPpass. Трафик точки доступа Android мимо VPN не пускает, поэтому телефон открывает прокси с паролем на адресе точки доступа, USB- или Bluetooth-модема, а другое устройство указывает его у себя.</string>
+    <string name="share_intro">Другие устройства с DPpass могут использовать этот туннель через защищённое сопряжение. Включите раздачу Android и сопрягите устройства по коду.</string>
     <string name="share_enable">Раздавать туннель</string>
     <string name="share_enable_note">Только пока DPpass подключён и в Android включена раздача</string>
     <string name="share_where">Адрес прокси</string>
     <string name="share_needs_tunnel">Подключите DPpass: раздача работает только через туннель.</string>
     <string name="share_no_interfaces">Нет точки доступа, USB- или Bluetooth-модема. Включите их в настройках Android — DPpass заметит это за несколько секунд и переподключится.</string>
-    <string name="share_refused">Прокси не открылся на адресе раздачи: точку доступа или модем выключили во время подключения, или порт занят другим приложением. Туннель работает без раздачи. Включите раздачу в Android заново или нажмите «Новые логин, пароль и порт».</string>
+    <string name="share_refused">Прокси не открылся на адресе раздачи: точку доступа или модем выключили во время подключения, или порт занят другим приложением. Туннель работает без раздачи. Включите раздачу в Android заново или нажмите «Новые ключи и порт».</string>
     <string name="share_waiting">Адреса появятся, когда DPpass подключится.</string>
     <string name="share_address_note">Прокси SOCKS5 или HTTP — для другого устройства</string>
     <string name="share_copy_address">Скопировать адрес</string>
@@ -204,15 +204,15 @@
     <string name="share_system_note">В настройках Android: «Сеть и интернет»</string>
     <string name="share_credentials">Вход</string>
     <string name="share_port">Порт</string>
-    <string name="share_user">Логин</string>
-    <string name="share_password">Пароль</string>
-    <string name="share_copy_user">Скопировать логин</string>
-    <string name="share_copy_password">Скопировать пароль</string>
-    <string name="share_regenerate">Новые логин, пароль и порт</string>
+    <string name="share_user">Ключ сервера</string>
+    <string name="share_password">Ключ клиента</string>
+    <string name="share_copy_user">Скопировать ключ сервера</string>
+    <string name="share_copy_password">Скопировать ключ клиента</string>
+    <string name="share_regenerate">Новые ключи и порт</string>
     <string name="share_regenerate_note">Другим устройствам понадобятся новые настройки</string>
-    <string name="share_regenerate_confirm">Сменить логин, пароль и порт? Устройства со старыми настройками перестанут работать через телефон.</string>
+    <string name="share_regenerate_confirm">Сменить ключи и порт? Устройства со старыми настройками нужно будет сопрячь заново.</string>
     <string name="share_limits">Важно знать</string>
-    <string name="share_limits_text">• На другом устройстве нужна программа, которая умеет работать через прокси. Надёжнее всего — клиент SOCKS5 с паролем. HTTP-прокси в настройках Wi-Fi пароль не передаёт: браузер спросит его сам, остальные приложения могут не работать.\n• Это не VPN для всего другого устройства: через туннель идёт только то, что идёт через прокси, и DNS тоже.\n• Маршрутизация и блокировка — те же, что у телефона; правила по приложениям к другим устройствам не относятся.\n• Пока раздача включена, открытый порт видят приложения этого телефона и устройства в раздаче — это примета прокси. Выключайте раздачу, когда она не нужна.</string>
+    <string name="share_limits_text">• На обоих устройствах нужен DPpass с новым защищённым форматом. Старые настройки SOCKS5 нужно заменить повторным сопряжением.\n• Доступ к порту ещё не подтверждает личность устройства. Ключи проверяются защищённым соединением.\n• Маршрутизация — как у раздающего устройства; правила приложений к гостям не относятся.\n• Выключайте раздачу, когда она не нужна.</string>
     <string name="share_not_saved">Настройки раздачи не сохранены</string>
     <string name="share_copied">Скопировано</string>
     <string name="settings_theme">Тема</string>
@@ -408,16 +408,14 @@
     <string name="relays_gateway">Шлюз %1$s %2$s</string>
     <string name="relays_gateway_note">Добавить как устройство раздачи</string>
     <string name="relays_rescan">Искать снова</string>
-    <string name="relays_limits_text">• На том телефоне DPpass должен быть подключён, а «Раздача туннеля» — включена.
-• Логин, пароль и трафик до него идут по каналу раздачи без шифрования прокси — только в своей сети: точка доступа с паролем, Bluetooth, USB.
-• Подключение идёт только через выбранное устройство: если его нет рядом, DPpass скажет почему, а не подключится к другим серверам.</string>
+    <string name="relays_limits_text">• DPpass и раздача должны быть включены на другом устройстве.\n• Новый формат шифрует канал и проверяет ключи; старые настройки требуют повторного сопряжения.\n• Поиск проверяет доступность порта, а не личность устройства.\n• Подключение идёт через выбранное устройство; при отказе другой сервер не подставляется.</string>
     <string name="relays_medium_wifi">Wi-Fi</string>
     <string name="relays_medium_bluetooth">Bluetooth</string>
     <string name="relays_medium_usb">USB</string>
     <string name="relays_add_title">Устройство раздачи</string>
     <string name="relays_name_hint">Имя</string>
     <string name="relays_address_hint">Адрес (пусто — шлюз сети)</string>
-    <string name="relays_add_note">Порт, логин и пароль — на том телефоне: «Настройки» → «Раздача туннеля». Проще — нажать там «Поделиться входом» и вставить ссылку здесь.</string>
+    <string name="relays_add_note">На обоих устройствах обновите DPpass и выполните сопряжение по коду. При ручном вводе нужны ключ сервера, ключ клиента и порт.</string>
     <string name="relays_added">Устройство добавлено</string>
     <string name="relays_default_name">Устройство раздачи</string>
     <string name="relays_name_on">Устройство по %1$s</string>
@@ -427,7 +425,7 @@
     <string name="relays_summary">Устройство раздачи · SOCKS5</string>
     <string name="servers_via_relay">Подключение — через «%1$s». Выберите сервер, чтобы снова подключаться к серверам.</string>
     <string name="share_link">Поделиться входом</string>
-    <string name="share_link_note">Ссылка для DPpass на другом телефоне — с логином и паролем</string>
+    <string name="share_link_note">Секретная ссылка с ключами защищённой раздачи</string>
     <string name="share_link_unavailable">Ссылка появится, когда в Android включена раздача и DPpass подключён</string>
     <string name="share_paired">Сопряжённые устройства</string>
     <string name="share_paired_note">Сопряжено %1$s · свой вход</string>

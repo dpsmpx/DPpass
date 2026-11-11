@@ -500,7 +500,17 @@ class OrchestratorTest {
         val book = HealthBook()
         val plan = CandidatePlanner.plan(multi, XrayBackend.CAPABILITIES, null, book, null, 0)
         val engine = ShareCannotBind()
-        val share = ShareSpec(listOf(ShareSpec.Endpoint(IpAddress.parse("192.168.43.1")!!, 24)), 41234, Secret("u-test"), Secret("p-test-0123456789"))
+        val share = ShareSpec(
+            listOf(ShareSpec.Endpoint(IpAddress.parse("192.168.43.1")!!, 24)), 41234,
+            Secret(
+                java.util.Base64.getEncoder().encodeToString(
+                    ByteArray(32) {
+                        1
+                    },
+                ),
+            ),
+            Secret(java.util.Base64.getEncoder().encodeToString(ByteArray(32) { 2 })),
+        )
         var checks = 0
         // Первый кандидат не проходит проверку здоровья — второй пробуется уже без раздачи.
         val health = HealthChecker { _, _ ->

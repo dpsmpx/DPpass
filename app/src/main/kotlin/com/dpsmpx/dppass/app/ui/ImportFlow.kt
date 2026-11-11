@@ -128,6 +128,7 @@ internal object ImportFlow {
             addView(name, Ui.matchWidth())
             addView(
                 Ui.button(c, R.string.action_save, Ui.Style.PRIMARY, R.drawable.ic_check).apply {
+                    filterTouchesWhenObscured = true
                     setOnClickListener {
                         val core = host.graph?.core ?: return@setOnClickListener
                         when (val r = core.relays.add(link.draft("").copy(name = name.text.toString()))) {
@@ -174,6 +175,7 @@ internal object ImportFlow {
                 addView(Ui.text(c, R.style.Text_DPpass_Caption, c.getString(R.string.import_happ_note)))
                 addView(
                     Ui.button(c, R.string.import_happ_add, Ui.Style.PRIMARY, R.drawable.ic_check).apply {
+                        filterTouchesWhenObscured = true
                         setOnClickListener {
                             sheet.dismiss()
                             host.scope.launch {
@@ -218,6 +220,7 @@ internal object ImportFlow {
             addView(name, Ui.matchWidth())
             addView(
                 Ui.button(c, R.string.import_links_add, Ui.Style.PRIMARY, R.drawable.ic_check).apply {
+                    filterTouchesWhenObscured = true
                     setOnClickListener {
                         val core = host.graph?.core ?: return@setOnClickListener
                         // Отказ (например, имя с управляющим символом) — окно остаётся: имя

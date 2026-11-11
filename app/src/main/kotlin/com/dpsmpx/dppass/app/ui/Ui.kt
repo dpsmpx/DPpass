@@ -2,6 +2,7 @@ package com.dpsmpx.dppass.app.ui
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.Dialog
 import android.content.ClipData
 import android.content.ClipDescription
@@ -490,6 +491,9 @@ internal object Ui {
      */
     fun <T : Dialog> secure(dialog: T): T {
         dialog.window?.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        if (dialog is AlertDialog) {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.filterTouchesWhenObscured = true
+        }
         return dialog
     }
 

@@ -191,13 +191,13 @@
     <string name="settings_notifications_note">Tunnel state and speed in the shade</string>
     <string name="settings_share_note">Other devices over Wi-Fi, USB or Bluetooth, through the tunnel</string>
     <string name="share_title">Share tunnel</string>
-    <string name="share_intro">Let your other devices use the DPpass tunnel. Android does not pass hotspot traffic through a VPN, so the phone opens a password-protected proxy on the hotspot, USB or Bluetooth tethering address, and the other device uses it.</string>
+    <string name="share_intro">Other devices with DPpass can use this tunnel through protected pairing. Enable Android tethering and pair both devices by code.</string>
     <string name="share_enable">Share the tunnel</string>
     <string name="share_enable_note">Only while DPpass is connected and tethering is on</string>
     <string name="share_where">Proxy address</string>
     <string name="share_needs_tunnel">Connect DPpass: sharing works only through the tunnel.</string>
     <string name="share_no_interfaces">No hotspot, USB or Bluetooth tethering. Turn one on in Android settings: DPpass will notice within a few seconds and reconnect.</string>
-    <string name="share_refused">The proxy did not open on the tethering address: the hotspot or modem was turned off while connecting, or another app holds the port. The tunnel works without sharing. Turn tethering on again in Android or tap “New username, password and port”.</string>
+    <string name="share_refused">The proxy did not open on the tethering address: the hotspot or modem was turned off while connecting, or another app holds the port. The tunnel works without sharing. Turn tethering on again in Android or tap “New keys and port”.</string>
     <string name="share_waiting">Addresses will appear once DPpass connects.</string>
     <string name="share_address_note">SOCKS5 or HTTP proxy for the other device</string>
     <string name="share_copy_address">Copy address</string>
@@ -205,15 +205,15 @@
     <string name="share_system_note">In Android settings: Network &amp; internet</string>
     <string name="share_credentials">Sign-in</string>
     <string name="share_port">Port</string>
-    <string name="share_user">Username</string>
-    <string name="share_password">Password</string>
-    <string name="share_copy_user">Copy username</string>
-    <string name="share_copy_password">Copy password</string>
-    <string name="share_regenerate">New username, password and port</string>
+    <string name="share_user">Server key</string>
+    <string name="share_password">Client key</string>
+    <string name="share_copy_user">Copy server key</string>
+    <string name="share_copy_password">Copy client key</string>
+    <string name="share_regenerate">New keys and port</string>
     <string name="share_regenerate_note">Other devices will need the new settings</string>
-    <string name="share_regenerate_confirm">Replace the username, password and port? Devices set up with the old ones will stop working through the phone.</string>
+    <string name="share_regenerate_confirm">Replace keys and port? Pair devices with the old settings again.</string>
     <string name="share_limits">Good to know</string>
-    <string name="share_limits_text">• The other device needs an app that supports a proxy. A SOCKS5 client with a password is the most reliable. The HTTP proxy in Wi-Fi settings does not pass the password: the browser will ask for it, other apps may not work.\n• This is not a VPN for the whole other device: only what goes through the proxy uses the tunnel, DNS included.\n• Routing and blocking are the same as on the phone; per-app rules do not apply to other devices.\n• While sharing is on, apps on this phone and devices on the hotspot can see an open port, a sign that a proxy is running. Turn sharing off when you do not need it.</string>
+    <string name="share_limits_text">• Both devices need DPpass with the new protected format. Replace old SOCKS5 settings by pairing again.\n• An available port does not identify a device; the encrypted connection verifies keys.\n• Routing follows the sharing device; application rules do not apply to guests.\n• Turn sharing off when not needed.</string>
     <string name="share_not_saved">Sharing settings not saved</string>
     <string name="share_copied">Copied</string>
     <string name="settings_theme">Theme</string>
@@ -391,16 +391,14 @@
     <string name="relays_gateway">%1$s gateway %2$s</string>
     <string name="relays_gateway_note">Add as a sharing device</string>
     <string name="relays_rescan">Look again</string>
-    <string name="relays_limits_text">• On that phone, DPpass must be connected with “Share tunnel” on.
-• The login, password and traffic to it go over the tethering link without proxy encryption — use your own network only: a password-protected hotspot, Bluetooth or USB.
-• DPpass connects only through the chosen device: if it isn’t nearby, you’ll see why — other servers aren’t used instead.</string>
+    <string name="relays_limits_text">• Enable DPpass and sharing on the other device.\n• The new format encrypts traffic and verifies keys; pair old devices again.\n• Port discovery does not verify device identity.\n• A failure does not switch you to another server.</string>
     <string name="relays_medium_wifi">Wi-Fi</string>
     <string name="relays_medium_bluetooth">Bluetooth</string>
     <string name="relays_medium_usb">USB</string>
     <string name="relays_add_title">Sharing device</string>
     <string name="relays_name_hint">Name</string>
     <string name="relays_address_hint">Address (empty — network gateway)</string>
-    <string name="relays_add_note">Port, login and password are on that phone: Settings → Tunnel sharing. Easier: tap “Share sign-in” there and paste the link here.</string>
+    <string name="relays_add_note">Update DPpass on both devices and pair them by code. Manual setup needs server key, client key and port.</string>
     <string name="relays_added">Device added</string>
     <string name="relays_default_name">Sharing device</string>
     <string name="relays_name_on">Device on %1$s</string>
@@ -410,7 +408,7 @@
     <string name="relays_summary">Sharing device · SOCKS5</string>
     <string name="servers_via_relay">Connecting through “%1$s”. Pick a server to use servers again.</string>
     <string name="share_link">Share sign-in</string>
-    <string name="share_link_note">A link for DPpass on another phone — includes the login and password</string>
+    <string name="share_link_note">Secret link containing protected sharing keys</string>
     <string name="share_link_unavailable">The link appears once tethering is on and DPpass is connected</string>
     <string name="share_paired">Paired devices</string>
     <string name="share_paired_note">Paired %1$s · own login</string>

@@ -244,7 +244,7 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
                             val now = core.share.current().valueOrNull()
                             val name = context.getString(R.string.share_paired_default, (now?.paired?.size ?: 0) + 1)
                             core.share.pair(name, core.clock.nowMillis()).map { d ->
-                                Pairing.Offer(now?.port ?: 0, d.user.reveal(), d.password.reveal(), label)
+                                Pairing.Offer(now?.port ?: 0, now?.user?.reveal().orEmpty(), d.password.reveal(), label)
                             }
                         }
                     }

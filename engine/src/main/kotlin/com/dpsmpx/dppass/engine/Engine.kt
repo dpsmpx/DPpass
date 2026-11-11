@@ -201,6 +201,15 @@ data class ShareSpec(
         require(endpoints.isNotEmpty()) { "раздача без адресов" }
         require(endpoints.map { it.address }.distinct().size == endpoints.size) { "адрес раздачи повторяется" }
         require(port in MIN_PORT..MAX_PORT) { "порт раздачи вне $MIN_PORT..$MAX_PORT" }
+        require(com.dpsmpx.dppass.config.ShadowsocksKeys.valid(user.reveal())) { "раздача требует нового ключа SS2022; выполните сопряжение заново" }
+        require(
+            (
+                listOf(password) + guests.map {
+                    it.password
+                }
+                ).all { com.dpsmpx.dppass.config.ShadowsocksKeys.valid(it.reveal()) },
+        ) { "ключ клиента SS2022 — 32 байта base64" }
+        require((listOf(password) + guests.map { it.password }).distinct().size == guests.size + 1) { "ключ клиента повторяется" }
         require((listOf(user) + guests.map { it.user }).distinct().size == guests.size + 1) { "логин входа раздачи повторяется" }
     }
 

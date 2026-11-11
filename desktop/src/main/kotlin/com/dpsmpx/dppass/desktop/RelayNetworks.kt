@@ -2,7 +2,6 @@ package com.dpsmpx.dppass.desktop
 
 import com.dpsmpx.dppass.connection.Pairing
 import com.dpsmpx.dppass.connection.RelayDevice
-import com.dpsmpx.dppass.connection.Socks5Login
 import com.dpsmpx.dppass.core.Cidr
 import com.dpsmpx.dppass.core.IpAddress
 import com.dpsmpx.dppass.diagnostics.DiagCode
@@ -14,17 +13,9 @@ import java.net.InetSocketAddress
 import java.net.Socket
 
 /**
- * Где искать устройство раздачи с ПК (D-85, D-102, к D-55): на шлюзе сети,
- * через которую ПК к нему подключён, — точки доступа Wi-Fi, USB- или
- * Bluetooth-модема телефона. Ничего не объявляется и не рассылается: ПК
- * спрашивает шлюзы своих сетей по протоколу входа раздачи — SOCKS5 с
- * паролем (RFC 1929), — и ответит только вход, который знает этот логин и
- * пароль.
- *
- * Сети ПК и сокеты мимо туннеля даёт система: на Linux — `/proc/net/route` и
- * метка сокетов ([LinuxRelayNetworks]), на Windows — мост и привязка сокета
- * к интерфейсу сети ([WindowsRelayNetworks]). Адрес устройства частный, и
- * при `bypass_lan = false` поиск без этого ушёл бы в туннель.
+ * Возможный адрес устройства раздачи. Поиск проверяет только доступность TCP-порта,
+ * без логина, пароля или ключа. Ответ шлюза не удостоверяет устройство (D-110).
+ * Передача данных и проверка ключа выполняются SS2022 при подключении.
  */
 class RelayNetworks(
     /** Сокет мимо туннеля, ещё не соединённый, — к интерфейсу с этим номером (Linux номер не смотрит: метка). */
@@ -69,35 +60,21 @@ class RelayNetworks(
                 "ПК не подключён к устройству раздачи: подключите его к точке доступа Wi-Fi, USB- или Bluetooth-модему того телефона",
             )
         }
-        var rejected = false
+        // Только доступность порта. Личность подтвердит зашифрованное соединение SS2022,
+        // а TCP accept чужого шлюза не разрешает передавать ему открытые учётные данные.
         for (c in candidates) {
-            when (check(c, device)) {
-                Socks5Login.Result.ACCEPTED -> return Outcome.Success(c)
-                Socks5Login.Result.REJECTED -> rejected = true
-                Socks5Login.Result.NOT_SOCKS, null -> Unit
-            }
+            if (check(c, device)) return Outcome.Success(c)
         }
-        return if (rejected) {
-            Outcome.failure(
-                DiagCode.AUTHENTICATION_FAILED,
-                "устройство раздачи не приняло логин и пароль: на нём их сменили («Новые логин, пароль и порт») — добавьте устройство заново",
-            )
-        } else {
-            Outcome.failure(
-                DiagCode.RELAY_NOT_FOUND,
-                "устройство раздачи не ответило: на нём выключена «Раздача туннеля» или DPpass не подключён, либо сменился порт",
-            )
-        }
+        return Outcome.failure(DiagCode.RELAY_NOT_FOUND, "порт устройства раздачи недоступен: проверьте подключение и выполните новое сопряжение")
     }
 
     /** Вход раздачи [device] в [target]; null — не ответил вовсе. */
-    fun check(target: Target, device: RelayDevice): Socks5Login.Result? = try {
+    fun check(target: Target, device: RelayDevice): Boolean = try {
         connect(target.address, device.port, target.index).use { s ->
-            s.soTimeout = READ_TIMEOUT_MILLIS
-            Socks5Login.check(s.getInputStream(), s.getOutputStream(), device.user, device.password)
+            true // Ни одного байта аутентификации возможному шлюзу.
         }
     } catch (e: IOException) {
-        null
+        false
     }
 
     /**

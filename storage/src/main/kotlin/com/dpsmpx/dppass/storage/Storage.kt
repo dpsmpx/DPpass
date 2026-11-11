@@ -84,9 +84,11 @@ class FileBlobStore(private val root: File) : BlobStore {
     override fun write(key: String, bytes: ByteArray): Outcome<Unit> {
         StorageKeys.check(key)?.let { return Outcome.failure(it) }
         val target = File(root, key)
+        var temporary: File? = null
         return try {
             target.parentFile.mkdirs()
-            val tmp = File(target.parentFile, ".${target.name}.tmp")
+            val tmp = Files.createTempFile(target.parentFile.toPath(), ".${target.name}.", ".tmp").toFile()
+            temporary = tmp
             tmp.outputStream().use { out ->
                 out.write(bytes)
                 out.fd.sync()
@@ -100,6 +102,8 @@ class FileBlobStore(private val root: File) : BlobStore {
             Outcome.Success(Unit)
         } catch (e: IOException) {
             Outcome.failure(Diagnostic.fromThrowable(DiagCode.STORAGE_WRITE_FAILED, "не записан ключ «$key»", e))
+        } finally {
+            temporary?.delete()
         }
     }
 

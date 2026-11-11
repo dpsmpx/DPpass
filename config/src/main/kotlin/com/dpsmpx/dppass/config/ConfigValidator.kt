@@ -173,8 +173,11 @@ object ConfigValidator {
             is ProtocolSpec.Shadowsocks -> {
                 if (secretPresent(proto.password, "$path.protocol.password")) {
                     val need = if (proto.method == ShadowsocksMethod.BLAKE3_AES_128_GCM) 16 else 32
-                    val decoded = runCatching { Base64.getDecoder().decode(proto.password.reveal()) }.getOrNull()
-                    if (decoded == null || decoded.size != need) {
+                    val keys = proto.password.reveal().split(':')
+                    if (keys.size !in 1..2 ||
+                        (keys.size == 2 && proto.method == ShadowsocksMethod.BLAKE3_CHACHA20_POLY1305) ||
+                        keys.any { !ShadowsocksKeys.valid(it, need) }
+                    ) {
                         err(DiagCode.PASSWORD_FORMAT_INVALID, "для ${proto.method.wire} пароль — ключ base64 длиной $need байт", "$path.protocol.password")
                     }
                 }

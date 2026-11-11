@@ -46,7 +46,6 @@ import com.dpsmpx.dppass.routing.RouteEvaluator
 import com.dpsmpx.dppass.routing.RoutingPolicy
 import com.dpsmpx.dppass.routing.SplitSites
 import com.dpsmpx.dppass.routing.TransportProtocol
-import java.util.Base64
 
 /**
  * IR → JSON Xray 26.9.30 ([XrayBackend]; работа 2 этапа 2 `ROADMAP`).
@@ -321,12 +320,13 @@ class XrayCompiler(
          * Поэтому ключ раскодируется здесь и записывается заново.
          */
         private fun ssKey(proto: ProtocolSpec.Shadowsocks, path: String): String {
-            val bytes = runCatching { Base64.getDecoder().decode(proto.password.reveal()) }.getOrNull()
-            if (bytes == null) {
+            val keys = proto.password.reveal().split(':')
+            val normalized = runCatching { keys.map(com.dpsmpx.dppass.config.ShadowsocksKeys::canonical) }.getOrNull()
+            if (normalized == null) {
                 reject(DiagCode.PASSWORD_FORMAT_INVALID, "ключ ${proto.method.wire} — не base64", "$path.protocol.password")
                 return ""
             }
-            return Base64.getEncoder().encodeToString(bytes)
+            return normalized.joinToString(":")
         }
 
         /**
@@ -910,14 +910,18 @@ class XrayCompiler(
         fun shareInbounds(share: ShareSpec): List<JsonObject> = share.endpoints.map { it.address }.mapIndexed { i, addr ->
             Json.obj(
                 "tag" to Json.str(XrayBackend.SHARE_TAG_PREFIX + i),
-                "protocol" to Json.str("socks"),
+                "protocol" to Json.str("shadowsocks"),
                 "listen" to Json.str(addr.toString()),
                 "port" to Json.num(share.port),
                 "settings" to Json.obj(
-                    "auth" to Json.str("password"),
-                    "accounts" to Json.arr(share.accounts.map { Json.obj("user" to Json.str(it.user.reveal()), "pass" to Json.str(it.password.reveal())) }),
-                    "udp" to Json.bool(true),
-                    "ip" to Json.str(addr.toString()),
+                    "method" to Json.str("2022-blake3-aes-256-gcm"),
+                    "password" to Json.str(share.user.reveal()),
+                    "clients" to Json.arr(
+                        share.accounts.mapIndexed { n, account ->
+                            Json.obj("email" to Json.str("paired-$n"), "password" to Json.str(account.password.reveal()))
+                        },
+                    ),
+                    "network" to Json.str("tcp,udp"),
                 ),
                 "sniffing" to Json.obj(
                     "enabled" to Json.bool(true),
