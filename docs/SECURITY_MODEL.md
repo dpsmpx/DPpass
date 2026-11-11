@@ -586,6 +586,12 @@ root, с одной возможностью (`setpriv`, ограничиваю�
 запуске (кеш polkit — несколько минут). **Проверка:**
 `DesktopLaunchTest`, `LinuxRoutesTest`, `SystemCommandTest`.
 
+Канал HotSpot attach также выключен (`-XX:+DisableAttachMechanism`),
+счётчики hsperfdata не публикуются (`-XX:-UsePerfData`): одинаковый uid
+не даёт загрузить агент JVM в процесс с CAP_NET_ADMIN. Флаги проверяются
+в сгенерированном запускателе (`DesktopLaunchTest`). Исправление аудита
+DPmetaApp L-01 от 10 ноября 2026.
+
 ### T18 — Права процесса на ПК (Windows)
 
 На Windows всё приложение работает с правами администратора (D-97):

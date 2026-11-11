@@ -14,7 +14,11 @@ version = "0.1.30-dev"
 
 tasks.jar { manifest { attributes("Implementation-Version" to project.version) } }
 
-tasks.test { jvmArgs(addExports) }
+tasks.test {
+    jvmArgs(addExports)
+    // Проверяем итоговый запускатель, а не только строку настройки Gradle (аудит L-01).
+    dependsOn("startScripts")
+}
 
 dependencies {
     implementation(project(":connection"))
@@ -34,6 +38,9 @@ application {
     applicationDefaultJvmArgs = listOf(
         "-Dfile.encoding=UTF-8",
         "-Dsun.jnu.encoding=UTF-8",
+        // T17, аудит L-01: JVM с CAP_NET_ADMIN не принимает attach от того же uid.
+        "-XX:+DisableAttachMechanism",
+        "-XX:-UsePerfData",
         "-Dawt.useSystemAAFontSettings=on",
         "--enable-native-access=ALL-UNNAMED",
         addExports,

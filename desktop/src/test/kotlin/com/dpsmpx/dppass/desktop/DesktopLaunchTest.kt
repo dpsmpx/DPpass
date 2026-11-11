@@ -17,6 +17,14 @@ class DesktopLaunchTest {
     private val pkg = File(System.getProperty("dppass.repoRoot"), "desktop/package")
     private fun text(name: String) = File(pkg, name).readText()
 
+    @Test
+    fun generatedLauncherDisablesJvmAttachAndSharedPerfData() {
+        val launcher = File(System.getProperty("dppass.repoRoot"), "desktop/build/scripts/dppass-desktop").readText()
+        val defaults = launcher.lineSequence().first { it.startsWith("DEFAULT_JVM_OPTS=") }
+        assertTrue("-XX:+DisableAttachMechanism" in defaults, "JVM с CAP_NET_ADMIN не должна принимать attach")
+        assertTrue("-XX:-UsePerfData" in defaults, "счётчики процесса не публикуются в hsperfdata")
+    }
+
     /** Строки кода скрипта — без комментариев. */
     private fun code(name: String) = text(name).lines().filterNot { it.trimStart().startsWith("#") }.joinToString("\n")
 
