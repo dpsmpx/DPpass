@@ -58,7 +58,7 @@ class DPpassTileService : TileService() {
                     is TunnelStatus.Connected -> R.string.status_connected
                     is TunnelStatus.Connecting -> R.string.status_connecting
                     TunnelStatus.Stopping -> R.string.status_stopping
-                    is TunnelStatus.Failed -> R.string.status_failed
+                    is TunnelStatus.Failed -> if (status.trafficBlocked) R.string.status_blocked else R.string.status_failed
                     TunnelStatus.Idle -> R.string.status_off
                 },
             )

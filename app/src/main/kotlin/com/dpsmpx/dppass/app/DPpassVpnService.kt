@@ -823,8 +823,7 @@ class DPpassVpnService : VpnService() {
     private fun fail(reason: Diagnostic) {
         AppGraph.core(this).log.diagnostic(reason)
         val blocked = tunnel.present
-        val shown = if (blocked) reason.copy(message = reason.message + "; трафик заблокирован до явного отключения VPN") else reason
-        TunnelState.set(TunnelStatus.Failed(shown, trafficBlocked = blocked))
+        TunnelState.set(TunnelStatus.Failed(reason, trafficBlocked = blocked))
         announce()
         if (blocked) startInForeground(TunnelState.status.value) else stopSelf()
     }
@@ -842,16 +841,20 @@ class DPpassVpnService : VpnService() {
      * (до срока пробы), и запущенный им сеанс останавливается, только когда
      * она вернётся. Вызывается под [lifecycle].
      */
-    private suspend fun shutdown(keepTunnel: Boolean = false) {
+    private fun stopObservers() {
         supervisor?.cancel()
         supervisor = null
         shareWatch?.cancel()
         shareWatch = null
+        ticker?.cancel()
+        ticker = null
+        unwatchNetwork()
         TunnelState.share(emptyList())
+    }
+
+    private suspend fun shutdown(keepTunnel: Boolean = false) {
+        stopObservers()
         state.withLock {
-            ticker?.cancel()
-            ticker = null
-            unwatchNetwork()
             sessionRegime = null
             val pending = connecting
             connecting = null
@@ -860,6 +863,8 @@ class DPpassVpnService : VpnService() {
             session = null
             pending
         }?.join()
+        // NonCancellable acceptance мог зарегистрировать наблюдателей после первой отмены.
+        stopObservers()
         // establish мог завершиться после отмены: fd уже принадлежит владельцу.
         // Явная остановка закрывает его после завершения подключения; restart сохраняет блокировку.
         if (!keepTunnel) tunnel.close()
@@ -885,7 +890,14 @@ class DPpassVpnService : VpnService() {
 
     override fun onDestroy() {
         // Сервис уходит: уборка — в области процесса, она переживёт этот объект.
-        AppGraph.scope.launch { lifecycle.withLock { shutdown() } }
+        val failed = TunnelState.status.value as? TunnelStatus.Failed
+        AppGraph.scope.launch {
+            lifecycle.withLock { shutdown() }
+            if (failed?.trafficBlocked == true && TunnelState.status.value === failed) {
+                TunnelState.set(failed.copy(trafficBlocked = false))
+                announce()
+            }
+        }
         // Без туннеля вопрос о сбое сервера (D-58) ни к чему.
         ServerSwitch.clear(this)
         // Отказ остаётся на экране; всё остальное без сервиса — «не подключено».
@@ -946,6 +958,7 @@ class DPpassVpnService : VpnService() {
             } else {
                 getString(R.string.notification_connected, status.profileName)
             }
+            is TunnelStatus.Failed -> getString(if (status.trafficBlocked) R.string.vpn_blocked_note else R.string.status_failed)
             is TunnelStatus.Connecting -> status.profileName?.let { getString(R.string.notification_checking, it) }
                 ?: getString(R.string.notification_connecting)
             else -> getString(R.string.notification_connecting)
@@ -966,7 +979,15 @@ class DPpassVpnService : VpnService() {
         // имя часто называет страну и поставщика.
         val public = Notification.Builder(this, CHANNEL)
             .setContentTitle(getString(R.string.app_name))
-            .setContentText(getString(if (status is TunnelStatus.Connected) R.string.notification_public_connected else R.string.notification_connecting))
+            .setContentText(
+                getString(
+                    when {
+                        status is TunnelStatus.Connected -> R.string.notification_public_connected
+                        status is TunnelStatus.Failed && status.trafficBlocked -> R.string.status_blocked
+                        else -> R.string.notification_connecting
+                    },
+                ),
+            )
             .setSmallIcon(R.drawable.ic_stat_tunnel)
             .build()
         val b = Notification.Builder(this, CHANNEL)

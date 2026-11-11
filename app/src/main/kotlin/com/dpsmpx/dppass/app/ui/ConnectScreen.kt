@@ -253,6 +253,7 @@ class ConnectScreen(host: Host) : Screen(host) {
             when {
                 status is TunnelStatus.Connected -> PowerButton.Mode.CONNECTED
                 status is TunnelStatus.Connecting -> PowerButton.Mode.CONNECTING
+                status is TunnelStatus.Failed && status.trafficBlocked -> PowerButton.Mode.FAILED
                 status is TunnelStatus.Failed && canConnect -> PowerButton.Mode.FAILED
                 status == TunnelStatus.Stopping || !canConnect -> PowerButton.Mode.DISABLED
                 else -> PowerButton.Mode.OFF
@@ -267,7 +268,7 @@ class ConnectScreen(host: Host) : Screen(host) {
                 is TunnelStatus.Connecting -> R.string.status_connecting
                 is TunnelStatus.Connected -> R.string.status_connected
                 TunnelStatus.Stopping -> R.string.status_stopping
-                is TunnelStatus.Failed -> R.string.status_failed
+                is TunnelStatus.Failed -> if (status.trafficBlocked) R.string.status_blocked else R.string.status_failed
             },
         )
         title.setTextColor(context.getColor(if (status is TunnelStatus.Connected) R.color.primary else R.color.text))
@@ -304,7 +305,7 @@ class ConnectScreen(host: Host) : Screen(host) {
         val withoutVpn = core?.localProxy?.current()?.valueOrNull()?.takeIf { it.enabled }
         if (status is TunnelStatus.Failed) {
             failureTitle.setText(Ui.kind(status.reason.kind))
-            failureText.text = status.reason.message
+            failureText.text = status.reason.message + if (status.trafficBlocked) "\n" + context.getString(R.string.vpn_blocked_note) else ""
             failureOffer.visibility = if (LocalProxyOffer.applies(status.reason, withoutVpn != null)) View.VISIBLE else View.GONE
             failureCard.visibility = View.VISIBLE
         } else {

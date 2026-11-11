@@ -776,4 +776,6 @@
     <string name="conn_detail_started">Started</string>
     <string name="conn_detail_package">Package</string>
     <string name="conn_detail_tag">Core tag</string>
+    <string name="status_blocked">Traffic blocked</string>
+    <string name="vpn_blocked_note">Traffic remains blocked. Disconnect the VPN or choose another server.</string>
 </resources>
