@@ -16,6 +16,13 @@ import kotlin.test.assertTrue
 
 /** Раздача туннеля другим устройствам (D-51): настройки, хранение, вход для ядра. */
 class ShareSettingsTest {
+    @Test
+    fun namesRejectDirectionOverridesAndPreserveEmojiJoiners() {
+        assertTrue(com.dpsmpx.dppass.core.DisplayName.safe("Телефон 👩\u200d💻"))
+        assertFalse(com.dpsmpx.dppass.core.DisplayName.safe("trusted\u202eevil"))
+        assertTrue(RelayService.nameProblem("trusted\u202eevil") != null)
+    }
+
     private val clock = ManualClock(1_000)
 
     @Test

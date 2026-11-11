@@ -527,7 +527,7 @@ object ShareLinkParser {
     ): ServerProfile {
         // Устойчивый id: от всего, кроме имени-фрагмента. Хеш — не секрет, но и не обратим.
         val id = "$idPrefix.${Checksums.sha256(text.substringBefore('#')).take(12)}"
-        val name = parts.fragment?.takeIf { it.isNotBlank() && it.length <= 128 && it.none { c -> c.code < 0x20 } }?.trim()
+        val name = parts.fragment?.takeIf { it.isNotBlank() && it.length <= 128 && com.dpsmpx.dppass.core.DisplayName.safe(it) }?.trim()
             ?: "${endpoint.host}:${endpoint.port}"
         return ServerProfile(ProfileId(id), name, endpoint, protocol, transport, security, CandidateHints())
     }

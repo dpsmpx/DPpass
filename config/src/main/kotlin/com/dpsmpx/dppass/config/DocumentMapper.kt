@@ -370,7 +370,7 @@ internal class DocumentMapper(private val diags: DiagnosticCollector, private va
 
     private fun checkName(name: String, path: String): String? {
         val n = name.trim()
-        return if (n.isEmpty() || n.length > 128 || n.any { it.code < 0x20 }) {
+        return if (n.isEmpty() || n.length > 128 || !com.dpsmpx.dppass.core.DisplayName.safe(n)) {
             diags.error(DiagCode.NAME_INVALID, "имя пустое, длиннее 128 символов или с управляющими символами", path)
             null
         } else {

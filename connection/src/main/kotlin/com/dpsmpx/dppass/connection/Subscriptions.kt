@@ -442,7 +442,7 @@ class SubscriptionService(
         // имя видно в списке, в уведомлении и в журнале.
         private fun cleanName(name: String): String = name.trim().take(MAX_NAME)
 
-        private fun isValidName(name: String): Boolean = name.none { it.isISOControl() }
+        private fun isValidName(name: String): Boolean = com.dpsmpx.dppass.core.DisplayName.safe(name)
 
         private fun <T> invalidName(): Outcome<T> = Outcome.failure(DiagCode.NAME_INVALID, "имя пустое или с управляющими символами")
     }

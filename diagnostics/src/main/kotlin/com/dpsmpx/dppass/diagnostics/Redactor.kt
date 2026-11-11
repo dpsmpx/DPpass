@@ -50,6 +50,7 @@ class Redactor(private val level: Level = Level.STANDARD) {
 
     private fun redactUrl(m: MatchResult): String {
         val scheme = m.groupValues[1]
+        if (scheme.equals("ss", ignoreCase = true)) return "$scheme://$TOKEN_MARK"
         val hostPort = m.groupValues[3]
         val rest = m.groupValues[4]
         val host = if (level == Level.STRICT) HOST_MARK else hostPort

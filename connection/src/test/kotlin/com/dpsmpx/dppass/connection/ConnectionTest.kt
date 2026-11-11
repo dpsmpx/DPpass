@@ -189,6 +189,8 @@ class ActivationServiceTest {
         assertEquals(DiagCode.STORAGE_CORRUPTED, d.single().code)
         assertNull(broken.state.activeConfig, "повреждённое — не заменяется конфигурацией по умолчанию")
         assertEquals(1, Quarantine(blobs, clock).list().valueOrNull()!!.size)
+        assertIs<ActivationResult.Activated>(broken.activate(ir("valid-minimal.json"), "after-quarantine", "recovered"))
+        assertEquals("recovered", service().also { it.restore() }.state.active!!.sourceChecksum)
     }
 
     /** Повреждение части состояния — находка с местом, а не молчание (D-06, CLAUDE.md «ничего молча»). */

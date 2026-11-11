@@ -7,6 +7,14 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class RedactorTest {
+    @Test
+    fun shadowsocksEncodingAndProtectedRelayKeysAreFullyHidden() {
+        assertEquals("ss://<redacted>", Redactor().redact("ss://c2hvcnQvfragment/anything"))
+        val key = java.util.Base64.getEncoder().encodeToString(ByteArray(32) { 1 })
+        val out = Redactor().redact("dppass-relay://$key:$key@192.168.43.1:40000")
+        assertFalse(key in out)
+    }
+
     private val r = Redactor()
 
     @Test

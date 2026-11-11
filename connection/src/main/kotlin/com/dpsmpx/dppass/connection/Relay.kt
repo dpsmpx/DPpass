@@ -315,7 +315,7 @@ class RelayService(private val store: RelayStore, private val clock: Clock, priv
         fun nameProblem(name: String): String? = when {
             name.isBlank() -> "имя не задано"
             name.trim().length > MAX_NAME -> "имя длиннее $MAX_NAME символов"
-            name.any { it.isISOControl() } -> "в имени управляющий символ"
+            !com.dpsmpx.dppass.core.DisplayName.safe(name) -> "в имени управляющий символ"
             else -> null
         }
 
