@@ -28,7 +28,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -303,29 +305,31 @@ class DesktopSession(
         if (scan != null && scan.endpoints.isEmpty()) core.log.info("share_no_tether", "seen" to Safe(scan.seen))
         val share = if (scan != null) shareSettings?.spec(scan.endpoints) else null
         val shareSubnets = share?.endpoints.orEmpty().map { it.subnet }
-        val handle = spec?.let { tunSpec ->
-            when (val t = withContext(Dispatchers.IO) { graph.tunnels.establish(tunSpec, shareSubnets, target?.iface) }) {
-                is Outcome.Failure -> {
-                    t.errors.drop(1).forEach(core.log::diagnostic)
-                    return fail(t.errors.first())
+        val pending = PendingTunnel()
+        try {
+            val handle = spec?.let { tunSpec ->
+                when (val t = pending.acquire { graph.tunnels.establish(tunSpec, shareSubnets, target?.iface) }) {
+                    is Outcome.Failure -> {
+                        t.errors.drop(1).forEach(core.log::diagnostic)
+                        return fail(t.errors.first())
+                    }
+                    is Outcome.Success -> t.value
                 }
-                is Outcome.Success -> t.value
             }
-        }
-        if (local != null) core.log.info("local_proxy_up", "port" to local.port)
-        // Проба здоровья (D-32) блокирует поток — не дольше своего срока, меньше срока плана.
-        val probeTimeout = (core.policy.healthTimeoutMillis - PROBE_MARGIN_MILLIS).toInt()
-        val checker = HealthChecker { _, profile ->
-            state.value = SessionStatus.Connecting(profile.name)
-            withContext(Dispatchers.IO) { graph.engine.probeHealth(ir.dns, probeTimeout) }
-        }
-        // Белый список по свежей проверке в этой сети (D-64, D-79): порядок плана и опыт попыток — его.
-        // Через устройство раздачи путь идёт по своей сети — режим оператора ни при чём (D-55).
-        val regime = if (relay == null) graph.networkCheck.regime() else null
-        regime?.let { core.log.info("network_regime", "class" to it.restriction) }
-        val failingUnderRegime = regime?.let(core::failingUnder).orEmpty()
-        val report = try {
-            if (relay != null && target != null) {
+            currentCoroutineContext().ensureActive()
+            if (local != null) core.log.info("local_proxy_up", "port" to local.port)
+            // Проба здоровья (D-32) блокирует поток — не дольше своего срока, меньше срока плана.
+            val probeTimeout = (core.policy.healthTimeoutMillis - PROBE_MARGIN_MILLIS).toInt()
+            val checker = HealthChecker { _, profile ->
+                state.value = SessionStatus.Connecting(profile.name)
+                withContext(Dispatchers.IO) { graph.engine.probeHealth(ir.dns, probeTimeout) }
+            }
+            // Белый список по свежей проверке в этой сети (D-64, D-79): порядок плана и опыт попыток — его.
+            // Через устройство раздачи путь идёт по своей сети — режим оператора ни при чём (D-55).
+            val regime = if (relay == null) graph.networkCheck.regime() else null
+            regime?.let { core.log.info("network_regime", "class" to it.restriction) }
+            val failingUnderRegime = regime?.let(core::failingUnder).orEmpty()
+            val report = if (relay != null && target != null) {
                 core.connectVia(relay, target.address, checker, handle?.tunInput, share, local, handle?.systemTun) { delay(it) }
             } else {
                 // Разбиение ClientHello к серверу (D-68, D-81) — выбор пользователя; отказ сервера — повтор без него (D-69, ядро).
@@ -337,72 +341,70 @@ class DesktopSession(
                 core.log.info("split_sites", "n" to sites.size)
                 core.connect(null, checker, handle?.tunInput, preferred, share, regime, split, sites, local, handle?.systemTun) { delay(it) }
             }
+            when (report) {
+                is ConnectionReport.Connected -> {
+                    session = report.session
+                    tunnel = pending.take()
+                    localState.value = local
+                    val name = ir.profiles.firstOrNull { it.id == report.profileId }?.name ?: report.profileId.value
+                    core.log.info("connected", "profile" to Safe(report.profileId.value), "attempts" to report.attempts.size)
+                    // Подключился сервер, который под белым списком только отказывал: список, скорее всего,
+                    // выключили — режим снова неизвестен (D-64).
+                    val contradicted = regime != null && report.profileId in failingUnderRegime
+                    if (contradicted) {
+                        graph.networkCheck.forgetRegime()
+                        core.log.info("network_regime_dropped", "reason" to Safe("contradicted"), "profile" to Safe(report.profileId.value))
+                    }
+                    // Режим сессии — до того, как наблюдение за сетью может взять его заново (D-80).
+                    sessionRegime = if (contradicted) null else regime
+                    state.value = SessionStatus.Connected(report.profileId, name, core.clock.nowMillis())
+                    startUsage(report.session)
+                    val profile = ir.profiles.firstOrNull { it.id == report.profileId }
+                    val w = SessionWatch(
+                        core,
+                        report.profileId,
+                        profile,
+                        { graph.engine.probeHealth(ir.dns, probeTimeout) },
+                        { prefs.selectedServer },
+                        { prefs.autoSwitch },
+                        { synchronized(declined) { declined.toSet() } },
+                        { sessionRegime },
+                        graph.networkCheck::probesQuiet,
+                    )
+                    watch = scope.launch { onDegraded(withContext(Dispatchers.IO) { w.run { delay(it) } }) }
+                    // Через устройство раздачи режим сети не берётся (D-55): смена сети ПК ему не повод; пропала
+                    // сеть устройства — сбой ловит наблюдатель.
+                    if (relay == null) {
+                        val net = NetworkWatch(
+                            core.log,
+                            graph.networkCheck,
+                            changes ?: NetworkChangeChecks(Clock.MONOTONIC).also { changes = it },
+                            { checkOnNetworkChange() },
+                            { sessionRegime = it },
+                            graph.host::network,
+                        )
+                        networkWatch = scope.launch(Dispatchers.IO) { net.run { delay(it) } }
+                    }
+                    if (scan != null) {
+                        val offered = share?.endpoints.orEmpty()
+                        val refused = report.shareRefused != null
+                        shareState.value = ShareStatus(if (refused) emptyList() else offered, refused, scan.absent)
+                        core.log.info("share", "endpoints" to offered.size, "refused" to refused)
+                        finder?.let { startShareWatch(it, offered) }
+                    }
+                }
+                is ConnectionReport.Failed -> {
+                    fail(report.reason)
+                }
+                null -> {
+                    fail(Diagnostic.error(DiagCode.PROFILES_EMPTY, "нет активной конфигурации — подключаться не к чему"))
+                }
+            }
         } catch (e: CancellationException) {
-            // Сеанс, запущенный посреди проверки, оркестратор уже остановил; остаётся TUN.
-            withContext(NonCancellable + Dispatchers.IO) { handle?.close() }
             state.value = SessionStatus.Disconnected
             throw e
-        }
-        when (report) {
-            is ConnectionReport.Connected -> {
-                session = report.session
-                tunnel = handle
-                localState.value = local
-                val name = ir.profiles.firstOrNull { it.id == report.profileId }?.name ?: report.profileId.value
-                core.log.info("connected", "profile" to Safe(report.profileId.value), "attempts" to report.attempts.size)
-                // Подключился сервер, который под белым списком только отказывал: список, скорее всего,
-                // выключили — режим снова неизвестен (D-64).
-                val contradicted = regime != null && report.profileId in failingUnderRegime
-                if (contradicted) {
-                    graph.networkCheck.forgetRegime()
-                    core.log.info("network_regime_dropped", "reason" to Safe("contradicted"), "profile" to Safe(report.profileId.value))
-                }
-                // Режим сессии — до того, как наблюдение за сетью может взять его заново (D-80).
-                sessionRegime = if (contradicted) null else regime
-                state.value = SessionStatus.Connected(report.profileId, name, core.clock.nowMillis())
-                startUsage(report.session)
-                val profile = ir.profiles.firstOrNull { it.id == report.profileId }
-                val w = SessionWatch(
-                    core,
-                    report.profileId,
-                    profile,
-                    { graph.engine.probeHealth(ir.dns, probeTimeout) },
-                    { prefs.selectedServer },
-                    { prefs.autoSwitch },
-                    { synchronized(declined) { declined.toSet() } },
-                    { sessionRegime },
-                    graph.networkCheck::probesQuiet,
-                )
-                watch = scope.launch { onDegraded(withContext(Dispatchers.IO) { w.run { delay(it) } }) }
-                // Через устройство раздачи режим сети не берётся (D-55): смена сети ПК ему не повод; пропала
-                // сеть устройства — сбой ловит наблюдатель.
-                if (relay == null) {
-                    val net = NetworkWatch(
-                        core.log,
-                        graph.networkCheck,
-                        changes ?: NetworkChangeChecks(Clock.MONOTONIC).also { changes = it },
-                        { checkOnNetworkChange() },
-                        { sessionRegime = it },
-                        graph.host::network,
-                    )
-                    networkWatch = scope.launch(Dispatchers.IO) { net.run { delay(it) } }
-                }
-                if (scan != null) {
-                    val offered = share?.endpoints.orEmpty()
-                    val refused = report.shareRefused != null
-                    shareState.value = ShareStatus(if (refused) emptyList() else offered, refused, scan.absent)
-                    core.log.info("share", "endpoints" to offered.size, "refused" to refused)
-                    finder?.let { startShareWatch(it, offered) }
-                }
-            }
-            is ConnectionReport.Failed -> {
-                withContext(Dispatchers.IO) { handle?.close() }
-                fail(report.reason)
-            }
-            null -> {
-                withContext(Dispatchers.IO) { handle?.close() }
-                fail(Diagnostic.error(DiagCode.PROFILES_EMPTY, "нет активной конфигурации — подключаться не к чему"))
-            }
+        } finally {
+            pending.closeUnclaimed()
         }
     }
 
@@ -418,46 +420,48 @@ class DesktopSession(
             is Outcome.Failure -> return fail(s.errors.first())
             is Outcome.Success -> s.value
         }
-        val handle = when (val t = withContext(Dispatchers.IO) { graph.tunnels.establish(spec, emptyList(), null) }) {
-            is Outcome.Failure -> {
-                t.errors.drop(1).forEach(core.log::diagnostic)
-                return fail(t.errors.first())
+        val pending = PendingTunnel()
+        try {
+            val handle = when (val t = pending.acquire { graph.tunnels.establish(spec, emptyList(), null) }) {
+                is Outcome.Failure -> {
+                    t.errors.drop(1).forEach(core.log::diagnostic)
+                    return fail(t.errors.first())
+                }
+                is Outcome.Success -> t.value
             }
-            is Outcome.Success -> t.value
-        }
-        core.log.info("split_sites", "n" to sites.size)
-        val probeTimeout = (core.policy.healthTimeoutMillis - PROBE_MARGIN_MILLIS).toInt()
-        val result = try {
-            core.connectServerless(handle.tunInput, sites, settings, handle.systemTun) { _, dns ->
+            currentCoroutineContext().ensureActive()
+            core.log.info("split_sites", "n" to sites.size)
+            val probeTimeout = (core.policy.healthTimeoutMillis - PROBE_MARGIN_MILLIS).toInt()
+            val result = core.connectServerless(handle.tunInput, sites, settings, handle.systemTun) { _, dns ->
                 withContext(Dispatchers.IO) { graph.engine.probeServerless(dns, probeTimeout) }
             }
+            when (result) {
+                is Outcome.Failure -> {
+                    fail(result.errors.first())
+                }
+                is Outcome.Success -> {
+                    session = result.value
+                    tunnel = pending.take()
+                    core.log.info("connected", "profile" to Safe(ServerlessPlan.PROFILE_ID.value), "attempts" to 1)
+                    // Режима сессии без сервера нет: опыт не копится — его не у кого.
+                    sessionRegime = null
+                    state.value = SessionStatus.Connected(ServerlessPlan.PROFILE_ID, SERVERLESS_NAME, core.clock.nowMillis())
+                    val net = NetworkWatch(
+                        core.log,
+                        graph.networkCheck,
+                        changes ?: NetworkChangeChecks(Clock.MONOTONIC).also { changes = it },
+                        { checkOnNetworkChange() },
+                        { sessionRegime = it },
+                        graph.host::network,
+                    )
+                    networkWatch = scope.launch(Dispatchers.IO) { net.run { delay(it) } }
+                }
+            }
         } catch (e: CancellationException) {
-            withContext(NonCancellable + Dispatchers.IO) { handle.close() }
             state.value = SessionStatus.Disconnected
             throw e
-        }
-        when (result) {
-            is Outcome.Failure -> {
-                withContext(Dispatchers.IO) { handle.close() }
-                fail(result.errors.first())
-            }
-            is Outcome.Success -> {
-                session = result.value
-                tunnel = handle
-                core.log.info("connected", "profile" to Safe(ServerlessPlan.PROFILE_ID.value), "attempts" to 1)
-                // Режима сессии без сервера нет: опыт не копится — его не у кого.
-                sessionRegime = null
-                state.value = SessionStatus.Connected(ServerlessPlan.PROFILE_ID, SERVERLESS_NAME, core.clock.nowMillis())
-                val net = NetworkWatch(
-                    core.log,
-                    graph.networkCheck,
-                    changes ?: NetworkChangeChecks(Clock.MONOTONIC).also { changes = it },
-                    { checkOnNetworkChange() },
-                    { sessionRegime = it },
-                    graph.host::network,
-                )
-                networkWatch = scope.launch(Dispatchers.IO) { net.run { delay(it) } }
-            }
+        } finally {
+            pending.closeUnclaimed()
         }
     }
 
