@@ -65,7 +65,7 @@ class ImportFlow(
     private fun handle(text: String) {
         when (val kind = ImportClassifier.classify(text)) {
             ImportKind.Empty -> info("Пусто — импортировать нечего.")
-            ImportKind.OwnDocument -> if (confirm("Это документ DPpass: своя конфигурация с маршрутизацией. Применить его?")) activate(text)
+            ImportKind.OwnDocument -> confirmDocument(text)
             is ImportKind.SubscriptionUrl -> subscriptions.addByUrl(kind.url)
             is ImportKind.Links -> {
                 val skipped = kind.problems.take(PROBLEMS_SHOWN).joinToString("\n") { "• " + it.message }
@@ -89,6 +89,21 @@ class ImportFlow(
                 val why = kind.reason?.let { "\n\n" + it.message }.orEmpty()
                 info("Не распознано: ни документ DPpass, ни адрес подписки, ни ссылки.$why")
             }
+        }
+    }
+
+    /** Предупреждения разбора показываются до согласия, а не теряются после активации (R-02). */
+    private fun confirmDocument(text: String) {
+        scope.launch(Edt) {
+            val checked = withContext(Dispatchers.IO) { graph.core.load(text) }
+            if (checked is Outcome.Failure) {
+                info("Документ не принят:\n\n" + checked.errors.joinToString("\n\n") { Widgets.describe(it) })
+                return@launch
+            }
+            val warnings = checked.diagnostics.filterNot { it.isError }.joinToString("\n\n") { Widgets.describe(it) }
+            val question = "Это документ DPpass: своя конфигурация с маршрутизацией." +
+                (if (warnings.isEmpty()) "" else "\n\n$warnings") + "\n\nПрименить его?"
+            if (confirm(question)) activate(text)
         }
     }
 

@@ -19,6 +19,17 @@ import kotlin.test.assertTrue
 
 /** «Проверить маршрут» и список «Напрямую с разбиением» (D-72): список сильнее документа, но не шире туннеля. */
 class CoreSplitSitesTest {
+    @Test
+    fun importWarningsReachCallerAndJournalBeforeActivation() {
+        val core = core()
+        val source = File(System.getProperty("dppass.repoRoot"), "tests/data/dns/leak-risk-direct-default.json").readText()
+        val result = core.load(source)
+        assertIs<Outcome.Success<*>>(result)
+        assertTrue(result.diagnostics.any { it.code == com.dpsmpx.dppass.diagnostics.DiagCode.DNS_LEAK_RISK })
+        val journal = (core.logSink as com.dpsmpx.dppass.diagnostics.LogHistory).snapshot()
+        assertTrue(journal.any { it.fields.values.any { value -> "DNS_LEAK_RISK" in value } || "DNS_LEAK_RISK" in it.event })
+        assertEquals(null, core.activation.state.activeConfig, "предупреждение показано до применения")
+    }
     private fun core() =
         DPpassCore(MockBackendCompiler(), MockProxyEngine(), InMemoryBlobStore(), ManualClock(1_000), "com.dpsmpx.dppass", PlatformTraits(true))
 

@@ -88,30 +88,39 @@ internal object ImportFlow {
 
     private fun confirmDocument(host: Host, text: String) {
         val c = host.activity
-        Ui.secure(
-            AlertDialog.Builder(c)
-                .setTitle(R.string.import_document_title)
-                .setMessage(R.string.import_document_text)
-                .setPositiveButton(R.string.action_apply) { _, _ ->
-                    val graph = host.graph ?: return@setPositiveButton
-                    host.scope.launch {
-                        val r = withContext(Dispatchers.IO) { graph.core.importAndActivate(text) }
-                        val failure: Diagnostic? = when (r) {
-                            is Outcome.Failure -> r.errors.first()
-                            is Outcome.Success -> (r.value as? ActivationResult.Rejected)?.diagnostics?.firstOrNull { it.isError }
+        host.scope.launch {
+            val graph = host.graph ?: return@launch
+            val checked = withContext(Dispatchers.IO) { graph.core.load(text) }
+            if (checked is Outcome.Failure) {
+                val problem = checked.errors.first()
+                host.problem(c.getString(R.string.import_failed, c.getString(Ui.kind(problem.kind))), problem)
+                return@launch
+            }
+            val warnings = checked.diagnostics.filterNot { it.isError }.joinToString("\n\n") { it.message }
+            Ui.secure(
+                AlertDialog.Builder(c)
+                    .setTitle(R.string.import_document_title)
+                    .setMessage(c.getString(R.string.import_document_text) + if (warnings.isEmpty()) "" else "\n\n$warnings")
+                    .setPositiveButton(R.string.action_apply) { _, _ ->
+                        host.scope.launch {
+                            val r = withContext(Dispatchers.IO) { graph.core.importAndActivate(text) }
+                            val failure: Diagnostic? = when (r) {
+                                is Outcome.Failure -> r.errors.first()
+                                is Outcome.Success -> (r.value as? ActivationResult.Rejected)?.diagnostics?.firstOrNull { it.isError }
+                            }
+                            if (failure == null) {
+                                host.toast(c.getString(R.string.import_done))
+                                host.reconnectIfBusy()
+                            } else {
+                                host.problem(c.getString(R.string.import_failed, c.getString(Ui.kind(failure.kind))), failure)
+                            }
+                            host.changed()
                         }
-                        if (failure == null) {
-                            host.toast(c.getString(R.string.import_done))
-                            host.reconnectIfBusy()
-                        } else {
-                            host.problem(c.getString(R.string.import_failed, c.getString(Ui.kind(failure.kind))), failure)
-                        }
-                        host.changed()
                     }
-                }
-                .setNegativeButton(android.R.string.cancel, null)
-                .show(),
-        )
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show(),
+            )
+        }
     }
 
     /**

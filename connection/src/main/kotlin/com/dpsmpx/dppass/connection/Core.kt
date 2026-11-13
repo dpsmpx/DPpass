@@ -188,7 +188,7 @@ class DPpassCore(
      * что DPpass сам хранил и не смог прочитать.
      */
     fun load(text: String): Outcome<LoadedConfig> = loader.load(text).also { r ->
-        r.diagnostics.filter { it.isError }.forEach(log::diagnostic)
+        r.diagnostics.forEach(log::diagnostic)
     }
 
     /** Документ пользователя → активная конфигурация (или отказ с сохранённой прежней). */
@@ -553,7 +553,7 @@ class DPpassCore(
             is ActivationResult.Activated -> log.info("activated", "revision" to r.record.revision, "source" to Safe(r.record.source.substringBefore('#')))
             is ActivationResult.Rejected -> {
                 log.warning("rejected", "revision" to r.record.revision, "step" to r.record.failedStep)
-                r.diagnostics.filter { it.isError }.forEach(log::diagnostic)
+                r.diagnostics.forEach(log::diagnostic)
             }
         }
     }
