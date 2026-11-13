@@ -807,4 +807,5 @@
     <string name="conn_detail_tag">Тег ядра</string>
     <string name="status_blocked">Трафик заблокирован</string>
     <string name="vpn_blocked_note">Трафик остаётся заблокированным. Отключите VPN или выберите другой сервер.</string>
+    <string name="vpn_failed_blocked">%1$s\nТрафик остаётся заблокированным. Отключите VPN или выберите другой сервер.</string>
 </resources>

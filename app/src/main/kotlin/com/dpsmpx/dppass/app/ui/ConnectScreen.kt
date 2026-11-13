@@ -305,7 +305,7 @@ class ConnectScreen(host: Host) : Screen(host) {
         val withoutVpn = core?.localProxy?.current()?.valueOrNull()?.takeIf { it.enabled }
         if (status is TunnelStatus.Failed) {
             failureTitle.setText(Ui.kind(status.reason.kind))
-            failureText.text = status.reason.message + if (status.trafficBlocked) "\n" + context.getString(R.string.vpn_blocked_note) else ""
+            failureText.text = if (status.trafficBlocked) context.getString(R.string.vpn_failed_blocked, status.reason.message) else status.reason.message
             failureOffer.visibility = if (LocalProxyOffer.applies(status.reason, withoutVpn != null)) View.VISIBLE else View.GONE
             failureCard.visibility = View.VISIBLE
         } else {

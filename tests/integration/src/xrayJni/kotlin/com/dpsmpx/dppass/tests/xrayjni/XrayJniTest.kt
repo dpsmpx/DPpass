@@ -128,20 +128,23 @@ class XrayJniTest {
         assertTrue("T11" in r.text, "отказ политики моста: ${r.text}")
     }
 
-    /** D-51: входы раздачи компилятора (SOCKS с паролем на адресах раздачи) мост пропускает. */
+    /** D-51: входы раздачи компилятора (Shadowsocks 2022 на адресах раздачи) мост пропускает. */
     @Test
     fun shareInboundPassesBridgePolicy() {
         val ir = ir("valid-minimal.json")
         val share = ShareSpec(
             listOf(ShareSpec.Endpoint(IpAddress.parse("192.168.43.1")!!, 24), ShareSpec.Endpoint(IpAddress.parse("10.42.0.1")!!, 24)),
             41234,
-            Secret("u-test"),
-            Secret("p-test-0123456789"),
+            // Ключи SS2022 раздачи — 32 байта base64, собираются в тесте (сопряжение после аудита 11 ноября).
+            Secret(shareKey(1)),
+            Secret(shareKey(2)),
         )
         val compiled = XrayCompiler().compile(ir, CompilePlan(ir.profiles.first().id, true, share)).valueOrNull() ?: fail("раздача не скомпилирована")
         val r = runtime.validate(compiled.bytes())
         assertEquals(XrayResult.Ok, r, (r as? XrayResult.Failed)?.text)
     }
+
+    private fun shareKey(n: Int) = java.util.Base64.getEncoder().encodeToString(ByteArray(32) { n.toByte() })
 
     /** D-55: исходящий к устройству раздачи (socks с паролем на частный IPv4) ядро принимает целиком. */
     @Test
