@@ -16,12 +16,10 @@ DPpass — клиент прокси/VPN для Android с собственно�
 тестах. Сервис туннеля подключает ядро; на устройстве подключение
 ещё проверяется — этап 2 (`docs/direction/ROADMAP/README.md`).
 
-С 16 октября 2026 DPpass — подсистема DPmetaApp, каталог `dppass/`
-(D-52, `DPmetaApp:D-30`): репозиторий DPpass заморожен, работа идёт только
-здесь. Все пути ниже — от `dppass/`, команды — из этого каталога. Правила
-DPmetaApp (`DPmetaApp:CLAUDE.md`) действуют для всего репозитория, этот
-файл — для подсистемы. APK DPpass пока отдельный, с прежней личностью
-пакета; ядро — своё (D-52).
+С 16 октября по 16 ноября 2026 DPpass был подсистемой DPmetaApp (каталог
+`dppass/`, D-52); теперь это снова самостоятельный репозиторий (D-112,
+`DPmetaApp:D-174`), работа идёт здесь. APK — с прежней личностью пакета,
+ядро — своё.
 
 ## Где что
 
@@ -64,17 +62,12 @@ tools/hostcheck/run.sh --full     # dpv run full --ci — перед слиян�
 tools/dpv/dpv report --md         # итог последнего прогона — в описание PR
 ```
 
-Внутри DPmetaApp — те же ключи `tools/hostcheck/run.sh` из `dppass/`
-(и `run.sh report` — итог последнего `--full` — вместо `dpv report --md`): DP Verify идёт в
-представлении поддерева, `--full` — только на закоммиченном `dppass/`
-(D-52).
-
 Исключение — правка только Linux-оболочки (D-74: `desktop/`,
 `tools/desktop/` и документы `*.md`): перед вливанием `--full` и сборка
 APK не нужны — нужны проверки её Linux-части: `:ktlintCheck`,
 `:desktop:test`, `tools/desktop/netns_check.py` от root,
-`tools/hostcheck/run.sh --quick` и `DPmetaApp:tools/check/run.sh` (static);
-итог — в описании PR (`DPmetaApp:D-32`). Мост Go `tools/xray/`, модули
+`tools/hostcheck/run.sh --quick`; итог — в описании PR (`DPmetaApp:D-32`,
+D-112). Мост Go `tools/xray/`, модули
 ядра и сборка Gradle вне `desktop/` — по-прежнему с `--full`.
 
 Подробно — `docs/PROCESS.md`, «Проверки»; что ловит проверка и как

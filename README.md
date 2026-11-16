@@ -38,7 +38,7 @@
 | 6 | Linux: оболочка для ПК с туннелем TUN (D-74) | в работе | 3 из 4 |
 | 7 | Windows: оболочка для ПК с туннелем Wintun (D-97) | в работе | 3 из 4 |
 
-- **Решения** (`docs/direction/DECISIONS.md`): принято 99, из них частично или полностью заменено 7; отложенных вопросов — 13.
+- **Решения** (`docs/direction/DECISIONS.md`): принято 99, из них частично или полностью заменено 9; отложенных вопросов — 13.
 - **Задачи и долги** (`TODO.md`): открыто 86: следующее (этап 2) — 4, подписки Remnawave (цель автора) — 2, анализатор соединений (D-106) — 1, linux — этап 6 (D-74) — 18, windows — этап 7 (D-97) — 5, на устройстве — 55, исследования — 1.
 - **Аудиты:** `docs/audits/INITIAL_ARCHITECTURE_AUDIT.md` (4 октября 2026); `docs/audits/SECURITY_REVIEW_0.7.48.md` (31 октября 2026); `docs/audits/SECURITY_STABILITY_AUDIT_0.5.0.md` (6 октября 2026).
 <!-- progress:end -->
@@ -154,7 +154,7 @@ cli/build/install/dppass-cli/bin/dppass-cli connect tests/data/configs/valid-mul
 
 ## Лицензия
 
-Все права защищены — `LICENSE` (D-96, как у всего DPmetaApp —
+Все права защищены — `LICENSE` (D-96; текст — из DPmetaApp,
 `DPmetaApp:D-47`). Лицензии сторонних компонентов —
 `docs/legal/THIRD_PARTY_MATRIX.md`; копия DP Verify в `tools/dpv/` — по
 лицензии DP Verify (`docs/PROVENANCE.md`, §8).
