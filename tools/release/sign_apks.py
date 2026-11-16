@@ -10,7 +10,7 @@
         отпечаток сертификата ключа из окружения — для docs/PROVENANCE.md, §7
     python3 tools/release/sign_apks.py --unsigned [--out DIR]
         те же APK без подписи — подписывает автор на своём устройстве
-        (tools/release/dppass-sign-termux.sh): файла ключа в сессии нет
+        (tools/release/resign-apk.sh): файла ключа в сессии нет
 
 Ключ — только из окружения (D-35), в командную строку пароли не попадают
 (`apksigner … --ks-pass env:…`):
@@ -37,9 +37,9 @@ D-91) → SHA256SUMS.
 
 Без подписи (`--unsigned`): ни файл ключа, ни пароль не нужны (алиас —
 `DPPASS_SIGNING_KEY_ALIAS`, по умолчанию `dppass-dev`); шаги те же, кроме
-подписи. Рядом с APK — `dppass-sign-termux.sh`: на устройстве он
-подписывает APK ключом автора и сверяет сертификат с отпечатком из
-docs/PROVENANCE.md, §7.
+подписи. Рядом с APK — `resign-apk.sh`: на устройстве он
+подписывает APK ключом автора из `dppass.release.*` и сверяет сертификат с
+`dppass.release.certSha256`, если он задан.
 
 Код возврата: 0 — APK готовы; 1 — проверка не прошла; 2 — нет ключа,
 Android SDK или записанного отпечатка.
@@ -71,7 +71,7 @@ ENV_KEY_PASS = "DPPASS_SIGNING_KEY_PASSWORD"
 # Строка таблицы §7: | `dppass-dev` | <64 hex> |
 RECORDED = re.compile(r"^\|\s*`([^`]+)`\s*\|\s*([0-9a-f]{64})\s*\|\s*$", re.M)
 DEFAULT_ALIAS = "dppass-dev"
-TERMUX_SIGNER = os.path.join(PROJ, "tools", "release", "dppass-sign-termux.sh")
+TERMUX_SIGNER = os.path.join(PROJ, "tools", "release", "resign-apk.sh")
 # Сертификат подписанта в выводе `apksigner verify --print-certs`: до build-tools 36 —
 # «Signer #1 certificate SHA-256 digest: …», в 37.0.0 — «V3.0 Signer: certificate SHA-256
 # digest: …» (сборка в Termux, 17 октября 2026). Читаются оба вида.
@@ -302,7 +302,7 @@ def main():
         with open(os.path.join(args.out, "CERTIFICATE.txt"), "w", encoding="utf-8") as f:
             f.write(f"# Ключ {alias}: SHA-256 сертификата — docs/PROVENANCE.md, §7; пакет и ярлык постоянны (D-114).\n")
             if args.unsigned:
-                f.write("# APK не подписаны: подписывает автор (dppass-sign-termux.sh).\n")
+                f.write("# APK не подписаны: подписывает автор (resign-apk.sh).\n")
             f.write(f"alias: {alias}\ncertificate-sha256: {expected}\npackage: {package}\nlabel: {label}\n")
         if args.unsigned:
             shutil.copy(TERMUX_SIGNER, os.path.join(args.out, os.path.basename(TERMUX_SIGNER)))
