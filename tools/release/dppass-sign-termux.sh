@@ -9,9 +9,7 @@
 #
 # Что делает:
 #   1. сверяет скачанные APK с SHA256SUMS (APK других ABI можно не скачивать);
-#   2. спрашивает пароль ключа и сверяет его с зерном сборки (seed-sha256 в
-#      CERTIFICATE.txt): с другим паролем у сборки другое имя пакета, и
-#      следующая сборка не встала бы поверх (D-49);
+#   2. спрашивает пароль ключа (имя пакета от него не зависит, D-114);
 #   3. подписывает каждый *-unsigned.apk ключом ~/dppass-keys/dppass-dev.p12
 #      (другой путь — переменная DPPASS_KEYSTORE), не трогая выравнивание
 #      библиотек по 16 КБ;
@@ -29,9 +27,8 @@ field() { sed -n "s/^$1: //p" "$CERT" | head -n 1; }
 [ -f "$KS" ] || { echo "✗ нет ключа $KS (создаёт dppass-keygen-termux.sh; другой путь — DPPASS_KEYSTORE)"; exit 2; }
 ALIAS="$(field alias)"
 FP="$(field certificate-sha256)"
-CHECK="$(field seed-sha256)"
 PACKAGE="$(field package)"
-[ -n "$ALIAS" ] && [ -n "$FP" ] && [ -n "$CHECK" ] || { echo "✗ $CERT — не от сборки без подписи (нет alias, certificate-sha256 или seed-sha256)"; exit 2; }
+[ -n "$ALIAS" ] && [ -n "$FP" ] || { echo "✗ $CERT — не от сборки без подписи (нет alias или certificate-sha256)"; exit 2; }
 
 shopt -s nullglob
 APKS=(*-unsigned.apk)
@@ -58,13 +55,6 @@ fi
 
 read -r -s -p "Пароль ключа $ALIAS: " DPPASS_SIGN_PASSWORD
 echo
-SEED="$(printf '%s' "dppass-identity:$FP:$DPPASS_SIGN_PASSWORD" | sha256sum | cut -d' ' -f1)"
-if [ "$(printf '%s' "$SEED" | sha256sum | cut -d' ' -f1)" != "$CHECK" ]; then
-  unset DPPASS_SIGN_PASSWORD SEED
-  echo "✗ пароль не тот, с которым собрана сборка: имя пакета не совпало бы с прежними сборками (D-49). Ничего не подписано."
-  exit 1
-fi
-unset SEED
 export DPPASS_SIGN_PASSWORD
 
 status=0

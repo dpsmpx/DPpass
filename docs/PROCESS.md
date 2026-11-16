@@ -88,7 +88,7 @@ Verify. Журнал каждой проверки — `build/dpv/last/<пров
 | `project.format` — `tools/hostcheck/check_format.py` | невидимые и двунаправленные символы (Trojan Source), табуляции в отступе, одиночный CR | — |
 | `project.telemetry` — `tools/hostcheck/check_build_telemetry.py` | сборка может отправлять или копить данные о себе: нет `org.gradle.welcome=never` или `kotlin.internal.collectFUSMetrics=false` (и в `build-logic`), плагин сканов сборки, статистика AGP включена на этой машине (`analytics.settings`) | D-12 |
 | `project.readme` — `tools/hostcheck/readme_progress.py --check` | раздел «Прогресс» в `README.md` отстал от плана, критериев выхода, решений, `TODO.md`, аудитов; противоречия между ними (этап «выполнен» при открытых критериях, разное состояние в плане и в файле этапа) | — |
-| `project.build` — `tools/hostcheck/steps.sh build` (`./gradlew build :cli:installDist :build-logic:test ktlintCheck`, с Android SDK — `-x :app:build`: APK собирается шагом Android) | ошибки и **предупреждения** компилятора (они — ошибки), модульные и межмодульные тесты, тесты `build-logic` (личность пакета, D-47, D-49), корпус, fuzz; стиль Kotlin по `.editorconfig` — `ktlintCheck`, исправление — `./gradlew ktlintFormat` (D-63) | D-05 … D-22, D-63 |
+| `project.build` — `tools/hostcheck/steps.sh build` (`./gradlew build :cli:installDist :build-logic:test ktlintCheck`, с Android SDK — `-x :app:build`: APK собирается шагом Android) | ошибки и **предупреждения** компилятора (они — ошибки), модульные и межмодульные тесты, тесты `build-logic` (личность пакета, D-47, D-49, D-114), корпус, fuzz; стиль Kotlin по `.editorconfig` — `ktlintCheck`, исправление — `./gradlew ktlintFormat` (D-63) | D-05 … D-22, D-63 |
 | `project.xray` — `tools/xray/check_xray.py` | эталон компилятора, который Xray закреплённой версии не принимает (`xray run -test`); решение маршрутизации Xray, не совпавшее с `RouteEvaluator`; собранное ядро не той версии, что в каталоге (`docs/TESTING.md`, «Эталоны Xray») | D-05, D-09, D-24 |
 | `project.xray-windows` — `tools/xray/native.py windows --require-tests` | `go vet` моста и JNI для Windows; тесты моста для Windows в Wine (договор `Start` без fd и защитника, DPAPI, снятие хуков сокетов, политика входа TUN Windows); архив Temurin, сумма которого не совпала с PROVENANCE; DLL не машины AMD64, с экспортом JNI не как у `external` объектов `XrayJni` и `WindowsNative` или с импортом не из системных библиотек | D-97 |
 | `project.windows-package` — `tools/desktop/windows_package.py --require-tests` | комплект Windows (D-97, T18): рантайм jlink не той версии Temurin, без модулей jdeps или с `.exe` и `.dll`, которые не совпадают с jmods; `wintun.dll` не AMD64; `dppass.exe` без `requireAdministrator`, не с окном, с импортом не из системных DLL или с тестовой частью; лишний или недостающий файл комплекта; сторонний jar без строки матрицы лицензий; в Wine — запускатель, который пускает при чужих правах, оставляет JVM `JAVA_TOOL_OPTIONS` и подобные или зовёт её не той командой; оболочка, которая на рантайме комплекта не загружает DLL моста, собирается с отказами или не проводит ключ через DPAPI | D-97 |
@@ -204,19 +204,16 @@ Maven Central через его зеркало у Google (только сбор�
    отпечатком из `docs/PROVENANCE.md`, §7, проверяет каждый APK
    `check_apk.py --abi` и пишет `SHA256SUMS` и `CERTIFICATE.txt`. Без
    ключа или без записанного отпечатка — отказ, отладочный ключ не
-   подставляется. Имя пакета и ярлык — случайные на вид, но постоянные
-   для ключа (D-49): зерно выводится из отпечатка и пароля, у всех APK
-   один пакет, он записан в `CERTIFICATE.txt`.
-3. Если файла ключа в сессии нет, а пароль хранилища есть,
-   `sign_apks.py --unsigned` собирает те же APK без подписи: личность —
-   из отпечатка, записанного в `docs/PROVENANCE.md`, §7, и пароля
-   (`DPPASS_SIGNING_STORE_PASSWORD`), выравнивание и `check_apk.py --abi`
-   — как обычно. Подписывает автор на своём устройстве в Termux
-   скриптом `tools/release/dppass-sign-termux.sh`, который кладётся
-   рядом с APK: он сверяет APK с `SHA256SUMS`, пароль — с зерном сборки
-   (`seed-sha256` в `CERTIFICATE.txt`; другой пароль дал бы другой
-   пакет, D-49), подписывает ключом `~/dppass-keys/dppass-dev.p12`, не
-   трогая выравнивание, и сверяет сертификат с отпечатком.
+   подставляется. Имя пакета и ярлык — стабильные, `com.dpsmpx.dppass`
+   «DPpass», у всех APK и всех сборок (D-114; случайная личность D-47/D-49 —
+   только `-Pdppass.randomIdentity=true`).
+3. Если файла ключа в сессии нет, `sign_apks.py --unsigned` собирает те же
+   APK без подписи (пароль не нужен), выравнивание и `check_apk.py --abi` —
+   как обычно. Подписывает автор на своём устройстве в Termux скриптом
+   `tools/release/dppass-sign-termux.sh`, который кладётся рядом с APK: он
+   сверяет APK с `SHA256SUMS`, подписывает ключом
+   `~/dppass-keys/dppass-dev.p12`, не трогая выравнивание, и сверяет
+   сертификат с отпечатком.
 4. APK кладутся в каталог `dppass/` ветки сборок `apk_debug` без истории
    `main` (`DPmetaApp:D-33`; до 25 октября 2026 — ветка `apk`, D-35;
    двоичных файлов в `main` нет, `docs/PROVENANCE.md`, §4): APK,

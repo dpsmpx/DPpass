@@ -24,11 +24,10 @@
 Без ключа сборка не подписывается вовсе: отладочный ключ контейнера
 молча не подставляется — APK с ним не встал бы поверх установленного.
 
-Личность пакета (D-47, D-49): случайные на вид `applicationId` и ярлык, но
-постоянные для ключа — зерно `dppass.identitySeed` выводится из отпечатка
-сертификата и пароля хранилища (без пароля его не вычислить). Тот же ключ —
-тот же пакет: следующая сборка ставится поверх прежней. Пакет APK сверяется
-с ожидаемым (повтор `AppIdentity` на Python).
+Личность пакета (D-114): `com.dpsmpx.dppass` «DPpass» у всех сборок — не зависит
+от ключа и пароля, следующая сборка ставится поверх прежней. Пакет APK сверяется
+с ожидаемым. (Случайная личность D-47/D-49 — только `-Pdppass.randomIdentity=true`,
+этим скриптом не собирается.)
 
 Шаги: `:app:assembleRelease -Pdppass.abiSplit=true` (APK на ABI, D-28) →
 выравнивание zip (4 байта, библиотеки — 16 КБ) → `apksigner sign` →
@@ -36,13 +35,11 @@
 docs/PROVENANCE.md, §7 → `check_apk.py --abi --release` (R8 и договор JNI,
 D-91) → SHA256SUMS.
 
-Без подписи (`--unsigned`): файл ключа не нужен, нужен только пароль
-хранилища (`DPPASS_SIGNING_STORE_PASSWORD`; алиас — `DPPASS_SIGNING_KEY_ALIAS`,
-по умолчанию `dppass-dev`). Зерно личности — из отпечатка, записанного в
-docs/PROVENANCE.md, §7, и этого пароля; шаги те же, кроме подписи. Рядом
-с APK — `dppass-sign-termux.sh`: на устройстве он сверяет пароль с
-зерном сборки (`seed-sha256` в CERTIFICATE.txt — иначе пакет не тот),
-подписывает APK ключом автора и сверяет сертификат с отпечатком.
+Без подписи (`--unsigned`): ни файл ключа, ни пароль не нужны (алиас —
+`DPPASS_SIGNING_KEY_ALIAS`, по умолчанию `dppass-dev`); шаги те же, кроме
+подписи. Рядом с APK — `dppass-sign-termux.sh`: на устройстве он
+подписывает APK ключом автора и сверяет сертификат с отпечатком из
+docs/PROVENANCE.md, §7.
 
 Код возврата: 0 — APK готовы; 1 — проверка не прошла; 2 — нет ключа,
 Android SDK или записанного отпечатка.
@@ -138,59 +135,8 @@ def recorded(alias):
          "(отпечаток — то, с чем автор сверяет APK)")
 
 
-def identity_seed(cert_sha256):
-    """Зерно личности пакета (D-49): постоянное для ключа и пароля, без пароля не вычисляется."""
-    material = f"dppass-identity:{cert_sha256}:{os.environ[ENV_STORE_PASS]}"
-    return hashlib.sha256(material.encode("utf-8")).hexdigest()
-
-
-APP_IDENTITY = os.path.join(PROJ, "build-logic", "src", "main", "kotlin", "com", "dpsmpx", "dppass", "build", "AppIdentity.kt")
-
-
-class JavaRandom:
-    """java.util.Random: та же последовательность, что у AppIdentity.random (Kotlin)."""
-
-    def __init__(self, seed):
-        self.s = (seed ^ 0x5DEECE66D) & ((1 << 48) - 1)
-
-    def next(self, bits):
-        self.s = (self.s * 0x5DEECE66D + 0xB) & ((1 << 48) - 1)
-        return self.s >> (48 - bits)
-
-    def next_int(self, bound):
-        r, m = self.next(31), bound - 1
-        if bound & m == 0:
-            return (bound * r) >> 31
-        u = r
-        while True:
-            r = u % bound
-            if u - r + m <= 0x7FFFFFFF:
-                return r
-            u = self.next(31)
-
-
-def expected_identity(seed):
-    """(applicationId, ярлык) по зерну — повтор AppIdentity.seedOf и AppIdentity.random; списки — из исходника."""
-    src = read_text(APP_IDENTITY)
-    labels = re.findall(r'"([A-Z][a-z]+)"', re.search(r"LABELS = listOf\((.*?)\)", src, re.S).group(1))
-    cons = re.search(r'CONSONANTS = "([a-z]+)"', src).group(1)
-    vow = re.search(r'VOWELS = "([a-z]+)"', src).group(1)
-    h = 1125899906842597
-    for c in seed:
-        h = (31 * h + ord(c)) & ((1 << 64) - 1)
-    rnd = JavaRandom(h)
-
-    def segment():
-        n = 5 + rnd.next_int(4)
-        return "".join((cons if i % 2 == 0 else vow)[rnd.next_int(len(cons if i % 2 == 0 else vow))] for i in range(n))
-
-    app = "com." + segment() + "." + segment()
-    return app, labels[rnd.next_int(len(labels))]
-
-
-def read_text(path):
-    with open(path, encoding="utf-8") as f:
-        return f.read()
+# Личность пакета (D-114): одна для всех сборок — не зависит ни от ключа, ни от пароля.
+STABLE_IDENTITY = ("com.dpsmpx.dppass", "DPpass")
 
 
 def package_of(tools, apk):
@@ -286,13 +232,11 @@ def main():
     a.add_argument("--skip-build", action="store_true", help="не собирать: взять готовые APK из app/build/outputs")
     a.add_argument("--fingerprint", action="store_true", help="напечатать отпечаток ключа из окружения и выйти")
     a.add_argument("--unsigned", action="store_true",
-                   help="без подписи: личность — из записанного отпечатка и пароля, подпись — на устройстве автора")
+                   help="без подписи: сертификат — из записанного отпечатка, подпись — на устройстве автора")
     args = a.parse_args()
     tmp = tempfile.mkdtemp(prefix="dppass-sign-")
     try:
         if args.unsigned:
-            if not os.environ.get(ENV_STORE_PASS):
-                fail(f"нет {ENV_STORE_PASS}: без пароля хранилища не вычислить личность пакета (D-49)")
             alias = os.environ.get(ENV_ALIAS) or DEFAULT_ALIAS
             ks = None
             expected = recorded(alias)
@@ -307,21 +251,18 @@ def main():
             if actual != expected:
                 fail(f"ключ из окружения ({actual}) — не тот, что записан в docs/PROVENANCE.md, §7 ({expected})")
         version = version_name()
-        seed = identity_seed(expected)
-        want = expected_identity(seed)
+        want = STABLE_IDENTITY
         sdk = sdk_dir()
         tools = build_tools(sdk) if sdk else None
         if not tools or not all(os.path.isfile(os.path.join(tools, t)) for t in ("apksigner", "zipalign")):
             fail("нет build-tools Android SDK с apksigner и zipalign (ANDROID_HOME)")
 
         if not args.skip_build:
-            # Без кеша конфигурации: личность считается при конфигурации, и кеш отдал бы
-            # прежнюю (6 октября 2026: переменная окружения до Gradle не дошла, а кеш
-            # закрепил случайную личность — поэтому зерно через -P и пакет сверяется ниже).
+            # Без кеша конфигурации: личность считается при конфигурации; пакет сверяется ниже (D-114).
             gradle = [os.path.join(PROJ, "gradlew"), "--quiet", "--no-configuration-cache", "-p", PROJ,
                       ":app:assembleRelease", "-Pdppass.abiSplit=true"]
-            print("… " + " ".join(gradle[4:]) + " -Pdppass.identitySeed=…", flush=True)
-            subprocess.run(gradle + [f"-Pdppass.identitySeed={seed}"], check=True)
+            print("… " + " ".join(gradle[4:]), flush=True)
+            subprocess.run(gradle, check=True)
         os.makedirs(args.out, exist_ok=True)
         rev = revision()
         problems, made, packages = [], [], set()
@@ -345,10 +286,10 @@ def main():
             made.append(name)
             packages.add(package_of(tools, out))
         if len(packages) > 1:
-            problems.append(f"у APK разные пакеты: {sorted(packages)} — сборка по ABI должна дать один пакет (D-49)")
+            problems.append(f"у APK разные пакеты: {sorted(packages)} — сборка по ABI должна дать один пакет (D-114)")
         elif packages and next(iter(packages)) != want:
-            problems.append(f"пакет APK {next(iter(packages))} ≠ ожидаемому для ключа {want} — личность не из зерна ключа "
-                            "(кеш конфигурации, свойство не дошло до Gradle?), D-49")
+            problems.append(f"пакет APK {next(iter(packages))} ≠ ожидаемому {want} — личность не стабильная "
+                            "(кеш конфигурации, свойство dppass.randomIdentity?), D-114")
         if problems:
             print("✗ sign_apks:")
             for p in problems:
@@ -359,13 +300,10 @@ def main():
                 f.write(f"{sha256(os.path.join(args.out, name))}  {name}\n")
         package, label = next(iter(packages))
         with open(os.path.join(args.out, "CERTIFICATE.txt"), "w", encoding="utf-8") as f:
-            f.write(f"# Ключ {alias}: SHA-256 сертификата — docs/PROVENANCE.md, §7; пакет и ярлык постоянны для ключа (D-49).\n")
+            f.write(f"# Ключ {alias}: SHA-256 сертификата — docs/PROVENANCE.md, §7; пакет и ярлык постоянны (D-114).\n")
             if args.unsigned:
-                f.write("# APK не подписаны: подписывает автор (dppass-sign-termux.sh). seed-sha256 — SHA-256 зерна\n"
-                        "# личности: по нему скрипт проверяет, что пароль тот же, что при сборке.\n")
+                f.write("# APK не подписаны: подписывает автор (dppass-sign-termux.sh).\n")
             f.write(f"alias: {alias}\ncertificate-sha256: {expected}\npackage: {package}\nlabel: {label}\n")
-            if args.unsigned:
-                f.write(f"seed-sha256: {hashlib.sha256(seed.encode('ascii')).hexdigest()}\n")
         if args.unsigned:
             shutil.copy(TERMUX_SIGNER, os.path.join(args.out, os.path.basename(TERMUX_SIGNER)))
             print(f"✓ {len(made)} APK ({version}, {rev}) без подписи, личность ключа {alias} ({expected[:16]}…), "

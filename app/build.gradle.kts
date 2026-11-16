@@ -12,12 +12,13 @@ plugins {
 // Личность устанавливаемого приложения (D-47). Пространство имён кода —
 // всегда `com.dpsmpx.dppass` (ниже `namespace`): меняется только личность.
 //   * отладочная сборка и проверки — стабильная личность (детерминизм);
-//   * личная сборка release — случайные applicationId и ярлык, чтобы по
-//     имени пакета и ярлыку приложение не отличалось от обычного.
-// Зерно `dppass.identitySeed` делает личную сборку воспроизводимой.
-val stableIdentity = providers.gradleProperty("dppass.stableIdentity").map(String::toBoolean).getOrElse(false)
+//   * сборка release — тоже стабильная личность `com.dpsmpx.dppass` (D-114):
+//     пакет не зависит ни от ключа, ни от пароля, ни от сборки.
+// Случайная личность D-47/D-49 остаётся только явным выбором:
+// `-Pdppass.randomIdentity=true` (зерно — `dppass.identitySeed`).
+val randomIdentity = providers.gradleProperty("dppass.randomIdentity").map(String::toBoolean).getOrElse(false)
 val identitySeed = AppIdentity.seedOf(providers.gradleProperty("dppass.identitySeed").orNull)
-val releaseIdentity = if (stableIdentity) AppIdentity.STABLE else AppIdentity.random(identitySeed)
+val releaseIdentity = if (randomIdentity) AppIdentity.random(identitySeed) else AppIdentity.STABLE
 
 // Тесты экранов на JVM (D-86): Robolectric — только по свойству dppass.robolectric
 // (шаг проверки «Android: экраны на JVM»). Обычная сборка, в том числе в Termux,
@@ -80,7 +81,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Случайный ярлык личной сборки (D-47): не выдаёт назначение. Сам
+            // Ярлык сборки (D-114: «DPpass»; случайный — только с dppass.randomIdentity, D-47). Сам
             // applicationId задаётся per-variant ниже (на buildType его ставить
             // нельзя — у типа сборки только applicationIdSuffix).
             manifestPlaceholders["appLabel"] = releaseIdentity.label
