@@ -263,10 +263,17 @@ class DPpassCore(
         local: LocalProxySpec? = null,
         /** TUN, который создаёт само ядро (Windows, D-97): вместо [tun]. */
         systemTun: SystemTun? = null,
+        /**
+         * Жёсткий выбор (D-113): подключаться только к [preferred], без запасных
+         * кандидатов плана. Автопереключение выключено — сервер не меняется сам,
+         * и отказ выбранного — отказ подключения, а не тихий переход на другой.
+         */
+        pinned: Boolean = false,
         pause: suspend (Long) -> Unit,
     ): ConnectionReport? {
         val ir = activation.state.activeConfig ?: return null
-        val plan = plan(assessment, preferred, regime) ?: return null
+        val full = plan(assessment, preferred, regime) ?: return null
+        val plan = if (pinned && preferred != null) pinTo(full, preferred) else full
         val orchestrator = ConnectionOrchestrator(compiler, engine, checker, health, clock, log, policy, stability, assessment ?: regime, splitMemory, pause)
         return orchestrator.connect(ir, plan, tun, share, splitClientHello, splitSites, local, systemTun)
     }
@@ -301,6 +308,26 @@ class DPpassCore(
         val to = plan(null, regime = regime)?.attempts?.firstOrNull { it.profile.id != profileId }?.profile ?: return Degradation.Reconnect(reason)
         return if (autoSwitch) Degradation.Switch(from, to, reason) else Degradation.Ask(from, to, reason)
     }
+
+    /** План только из [id] (D-113); выбранного нет в плане — пустой с причиной, а не чужой сервер. */
+    private fun pinTo(full: ConnectionPlan, id: ProfileId): ConnectionPlan {
+        val only = full.attempts.filter { it.profile.id == id }
+        if (only.isNotEmpty()) return full.copy(attempts = only)
+        val why = full.excluded.firstOrNull { it.profileId == id }?.reason ?: "выбранный сервер сейчас не годится"
+        return full.copy(
+            attempts = emptyList(),
+            verdict = full.verdict ?: DiagCode.NO_VIABLE_CANDIDATE,
+            verdictMessage = "$why; другой сервер без вашего согласия не подставляется (D-113)",
+        )
+    }
+
+    /**
+     * Замена для [profileId], которую можно предложить пользователю (D-113):
+     * первый кандидат плана без выбора, кроме него самого; null — предложить
+     * нечего. Ничего не записывает: это вопрос, а не переход.
+     */
+    fun alternativeTo(profileId: ProfileId, regime: NetworkAssessment? = null): ServerProfile? =
+        plan(null, regime = regime)?.attempts?.firstOrNull { it.profile.id != profileId }?.profile
 
     /** Сохранить адаптивную модель (D-44): вызывает сервис при остановке и периодически. */
     fun persistStability(): Outcome<Unit> = stabilityStore.save(stability)

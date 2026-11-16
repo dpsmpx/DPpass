@@ -4,6 +4,7 @@ import com.dpsmpx.dppass.core.ManualClock
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
+import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.engine.mock.MockBackendCompiler
 import com.dpsmpx.dppass.engine.mock.MockProxyEngine
 import com.dpsmpx.dppass.storage.InMemoryBlobStore
@@ -80,5 +81,44 @@ class DegradationTest {
         // Устройство раздачи (D-55) в активной конфигурации не значится — замены ему нет.
         val relay = ProfileId("relay.0123456789ab")
         assertIs<Degradation.Reconnect>(core.degraded(relay, probe, preferred = relay, autoSwitch = true))
+    }
+
+    @Test
+    fun pinnedConnectNeverFallsBackToAnotherServer() {
+        activate(listOf(a, b, c))
+        // Сеть пропала: проба не проходит ни у кого, а b и c в обычном плане шли бы следом за a.
+        val down = HealthChecker { _, _ -> Outcome.failure(DiagCode.ENDPOINT_UNREACHABLE, "нет сети") }
+        val pinned = assertIs<ConnectionReport.Failed>(runBlocking { core.connect(null, down, null, preferred = a, pinned = true) { clock.advance(it) } })
+        assertEquals(listOf(a), pinned.attempts.map { it.profileId }, "пробовался только выбранный (D-113)")
+
+        // Сервер a в паузе, b здоров: без жёсткого выбора ушли бы на b, с ним — подключения нет.
+        activate(listOf(a, b, c))
+        val onlyB = HealthChecker { _, p -> if (p.id == a) Outcome.failure(DiagCode.ENDPOINT_UNREACHABLE, "сервер не отвечает") else Outcome.Success(Unit) }
+        val strict = runBlocking { core.connect(null, onlyB, null, preferred = a, pinned = true) { clock.advance(it) } }
+        assertIs<ConnectionReport.Failed>(strict, "выбранный не отвечает — отказ, а не тихий переход на другой")
+        assertEquals(listOf(a), core.plan(null, a)!!.attempts.map { it.profile.id }.take(1), "выбор остался первым")
+
+        // Прежнее поведение — когда жёсткий выбор не просят.
+        activate(listOf(a, b, c))
+        val loose = assertIs<ConnectionReport.Connected>(runBlocking { core.connect(null, onlyB, null, preferred = a) { clock.advance(it) } })
+        assertNotEquals(a, loose.profileId)
+    }
+
+    @Test
+    fun pinnedServerMissingFromConfigIsRefusedWithReason() {
+        activate(listOf(b, c))
+        val ok = HealthChecker { _, _ -> Outcome.Success(Unit) }
+        val r = assertIs<ConnectionReport.Failed>(runBlocking { core.connect(null, ok, null, preferred = a, pinned = true) { clock.advance(it) } })
+        assertTrue(r.attempts.isEmpty())
+        assertTrue(r.reason.message.contains("D-113"))
+    }
+
+    @Test
+    fun alternativeIsOnlyAQuestion() {
+        activate(listOf(a, b))
+        assertEquals(b, core.alternativeTo(a)?.id)
+        assertEquals(null, core.health.of(a).lastFailure, "предложение не пишет отказ")
+        activate(listOf(a))
+        assertEquals(null, core.alternativeTo(a))
     }
 }

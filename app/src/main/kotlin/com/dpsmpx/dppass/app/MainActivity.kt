@@ -411,7 +411,7 @@ class MainActivity : Activity(), Host {
 
     override fun reconnectIfBusy() {
         if (!TunnelState.status.value.busy) return
-        DPpassVpnService.reconnect(this)
+        DPpassVpnService.reconnect(this, byUser = true)
         toast(getString(R.string.reconnecting))
     }
 

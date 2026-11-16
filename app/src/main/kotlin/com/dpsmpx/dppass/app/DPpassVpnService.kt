@@ -162,6 +162,22 @@ class DPpassVpnService : VpnService() {
     @Volatile
     private var sessionRegime: NetworkAssessment? = null
 
+    /**
+     * Сервер, который держит сессия при выключенном автопереключении (D-113),
+     * если пользователь не выбрал свой: тот, к которому подключились. Сбрасывается
+     * выбором пользователя и остановкой сервиса.
+     */
+    @Volatile
+    private var pinned: ProfileId? = null
+
+    /** Подключение через устройство раздачи (D-55): сеть под ним — своя, «сеть пропала» к нему не относится. */
+    @Volatile
+    private var viaRelay = false
+
+    /** Восстановление после пропажи сети или отказа (D-113): ждёт сеть, переподключает тем же сервером. */
+    @Volatile
+    private var recovery: Job? = null
+
     /** Серверы, о которых пользователь ответил «Остаться» (D-58): до остановки туннеля, то есть этого сервиса. */
     private val declined: MutableSet<ProfileId> = Collections.synchronizedSet(HashSet())
 
@@ -169,6 +185,9 @@ class DPpassVpnService : VpnService() {
         when (intent?.action) {
             ACTION_SWITCH -> {
                 ServerSwitch.clear(this)
+                // Выбор пользователя — новый сервер: прежнее восстановление и закрепление ни к чему (D-113).
+                cancelRecovery()
+                pinned = null
                 val to = intent.getStringExtra(EXTRA_PROFILE)?.takeIf(Ids::isValid)?.let(::ProfileId)
                 if (!startInForeground(TunnelStatus.Connecting(null))) return START_NOT_STICKY
                 restarts.incrementAndGet()
@@ -200,6 +219,7 @@ class DPpassVpnService : VpnService() {
             }
             ACTION_STOP -> {
                 DeviceLog.log.info("service_stop_requested")
+                cancelRecovery()
                 TunnelState.set(TunnelStatus.Stopping)
                 announce()
                 scope.launch {
@@ -211,7 +231,13 @@ class DPpassVpnService : VpnService() {
                 return START_NOT_STICKY
             }
             ACTION_RECONNECT -> {
-                DeviceLog.log.info("service_reconnect")
+                // Переподключение по выбору пользователя (сервер, «Автоматически») — прежнее закрепление не действует (D-113).
+                val byUser = intent.getBooleanExtra(EXTRA_BY_USER, false)
+                if (byUser) {
+                    cancelRecovery()
+                    pinned = null
+                }
+                DeviceLog.log.info("service_reconnect", "by" to Safe(if (byUser) "user" else "service"))
                 if (!startInForeground(TunnelStatus.Connecting(null))) return START_NOT_STICKY
                 restarts.incrementAndGet()
                 scope.launch { restart() }
@@ -269,6 +295,7 @@ class DPpassVpnService : VpnService() {
         if (core.activation.state.activeConfig == null) core.restore()
         // Устройство раздачи (D-55): выбрано — подключение только через него, по сети, где оно ответило.
         val relay = AppPrefs(this).selectedRelay?.let(core.relays::find)
+        viaRelay = relay != null
         val target = relay?.let { d ->
             when (val t = withContext(Dispatchers.IO) { RelayNetworks.locate(this@DPpassVpnService, d) }) {
                 is Outcome.Failure -> {
@@ -338,7 +365,10 @@ class DPpassVpnService : VpnService() {
             progress(TunnelStatus.Connecting(profile.name))
             withContext(Dispatchers.IO) { graph.engine.probeHealth(ir.dns, probeTimeout) }
         }
-        val preferred = AppPrefs(this).selectedServer
+        // Автопереключение выключено (D-113): сервер, который сессия держит, не меняется сам — только он и пробуется.
+        val strictId = if (relay == null) pinTarget(core) else null
+        val preferred = strictId ?: AppPrefs(this).selectedServer
+        if (strictId != null) core.log.info("server_pinned", "profile" to Safe(strictId.value))
         // Белый список по свежей проверке в этой сети (D-64): порядок плана и опыт попыток — его.
         // Через устройство раздачи (D-55) путь идёт по своей сети — режим оператора ни при чём.
         val regime = if (relay == null) NetworkCheck.regime(this) else null
@@ -365,7 +395,7 @@ class DPpassVpnService : VpnService() {
                 core.log.info("client_hello_split", "on" to split)
                 // Сайты напрямую с разбиением (D-72): в журнал — число записей, не сами сайты.
                 core.log.info("split_sites", "n" to sites.size)
-                core.connect(null, checker, tun, preferred, share, regime, split, sites, local) { delay(it) }
+                core.connect(null, checker, tun, preferred, share, regime, split, sites, local, pinned = strictId != null) { delay(it) }
             }
         } catch (e: CancellationException) {
             // Остановка во время подключения: сеанс, запущенный посреди проверки
@@ -389,6 +419,8 @@ class DPpassVpnService : VpnService() {
                 }
                 if (accepted) {
                     core.log.info("connected", "profile" to Safe(report.profileId.value), "attempts" to report.attempts.size)
+                    // Автопереключение выключено: держим именно этот сервер, пока пользователь не выберет другой (D-113).
+                    if (relay == null && !AppPrefs(this@DPpassVpnService).autoSwitch) pinned = report.profileId
                     // Подключился сервер, который под белым списком только отказывал: список, скорее всего,
                     // выключили — режим снова неизвестен, порядок и опыт — общие (D-64).
                     val contradicted = regime != null && report.profileId in failingUnderRegime
@@ -425,6 +457,8 @@ class DPpassVpnService : VpnService() {
             }
             is ConnectionReport.Failed -> {
                 fail(report.reason)
+                // TUN остаётся (D-111) — VPN не отключаем: ждём сеть и пробуем снова тем же сервером (D-113).
+                if (tunnel.present && relay == null) startRecovery(core, report.reason)
             }
             null -> {
                 fail(Diagnostic.error(DiagCode.PROFILES_EMPTY, "нет активной конфигурации — подключаться не к чему"))
@@ -571,10 +605,21 @@ class DPpassVpnService : VpnService() {
                     core.log.info("adaptive_probe_skipped", "profile" to Safe(profileId.value), "reason" to Safe("measurement"))
                     continue
                 }
+                // Сети нет (D-113): проба мерила бы её отсутствие, а не сервер. Туннель держим, сервер не трогаем;
+                // сеть вернётся — колбэк сети запустит восстановление.
+                if (!networkUp()) {
+                    core.log.info("adaptive_probe_skipped", "profile" to Safe(profileId.value), "reason" to Safe("network_down"))
+                    continue
+                }
                 val started = Clock.MONOTONIC.nowMillis()
                 val result = withContext(Dispatchers.IO) { engine.probeHealth(ir.dns, probeTimeout) }
                 val elapsed = (Clock.MONOTONIC.nowMillis() - started).coerceAtLeast(1)
                 val failed = result is Outcome.Failure
+                // Сеть пропала, пока шла проба: исход — не про сервер, в модель и в журнал здоровья не идёт (D-113).
+                if (!networkUp()) {
+                    core.log.info("adaptive_probe_discarded", "profile" to Safe(profileId.value), "ok" to !failed, "reason" to Safe("network_down"))
+                    continue
+                }
                 // Замер начался, пока шла проба: её исход — не про сервер, в модель не идёт (T14).
                 if (NetworkCheck.probesQuiet()) {
                     core.log.info("adaptive_probe_discarded", "profile" to Safe(profileId.value), "ok" to !failed, "elapsed_ms" to elapsed)
@@ -643,7 +688,9 @@ class DPpassVpnService : VpnService() {
      */
     private fun onDegraded(core: DPpassCore, profileId: ProfileId, reason: Diagnostic, regime: NetworkAssessment?) {
         val prefs = AppPrefs(this)
-        when (val d = core.degraded(profileId, reason, prefs.selectedServer, prefs.autoSwitch, synchronized(declined) { declined.toSet() }, regime)) {
+        // Автопереключение выключено — сервер сессии закреплён, и замена только вопросом (D-113, D-58).
+        val chosen = pinTarget(core) ?: prefs.selectedServer
+        when (val d = core.degraded(profileId, reason, chosen, prefs.autoSwitch, synchronized(declined) { declined.toSet() }, regime)) {
             is Degradation.Reconnect -> Unit
             is Degradation.Ask -> {
                 val shown = ServerSwitch.ask(this, d)
@@ -735,6 +782,7 @@ class DPpassVpnService : VpnService() {
                 val u = NetworkCheck.underlying(this@DPpassVpnService)
                 val handle = u.network?.networkHandle
                 if (registered && handle == current) return
+                val wasLost = registered && current == null
                 registered = true
                 val from = underlyingType
                 current = handle
@@ -742,6 +790,8 @@ class DPpassVpnService : VpnService() {
                 setUnderlyingNetworks(u.network?.let { arrayOf(it) })
                 DeviceLog.log.info("underlying_network", "state" to Safe(if (handle == null) "lost" else "available"), "type" to u.type)
                 if (handle != null && watch.onNetwork(handle)) onNetworkChanged(watch, handle, from, u.type)
+                // Сеть вернулась после пропажи (D-113): сервер не менялся, соединение — восстановить.
+                if (handle != null && wasLost) onNetworkRestored()
             }
 
             override fun onAvailable(network: Network) = update()
@@ -758,6 +808,99 @@ class DPpassVpnService : VpnService() {
             // Слишком много колбэков у процесса или нет разрешения — туннель работает и без этого.
             DeviceLog.log.diagnostic(Diagnostic.fromThrowable(DiagCode.INTERNAL_ERROR, "сеть под туннелем не отслеживается", e))
         }
+    }
+
+    /** Есть ли сеть под туннелем (D-113); через устройство раздачи (D-55) путь свой — считаем, что есть. */
+    private fun networkUp(): Boolean = viaRelay || NetworkCheck.underlying(this).network != null
+
+    /**
+     * Сервер, который сессия обязана держать (D-113): автопереключение выключено —
+     * выбранный пользователем, а в режиме «Автоматически» — тот, к которому
+     * подключились. null — переключение разрешено (тумблер включён) или держать
+     * пока нечего. Выбор, которого нет в конфигурации (подписка обновилась),
+     * не действует — как на экране серверов.
+     */
+    private fun pinTarget(core: DPpassCore): ProfileId? {
+        val prefs = AppPrefs(this)
+        if (prefs.autoSwitch) return null
+        val present = core.activation.state.activeConfig?.profiles?.map { it.id }.orEmpty()
+        return prefs.selectedServer?.takeIf { it in present } ?: pinned?.takeIf { it in present }
+    }
+
+    private fun cancelRecovery() {
+        recovery?.cancel()
+        recovery = null
+    }
+
+    /** Сеть вернулась (D-113): подождать, пока она устоится, и переподключиться к тому же серверу. */
+    private fun onNetworkRestored() {
+        val core = AppGraph.core(this)
+        core.log.info("network_restored")
+        startRecovery(core, null)
+    }
+
+    /**
+     * Восстановление соединения (D-113): ждёт сеть, переподключает — к тому же
+     * серверу при выключенном автопереключении, с растущей паузой
+     * ([Recovery]). Сервер молча не меняется; не вышло за [Recovery.NOTIFY_AFTER]
+     * попыток при живой сети — уведомление с причиной и предложением сменить
+     * сервер, решение за пользователем. VPN не отключается: TUN остаётся (D-111).
+     * Пока сеть пропала, попытки не делаются и отказов в журнал здоровья не пишут.
+     */
+    private fun startRecovery(core: DPpassCore, first: Diagnostic?) {
+        if (recovery?.isActive == true) return
+        recovery = scope.launch {
+            var failure = first
+            var failedAttempts = 0
+            // Сеть вернулась при поднятом туннеле — переподключаемся сразу; после отказа — по паузе.
+            var settle = first == null
+            var waiting = false
+            while (isActive) {
+                if (!networkUp()) {
+                    if (!waiting) core.log.info("recovery_waiting_network")
+                    waiting = true
+                    delay(Recovery.NETWORK_POLL_MILLIS)
+                    continue
+                }
+                waiting = false
+                delay(if (settle) Recovery.SETTLE_MILLIS else Recovery.delayMillis(failedAttempts))
+                settle = false
+                // Сеть успела пропасть за паузу — снова ждать её, а не пробовать вхолостую.
+                if (!networkUp()) continue
+                core.log.info("recovery_attempt", "n" to failedAttempts + 1)
+                restarts.incrementAndGet()
+                restart()
+                while (isActive && TunnelState.status.value is TunnelStatus.Connecting) delay(Recovery.STATUS_POLL_MILLIS)
+                val status = TunnelState.status.value
+                if (status is TunnelStatus.Connected) {
+                    core.log.info("recovery_done", "attempts" to failedAttempts + 1)
+                    ServerSwitch.clear(this@DPpassVpnService)
+                    return@launch
+                }
+                // Остановлено или сервис ушёл (нет TUN) — восстанавливать нечего.
+                if (status !is TunnelStatus.Failed || !status.trafficBlocked) return@launch
+                failure = status.reason
+                if (networkUp()) failedAttempts++
+                if (failedAttempts == Recovery.NOTIFY_AFTER) offerChange(core, failure)
+            }
+        }
+    }
+
+    /**
+     * Соединиться не удаётся, а сеть есть (D-113): сообщить причину. Автопереключение
+     * выключено — сервер не меняется, предлагается замена с кнопками «Перейти» и
+     * «Остаться»; замены нет или о ней уже ответили «Остаться» — просто сообщение.
+     */
+    private fun offerChange(core: DPpassCore, reason: Diagnostic) {
+        val ir = core.activation.state.activeConfig
+        val from = pinTarget(core)?.let { id -> ir?.profiles?.firstOrNull { it.id == id } }
+        val to = from?.let { core.alternativeTo(it.id, sessionRegime) }
+        val shown = if (from != null && to != null && from.id !in synchronized(declined) { declined.toSet() }) {
+            ServerSwitch.ask(this, Degradation.Ask(from, to, reason), unreachable = true)
+        } else {
+            ServerSwitch.unreachable(this, from, reason)
+        }
+        core.log.info("server_unreachable_notified", "profile" to Safe(from?.id?.value ?: "-"), "offer" to (to != null), "notification" to shown)
     }
 
     /**
@@ -1018,6 +1161,7 @@ class DPpassVpnService : VpnService() {
         const val ACTION_SWITCH: String = "com.dpsmpx.dppass.action.SWITCH_SERVER"
         const val ACTION_KEEP: String = "com.dpsmpx.dppass.action.KEEP_SERVER"
         private const val EXTRA_PROFILE = "profile"
+        private const val EXTRA_BY_USER = "by_user"
         private const val CHANNEL = "tunnel"
         private const val NOTIFICATION_ID = 1
         private const val PROBE_MARGIN_MILLIS = 2_000L
@@ -1049,8 +1193,9 @@ class DPpassVpnService : VpnService() {
             context.startService(Intent(context, DPpassVpnService::class.java).setAction(ACTION_STOP))
         }
 
-        fun reconnect(context: Context) {
-            context.startForegroundService(Intent(context, DPpassVpnService::class.java).setAction(ACTION_RECONNECT))
+        /** [byUser] — выбор пользователя (сервер, «Автоматически»): закрепление сервера (D-113) сбрасывается. */
+        fun reconnect(context: Context, byUser: Boolean = false) {
+            context.startForegroundService(Intent(context, DPpassVpnService::class.java).setAction(ACTION_RECONNECT).putExtra(EXTRA_BY_USER, byUser))
         }
 
         /** Ответ «Перейти» (D-58): [to] становится выбранным сервером. */

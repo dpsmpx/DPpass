@@ -161,7 +161,7 @@
     <string name="settings_always_on">Постоянный VPN</string>
     <string name="settings_always_on_note">В настройках Android: VPN → %1$s → Постоянный VPN. Он же запускает приложение после перезагрузки.</string>
     <string name="settings_auto_switch">Автопереключение сервера</string>
-    <string name="settings_auto_switch_note">Если выбранный сервер перестал отвечать, DPpass сам перейдёт на другой и сообщит. Выключено — спросит в уведомлении.</string>
+    <string name="settings_auto_switch_note">Если выбранный сервер перестал отвечать, DPpass сам перейдёт на другой и сообщит. Выключено — сервер не меняется сам, ни при пропаже сети, ни при сбое: DPpass держит VPN, восстанавливает соединение с тем же сервером и предлагает сменить его в уведомлении.</string>
     <string name="settings_check_on_change">Проверять сеть при её смене</string>
     <string name="settings_split_hello">Разбивать начало соединения</string>
     <string name="settings_split_sites">Сайты напрямую с разбиением</string>
@@ -270,6 +270,10 @@
     <string name="action_switch">Перейти</string>
     <string name="action_switch_to">Перейти на «%1$s»</string>
     <string name="action_keep">Остаться</string>
+    <string name="switch_unreachable_title">Нет соединения с сервером</string>
+    <string name="switch_unreachable_ask_text">«%1$s»: %2$s. Автопереключение выключено — сервер сам не сменится. Перейти на «%3$s»?</string>
+    <string name="switch_unreachable_text">«%1$s»: %2$s. Автопереключение выключено — сервер сам не сменится, DPpass продолжает попытки.</string>
+    <string name="switch_unreachable_text_any">Не удаётся подключиться: %1$s. DPpass продолжает попытки.</string>
 
     <string name="netcheck_title">Проверка сети</string>
     <string name="netcheck_settings_note">Что сеть пропускает сейчас</string>

@@ -162,7 +162,7 @@
     <string name="settings_always_on">Always-on VPN</string>
     <string name="settings_always_on_note">In Android settings: VPN → %1$s → Always-on. It also starts the app after a reboot.</string>
     <string name="settings_auto_switch">Auto-switch server</string>
-    <string name="settings_auto_switch_note">If the chosen server stops responding, DPpass switches to another one and tells you. Off — it asks in a notification.</string>
+    <string name="settings_auto_switch_note">If the chosen server stops responding, DPpass switches to another one and tells you. Off — the server never changes by itself, neither when the network drops nor on failure: DPpass keeps the VPN, restores the connection to the same server and offers to switch in a notification.</string>
     <string name="settings_check_on_change">Check the network when it changes</string>
     <string name="settings_split_hello">Split the connection start</string>
     <string name="settings_split_sites">Sites directly with splitting</string>
@@ -271,6 +271,10 @@
     <string name="action_switch">Switch</string>
     <string name="action_switch_to">Switch to “%1$s”</string>
     <string name="action_keep">Stay</string>
+    <string name="switch_unreachable_title">No connection to the server</string>
+    <string name="switch_unreachable_ask_text">“%1$s”: %2$s. Auto-switch is off — the server will not change by itself. Switch to “%3$s”?</string>
+    <string name="switch_unreachable_text">“%1$s”: %2$s. Auto-switch is off — the server will not change by itself, DPpass keeps trying.</string>
+    <string name="switch_unreachable_text_any">Cannot connect: %1$s. DPpass keeps trying.</string>
 
     <string name="netcheck_title">Network check</string>
     <string name="netcheck_settings_note">What the network lets through right now</string>

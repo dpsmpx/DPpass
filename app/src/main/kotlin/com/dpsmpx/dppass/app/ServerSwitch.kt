@@ -10,6 +10,7 @@ import android.graphics.drawable.Icon
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.ui.Avatar
 import com.dpsmpx.dppass.app.ui.Ui
+import com.dpsmpx.dppass.config.ServerProfile
 import com.dpsmpx.dppass.connection.Degradation
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 
@@ -26,12 +27,20 @@ internal object ServerSwitch {
     private const val CHANNEL = "server_switch"
     private const val NOTIFICATION_ID = 2
 
-    /** Спросить, перейти ли с [Degradation.Ask.from] на [Degradation.Ask.to]; повтор не звучит заново. */
-    fun ask(context: Context, d: Degradation.Ask): Boolean {
+    /**
+     * Спросить, перейти ли с [Degradation.Ask.from] на [Degradation.Ask.to]; повтор не звучит заново.
+     * [unreachable] — соединиться не удаётся, а сеть есть (D-113): другой заголовок и пояснение, что
+     * сервер сам не сменится.
+     */
+    fun ask(context: Context, d: Degradation.Ask, unreachable: Boolean = false): Boolean {
         val from = Avatar.stripFlag(d.from.name)
         val to = Avatar.stripFlag(d.to.name)
         TunnelState.offer(ServerOffer(d.from.id, from, d.to.id, to, d.reason))
-        val text = context.getString(R.string.switch_ask_text, from, kind(context, d.reason), to)
+        val text = if (unreachable) {
+            context.getString(R.string.switch_unreachable_ask_text, from, kind(context, d.reason), to)
+        } else {
+            context.getString(R.string.switch_ask_text, from, kind(context, d.reason), to)
+        }
         val switch = PendingIntent.getForegroundService(
             context,
             REQUEST_SWITCH,
@@ -44,7 +53,7 @@ internal object ServerSwitch {
             DPpassVpnService.keepIntent(context, d.from.id),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val n = builder(context, R.string.switch_title, text, d.reason)
+        val n = builder(context, if (unreachable) R.string.switch_unreachable_title else R.string.switch_title, text, d.reason)
             .addAction(
                 Notification.Action.Builder(Icon.createWithResource(context, R.drawable.ic_bolt), context.getString(R.string.action_switch), switch).build(),
             )
@@ -55,6 +64,20 @@ internal object ServerSwitch {
             .setDeleteIntent(keep)
             .build()
         return post(context, n)
+    }
+
+    /**
+     * Соединиться не удаётся, а сеть есть (D-113), и предложить нечего: сообщить причину.
+     * Сервер не меняется; DPpass продолжает попытки. [from] — null, если сервер не закреплён.
+     */
+    fun unreachable(context: Context, from: ServerProfile?, reason: Diagnostic): Boolean {
+        TunnelState.offer(null)
+        val text = if (from == null) {
+            context.getString(R.string.switch_unreachable_text_any, kind(context, reason))
+        } else {
+            context.getString(R.string.switch_unreachable_text, Avatar.stripFlag(from.name), kind(context, reason))
+        }
+        return post(context, builder(context, R.string.switch_unreachable_title, text, reason).build())
     }
 
     /** Автопереключение (D-58): сообщить, с какого сервера на какой и почему. */
