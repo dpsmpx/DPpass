@@ -22,6 +22,7 @@ import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Secret
 import com.dpsmpx.dppass.engine.CompilePlan
 import com.dpsmpx.dppass.engine.CompiledConfig
+import com.dpsmpx.dppass.engine.DesyncTrick
 import com.dpsmpx.dppass.engine.LocalProxySpec
 import com.dpsmpx.dppass.engine.ServerlessPlan
 import com.dpsmpx.dppass.engine.ShareSpec
@@ -835,6 +836,41 @@ class XrayCompilerTest {
         val plain = payload(multi)
         assertTrue(plain["outbounds"].items.none { it["tag"].text == XrayBackend.TAG_SPLIT })
         assertNull((outbound(plain, "proxy")["streamSettings"] as JsonObject)["sockopt"])
+    }
+
+    @Test
+    fun experimentDialsTheServerThroughATaggedPlainDirectOutboundOnlyWhenAsked() {
+        // D-116: приём эксперимента — только в плане попытки замера; мост узнаёт исходящий по тегу.
+        val multi = corpus("valid-multi.json")
+        for ((i, p) in multi.profiles.withIndex()) {
+            for (trick in listOf(DesyncTrick.Disorder, DesyncTrick.Fake(5))) {
+                val r = XrayCompiler().compile(multi, CompilePlan(p.id, false, desync = trick))
+                val doc = Json.parse(r.valueOrNull()!!.payloadForEngine()) as JsonObject
+                val dialer = outbound(doc, "proxy")["streamSettings"]?.let { (it as JsonObject)["sockopt"] }?.let { it["dialerProxy"].text }
+                val exp = doc["outbounds"].items.filter { it["tag"].text.startsWith(XrayBackend.TAG_EXPERIMENT_PREFIX) }
+                val tcpTls = p.protocol !is ProtocolSpec.Hysteria2 && p.security !is SecuritySpec.None
+                if (tcpTls) {
+                    val tag = "dppass:exp-" + if (trick is DesyncTrick.Fake) "fake-5" else "disorder"
+                    assertEquals(tag, dialer, p.id.value)
+                    assertEquals(tag, exp.single()["tag"].text)
+                    assertEquals("freedom", exp.single()["protocol"].text)
+                    // Разбивки у выхода эксперимента нет: она порезала бы первую запись, и имени в ней мост не нашёл бы.
+                    assertNull((exp.single() as JsonObject)["settings"])
+                } else {
+                    assertNull(dialer, p.id.value)
+                    assertTrue(exp.isEmpty(), p.id.value)
+                    assertEquals("$.profiles[$i]", r.diagnostics.single { it.code == DiagCode.CLIENT_HELLO_SPLIT_NOT_APPLIED }.path)
+                }
+            }
+        }
+        // Обычный план — ни выхода эксперимента, ни dialerProxy (D-116: только замер).
+        val plain = payload(multi)
+        assertTrue(plain["outbounds"].items.none { it["tag"].text.startsWith(XrayBackend.TAG_EXPERIMENT_PREFIX) })
+        // Эксперимент и разбиение D-68 — разные варианты замера: вместе — отказ, а не одно молча.
+        val both = XrayCompiler().compile(multi, CompilePlan(multi.profiles.first().id, false, splitClientHello = true, desync = DesyncTrick.Disorder))
+        assertTrue(both is Outcome.Failure)
+        assertFailsWith<IllegalArgumentException> { DesyncTrick.Fake(0) }
+        assertFailsWith<IllegalArgumentException> { DesyncTrick.Fake(65) }
     }
 
     @Test

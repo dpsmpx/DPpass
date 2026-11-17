@@ -7,6 +7,7 @@ import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Redactor
 import com.dpsmpx.dppass.engine.ConnNetwork
 import com.dpsmpx.dppass.engine.ConnState
+import com.dpsmpx.dppass.engine.DesyncCounters
 import com.dpsmpx.dppass.engine.EngineConnection
 import com.dpsmpx.dppass.engine.EngineConnections
 import com.dpsmpx.dppass.engine.InboundKind
@@ -70,6 +71,9 @@ interface XrayRuntime {
 
     /** Снимок учёта соединений моста (D-106): работает и без запущенного ядра. */
     fun connections(): EngineConnections
+
+    /** Счётчики эксперимента с началом соединения (D-116): с запуска процесса. */
+    fun desyncStats(): DesyncCounters = DesyncCounters(0, 0)
 }
 
 /** Вид кода геоданных; [code] — договор с `bridge.GeoKind` (Go). */
@@ -196,6 +200,8 @@ internal object XrayJni {
     @JvmStatic external fun nativeConnTracking(on: Boolean)
 
     @JvmStatic external fun nativeConnections(): ByteArray
+
+    @JvmStatic external fun nativeDesyncStats(): LongArray?
 
     /**
      * Снимок учёта соединений (D-106): текст UTF-8, строки через перевод
@@ -355,6 +361,8 @@ class JniXrayRuntime private constructor() : XrayRuntime {
     override fun setConnectionTracking(on: Boolean): Unit = XrayJni.nativeConnTracking(on)
 
     override fun connections(): EngineConnections = XrayJni.decodeConnections(XrayJni.nativeConnections())
+
+    override fun desyncStats(): DesyncCounters = XrayJni.nativeDesyncStats()?.let { DesyncCounters(it[0], it[1]) } ?: DesyncCounters(0, 0)
 
     companion object {
         const val LIBRARY: String = "dppassxray"

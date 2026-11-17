@@ -32,7 +32,7 @@ import kotlinx.coroutines.withContext
  * автопереключение сервера (D-58); проверка сети (D-60); напоминание о
  * конце подписки (D-76);
  * раздача другим устройствам (D-51); тема; журнал (D-26) и «О программе»
- * (D-43).
+ * (D-43); эксперимент с началом соединения и его замер А/Б (D-116).
  *
  * Смена политики — новая активация действующих серверов (D-07): при
  * отказе остаётся прежнее, и это видно. Туннель поднят — переподключение.
@@ -395,6 +395,32 @@ class SettingsScreen(host: Host) : Screen(host) {
                         .onClick { host.push(NetworkCheckScreen(host)) },
                     Ui.matchWidth(),
                 )
+                // Эксперимент с началом соединения (D-116): выключен по умолчанию; включён — открывает замер А/Б.
+                addView(Ui.divider(context))
+                addView(
+                    Ui.switchRow(
+                        context,
+                        R.drawable.ic_speed,
+                        context.getString(R.string.desync_switch),
+                        context.getString(R.string.desync_switch_note),
+                        host.prefs.desyncExperiment,
+                    ) {
+                        host.prefs.desyncExperiment = it
+                        host.graph?.core?.log?.info("desync_experiment", "on" to it)
+                        render(status)
+                    },
+                    Ui.matchWidth(),
+                )
+                if (host.prefs.desyncExperiment) {
+                    addView(Ui.divider(context))
+                    addView(
+                        Ui.ListRow(context, R.drawable.ic_speed, context.getString(R.string.desync_title))
+                            .subtitle(context.getString(R.string.desync_settings_note))
+                            .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                            .onClick { host.push(DesyncTrialScreen(host)) },
+                        Ui.matchWidth(),
+                    )
+                }
                 addView(Ui.divider(context))
                 addView(
                     Ui.ListRow(context, R.drawable.ic_file, context.getString(R.string.export_title))

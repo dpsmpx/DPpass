@@ -78,6 +78,15 @@ object XrayBackend {
     const val TAG_SPLIT: String = "${SYSTEM_PREFIX}split"
 
     /**
+     * Исходящий эксперимента с началом соединения (D-116): `freedom`, через
+     * который ядро открывает соединение с сервером (`sockopt.dialerProxy`), как
+     * [TAG_SPLIT]. Мост узнаёт его по тегу и делает приём на первой записи;
+     * дальше — вид приёма (`disorder`, `fake-<ttl>`). Договор с
+     * `expTagPrefix` моста (`tools/xray/bridge/desync.go`).
+     */
+    const val TAG_EXPERIMENT_PREFIX: String = "${SYSTEM_PREFIX}exp-"
+
+    /**
      * Прямой выход к сайтам списка «Напрямую с разбиением» (D-72): `freedom`
      * с той же разбивкой начала TLS, что [TAG_SPLIT], и с резолвом имени, как
      * у [TAG_DIRECT].

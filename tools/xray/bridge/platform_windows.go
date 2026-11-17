@@ -31,6 +31,10 @@ func checkTun(_ *tunInbound, tun Tun, p Protector) error {
 // installHook: своего хука на Windows нет.
 func installHook() error { return nil }
 
+// DesyncStats: эксперимента с началом соединения (D-116) на Windows нет —
+// он на vmsplice и splice Linux; компилятор его там не собирает.
+func DesyncStats() (applied, skipped int64) { return 0, 0 }
+
 func attachTun(Tun) (int, error) { return -1, nil }
 
 func detachTun(int, Tun) {}

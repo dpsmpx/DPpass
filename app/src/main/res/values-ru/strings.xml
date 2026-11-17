@@ -812,4 +812,28 @@
     <string name="status_blocked">Трафик заблокирован</string>
     <string name="vpn_blocked_note">Трафик остаётся заблокированным. Отключите VPN или выберите другой сервер.</string>
     <string name="vpn_failed_blocked">%1$s\nТрафик остаётся заблокированным. Отключите VPN или выберите другой сервер.</string>
+
+    <!-- Эксперимент с началом соединения (D-116) -->
+    <string name="desync_switch">Эксперимент: подделка и перестановка</string>
+    <string name="desync_switch_note">Только для замера А/Б к своему серверу. Обычное подключение не меняется. По умолчанию выключено.</string>
+    <string name="desync_title">Замер А/Б</string>
+    <string name="desync_settings_note">Приёмы к началу соединения против DPI: замер, а не функция</string>
+    <string name="desync_intro">DPpass раз за разом подключается к выбранному серверу без VPN: без приёма, с разбиением ClientHello, с перестановкой (начало уходит с TTL 1) и с подделкой начала для каждого TTL из диапазона. Варианты — вперемешку, каждый заданное число раз, с паузой 3 с. Итог — наблюдение для этой сети на сегодня, а не обещание, что что-то работает.</string>
+    <string name="desync_warning">Подделка с TTL больше расстояния до сервера доходит до сервера и рвёт соединение — рост отказов при большом TTL ожидаем. Соединения — только с вашим сервером. Сначала выключите VPN.</string>
+    <string name="desync_ttl_from">TTL подделки от</string>
+    <string name="desync_ttl_to">TTL подделки до</string>
+    <string name="desync_attempts">Попыток каждого варианта</string>
+    <string name="desync_run">Начать замер</string>
+    <string name="desync_server">Сервер: %1$s</string>
+    <string name="desync_no_server">Серверов нет: сначала добавьте подписку.</string>
+    <string name="desync_needs_vpn_off">Выключите VPN: замер сам запускает ядро, без VPN.</string>
+    <string name="desync_progress">Попытка %1$d из %2$d…</string>
+    <string name="desync_failed">Замер не начат</string>
+    <string name="desync_variant_plain">Без приёма</string>
+    <string name="desync_variant_split">Разбиение ClientHello</string>
+    <string name="desync_variant_disorder">Перестановка (TTL 1)</string>
+    <string name="desync_variant_fake">Подделка, TTL %1$s</string>
+    <string name="desync_ok">прошло %1$d из %2$d</string>
+    <string name="desync_median">медиана %1$d мс</string>
+    <string name="desync_not_applied">без приёма %1$d×</string>
 </resources>

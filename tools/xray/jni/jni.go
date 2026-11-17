@@ -253,6 +253,15 @@ func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeTraffic(env *C.JNIEnv, _ C
 	return C.dppass_new_longs(env, C.jlong(up), C.jlong(down))
 }
 
+// Эксперимент с началом соединения (D-116): сколько соединений получили приём
+// и сколько ушли как есть, с запуска процесса.
+//
+//export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeDesyncStats
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeDesyncStats(env *C.JNIEnv, _ C.jclass) C.jlongArray {
+	applied, skipped := bridge.DesyncStats()
+	return C.dppass_new_longs(env, C.jlong(applied), C.jlong(skipped))
+}
+
 //export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeProbeDns
 func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeProbeDns(env *C.JNIEnv, _ C.jclass, target C.jbyteArray, timeoutMillis C.jint) C.jbyteArray {
 	r := bridge.ProbeDNS(string(bytesOf(env, target)), time.Duration(timeoutMillis)*time.Millisecond)

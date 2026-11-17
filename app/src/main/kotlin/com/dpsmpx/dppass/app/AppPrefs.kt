@@ -49,6 +49,16 @@ class AppPrefs(context: Context) {
         }
 
     /**
+     * Эксперимент с началом соединения (D-116): открывает в «Настройках»
+     * замер А/Б. Выключен по умолчанию; обычное подключение он не меняет.
+     */
+    var desyncExperiment: Boolean
+        get() = prefs.getBoolean(DESYNC_EXPERIMENT, false)
+        set(value) {
+            prefs.edit().putBoolean(DESYNC_EXPERIMENT, value).apply()
+        }
+
+    /**
      * «Проверять сеть при её смене» (D-67): пока туннель поднят, после смены
      * сети DPpass сам проверяет новую. Включено по умолчанию — выбор автора
      * 18.10.2026; выключено — только по кнопке, как D-60.
@@ -145,6 +155,7 @@ class AppPrefs(context: Context) {
         const val TAB = "tab"
         const val RELAY = "selected_relay"
         const val AUTO_SWITCH = "auto_switch"
+        const val DESYNC_EXPERIMENT = "desync_experiment"
         const val CHECK_ON_CHANGE = "check_on_network_change"
         const val SPLIT_CLIENT_HELLO = "split_client_hello"
         const val SPLIT_SITES = "split_sites"

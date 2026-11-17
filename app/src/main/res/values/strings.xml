@@ -783,4 +783,28 @@
     <string name="status_blocked">Traffic blocked</string>
     <string name="vpn_blocked_note">Traffic remains blocked. Disconnect the VPN or choose another server.</string>
     <string name="vpn_failed_blocked">%1$s\nTraffic remains blocked. Disconnect the VPN or choose another server.</string>
+
+    <!-- Эксперимент с началом соединения (D-116) -->
+    <string name="desync_switch">Experiment: fake packets and reordering</string>
+    <string name="desync_switch_note">Only for an A/B measurement to your own server. Normal connections are not affected. Off by default.</string>
+    <string name="desync_title">A/B measurement</string>
+    <string name="desync_settings_note">Connection start tricks against DPI: a measurement, not a feature</string>
+    <string name="desync_intro">DPpass connects to your selected server again and again without VPN: with no trick, with ClientHello splitting, with reordering (the start goes with TTL 1) and with a fake start for every TTL in the range. Variants go in random order, each the given number of times, with a 3 s pause. The result is an observation for this network today, not a promise that anything works.</string>
+    <string name="desync_warning">A fake with a TTL larger than the distance to the server reaches the server and breaks the connection — more failures at higher TTL are expected. Only your own server is contacted. Turn VPN off first.</string>
+    <string name="desync_ttl_from">Fake TTL from</string>
+    <string name="desync_ttl_to">Fake TTL to</string>
+    <string name="desync_attempts">Attempts per variant</string>
+    <string name="desync_run">Start measurement</string>
+    <string name="desync_server">Server: %1$s</string>
+    <string name="desync_no_server">No servers: add a subscription first.</string>
+    <string name="desync_needs_vpn_off">Turn VPN off: the measurement starts the core itself, without VPN.</string>
+    <string name="desync_progress">Attempt %1$d of %2$d…</string>
+    <string name="desync_failed">Measurement not started</string>
+    <string name="desync_variant_plain">No trick</string>
+    <string name="desync_variant_split">ClientHello splitting</string>
+    <string name="desync_variant_disorder">Reordering (TTL 1)</string>
+    <string name="desync_variant_fake">Fake, TTL %1$s</string>
+    <string name="desync_ok">%1$d of %2$d passed</string>
+    <string name="desync_median">median %1$d ms</string>
+    <string name="desync_not_applied">trick not applied %1$d×</string>
 </resources>

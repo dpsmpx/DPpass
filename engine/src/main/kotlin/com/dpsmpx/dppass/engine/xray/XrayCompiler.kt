@@ -27,6 +27,7 @@ import com.dpsmpx.dppass.engine.BackendCompiler
 import com.dpsmpx.dppass.engine.CapabilityChecker
 import com.dpsmpx.dppass.engine.CompilePlan
 import com.dpsmpx.dppass.engine.CompiledConfig
+import com.dpsmpx.dppass.engine.DesyncTrick
 import com.dpsmpx.dppass.engine.EngineCapabilities
 import com.dpsmpx.dppass.engine.LocalProxySpec
 import com.dpsmpx.dppass.engine.ServerlessPlan
@@ -126,6 +127,23 @@ class XrayCompiler(
         val build = Build(problems, geodata, dnsHijackAnyAddress)
 
         // Разбиение ClientHello (D-68): только где он есть и идёт по TCP; иначе — сказать, а не молча (D-05).
+        // Приём эксперимента (D-116) — вместо разбиения: оба сразу мост не сделал бы (разбиение режет
+        // первую запись, и имени в ней уже нет).
+        val desync = plan.desync?.takeIf { splittable(profile) }
+        if (plan.desync != null && desync == null) {
+            problems += Diagnostic.warning(
+                DiagCode.CLIENT_HELLO_SPLIT_NOT_APPLIED,
+                "${XrayBackend.ID} ${XrayBackend.VERSION}: у «${profile.name}» нет TLS поверх TCP — приёму эксперимента не к чему, подключение как есть",
+                "$.profiles[$index]",
+            )
+        }
+        if (plan.desync != null && plan.splitClientHello) {
+            problems += Diagnostic.error(
+                DiagCode.CAPABILITY_FEATURE_UNSUPPORTED,
+                "приём эксперимента (D-116) и разбиение ClientHello (D-68) — разные варианты замера, не вместе",
+                "$.outbounds",
+            )
+        }
         val split = plan.splitClientHello && splittable(profile)
         if (plan.splitClientHello && !split) {
             problems += Diagnostic.warning(
@@ -134,7 +152,13 @@ class XrayCompiler(
                 "$.profiles[$index]",
             )
         }
-        val proxy = build.proxyOutbound(profile, "$.profiles[$index]").let { if (split) viaSplit(it) else it }
+        val proxy = build.proxyOutbound(profile, "$.profiles[$index]").let {
+            when {
+                desync != null -> viaDialer(it, experimentTag(desync))
+                split -> viaSplit(it)
+                else -> it
+            }
+        }
         val dns = build.dns(ir.dns)
         val routing = build.routing(ir, plan.withTun, plan.share, plan.splitSites)
         if (problems.any { it.isError }) return Outcome.Failure(problems)
@@ -150,6 +174,7 @@ class XrayCompiler(
             dnsOutbound().takeIf { plan.withTun },
             build.directShareOutbound(ir.dns.strategy).takeIf { plan.share != null },
             splitOutbound().takeIf { split },
+            desync?.let(::experimentOutbound),
             build.directSplitOutbound(ir.dns.strategy).takeIf { !plan.splitSites.isEmpty },
         )
 
@@ -823,11 +848,27 @@ class XrayCompiler(
         }
 
         /** Исходящий `proxy` открывает соединение с сервером через [splitOutbound] (`sockopt.dialerProxy`). */
-        fun viaSplit(proxy: JsonObject): JsonObject {
+        fun viaSplit(proxy: JsonObject): JsonObject = viaDialer(proxy, XrayBackend.TAG_SPLIT)
+
+        /** Исходящий `proxy` открывает соединение с сервером через исходящий [tag] (`sockopt.dialerProxy`). */
+        fun viaDialer(proxy: JsonObject, tag: String): JsonObject {
             val stream = proxy.fields["streamSettings"] as JsonObject
-            val sockopt = Json.obj("dialerProxy" to Json.str(XrayBackend.TAG_SPLIT))
+            val sockopt = Json.obj("dialerProxy" to Json.str(tag))
             return JsonObject(proxy.fields + ("streamSettings" to JsonObject(stream.fields + ("sockopt" to sockopt))))
         }
+
+        /** Тег исходящего эксперимента (D-116): вид приёма — в теге, его читает мост. */
+        fun experimentTag(t: DesyncTrick): String = XrayBackend.TAG_EXPERIMENT_PREFIX + t.label
+
+        /**
+         * Исходящий эксперимента (D-116): простой `freedom`, как [splitOutbound],
+         * но без разбивки — приём делает мост на первой записи соединения
+         * (`tools/xray/bridge/desync.go`). Имя сервера — как без приёма (D-29).
+         */
+        fun experimentOutbound(t: DesyncTrick): JsonObject = Json.obj(
+            "tag" to Json.str(experimentTag(t)),
+            "protocol" to Json.str("freedom"),
+        )
 
         /**
          * Прямой выход с разбиением ClientHello (D-68, `proxy/freedom`): первая

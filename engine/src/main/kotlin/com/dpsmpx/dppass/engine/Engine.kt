@@ -96,6 +96,8 @@ class CompiledConfig(
  * и есть ли локальный прокси для подключения без VPN ([local], D-95:
  * только без TUN). [systemTun] — TUN, который создаёт само ядро (Windows,
  * D-97): только с [withTun]; без него TUN даёт платформа (fd, D-25).
+ * [desync] — приём эксперимента к началу соединения с сервером (D-116):
+ * только попытки замера А/Б, обычное подключение его не задаёт.
  */
 data class CompilePlan(
     val profileId: ProfileId,
@@ -105,7 +107,40 @@ data class CompilePlan(
     val splitSites: SplitSites = SplitSites.NONE,
     val local: LocalProxySpec? = null,
     val systemTun: SystemTun? = null,
+    val desync: DesyncTrick? = null,
 )
+
+/**
+ * Приём эксперимента к первому ClientHello соединения с сервером (D-116,
+ * `docs/research/FAKE_PACKETS.md`, вариант «а»): только для замера А/Б.
+ */
+sealed interface DesyncTrick {
+    /** Для журнала замера: вид и TTL, без адресов. */
+    val label: String
+
+    /** Перестановка: начало до середины имени — с TTL 1, остальное — как обычно; начало повторит ядро ОС. */
+    data object Disorder : DesyncTrick {
+        override val label: String = "disorder"
+    }
+
+    /** Подделка: начало с подложным именем и TTL [ttl], затем те же номера — настоящие байты. */
+    data class Fake(val ttl: Int) : DesyncTrick {
+        init {
+            require(ttl in MIN_TTL..MAX_TTL) { "TTL подделки — $MIN_TTL…$MAX_TTL" }
+        }
+
+        override val label: String = "fake-$ttl"
+    }
+
+    companion object {
+        /** Пределы TTL подделки — как у моста (`tools/xray/bridge/desync.go`). */
+        const val MIN_TTL: Int = 1
+        const val MAX_TTL: Int = 64
+    }
+}
+
+/** Сколько соединений эксперимента получили приём (D-116) и сколько ушли как есть — с запуска процесса. */
+data class DesyncCounters(val applied: Long, val skipped: Long)
 
 /**
  * TUN, который создаёт и настраивает само ядро (Windows, D-97): адаптер
@@ -441,6 +476,9 @@ interface ProxyEngine {
      * ничего не делает (так у фиктивного ядра).
      */
     fun setConnectionTracking(on: Boolean) {}
+
+    /** Счётчики эксперимента с началом соединения (D-116); null — ядро их не ведёт. */
+    fun desyncCounters(): DesyncCounters? = null
 
     /** Снимок учёта соединений (D-106); null — ядро учёта не умеет или не загружено. */
     fun connections(): EngineConnections? = null

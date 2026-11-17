@@ -58,6 +58,7 @@ import com.dpsmpx.dppass.tunnel.TunnelSpecBuilder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import java.security.SecureRandom
 import java.time.ZoneId
 
 /**
@@ -277,6 +278,13 @@ class DPpassCore(
         val orchestrator = ConnectionOrchestrator(compiler, engine, checker, health, clock, log, policy, stability, assessment ?: regime, splitMemory, pause)
         return orchestrator.connect(ir, plan, tun, share, splitClientHello, splitSites, local, systemTun)
     }
+
+    /**
+     * Замер А/Б эксперимента с началом соединения (D-116): попытки — ядром
+     * без TUN, поэтому только при выключенном туннеле (ядро одно на процесс).
+     * Порядок попыток — криптографическая случайность (D-21).
+     */
+    fun desyncTrial(): DesyncTrial = DesyncTrial(compiler, engine, clock, log, SecureRandom()::nextInt)
 
     /** Наблюдатель сессии (D-44): Android-слой кормит его пробами (D-32). */
     fun supervisor(profileId: ProfileId, assessment: NetworkAssessment?): SessionSupervisor =
