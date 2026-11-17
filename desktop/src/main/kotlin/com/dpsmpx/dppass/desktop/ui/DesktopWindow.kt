@@ -203,6 +203,25 @@ class DesktopWindow(
                         }
                     },
                 )
+                // Эксперимент с началом соединения (D-116, D-117): только Linux — на Windows у моста нет vmsplice.
+                if (graph.host.id == "linux") {
+                    addSeparator()
+                    val trial = JMenuItem("Замер А/Б…").apply {
+                        isEnabled = prefs.desyncExperiment
+                        addActionListener { DesyncTrialDialog(frame, graph, session, prefs, scope).show() }
+                    }
+                    add(
+                        JCheckBoxMenuItem("Эксперимент: подделка и перестановка", prefs.desyncExperiment).apply {
+                            toolTipText = "Только для замера А/Б к своему серверу. Обычное подключение не меняется"
+                            addActionListener {
+                                prefs.desyncExperiment = isSelected
+                                trial.isEnabled = isSelected
+                                graph.core.log.info("desync_experiment", "on" to isSelected)
+                            }
+                        },
+                    )
+                    add(trial)
+                }
             },
         )
         add(

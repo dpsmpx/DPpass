@@ -23,6 +23,7 @@ class DesktopPrefsTest {
         assertFalse(p.splitClientHello, "разбиение ClientHello — выключено (D-68, D-81)")
         assertTrue(p.splitSites().isEmpty, "сайты напрямую с разбиением — пусто (D-72, D-82)")
         assertNull(p.selectedRelay, "устройство раздачи — не выбрано: серверы, как обычно (D-55, D-85)")
+        assertFalse(p.desyncExperiment, "эксперимент с началом соединения — выключен (D-116, D-117)")
     }
 
     @Test
@@ -34,10 +35,12 @@ class DesktopPrefsTest {
             splitClientHello = true
             splitSitesText = "example.com\ngeosite:youtube"
             selectedRelay = "a1b2c3"
+            desyncExperiment = true
         }
         val again = DesktopPrefs(file)
         assertEquals(ProfileId("s1"), again.selectedServer)
         assertTrue(again.autoSwitch)
+        assertTrue(again.desyncExperiment)
         assertFalse(again.checkOnNetworkChange)
         assertTrue(again.splitClientHello)
         assertEquals(listOf("example.com"), again.splitSites().domains, "многострочный список переживает перезапуск")
