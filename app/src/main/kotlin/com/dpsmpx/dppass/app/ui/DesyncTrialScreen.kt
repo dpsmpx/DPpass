@@ -31,9 +31,9 @@ import kotlinx.coroutines.withContext
  * одной сети на дату, а не обещание (D-13).
  */
 class DesyncTrialScreen(host: Host) : SubScreen(host, R.string.desync_title) {
-    private val ttlFrom: EditText = Ui.field(context, R.string.desync_ttl_from, InputType.TYPE_CLASS_NUMBER).apply { setText(DEFAULTS.ttlFrom.toString()) }
-    private val ttlTo: EditText = Ui.field(context, R.string.desync_ttl_to, InputType.TYPE_CLASS_NUMBER).apply { setText(DEFAULTS.ttlTo.toString()) }
-    private val attempts: EditText = Ui.field(context, R.string.desync_attempts, InputType.TYPE_CLASS_NUMBER).apply { setText(DEFAULTS.attempts.toString()) }
+    private val ttlFrom: EditText = Ui.field(context, R.string.desync_ttl_from, InputType.TYPE_CLASS_NUMBER).apply { setText(number(DEFAULTS.ttlFrom)) }
+    private val ttlTo: EditText = Ui.field(context, R.string.desync_ttl_to, InputType.TYPE_CLASS_NUMBER).apply { setText(number(DEFAULTS.ttlTo)) }
+    private val attempts: EditText = Ui.field(context, R.string.desync_attempts, InputType.TYPE_CLASS_NUMBER).apply { setText(number(DEFAULTS.attempts)) }
     private val run: Button = Ui.button(context, R.string.desync_run, Ui.Style.PRIMARY, R.drawable.ic_speed)
     private val hint = Ui.text(context, R.style.Text_DPpass_Caption)
     private val progress = Ui.text(context, R.style.Text_DPpass_Secondary).apply { visibility = View.GONE }
@@ -79,6 +79,9 @@ class DesyncTrialScreen(host: Host) : SubScreen(host, R.string.desync_title) {
         job?.cancel()
         job = null
     }
+
+    /** Число для поля ввода — по локали интерфейса (Lint SetTextI18n). */
+    private fun number(v: Int): String = String.format(context.resources.configuration.locales[0], "%d", v)
 
     private fun serverName(): String? {
         val ir = host.graph?.core?.activation?.state?.activeConfig ?: return null
