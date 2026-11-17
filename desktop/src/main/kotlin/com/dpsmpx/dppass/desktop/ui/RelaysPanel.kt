@@ -184,7 +184,7 @@ class RelaysPanel(
         prefs.selectedRelay = id
         graph.core.log.info("relay_selected", "on" to (id != null))
         when (session.status.value) {
-            is SessionStatus.Connected -> session.reconnectIfConnected()
+            is SessionStatus.Connected, is SessionStatus.Blocked -> session.reconnectIfConnected()
             is SessionStatus.Connecting, SessionStatus.Disconnecting -> Unit
             else -> if (id != null) session.connect(prefs.selectedServer)
         }

@@ -33,6 +33,7 @@ class SessionWatchTest {
     private val declined = mutableSetOf<ProfileId>()
     private var monotonic = 0L
     private var quiet = false
+    private var network = true
 
     private val first: ProfileId by lazy {
         runBlocking {
@@ -55,7 +56,8 @@ class SessionWatchTest {
         )
     }
 
-    private fun watch(fails: (Int) -> Boolean): Pair<SessionWatch, () -> Int> {
+    /** [dropNetwork] — на каждую пробу пропадает сеть ПК (D-115). */
+    private fun watch(dropNetwork: Boolean = false, fails: (Int) -> Boolean): Pair<SessionWatch, () -> Int> {
         var n = 0
         val w = SessionWatch(
             core,
@@ -63,6 +65,7 @@ class SessionWatchTest {
             core.activation.state.activeConfig!!.profiles.first(),
             {
                 val i = n++
+                if (dropNetwork) network = false
                 // Проба шла 200 мс; отказ — как у Android: «ни байта» за срок.
                 monotonic += 200
                 if (fails(i)) Outcome.failure(DiagCode.ENDPOINT_UNREACHABLE, "через сервер профиля за 8000 мс не пришло ни байта") else Outcome.Success(Unit)
@@ -72,6 +75,7 @@ class SessionWatchTest {
             { declined.toSet() },
             quiet = { quiet },
             monotonic = { monotonic },
+            networkUp = { network },
         )
         return w to { n }
     }
@@ -140,5 +144,49 @@ class SessionWatchTest {
         preferred = first
         declined += first
         assertIs<Degradation.Reconnect>(assertNotNull(until(watch { true }.first, 20)))
+    }
+
+    @Test
+    fun networkLossEndsTheWatchWithoutBlamingTheServer() {
+        // D-115: сеть ПК пропала — не сбой сервера; наблюдатель замечает это за опрос сети, без пробы.
+        preferred = first
+        val (w, probes) = watch { true }
+        network = false
+        var slept = 0L
+        val end = runBlocking {
+            w.run {
+                slept += it
+                clock.advance(it)
+            }
+        }
+        assertEquals(SessionWatch.End.NetworkLost, end)
+        assertEquals(SessionWatch.NETWORK_POLL_MILLIS, slept, "пропажа видна за опрос сети, а не за интервал пробы")
+        assertEquals(0, probes())
+        assertNull(core.health.of(first).lastFailure, "пропажа сети в журнал здоровья не идёт")
+    }
+
+    @Test
+    fun probeDuringWhichNetworkVanishedIsDiscarded() {
+        // Сеть пропадает на каждой пробе: их исход — про сеть, а не про сервер (D-115), и вопроса о замене нет.
+        preferred = first
+        val (w, probes) = watch(dropNetwork = true) { true }
+        repeat(20) {
+            network = true
+            clock.advance(SessionWatch.INTERVAL_MILLIS)
+            assertNull(w.step())
+        }
+        assertEquals(20, probes())
+        val events = (core.logSink as LogHistory).snapshot()
+        assertTrue(events.none { it.event == "adaptive_probe_failed" })
+        assertTrue(events.any { it.event == "adaptive_probe_discarded" && it.fields["reason"] == "network_down" })
+        assertNull(core.health.of(first).lastFailure)
+    }
+
+    @Test
+    fun noProbeWhileTheNetworkIsDown() {
+        val (w, probes) = watch { true }
+        network = false
+        repeat(10) { assertNull(w.step()) }
+        assertEquals(0, probes())
     }
 }
