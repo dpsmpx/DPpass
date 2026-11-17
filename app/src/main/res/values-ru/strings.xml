@@ -833,7 +833,7 @@
     <string name="desync_variant_split">Разбиение ClientHello</string>
     <string name="desync_variant_disorder">Перестановка (TTL 1)</string>
     <string name="desync_variant_fake">Подделка, TTL %1$s</string>
-    <string name="desync_ok">прошло %1$d из %2$d</string>
+    <string name="desync_ok">Прошло: %1$d/%2$d</string>
     <string name="desync_median">медиана %1$d мс</string>
     <string name="desync_not_applied">без приёма %1$d×</string>
 </resources>
