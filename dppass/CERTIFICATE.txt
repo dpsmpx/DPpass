@@ -1,5 +1,5 @@
 # Ключ dppass-dev: SHA-256 сертификата — docs/PROVENANCE.md, §7; пакет и ярлык постоянны (D-114).
-# APK не подписаны: подписывает автор (dppass-sign-termux.sh).
+# APK не подписаны: подписывает автор (resign-apk.sh).
 alias: dppass-dev
 certificate-sha256: 807cc957c376a09c9363d99ce05a1f5b9005f213ca3a1923db58b646a761e64f
 package: com.dpsmpx.dppass
