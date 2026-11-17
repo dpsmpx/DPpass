@@ -55,7 +55,7 @@ class SessionRecovery(
      * До восстановления; отмена — отключение или выбор пользователя.
      * [degraded] — наблюдатель уже подтвердил сбой сервера при живой сети
      * (D-58): ядро не справилось, и первая попытка — сразу перезапуск, без
-     * паузы и пробы. null — пропала сеть. [failedBefore] — сколько попыток уже
+     * паузы и пробы (где перезапуска нет — сразу проба). null — пропала сеть. [failedBefore] — сколько попыток уже
      * не удалось до вызова (перезапуск по кнопке только что не вышел): следующая —
      * по расписанию, а не сразу.
      */
@@ -63,7 +63,8 @@ class SessionRecovery(
         var failed = failedBefore
         var down = false
         var settle = degraded == null
-        var skipProbe = degraded != null
+        // Без перезапуска (Windows) попытка — только проба: её не пропускать.
+        var skipProbe = degraded != null && restart != null
         var last: Diagnostic? = degraded
         while (true) {
             if (!networkUp()) {

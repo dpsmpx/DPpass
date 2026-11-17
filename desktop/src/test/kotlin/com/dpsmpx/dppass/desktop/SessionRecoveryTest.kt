@@ -165,6 +165,15 @@ class SessionRecoveryTest {
     }
 
     @Test
+    fun confirmedDegradationOnWindowsProbesAtOnce() {
+        // Без перезапуска ядра попытка — проба; пропустить её значило бы засчитать пустую неудачу.
+        val w = World(restart = null, probe = { Outcome.Success(Unit) })
+        assertTrue(w.run(degraded = Diagnostic.error(DiagCode.HEALTH_CHECK_FAILED, "череда сбоев")))
+        assertEquals(listOf("attempt1@0", "probe@0"), w.calls)
+        assertTrue(w.failures.isEmpty())
+    }
+
+    @Test
     fun restartByButtonThatJustFailedWaitsForTheSchedule() {
         val w = World(restart = { Outcome.Success(Unit) })
         assertTrue(w.run(degraded = Diagnostic.error(DiagCode.HEALTH_CHECK_FAILED, "не вышло по кнопке"), failedBefore = 1))
