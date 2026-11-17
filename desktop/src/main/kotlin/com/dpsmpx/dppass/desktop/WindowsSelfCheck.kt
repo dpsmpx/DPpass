@@ -6,6 +6,9 @@ import com.dpsmpx.dppass.core.JsonString
 import com.dpsmpx.dppass.core.JsonValue
 import java.io.File
 import java.nio.channels.DatagramChannel
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /**
  * Самопроверка комплекта Windows (D-97) для `tools/desktop/windows_package.py`
@@ -16,7 +19,9 @@ import java.nio.channels.DatagramChannel
  * сборка без отказов, DPAPI вернул тот же ключ, сокет канала пробы виден
  * (флаг запуска для проб мимо туннеля, D-99), поиск точки доступа (ICS,
  * D-101) ответил через мост — в Wine её объектов нет, и ответ — отказ, но
- * не падение; сети ПК для устройства раздачи (D-102) разобраны.
+ * не падение; сети ПК для устройства раздачи (D-102) разобраны; русские
+ * названия месяцев есть (`jdk.localedata` в рантайме: без него окно пишет
+ * «1 Nov» вместо «1 нояб.»).
  */
 object WindowsSelfCheck {
     fun run(install: File, data: File, out: File): Boolean {
@@ -38,8 +43,10 @@ object WindowsSelfCheck {
         val relayNets = version?.let {
             WindowsRelayNetworks.parse(WindowsNative.nativeRelayNetworks(WINDOWS_TUN_ALIAS.toByteArray(Charsets.UTF_8)))?.size
         }
+        // Данные локалей (jdk.localedata): окно пишет даты по-русски.
+        val monthRu = DateTimeFormatter.ofPattern("MMM", Locale.forLanguageTag("ru")).format(LocalDate.of(2026, 11, 1))
         val ok = version != null && graph.problems.isEmpty() && dpapi && probeSocket &&
-            share?.startsWith("ics=") == true && relayNets != null
+            share?.startsWith("ics=") == true && relayNets != null && monthRu == MONTH_RU
         val report = linkedMapOf<String, JsonValue>(
             "host" to JsonString(graph.host.id),
             "engine" to (Json.str(version) ?: JsonNull),
@@ -48,6 +55,7 @@ object WindowsSelfCheck {
             "probe_socket" to Json.bool(probeSocket),
             "share" to (Json.str(share) ?: JsonNull),
             "relay_networks" to (relayNets?.let { Json.num(it) } ?: JsonNull),
+            "month_ru" to JsonString(monthRu),
             "tunnel_allowed" to Json.bool(graph.host.tunnelAllowed()),
             "log" to Json.strings(graph.log.snapshot().map { it.render() }),
         )
@@ -56,4 +64,7 @@ object WindowsSelfCheck {
     }
 
     private const val KEY_BYTES = 32
+
+    /** Ноябрь по-русски, сокращённо — как в строке учёта трафика (`UsageText`). */
+    private const val MONTH_RU = "нояб."
 }
