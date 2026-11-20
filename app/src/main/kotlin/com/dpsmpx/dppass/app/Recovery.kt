@@ -7,6 +7,22 @@ package com.dpsmpx.dppass.app
  * Чистая логика — без Android, чтобы расписание проверялось тестом на JVM.
  */
 internal object Recovery {
+    /** Исход попытки восстановления (D-113): не путать успех ядра с появлением сети. */
+    enum class AttemptResult {
+        RESTORED,
+        WAIT_FOR_NETWORK,
+        RETRY,
+        STOP,
+    }
+
+    /** При отсутствии сети успешное подключение не завершает восстановление. Если TUN закрыт, ждать нечего. */
+    fun afterAttempt(connected: Boolean, blockedFailure: Boolean, networkUp: Boolean): AttemptResult = when {
+        !connected && !blockedFailure -> AttemptResult.STOP
+        !networkUp -> AttemptResult.WAIT_FOR_NETWORK
+        connected -> AttemptResult.RESTORED
+        else -> AttemptResult.RETRY
+    }
+
     /** Пауза после возвращения сети: Wi-Fi и мобильная сеть «мигают», переподключаться на первой секунде рано. */
     const val SETTLE_MILLIS = 3_000L
 

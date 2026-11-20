@@ -872,16 +872,29 @@ class DPpassVpnService : VpnService() {
                 restart()
                 while (isActive && TunnelState.status.value is TunnelStatus.Connecting) delay(Recovery.STATUS_POLL_MILLIS)
                 val status = TunnelState.status.value
-                if (status is TunnelStatus.Connected) {
-                    core.log.info("recovery_done", "attempts" to failedAttempts + 1)
-                    ServerSwitch.clear(this@DPpassVpnService)
-                    return@launch
+                val outcome = Recovery.afterAttempt(
+                    connected = status is TunnelStatus.Connected,
+                    blockedFailure = status is TunnelStatus.Failed && status.trafficBlocked,
+                    networkUp = networkUp(),
+                )
+                when (outcome) {
+                    Recovery.AttemptResult.RESTORED -> {
+                        core.log.info("recovery_done", "attempts" to failedAttempts + 1)
+                        ServerSwitch.clear(this@DPpassVpnService)
+                        return@launch
+                    }
+                    // Успех ядра при уже пропавшей сети ещё не означает восстановление (D-113).
+                    Recovery.AttemptResult.WAIT_FOR_NETWORK -> continue
+                    // Остановлено или сервис ушёл (нет TUN) — восстанавливать нечего.
+                    Recovery.AttemptResult.STOP -> return@launch
+                    Recovery.AttemptResult.RETRY -> {
+                        failure = (status as TunnelStatus.Failed).reason
+                        // Потеря сети во время обработки отказа — не ошибка сервера.
+                        if (!networkUp()) continue
+                        failedAttempts++
+                        if (failedAttempts == Recovery.NOTIFY_AFTER) offerChange(core, failure)
+                    }
                 }
-                // Остановлено или сервис ушёл (нет TUN) — восстанавливать нечего.
-                if (status !is TunnelStatus.Failed || !status.trafficBlocked) return@launch
-                failure = status.reason
-                if (networkUp()) failedAttempts++
-                if (failedAttempts == Recovery.NOTIFY_AFTER) offerChange(core, failure)
             }
         }
     }

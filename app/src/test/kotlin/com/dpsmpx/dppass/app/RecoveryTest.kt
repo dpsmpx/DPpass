@@ -14,6 +14,33 @@ class RecoveryTest {
     }
 
     @Test
+    fun successfulRestartWithoutNetworkMustKeepWaiting() {
+        assertEquals(
+            Recovery.AttemptResult.WAIT_FOR_NETWORK,
+            Recovery.afterAttempt(connected = true, blockedFailure = false, networkUp = false),
+            "ядро сообщило Connected, но сеть уже пропала",
+        )
+        assertEquals(
+            Recovery.AttemptResult.RESTORED,
+            Recovery.afterAttempt(connected = true, blockedFailure = false, networkUp = true),
+        )
+        assertEquals(
+            Recovery.AttemptResult.WAIT_FOR_NETWORK,
+            Recovery.afterAttempt(connected = false, blockedFailure = true, networkUp = false),
+            "сбой из-за отсутствия сети не засчитывается серверу",
+        )
+        assertEquals(
+            Recovery.AttemptResult.RETRY,
+            Recovery.afterAttempt(connected = false, blockedFailure = true, networkUp = true),
+        )
+        assertEquals(
+            Recovery.AttemptResult.STOP,
+            Recovery.afterAttempt(connected = false, blockedFailure = false, networkUp = false),
+            "если туннеля больше нет, восстановление заканчивается",
+        )
+    }
+
+    @Test
     fun userIsToldOnlyAfterSeveralFailures() {
         assertTrue(Recovery.NOTIFY_AFTER >= 2, "одна неудача при вернувшейся сети — ещё не повод беспокоить")
         assertTrue(Recovery.SETTLE_MILLIS > 0)
