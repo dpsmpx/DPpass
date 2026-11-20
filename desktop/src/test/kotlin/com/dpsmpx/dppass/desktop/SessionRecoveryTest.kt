@@ -31,6 +31,8 @@ class SessionRecoveryTest {
         val restart: ((Long) -> Outcome<Unit>)? = { fail("сервер не отвечает") },
         /** Сколько идёт перезапуск: подключение с пробой — не мгновенно. */
         val restartMillis: Long = 0,
+        /** Длительность пробы: в этом окне сеть тоже может пропасть. */
+        val probeMillis: Long = 0,
     ) {
         var now = 0L
         val calls = mutableListOf<String>()
@@ -63,7 +65,7 @@ class SessionRecoveryTest {
             { network(now) },
             {
                 calls += "probe@$now"
-                probe(now)
+                probe(now).also { now += probeMillis }
             },
             restart?.let { r ->
                 {
@@ -152,6 +154,42 @@ class SessionRecoveryTest {
         assertEquals(listOf(1), w.failures, "засчитана только попытка при живой сети")
         assertEquals(1, w.waiting)
         assertEquals(1, sink.snapshot().count { it.event == "recovery_failed" })
+    }
+
+    @Test
+    fun successfulProbeDuringNetworkLossDoesNotCompleteRecovery() {
+        // Проба закончилась успехом уже без сети: до её возвращения статус не должен стать Connected.
+        val w = World(
+            network = { it !in 1_000 until 30_000 },
+            probe = { Outcome.Success(Unit) },
+            restart = null,
+            probeMillis = 2_000,
+        )
+        assertTrue(w.run())
+        assertEquals(1, w.waiting)
+        val probes = w.calls.filter { it.startsWith("probe@") }
+        assertEquals(2, probes.size, "первый успех пришёлся на потерю сети, нужна повторная проба")
+        assertTrue(probes[1].substringAfter('@').toLong() >= 33_000L)
+        assertTrue(w.failures.isEmpty(), "потеря сети не засчитывается серверу")
+        assertEquals(1, sink.snapshot().count { it.event == "recovery_done" })
+    }
+
+    @Test
+    fun successfulRestartDuringNetworkLossDoesNotCompleteRecovery() {
+        // Linux: ядро вернуло успех, но сеть исчезла во время запуска; TUN остаётся, ждём сеть.
+        val w = World(
+            network = { it !in 1_000 until 30_000 },
+            probe = { null },
+            restart = { Outcome.Success(Unit) },
+            restartMillis = 2_000,
+        )
+        assertTrue(w.run())
+        assertEquals(1, w.waiting)
+        val restarts = w.calls.filter { it.startsWith("restart@") }
+        assertEquals(2, restarts.size, "первый успех не должен завершать восстановление без сети")
+        assertTrue(restarts[1].substringAfter('@').toLong() >= 33_000L)
+        assertTrue(w.failures.isEmpty())
+        assertEquals(1, sink.snapshot().count { it.event == "recovery_done" })
     }
 
     @Test

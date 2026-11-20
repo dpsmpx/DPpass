@@ -96,19 +96,21 @@ class SessionRecovery(
             log.info("recovery_attempt", "n" to attempt)
             if (!skipProbe) {
                 when (val p = probe()) {
-                    is Outcome.Success -> return done(attempt, "probe")
+                    is Outcome.Success -> if (networkUp()) return done(attempt, "probe")
                     is Outcome.Failure -> last = p.errors.first()
                     null -> Unit
                 }
-                // Сеть пропала во время пробы: исход — про сеть, не про сервер.
+                // Даже успешная проба при уже пропавшей сети не подтверждает восстановление (D-115).
+                // Исход — про сеть, не про сервер.
                 if (!networkUp()) continue
             }
             skipProbe = false
             when (val r = restart?.invoke()) {
-                is Outcome.Success -> return done(attempt, "restart")
+                is Outcome.Success -> if (networkUp()) return done(attempt, "restart")
                 is Outcome.Failure -> last = r.errors.first()
                 null -> Unit
             }
+            // Даже успешный перезапуск не восстанавливает соединение, если сеть пропала во время него.
             if (!networkUp()) continue
             failed++
             val reason = last ?: Diagnostic.error(DiagCode.HEALTH_CHECK_FAILED, "сервер не ответил на пробу через туннель")
