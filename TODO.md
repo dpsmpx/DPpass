@@ -16,11 +16,6 @@ Xray, проверки `check_apk.py` (16 КБ), `code.forbidden`
 геоданных, выпуске по ABI, имени сервера и процессе приняты (D-27…D-30).
 Дальше — работы 5–6:
 
-- [ ] `-checklinkname=0` в сборке для Android (`wlynxg/anet` →
-      `net.zoneCache`, `docs/PROVENANCE.md`): обоснование привязано к версии
-      `anet` — `check_dependencies.py` (`provenance.deps`) краснеет, когда
-      версия в `go.mod` разошлась с PROVENANCE, и заставляет перечитать
-      `//go:linkname` в новой версии при обновлении Go или Xray (D-18).
 - [ ] Подключение через туннель на устройстве. Критерии выхода этапа 2
       закрыты 17 октября 2026 (ниже, «На устройстве»). Сервис туннеля
       (работа 6, D-30): `DPpassVpnService` → `AndroidTunnelProvider.establish` →
