@@ -217,6 +217,27 @@ func TestHttpHostAndQuicInitialRecognized(t *testing.T) {
 	}
 }
 
+func TestFakeQUICInitialPreservesHeaderAndInput(t *testing.T) {
+	initial := make([]byte, 1200)
+	initial[0], initial[4] = 0xc0, 1
+	fake := fakeQUICInitial(initial)
+	if len(fake) != len(initial) || !bytes.Equal(fake[:64], initial[:64]) {
+		t.Fatal("QUIC fake must retain long header and packet size")
+	}
+	if bytes.Equal(fake[64:], initial[64:]) || !isQUICInitial(fake) {
+		t.Fatal("QUIC fake must randomize ciphertext and remain an Initial")
+	}
+	if !bytes.Equal(initial, makeQUICInitialFixture()) {
+		t.Fatal("QUIC fake modified original datagram")
+	}
+}
+
+func makeQUICInitialFixture() []byte {
+	initial := make([]byte, 1200)
+	initial[0], initial[4] = 0xc0, 1
+	return initial
+}
+
 func TestUDPFirstQUICWriteSendsDummyBeforeReal(t *testing.T) {
 	receiver, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127,0,0,1)})
 	if err != nil { t.Fatal(err) }
@@ -235,7 +256,7 @@ func TestUDPFirstQUICWriteSendsDummyBeforeReal(t *testing.T) {
 	for i:=0;i<dummyQuicRepeats;i++ {
 		n, _, e := receiver.ReadFromUDP(buf)
 		if e!=nil { t.Fatalf("fake %d: %v", i,e) }
-		if n!=620 || buf[0]!=0x40 { t.Fatalf("fake %d: size %d first %x",i,n,buf[0]) }
+		if n!=len(initial) || buf[0]!=initial[0] || !bytes.Equal(buf[:5], initial[:5]) { t.Fatalf("fake %d: size %d first %x",i,n,buf[0]) }
 	}
 	n, _, e := receiver.ReadFromUDP(buf)
 	if e != nil || n != 1200 || buf[0] != 0xc0 { t.Fatalf("real: size=%d %v",n,e) }
