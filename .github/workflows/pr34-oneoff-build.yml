@@ -24,14 +24,18 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: tools/xray/go.mod
+      - name: Use direct Gradle distribution URL (same SHA-256)
+        run: sed -i 's@services.gradle.org/distributions@downloads.gradle.org/distributions@' gradle/wrapper/gradle-wrapper.properties
       - name: Install pinned Android SDK, build-tools, NDK
         run: |
           set -e
           export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           export ANDROID_SDK_ROOT="$ANDROID_HOME"
-          sdkmanager --version
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "ndk;30.0.16248370"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --version
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0" "ndk;30.0.16248370"
       - name: Build and verify per-ABI APK (unsigned for developer key)
         run: python3 tools/release/sign_apks.py --unsigned
       - name: Upload Android APK and checksums
@@ -56,6 +60,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: tools/xray/go.mod
+      - name: Use direct Gradle distribution URL (same SHA-256)
+        run: sed -i 's@services.gradle.org/distributions@downloads.gradle.org/distributions@' gradle/wrapper/gradle-wrapper.properties
       - name: Test desktop and create distribution
         run: ./gradlew --no-daemon --console=plain :desktop:test :desktop:distTar
       - name: Create Linux package and checksums
@@ -92,6 +98,8 @@ jobs:
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
             gcc-mingw-w64-x86-64-posix binutils-mingw-w64-x86-64 wine64
+      - name: Use direct Gradle distribution URL (same SHA-256)
+        run: sed -i 's@services.gradle.org/distributions@downloads.gradle.org/distributions@' gradle/wrapper/gradle-wrapper.properties
       - name: Build and check Windows distribution
         run: python3 tools/desktop/windows_package.py --require-tests
       - name: Upload Windows ZIP and checksum
