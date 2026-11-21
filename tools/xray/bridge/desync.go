@@ -172,6 +172,7 @@ type desyncConn struct {
 	*net.TCPConn
 	mode  desyncMode
 	first sync.Once
+	plannerErr error
 }
 
 func (c *desyncConn) Write(b []byte) (int, error) {
@@ -185,57 +186,69 @@ func (c *desyncConn) Write(b []byte) (int, error) {
 	if done {
 		return n, err
 	}
+	if c.plannerErr != nil { return 0, c.plannerErr }
 	return c.TCPConn.Write(b)
 }
 
 // desyncFirst — первая запись с приёмом; не вышло до отправки хоть байта —
 // запись как есть.
 func (c *desyncConn) desyncFirst(b []byte) (int, error) {
-	// Split the first byte when the TLS ClientHello has no readable SNI
-	// (ECH, IP-only destinations and unsupported ClientHello extensions).
-	// Otherwise fake/disorder/split would silently send this connection
-	// untouched, even though the traffic is HTTPS. This preserves the
-	// original bytes, requires no root, and is not applied to other TCP.
-	if c.mode.kind == desyncSplitFirst {
-		if !isTLSClientHelloPrefix(b) {
-			desyncSkipped.Add(1)
-			return c.TCPConn.Write(b)
-		}
-		return c.splitFirstTLS(b)
-	}
-	start, end, ok := firstHostRange(b)
-	if !ok {
-		if isTLSClientHelloPrefix(b) {
-			return c.splitFirstTLS(b)
-		}
-		desyncSkipped.Add(1)
-		return c.TCPConn.Write(b)
-	}
-	cut := start + (end-start)/2
-	var sent int
-	var err error
-	switch c.mode.kind {
-	case desyncDisorder:
-		sent, err = c.lowTTLWrite(b[:cut])
-	case desyncFake:
-		sent, err = c.fakeWrite(b[:cut], fakeChunk(b[:cut], start, end))
-	case desyncSplit:
-		// Две записи на TCP-сокет с TCP_NODELAY по умолчанию в Go.
-		// Без поддельных байтов: безопасный вариант multisplit для сетей,
-		// где малый TTL ломает соединение или не помогает.
-		sent, err = c.TCPConn.Write(b[:cut])
-	}
-	if sent == 0 && err != nil {
-		// Ничего не ушло: приём не удался до отправки — как есть.
-		desyncSkipped.Add(1)
-		return c.TCPConn.Write(b)
-	}
-	if err != nil {
-		return sent, err
-	}
-	desyncApplied.Add(1)
-	m, err := c.TCPConn.Write(b[cut:])
-	return sent + m, err
+    // Strategy logic is owned by the shared Zapret2 planner. With Alpine
+    // selected it runs over an app-private Unix socket; Android only keeps
+    // protected TCP packet transmission and TTL syscalls.
+    plan, err := zapret2.PlanFor(modeTag(c.mode), "tcp", b)
+    if err != nil {
+        // Do not silently pass original TLS if the chosen Alpine daemon dies.
+        c.plannerErr = err
+        return 0, err
+    }
+    if !plan.Applied {
+        desyncSkipped.Add(1)
+        return c.TCPConn.Write(b)
+    }
+    if plan.Cut == 1 {
+        return c.splitFirstTLS(b)
+    }
+    if plan.Cut <= 0 || plan.Cut >= len(b) { 
+        c.plannerErr = errors.New("Alpine planner returned invalid TCP split")
+        return 0, c.plannerErr
+    }
+    var sent int
+    switch c.mode.kind {
+    case desyncDisorder:
+        sent, err = c.lowTTLWrite(b[:plan.Cut])
+    case desyncFake:
+        if len(plan.Fake) != plan.Cut {
+            c.plannerErr = errors.New("Alpine planner returned invalid decoy")
+            return 0, c.plannerErr
+        }
+        sent, err = c.fakeWrite(b[:plan.Cut], plan.Fake)
+    case desyncSplit:
+        sent, err = c.TCPConn.Write(b[:plan.Cut])
+    default:
+        c.plannerErr = errors.New("invalid Zapret2 strategy")
+        return 0, c.plannerErr
+    }
+    if sent == 0 && err != nil {
+        desyncSkipped.Add(1)
+        return c.TCPConn.Write(b)
+    }
+    if err != nil { return sent, err }
+    desyncApplied.Add(1)
+    m, err := c.TCPConn.Write(b[plan.Cut:])
+    return sent+m, err
+}
+
+// modeTag is only an adapter from the existing Xray Kotlin wire contract
+// to the shared Linux/Alpine strategy catalog; it does not choose offsets.
+func modeTag(m desyncMode) string {
+    switch m.kind {
+    case desyncDisorder: return zapret2.TagPrefix + "disorder"
+    case desyncSplit: return zapret2.TagPrefix + "split"
+    case desyncSplitFirst: return zapret2.TagPrefix + "split-1"
+    case desyncFake: return fmt.Sprintf("%sfake-%d", zapret2.TagPrefix, m.ttl)
+    }
+    return zapret2.TagPrefix + "unsupported"
 }
 
 // splitFirstTLS sends an unchanged ClientHello in two TCP writes. It is
@@ -398,60 +411,55 @@ type desyncUDPConn struct {
 	mode desyncMode
 	mu sync.Mutex
 	first bool
+	plannerErr error
 }
 
 const dummyQuicRepeats = 6
 
 func (c *desyncUDPConn) Write(b []byte) (int, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if !c.first {
-		c.first = true
-		if c.mode.kind == desyncFake && isQUICInitial(b) {
-			c.sendLowTTLDummyQUIC(b)
-		} else {
-			desyncSkipped.Add(1)
-		}
-	}
-	return c.UDPConn.Write(b)
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    if c.plannerErr != nil { return 0, c.plannerErr }
+    if !c.first {
+        c.first = true
+        plan, err := zapret2.PlanFor(modeTag(c.mode), "udp", b)
+        if err != nil {
+            c.plannerErr = err
+            return 0, err
+        }
+        if plan.Applied && c.mode.kind == desyncFake {
+            c.sendLowTTLDummyQUIC(plan.Fake, plan.Repeats)
+        } else {
+            desyncSkipped.Add(1)
+        }
+    }
+    return c.UDPConn.Write(b)
 }
 
-func (c *desyncUDPConn) sendLowTTLDummyQUIC(initial []byte) {
-	rc, err := c.SyscallConn()
-	if err != nil {
-		desyncSkipped.Add(1)
-		return
-	}
-	v6 := false
-	if a, ok := c.RemoteAddr().(*net.UDPAddr); ok {
-		v6 = a.IP.To4() == nil
-	}
-	// Preserve the actual QUIC v1/v2 Initial long-header shape so a DPI
-	// classifier sees an Initial rather than a short-header UDP datagram.
-	// Randomize the encrypted body; the original datagram is always sent
-	// unchanged after restoring the socket hop limit. No server keys needed.
-	fake := fakeQUICInitial(initial)
-	restore, err := setTTL(rc, v6, c.mode.ttl)
-	if err != nil {
-		desyncSkipped.Add(1)
-		return
-	}
-	allSent := true
-	for i := 0; i < dummyQuicRepeats; i++ {
-		if n, e := c.UDPConn.Write(fake); e != nil || n != len(fake) {
-			allSent = false
-			break
-		}
-	}
-	if err := restore(); err != nil {
-		allSent = false
-	}
-	if allSent {
-		desyncApplied.Add(1)
-	} else {
-		desyncSkipped.Add(1)
-	}
+func (c *desyncUDPConn) sendLowTTLDummyQUIC(fake []byte, repeats int) {
+    rc, err := c.SyscallConn()
+    if err != nil {
+        desyncSkipped.Add(1)
+        return
+    }
+    v6 := false
+    if a, ok := c.RemoteAddr().(*net.UDPAddr); ok { v6 = a.IP.To4() == nil }
+    restore, err := setTTL(rc, v6, c.mode.ttl)
+    if err != nil {
+        desyncSkipped.Add(1)
+        return
+    }
+    allSent := true
+    for i := 0; i < repeats; i++ {
+        if n, e := c.UDPConn.Write(fake); e != nil || n != len(fake) {
+            allSent = false
+            break
+        }
+    }
+    if err := restore(); err != nil { allSent = false }
+    if allSent { desyncApplied.Add(1) } else { desyncSkipped.Add(1) }
 }
+
 
 // All packet classifiers and decoy constructors are owned by zapret2.
 // Retained package-local names here keep the existing bridge test contract
