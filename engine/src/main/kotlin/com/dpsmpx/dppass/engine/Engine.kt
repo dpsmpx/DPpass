@@ -128,6 +128,11 @@ sealed interface DesyncTrick {
         override val label: String = "split"
     }
 
+    /** TLS ClientHello: отделить самый первый байт, без требования видимого SNI (ECH/частичная инспекция). */
+    data object SplitFirst : DesyncTrick {
+        override val label: String = "split-1"
+    }
+
     /** Подделка: начало с подложным именем и TTL [ttl], затем те же номера — настоящие байты. */
     data class Fake(val ttl: Int) : DesyncTrick {
         init {
@@ -215,6 +220,8 @@ data class ServerlessPlan(
     val desync: DesyncTrick? = null,
     /** Только локальный Android VPN: блокировать UDP 443, чтобы клиент попробовал TCP/TLS. */
     val forceQuicTcp: Boolean = false,
+    /** Локальный Android VPN: без распознанного домена направлять TCP 443 через DPI-dialer. */
+    val catchAllHttps: Boolean = false,
 ) {
     companion object {
         /** Сеанс без сервера в `CompiledConfig.profileId`: не профиль документа — в id профиля нет двоеточий. */
