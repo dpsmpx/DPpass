@@ -204,11 +204,30 @@ class XrayCompiler(
         val dns = build.dns(plan.dns)
         val routing = build.routing(ir, plan.withTun, splitSites = plan.splitSites, splitTag = XrayBackend.TAG_PROXY)
         if (problems.any { it.isError }) return Outcome.Failure(problems)
-        val split = build.directSplitOutbound(plan.dns.strategy, XrayBackend.TAG_PROXY)
+        val split = if (plan.desync != null) {
+            // Не прокси и не внешний сервер: freedom напрямую, а dialerProxy
+            // выбирает обработчик первого TCP-пакета в защищённом Go-сокете.
+            // DNS-стратегия сохраняется: не позволяем системный DNS fallback.
+            val directBase = build.directOutbound(plan.dns.strategy)
+            val stream = directBase.fields["streamSettings"] as JsonObject
+            val sockopt = stream.fields["sockopt"] as JsonObject
+            JsonObject(
+                directBase.fields + mapOf(
+                    "tag" to Json.str(XrayBackend.TAG_PROXY),
+                    "streamSettings" to JsonObject(
+                        stream.fields + ("sockopt" to JsonObject(
+                            sockopt.fields + ("dialerProxy" to Json.str(experimentTag(plan.desync))),
+                        )),
+                    ),
+                ),
+            )
+        } else {
+            build.directSplitOutbound(plan.dns.strategy, XrayBackend.TAG_PROXY)
+        }
         val direct = build.directOutbound(plan.dns.strategy)
-        // Первый исходящий — для соединений, которых не взяло ни одно правило (см. KDoc класса).
+        // Первый исходящий — маршрут по умолчанию; по proxy идут счётчики.
         val outbounds = (if (plan.splitRest) listOf(split, direct) else listOf(direct, split)) +
-            listOfNotNull(blockOutbound(), dnsOutbound().takeIf { plan.withTun })
+            listOfNotNull(plan.desync?.let(::experimentOutbound), blockOutbound(), dnsOutbound().takeIf { plan.withTun })
         val inbounds = listOfNotNull(tunInbound(plan.systemTun).takeIf { plan.withTun })
         return Outcome.Success(compiled(ServerlessPlan.PROFILE_ID, document(dns, routing, inbounds, outbounds)), problems)
     }

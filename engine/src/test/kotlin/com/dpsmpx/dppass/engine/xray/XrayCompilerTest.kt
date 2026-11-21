@@ -1001,4 +1001,37 @@ class XrayCompilerTest {
         val unknown = XrayCompiler(geodata = GeodataCodes.Installed(set)).compileServerless(ServerlessPlan(doh, sites, splitRest = false))
         assertEquals(DiagCode.GEO_CODE_UNKNOWN, unknown.errors.single().code)
     }
+    @Test
+    fun localVpnDesyncUsesDirectFreedomWithProtectedSocketTagWithoutRemoteServer() {
+        val dns = DnsPolicy(
+            listOf(DnsServer("local", DnsTransport.Https("https://192.0.2.53/dns-query"), DnsRoute.DIRECT)),
+            "local",
+            leakProtection = false,
+        )
+        val normal = XrayCompiler().compileServerless(ServerlessPlan(dns, SplitSites.NONE, splitRest = true))
+        val local = XrayCompiler().compileServerless(
+            ServerlessPlan(dns, SplitSites.NONE, splitRest = true, desync = DesyncTrick.Fake(3)),
+        )
+        assertTrue(local.diagnostics.none { it.isError }, "${local.diagnostics}")
+        val normalDoc = Json.parse(normal.valueOrNull()!!.payloadForEngine()) as JsonObject
+        val doc = Json.parse(local.valueOrNull()!!.payloadForEngine()) as JsonObject
+        val tags = doc["outbounds"].items.map { it["tag"].text }
+        assertEquals(
+            listOf(XrayBackend.TAG_PROXY, XrayBackend.TAG_DIRECT, "dppass:exp-fake-3",
+                XrayBackend.TAG_BLOCK, XrayBackend.TAG_DNS_OUT),
+            tags,
+        )
+        assertEquals("freedom", outbound(doc, XrayBackend.TAG_PROXY)["protocol"].text)
+        assertEquals(
+            "dppass:exp-fake-3",
+            outbound(doc, XrayBackend.TAG_PROXY)["streamSettings"]["sockopt"]["dialerProxy"].text,
+        )
+        assertEquals(
+            outbound(normalDoc, XrayBackend.TAG_DIRECT)["streamSettings"]["sockopt"]["domainStrategy"],
+            outbound(doc, XrayBackend.TAG_PROXY)["streamSettings"]["sockopt"]["domainStrategy"],
+            "DNS protection preserved under the local dialer",
+        )
+        assertTrue(doc["outbounds"].items.none { it["protocol"].text !in setOf("freedom", "blackhole", "dns") })
+    }
+
 }

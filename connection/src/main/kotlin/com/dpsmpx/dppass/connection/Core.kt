@@ -22,6 +22,7 @@ import com.dpsmpx.dppass.diagnostics.map
 import com.dpsmpx.dppass.engine.BackendCompiler
 import com.dpsmpx.dppass.engine.CapabilityChecker
 import com.dpsmpx.dppass.engine.EngineCapabilities
+import com.dpsmpx.dppass.engine.DesyncTrick
 import com.dpsmpx.dppass.engine.EngineSession
 import com.dpsmpx.dppass.engine.LocalProxySpec
 import com.dpsmpx.dppass.engine.ProxyEngine
@@ -509,15 +510,17 @@ class DPpassCore(
         settings: ServerlessSettings,
         /** TUN, который создаёт само ядро (Windows, D-97): вместо [tun]. */
         systemTun: SystemTun? = null,
+        desync: DesyncTrick? = null,
         check: suspend (EngineSession, DnsPolicy) -> Outcome<Unit>,
     ): Outcome<EngineSession> {
-        val plan = ServerlessMode.plan(settings, sites, userPolicy.currentOrDefault())
+        val plan = ServerlessMode.plan(settings, sites, userPolicy.currentOrDefault(), desync)
         log.info(
             "serverless",
             "rest" to Safe(settings.rest.wire),
             "dns" to Safe(settings.dns.wire),
             "apps" to Safe(settings.apps.wire),
             "n" to sites.size,
+            "local_desync" to Safe(desync?.label ?: "off"),
         )
         require(tun == null || systemTun == null) { "TUN платформы и TUN ядра вместе (D-97)" }
         val compiled = when (val c = compiler.compileServerless(plan.copy(withTun = tun != null || systemTun != null, systemTun = systemTun))) {

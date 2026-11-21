@@ -2,6 +2,7 @@ package com.dpsmpx.dppass.connection
 
 import com.dpsmpx.dppass.config.ConfigIr
 import com.dpsmpx.dppass.engine.ServerlessPlan
+import com.dpsmpx.dppass.engine.DesyncTrick
 import com.dpsmpx.dppass.routing.AppPolicy
 import com.dpsmpx.dppass.routing.DnsPolicy
 import com.dpsmpx.dppass.routing.DnsRoute
@@ -90,6 +91,6 @@ object ServerlessMode {
         dns = dns(s, policy),
     )
 
-    fun plan(s: ServerlessSettings, sites: SplitSites, policy: UserPolicy): ServerlessPlan =
-        ServerlessPlan(dns(s, policy), sites, splitRest = s.rest == ServerlessSettings.Rest.SPLIT)
+    fun plan(s: ServerlessSettings, sites: SplitSites, policy: UserPolicy, desync: DesyncTrick? = null): ServerlessPlan =
+        ServerlessPlan(dns(s, policy), sites, splitRest = s.rest == ServerlessSettings.Rest.SPLIT, desync = desync)
 }

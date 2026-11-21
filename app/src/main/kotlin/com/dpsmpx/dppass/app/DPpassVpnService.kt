@@ -38,6 +38,7 @@ import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Safe
 import com.dpsmpx.dppass.engine.EngineSession
+import com.dpsmpx.dppass.engine.DesyncTrick
 import com.dpsmpx.dppass.engine.ServerlessPlan
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.SocketProtector
@@ -264,7 +265,7 @@ class DPpassVpnService : VpnService() {
 
     private suspend fun start() {
         state.withLock {
-            if (connecting?.isActive == true || session != null) {
+            if (connecting?.isActive == true || session != null || rootZapret2 != null) {
                 DeviceLog.log.info("service_already_running")
                 return
             }
@@ -305,8 +306,14 @@ class DPpassVpnService : VpnService() {
                 return
             }
             Zapret2Backend.VPN_SERVICE -> {
-                fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
-                    "Zapret2 через VpnService пока не реализован: необходим полноценный TUN TCP/UDP движок"))
+                // Отдельный локальный TUN: Xray выполняет только перенос пакетов,
+                // DPI-приём делает собственный Go dialer, без внешнего сервера.
+                val p = AppPrefs(this)
+                val settings = p.serverless.copy(
+                    rest = ServerlessSettings.Rest.SPLIT,
+                    apps = ServerlessSettings.Apps.ALL,
+                )
+                connectServerless(graph, p.splitSites(), settings, DesyncTrick.Fake(3), "Zapret2 VPN (TCP)")
                 return
             }
         }
@@ -517,6 +524,8 @@ class DPpassVpnService : VpnService() {
             while (isActive) {
                 delay(5_000L)
                 if (!root.alive()) {
+                    root.stop()
+                    rootZapret2 = null
                     fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE, "Процесс nfqws2 больше не работает"))
                     break
                 }
@@ -524,9 +533,15 @@ class DPpassVpnService : VpnService() {
         }
     }
 
-    private suspend fun connectServerless(graph: AppGraph.Graph, sites: SplitSites, settings: ServerlessSettings) {
+    private suspend fun connectServerless(
+        graph: AppGraph.Graph,
+        sites: SplitSites,
+        settings: ServerlessSettings,
+        desync: DesyncTrick? = null,
+        label: String? = null,
+    ) {
         val core = graph.core
-        val name = getString(R.string.serverless_name)
+        val name = label ?: getString(R.string.serverless_name)
         val tunSpec = when (val spec = core.tunnelSpecFor(core.serverlessConfig(settings))) {
             is Outcome.Failure -> {
                 fail(spec.errors.first())
@@ -548,7 +563,7 @@ class DPpassVpnService : VpnService() {
         val probeTimeout = (core.policy.healthTimeoutMillis - PROBE_MARGIN_MILLIS).toInt()
         val job = currentCoroutineContext().job
         val result = try {
-            core.connectServerless(handle.toTunInput(), sites, settings) { _, dns ->
+            core.connectServerless(handle.toTunInput(), sites, settings, desync = desync) { _, dns ->
                 withContext(Dispatchers.IO) { graph.engine.probeServerless(dns, probeTimeout) }
             }
         } catch (e: CancellationException) {
@@ -569,7 +584,7 @@ class DPpassVpnService : VpnService() {
                     }
                 }
                 if (accepted) {
-                    core.log.info("connected", "profile" to Safe(ServerlessPlan.PROFILE_ID.value), "attempts" to 1)
+                    core.log.info("connected", "profile" to Safe(ServerlessPlan.PROFILE_ID.value), "attempts" to 1, "local_desync" to (desync != null))
                     progress(TunnelStatus.Connected(ServerlessPlan.PROFILE_ID, name, core.clock.nowMillis(), Clock.MONOTONIC.nowMillis()))
                     watchNetwork()
                     startTicker(session)

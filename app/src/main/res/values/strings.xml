@@ -810,6 +810,6 @@
     <string name="zapret2_mode_title">Zapret2 · локально</string>
     <string name="zapret2_off">Выключен (подписки)</string>
     <string name="zapret2_root">Root · NFQUEUE (эксперимент)</string>
-    <string name="zapret2_vpn">VpnService (в разработке)</string>
-    <string name="zapret2_experimental_note">Root требует su, NFQUEUE и совместимого ядра Android; физическая проверка не выполнена. Zapret2 через VpnService пока не реализован. Это не готовый выпуск.</string>
+    <string name="zapret2_vpn">VpnService · локальная TCP-десинхронизация (эксперимент)</string>
+    <string name="zapret2_experimental_note">Root использует оригинальный nfqws2 (требуются su и NFQUEUE). VpnService использует локальный TUN и собственные TCP-приёмы без root; это не полный nfqws2, UDP/QUIC ещё не обработаны. Оба режима требуют испытаний на телефоне.</string>
 </resources>

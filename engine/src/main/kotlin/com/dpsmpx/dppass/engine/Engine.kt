@@ -206,6 +206,8 @@ data class ServerlessPlan(
     val withTun: Boolean = true,
     /** TUN, который создаёт ядро (Windows, D-97); как у [CompilePlan.systemTun]. */
     val systemTun: SystemTun? = null,
+    /** Локальные экспериментальные TCP-приёмы, без соединения с внешним сервером. */
+    val desync: DesyncTrick? = null,
 ) {
     companion object {
         /** Сеанс без сервера в `CompiledConfig.profileId`: не профиль документа — в id профиля нет двоеточий. */
