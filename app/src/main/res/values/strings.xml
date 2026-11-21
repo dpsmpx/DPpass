@@ -813,6 +813,7 @@
     <string name="zapret2_vpn">VpnService · локальная TCP-десинхронизация (эксперимент)</string>
     <string name="zapret2_experimental_note">Root запускает оригинальный nfqws2 (su, NFQUEUE) для исходящего трафика устройства. VpnService без root использует локальный TUN, собственные TCP-приёмы, экспериментальную QUIC-подделку или принудительный переход на TCP, а не все Lua-стратегии nfqws2. Результат зависит от сети.</string>
     <string name="zapret2_hostlist_title">Zapret2 · список доменов</string>
+    <string name="zapret2_youtube_preset">YouTube + CDN</string>
     <string name="zapret2_hostlist_hint">example.org&#10;sub.example.org</string>
     <string name="zapret2_hostlist_note">По одному домену на строку, без https:// и масок *. Пустой список — все подходящие сайты. Root использует hostlist nfqws2 на TCP 80/443 и QUIC 443; VpnService применяет приём только к выбранным доменам (не более 200), QUIC-подделка доступна при выборе TCP-подделки и выключенном переходе на TCP. Опция QUIC → TCP блокирует весь UDP 443 независимо от списка. IP-адреса и QUIC без распознанного имени могут не соответствовать списку.</string>
     <string name="zapret2_hostlist_vpn_limit">В режиме VpnService допустимо не более %1$d доменов</string>
