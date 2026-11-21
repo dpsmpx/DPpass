@@ -338,8 +338,10 @@ class DPpassVpnService : VpnService() {
                     Zapret2VpnStrategy.FAKE_TTL_5 -> DesyncTrick.Fake(5)
                     Zapret2VpnStrategy.DISORDER -> DesyncTrick.Disorder
                     Zapret2VpnStrategy.SPLIT_SNI -> DesyncTrick.Split
+                    Zapret2VpnStrategy.SPLIT_FIRST -> DesyncTrick.SplitFirst
                 }
-                connectServerless(graph, sites, settings, trick, "Zapret2 VPN local", p.zapret2VpnForceTcp)
+                connectServerless(graph, sites, settings, trick, "Zapret2 VPN local",
+                    p.zapret2VpnForceTcp, p.zapret2VpnCatchAllHttps)
                 return
             }
         }
@@ -570,6 +572,7 @@ class DPpassVpnService : VpnService() {
         desync: DesyncTrick? = null,
         label: String? = null,
         forceQuicTcp: Boolean = false,
+        catchAllHttps: Boolean = false,
     ) {
         val core = graph.core
         val name = label ?: getString(R.string.serverless_name)
@@ -595,7 +598,7 @@ class DPpassVpnService : VpnService() {
         val job = currentCoroutineContext().job
         val result = try {
             core.connectServerless(handle.toTunInput(), sites, settings,
-                desync = desync, forceQuicTcp = forceQuicTcp) { _, dns ->
+                desync = desync, forceQuicTcp = forceQuicTcp, catchAllHttps = catchAllHttps) { _, dns ->
                 withContext(Dispatchers.IO) { graph.engine.probeServerless(dns, probeTimeout) }
             }
         } catch (e: CancellationException) {
