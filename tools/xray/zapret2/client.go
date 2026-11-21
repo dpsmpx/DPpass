@@ -17,13 +17,13 @@ import (
 // Request/Response are shared by the Android transport adapter and the
 // process inside Alpine; they are the only IPC wire protocol definition.
 type Request struct {
-    Tag string \`json:"tag"\`
-    Network string \`json:"network"\`
-    First []byte \`json:"first"\`
+    Tag string `json:"tag"`
+    Network string `json:"network"`
+    First []byte `json:"first"`
 }
 type Response struct {
-    Plan Plan \`json:"plan"\`
-    Error string \`json:"error,omitempty"\`
+    Plan Plan `json:"plan"`
+    Error string `json:"error,omitempty"`
 }
 
 const MaxFirst = 32 * 1024
