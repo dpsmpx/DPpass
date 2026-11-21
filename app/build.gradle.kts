@@ -243,6 +243,7 @@ if (alpineEnabled) {
         val jni = layout.buildDirectory.dir("generated/alpine-jni")
         val assets = layout.buildDirectory.dir("generated/alpine-assets")
         val builder = rootProject.file("tools/alpine/build-proot.sh")
+        val xrayToolDir = rootProject.file("tools/xray")
         val compat = rootProject.file("tools/alpine/proot-musl-compat.h")
         val ndk = androidComponents.sdkComponents.ndkDirectory
         val url = "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/alpine-minirootfs-3.24.3-aarch64.tar.gz"
@@ -294,7 +295,7 @@ if (alpineEnabled) {
             val engine = ProcessBuilder("go", "build", "-trimpath", "-buildvcs=false",
                 "-ldflags=-s -w -buildid=", "-o", engineOut.absolutePath,
                 "./cmd/zapret2-alpine")
-                .directory(rootProject.file("tools/xray"))
+                .directory(xrayToolDir)
                 .redirectErrorStream(true)
                 .apply {
                     environment()["GOOS"] = "linux"
