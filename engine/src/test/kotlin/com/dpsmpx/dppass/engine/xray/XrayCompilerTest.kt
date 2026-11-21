@@ -1101,4 +1101,36 @@ class XrayCompilerTest {
             outbound(split, XrayBackend.TAG_PROXY)["streamSettings"]["sockopt"]["dialerProxy"].text)
     }
 
+
+    @Test
+    fun zapret2OpaqueHttpsFallbackRoutesOnlyTcp443ToLocalDialer() {
+        val dns = DnsPolicy(
+            listOf(DnsServer("local", DnsTransport.System, DnsRoute.DIRECT)),
+            "local", leakProtection = false,
+        )
+        val sites = SplitSites.parse("youtube.com\\ngooglevideo.com").valueOrNull()!!
+        fun doc(catchAllHttps: Boolean, withTun: Boolean = true): JsonObject {
+            val result = XrayCompiler().compileServerless(
+                ServerlessPlan(dns, sites, splitRest = false, withTun = withTun,
+                    desync = DesyncTrick.SplitFirst, catchAllHttps = catchAllHttps),
+            )
+            assertTrue(result.diagnostics.none { it.isError }, "${result.diagnostics}")
+            return Json.parse(result.valueOrNull()!!.payloadForEngine()) as JsonObject
+        }
+        val active = doc(true)
+        val ordered = rules(active)
+        val known = ordered.indexOfFirst { it["ruleTag"].text == XrayBackend.RULE_SPLIT_SITES }
+        val opaque = ordered.indexOfFirst { it["ruleTag"].text == "dppass:zapret2-https-unmatched" }
+        assertTrue(opaque > known, "known hostlist should be before fallback")
+        assertEquals(XrayBackend.TAG_PROXY, ordered[opaque]["outboundTag"].text)
+        assertEquals("tcp", ordered[opaque]["network"].text)
+        assertEquals("443", ordered[opaque]["port"].text)
+        assertEquals(listOf(XrayBackend.TAG_TUN_IN), ordered[opaque]["inboundTag"].items.map { it.text })
+        assertNull((ordered[opaque] as JsonObject)["domain"], "fallback must include IP-only and ECH")
+        assertEquals("dppass:exp-split-1",
+            outbound(active, XrayBackend.TAG_PROXY)["streamSettings"]["sockopt"]["dialerProxy"].text)
+        assertTrue(rules(doc(false)).none { it["ruleTag"].text == "dppass:zapret2-https-unmatched" })
+        assertTrue(rules(doc(true, withTun = false)).none { it["ruleTag"].text == "dppass:zapret2-https-unmatched" })
+    }
+
 }
