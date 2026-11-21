@@ -206,26 +206,23 @@ func (c *desyncConn) Write(b []byte) (int, error) {
 // desyncFirst — первая запись с приёмом; не вышло до отправки хоть байта —
 // запись как есть.
 func (c *desyncConn) desyncFirst(b []byte) (int, error) {
-	// ClientHello fragmentation at position 1 can work for an HTTPS
-	// connection even when the SNI is absent or cannot be decoded (ECH).
-	// Only use it on an actual TLS handshake, never arbitrary TCP data.
+	// Split the first byte when the TLS ClientHello has no readable SNI
+	// (ECH, IP-only destinations and unsupported ClientHello extensions).
+	// Otherwise fake/disorder/split would silently send this connection
+	// untouched, even though the traffic is HTTPS. This preserves the
+	// original bytes, requires no root, and is not applied to other TCP.
 	if c.mode.kind == desyncSplitFirst {
-		if len(b) < 2 || !isTLSClientHelloPrefix(b) {
+		if !isTLSClientHelloPrefix(b) {
 			desyncSkipped.Add(1)
 			return c.TCPConn.Write(b)
 		}
-		n, err := c.TCPConn.Write(b[:1])
-		if err != nil || n != 1 {
-			return n, err
-		}
-		// Give TCP_NODELAY time to send this byte as its own segment.
-		time.Sleep(2 * time.Millisecond)
-		m, err := c.TCPConn.Write(b[1:])
-		if err == nil { desyncApplied.Add(1) }
-		return n + m, err
+		return c.splitFirstTLS(b)
 	}
 	start, end, ok := firstHostRange(b)
 	if !ok {
+		if isTLSClientHelloPrefix(b) {
+			return c.splitFirstTLS(b)
+		}
 		desyncSkipped.Add(1)
 		return c.TCPConn.Write(b)
 	}
@@ -254,6 +251,22 @@ func (c *desyncConn) desyncFirst(b []byte) (int, error) {
 	desyncApplied.Add(1)
 	m, err := c.TCPConn.Write(b[cut:])
 	return sent + m, err
+}
+
+// splitFirstTLS sends an unchanged ClientHello in two TCP writes. It is
+// also the safe fallback for name-dependent strategies when no SNI is
+// visible: inventing a fake hostname would corrupt a real handshake.
+func (c *desyncConn) splitFirstTLS(b []byte) (int, error) {
+	n, err := c.TCPConn.Write(b[:1])
+	if err != nil || n != 1 {
+		return n, err
+	}
+	time.Sleep(2 * time.Millisecond)
+	m, err := c.TCPConn.Write(b[1:])
+	if err == nil && m == len(b)-1 {
+		desyncApplied.Add(1)
+	}
+	return n + m, err
 }
 
 // lowTTLWrite — перестановка: часть с TTL 1, затем TTL прежний.
