@@ -146,7 +146,7 @@ internal object AlpineTar {
             PosixFilePermission.OTHERS_READ to 4, PosixFilePermission.OTHERS_WRITE to 2,
             PosixFilePermission.OTHERS_EXECUTE to 1,
         )
-        Files.setPosixFilePermissions(path, names.filter { mode and it.second != 0 }.mapTo(mutableSetOf()) { it.first })
+        Files.setPosixFilePermissions(path, names.filter { (mode and it.second) != 0 }.mapTo(mutableSetOf()) { it.first })
     }
 
     private fun readHeader(input: InputStream): ByteArray? {
