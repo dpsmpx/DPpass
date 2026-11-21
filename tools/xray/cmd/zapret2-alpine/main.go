@@ -40,7 +40,7 @@ func serve(path string) error {
     if _, err := os.Lstat(path); err == nil { return errors.New("socket already exists (do not remove unknown file)") } else if !os.IsNotExist(err) { return err }
     old := syscall.Umask(0077)
     listener, err := net.Listen("unix", path)
-    syscallUmask(old)
+    syscall.Umask(old)
     if err != nil { return err }
     defer listener.Close()
     defer os.Remove(path)
