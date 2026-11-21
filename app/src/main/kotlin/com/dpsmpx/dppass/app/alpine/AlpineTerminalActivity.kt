@@ -29,6 +29,7 @@ class AlpineTerminalActivity : Activity() {
     @Volatile private var childPid: Int = -1
     @Volatile private var writer: Int = -1
     @Volatile private var reader: Int = -1
+    @Volatile private var disposed: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -93,6 +94,7 @@ class AlpineTerminalActivity : Activity() {
             thread(name = "dppass-alpine-install", isDaemon = true) {
                 val result = runCatching { AlpineFiles.install(applicationContext) }
                 runOnUiThread {
+                    if (disposed) return@runOnUiThread
                     if (result.isSuccess) {
                         append(getString(R.string.alpine_installed) + "\n")
                         start.text = getString(R.string.alpine_start)
@@ -120,7 +122,16 @@ class AlpineTerminalActivity : Activity() {
                 Triple(pid, fds[0], fds[1])
             }
             runOnUiThread {
-                val session = result.getOrNull()
+                val abandoned = result.getOrNull()
+                if (disposed) {
+                    if (abandoned != null) {
+                        NativeCalls.kill(-abandoned.first, 15)
+                        NativeCalls.close(abandoned.second)
+                        NativeCalls.close(abandoned.third)
+                    }
+                    return@runOnUiThread
+                }
+                val session = abandoned
                 if (session == null) {
                     append(getString(R.string.alpine_failed, result.exceptionOrNull()?.message.orEmpty()) + "\n")
                     start.isEnabled = true
@@ -153,6 +164,7 @@ class AlpineTerminalActivity : Activity() {
         thread(name = "dppass-alpine-wait", isDaemon = true) {
             val result = NativeCalls.waitFor(pid)
             runOnUiThread {
+                if (disposed) return@runOnUiThread
                 if (childPid == pid) {
                     childPid = -1
                     writer = -1
@@ -189,6 +201,7 @@ class AlpineTerminalActivity : Activity() {
     }
 
     override fun onDestroy() {
+        disposed = true
         val pid = childPid
         childPid = -1
         if (pid > 0) NativeCalls.kill(-pid, 15) // own session/process group
