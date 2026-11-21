@@ -47,6 +47,11 @@ class AppPrefs(context: Context) {
         get() = Zapret2VpnStrategy.of(prefs.getString(ZAPRET2_VPN_STRATEGY, null))
         set(value) { prefs.edit().putString(ZAPRET2_VPN_STRATEGY, value.wire).apply() }
 
+    /** Локальный VpnService: UDP 443 закрыт в TUN, чтобы приложения попробовали TCP. */
+    var zapret2VpnForceTcp: Boolean
+        get() = prefs.getBoolean(ZAPRET2_VPN_FORCE_TCP, true)
+        set(value) { prefs.edit().putBoolean(ZAPRET2_VPN_FORCE_TCP, value).apply() }
+
     /** Сервер, выбранный пользователем (D-34); null — «автоматически» (D-15). */
     var selectedServer: ProfileId?
         get() = prefs.getString(SELECTED, null)?.takeIf(Ids::isValid)?.let(::ProfileId)
@@ -182,6 +187,7 @@ class AppPrefs(context: Context) {
         const val ZAPRET2_HOSTLIST = "zapret2_hostlist"
         const val ZAPRET2_ROOT_QUIC = "zapret2_root_quic"
         const val ZAPRET2_VPN_STRATEGY = "zapret2_vpn_strategy"
+        const val ZAPRET2_VPN_FORCE_TCP = "zapret2_vpn_force_tcp"
         const val TAB = "tab"
         const val RELAY = "selected_relay"
         const val AUTO_SWITCH = "auto_switch"
