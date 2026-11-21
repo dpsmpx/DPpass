@@ -144,6 +144,54 @@ func TestSplitFirstPreservesTLSBytesWithoutSNILookup(t *testing.T) {
 	if after <= before { t.Fatal("first-byte split was not counted") }
 }
 
+// YouTube CDN can negotiate TLS with ECH or IP-only destinations, where
+// no readable SNI exists. All name-dependent strategies must still apply
+// the safe first-byte fallback and must never alter the TLS payload.
+func TestNameDependentStrategiesFallbackForSniLessTLS(t *testing.T) {
+	hello := clientHello(t, "127.0.0.1")
+	if !isTLSClientHelloPrefix(hello) {
+		t.Fatal("TLS ClientHello not detected")
+	}
+	if _, _, ok := firstHostRange(hello); ok {
+		t.Fatal("IP-only handshake unexpectedly has an SNI")
+	}
+	for _, mode := range []struct {
+		name string
+		mode desyncMode
+	}{
+		{"fake", desyncMode{kind: desyncFake, ttl: 5}},
+		{"disorder", desyncMode{kind: desyncDisorder, ttl: 1}},
+		{"split-sni", desyncMode{kind: desyncSplit}},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			ln, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+			if err != nil { t.Fatal(err) }
+			defer ln.Close()
+			client, err := net.DialTCP("tcp4", nil, ln.Addr().(*net.TCPAddr))
+			if err != nil { t.Fatal(err) }
+			defer client.Close()
+			server, err := ln.AcceptTCP()
+			if err != nil { t.Fatal(err) }
+			defer server.Close()
+			conn := &desyncConn{TCPConn: client, mode: mode.mode}
+			before, _ := DesyncStats()
+			if n, err := conn.Write(hello); err != nil || n != len(hello) {
+				t.Fatalf("SNI-less handshake write: %d %v", n, err)
+			}
+			got := make([]byte, len(hello))
+			_ = server.SetReadDeadline(time.Now().Add(3 * time.Second))
+			if _, err := io.ReadFull(server, got); err != nil { t.Fatal(err) }
+			if !bytes.Equal(got, hello) {
+				t.Fatal("SNI-less fallback modified TLS ClientHello")
+			}
+			after, _ := DesyncStats()
+			if after != before+1 {
+				t.Fatal("fallback must be counted as an applied desync")
+			}
+		})
+	}
+}
+
 func TestFakeChunkReplacesOnlyTheName(t *testing.T) {
 	hello := clientHello(t, "a.example.com")
 	s, e, _ := sniRange(hello)
