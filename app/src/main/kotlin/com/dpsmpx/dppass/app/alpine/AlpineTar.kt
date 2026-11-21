@@ -6,6 +6,7 @@ import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
+import java.nio.file.Paths
 import java.nio.file.attribute.PosixFilePermission
 import java.util.zip.GZIPInputStream
 
@@ -69,7 +70,7 @@ internal object AlpineTar {
                         Files.createDirectories(dest.parent)
                         Files.deleteIfExists(dest)
                         // The link text is interpreted inside guest PRoot.
-                        Files.createSymbolicLink(dest, Path.of(string(h, 157, 100)))
+                        Files.createSymbolicLink(dest, Paths.get(string(h, 157, 100)))
                         links++
                         skip(tar, size + padding(size))
                     }
@@ -112,7 +113,7 @@ internal object AlpineTar {
                 }
             }
         }
-        if (files == 0 || !Files.isRegularFile(base.resolve("bin/sh"))) {
+        if (files == 0 || !Files.exists(base.resolve("bin/sh"), LinkOption.NOFOLLOW_LINKS)) {
             throw IOException("Alpine rootfs is incomplete: missing /bin/sh")
         }
         return Summary(files, dirs, links, total)

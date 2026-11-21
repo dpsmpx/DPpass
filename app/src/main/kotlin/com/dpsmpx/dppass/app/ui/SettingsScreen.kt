@@ -11,6 +11,7 @@ import android.view.Gravity
 import android.view.View
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.TunnelStatus
+import com.dpsmpx.dppass.app.alpine.AlpineTerminalActivity
 import com.dpsmpx.dppass.connection.ActivationResult
 import com.dpsmpx.dppass.connection.AppMode
 import com.dpsmpx.dppass.connection.DnsProvider
@@ -365,6 +366,22 @@ class SettingsScreen(host: Host) : Screen(host) {
         )
         body.addView(Ui.text(context, R.style.Text_DPpass_Caption,
             context.getString(R.string.zapret2_experimental_note)))
+
+        // DP_IDE Alpine shell is a separate user-space tool, never a VPN backend.
+        body.addView(
+            Ui.listCard(context).apply {
+                addView(
+                    Ui.ListRow(context, R.drawable.ic_lan, context.getString(R.string.alpine_terminal_title))
+                        .subtitle(context.getString(R.string.alpine_terminal_note))
+                        .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                        .onClick {
+                            context.startActivity(Intent(context, AlpineTerminalActivity::class.java))
+                        },
+                    Ui.matchWidth(),
+                )
+            },
+            Ui.matchWidth(),
+        )
 
         // ---- без сервера (D-73) ----
         body.addView(Ui.section(context, context.getString(R.string.settings_serverless)))

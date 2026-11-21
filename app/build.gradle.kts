@@ -1,3 +1,13 @@
+import org.gradle.api.DefaultTask
+import org.gradle.api.GradleException
+import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
 // Android-приложение DPpass: оболочка над DPpassCore (D-02, D-17).
 // Подключается, только если найден Android SDK (settings.gradle.kts).
 import com.dpsmpx.dppass.build.AppIdentity
@@ -111,6 +121,8 @@ android {
             // символов, выровнена по 16 КБ); AGP её не трогает — в APK ровно то,
             // что проверено (check_apk.py).
             keepDebugSymbols += "**/libdppassxray.so"
+            // PRoot is executed from nativeLibraryDir, not from app-writable data.
+            useLegacyPackaging = true
         }
     }
 
@@ -137,6 +149,55 @@ kotlin {
         // Предупреждения компилятора — ошибки, как у модулей ядра (build-logic, CLAUDE.md).
         allWarningsAsErrors.set(true)
     }
+}
+
+
+/** Replicate DP_IDE's pinned Alpine/PRoot assets without storing ELF binaries in Git. */
+abstract class AlpineFilesTask : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val sources: ConfigurableFileCollection
+
+    @get:OutputDirectory
+    abstract val jniDir: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val assetsDir: DirectoryProperty
+
+    @get:Internal
+    abstract val ndkDir: DirectoryProperty
+
+    @TaskAction
+    fun prepare() {
+        val script = project.rootDir.resolve("tools/alpine/prepare.sh")
+        val cache = project.gradle.gradleUserHomeDir.resolve("caches/dppass-alpine")
+        val proc = ProcessBuilder(
+            "sh", script.absolutePath, jniDir.get().asFile.absolutePath,
+            assetsDir.get().asFile.absolutePath, cache.absolutePath,
+        ).directory(project.rootDir).redirectErrorStream(true).apply {
+            environment()["NDK"] = ndkDir.get().asFile.absolutePath
+        }.start()
+        val output = proc.inputStream.bufferedReader().readText()
+        if (proc.waitFor() != 0) {
+            throw GradleException("Alpine/PRoot pinned runtime build failed:\n" + output.lines().takeLast(50).joinToString("\n"))
+        }
+        logger.lifecycle("Verified Alpine/PRoot ARM64 and PTY JNI binaries")
+    }
+}
+
+val alpineFiles = tasks.register<AlpineFilesTask>("alpineFiles") {
+    description = "Build pinned DP_IDE PRoot and add Alpine rootfs and PTY for ARM64"
+    sources.from(
+        rootProject.file("tools/alpine/build-proot.sh"),
+        rootProject.file("tools/alpine/proot-musl-compat.h"),
+        rootProject.file("tools/alpine/dppass_alpine_native.c"),
+        rootProject.file("tools/alpine/prepare.sh"),
+        rootProject.file("tools/alpine/NOTICE.txt"),
+        rootProject.file("tools/alpine/GPL-2.0.txt"),
+    )
+    jniDir.set(layout.buildDirectory.dir("generated/alpine-jni"))
+    assetsDir.set(layout.buildDirectory.dir("generated/alpine-assets"))
+    ndkDir.set(androidComponents.sdkComponents.ndkDirectory)
 }
 
 // Ядро Xray в APK (D-25): библиотека собирается задачей на вариант из
@@ -175,6 +236,8 @@ androidComponents {
             sdkDirectory.set(androidComponents.sdkComponents.sdkDirectory)
         }
         variant.sources.jniLibs?.addGeneratedSourceDirectory(task, XrayNativeTask::outputDir)
+        variant.sources.jniLibs?.addGeneratedSourceDirectory(alpineFiles, AlpineFilesTask::jniDir)
+        variant.sources.assets?.addGeneratedSourceDirectory(alpineFiles, AlpineFilesTask::assetsDir)
 
         // Набор геоданных (D-27): своим сборщиком из источников каталога, в
         // assets/geodata/ — сжатыми; на устройстве — перенос со сверкой SHA-256.

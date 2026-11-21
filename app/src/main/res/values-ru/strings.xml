@@ -860,4 +860,6 @@
     <string name="zapret2_vpn_fallback_note">В мобильной сети YouTube может обращаться к CDN по IP или использовать TLS ECH. Включено по умолчанию: TCP/443 направляется через локальный DPI-приём даже при непустом списке; при отключённом «QUIC → TCP» и стратегии Fake также обрабатывается неизвестный QUIC UDP/443. Это может затронуть другие HTTPS-сайты. Выключите, чтобы строго ограничить обработку списком.</string>
     <string name="zapret2_vpn_force_tcp_title">VpnService · QUIC → TCP</string>
     <string name="zapret2_vpn_force_tcp_note">Для видео и CDN: блокировать UDP 443 внутри VPN, чтобы приложения попробовали TLS по TCP. Не все приложения поддерживают такой переход; DNS и другой UDP остаются доступны. Можно отключить для сравнения.</string>
+    <string name="alpine_terminal_title">Терминал Alpine (PRoot)</string>
+    <string name="alpine_terminal_note">Локальная оболочка Alpine из DP_IDE без root Android. Не заменяет движок VPN.</string>
 </resources>

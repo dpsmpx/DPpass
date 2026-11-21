@@ -6,6 +6,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.LinkOption
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.FileVisitResult
 import java.nio.file.attribute.BasicFileAttributes
@@ -18,7 +19,7 @@ internal object AlpineInstaller {
 
     fun installed(home: File): Boolean =
         File(home, "ready").takeIf { it.isFile }?.readText()?.trim() == VERSION &&
-            File(home, "rootfs/bin/sh").isFile
+            Files.exists(File(home, "rootfs/bin/sh").toPath(), LinkOption.NOFOLLOW_LINKS)
 
     @Synchronized
     fun install(context: Context, home: File): Boolean {

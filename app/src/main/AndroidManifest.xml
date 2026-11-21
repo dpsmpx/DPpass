@@ -78,6 +78,13 @@
             </intent-filter>
         </activity>
 
+        <!-- Local PRoot terminal, never exported to other applications. -->
+        <activity
+            android:name=".app.alpine.AlpineTerminalActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- Сервис туннеля. Связывается только системой (BIND_VPN_SERVICE). -->
         <service
             android:name=".app.DPpassVpnService"
