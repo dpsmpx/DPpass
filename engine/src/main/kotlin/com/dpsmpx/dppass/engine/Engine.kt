@@ -123,6 +123,11 @@ sealed interface DesyncTrick {
         override val label: String = "disorder"
     }
 
+    /** Разделить TLS SNI или HTTP Host на два отдельных TCP отправления без поддельных пакетов. */
+    data object Split : DesyncTrick {
+        override val label: String = "split"
+    }
+
     /** Подделка: начало с подложным именем и TTL [ttl], затем те же номера — настоящие байты. */
     data class Fake(val ttl: Int) : DesyncTrick {
         init {
@@ -208,6 +213,8 @@ data class ServerlessPlan(
     val systemTun: SystemTun? = null,
     /** Локальные экспериментальные TCP-приёмы, без соединения с внешним сервером. */
     val desync: DesyncTrick? = null,
+    /** Только локальный Android VPN: блокировать UDP 443, чтобы клиент попробовал TCP/TLS. */
+    val forceQuicTcp: Boolean = false,
 ) {
     companion object {
         /** Сеанс без сервера в `CompiledConfig.profileId`: не профиль документа — в id профиля нет двоеточий. */
