@@ -77,7 +77,6 @@ required = ["docs/ARCHITECTURE.md", "docs/CONFIG_FORMAT.md", "docs/SECURITY_MODE
 large_allow = ["tools/xray/geodata/sources/*.csv.gz"]
 forbid = [
   { glob = "**/*.pem", reason = "ключи и сертификаты — вне репозитория (D-35)" },
-  
 ]
 
 [checks."format.text"]
