@@ -3,6 +3,7 @@ package com.dpsmpx.dppass.app
 import android.content.Context
 import android.content.SharedPreferences
 import com.dpsmpx.dppass.connection.ServerlessSettings
+import com.dpsmpx.dppass.connection.Zapret2Backend
 import com.dpsmpx.dppass.core.Ids
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.routing.RoutingValidator
@@ -20,6 +21,11 @@ import com.dpsmpx.dppass.subscriptions.ExpiryReminderSettings
  */
 class AppPrefs(context: Context) {
     private val prefs: SharedPreferences = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+
+    /** Отдельный локальный режим. При неизвестном значении root не включается. */
+    var zapret2Backend: Zapret2Backend
+        get() = Zapret2Backend.of(prefs.getString(ZAPRET2_BACKEND, null))
+        set(value) { prefs.edit().putString(ZAPRET2_BACKEND, value.wire).apply() }
 
     /** Сервер, выбранный пользователем (D-34); null — «автоматически» (D-15). */
     var selectedServer: ProfileId?
@@ -152,6 +158,7 @@ class AppPrefs(context: Context) {
     private companion object {
         const val FILE = "ui"
         const val SELECTED = "selected_server"
+        const val ZAPRET2_BACKEND = "zapret2_backend"
         const val TAB = "tab"
         const val RELAY = "selected_relay"
         const val AUTO_SWITCH = "auto_switch"
