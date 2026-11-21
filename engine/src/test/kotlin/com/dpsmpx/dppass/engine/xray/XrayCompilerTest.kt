@@ -1059,8 +1059,17 @@ class XrayCompilerTest {
             "Outside the allowlist, traffic stays direct")
         val disorder = compiled(DesyncTrick.Disorder)
         val disorderQuic = rules(disorder).single { it["ruleTag"].text == XrayBackend.RULE_SPLIT_QUIC }
-        assertEquals(XrayBackend.TAG_BLOCK, disorderQuic["outboundTag"].text,
-            "Disorder has no QUIC fake: force TCP fallback")
+        assertEquals(XrayBackend.TAG_DIRECT, disorderQuic["outboundTag"].text,
+            "QUIC→TCP is off: a TCP-only strategy must not block HTTP/3")
+        val forced = XrayCompiler().compileServerless(
+            ServerlessPlan(dns, sites, splitRest = false, desync = DesyncTrick.Disorder,
+                forceQuicTcp = true),
+        )
+        assertTrue(forced.diagnostics.none { it.isError }, "${forced.diagnostics}")
+        val forcedDoc = Json.parse(forced.valueOrNull()!!.payloadForEngine()) as JsonObject
+        val forcedQuic = rules(forcedDoc).single { it["ruleTag"].text == XrayBackend.RULE_SPLIT_QUIC }
+        assertEquals(XrayBackend.TAG_BLOCK, forcedQuic["outboundTag"].text,
+            "Explicit QUIC→TCP on still blocks UDP 443")
     }
 
     @Test

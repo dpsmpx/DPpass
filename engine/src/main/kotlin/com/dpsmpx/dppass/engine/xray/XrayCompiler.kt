@@ -204,7 +204,14 @@ class XrayCompiler(
         val dns = build.dns(plan.dns)
         val routing = build.routing(
             ir, plan.withTun, splitSites = plan.splitSites, splitTag = XrayBackend.TAG_PROXY,
-            splitQuicTag = if (plan.desync is DesyncTrick.Fake) XrayBackend.TAG_PROXY else XrayBackend.TAG_BLOCK,
+            // Force-TCP is a separate user switch. When it is OFF, a
+            // non-fake TCP strategy must not silently blackhole QUIC for the
+            // hostlist: forward QUIC directly. Only fake-ttl has UDP decoys.
+            splitQuicTag = when {
+                plan.forceQuicTcp -> XrayBackend.TAG_BLOCK
+                plan.desync is DesyncTrick.Fake -> XrayBackend.TAG_PROXY
+                else -> XrayBackend.TAG_DIRECT
+            },
             forceQuicTcp = plan.forceQuicTcp,
             catchAllHttps = plan.catchAllHttps && plan.desync != null && !plan.splitRest,
         )
