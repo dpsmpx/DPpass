@@ -325,10 +325,23 @@ class SettingsScreen(host: Host) : Screen(host) {
                     addView(Ui.divider(context))
                     addView(
                         choiceRow(R.drawable.ic_shield, R.string.zapret2_vpn_strategy_title,
-                            listOf(R.string.zapret2_vpn_fake3, R.string.zapret2_vpn_fake5, R.string.zapret2_vpn_disorder),
+                            listOf(R.string.zapret2_vpn_fake3, R.string.zapret2_vpn_fake5,
+                                R.string.zapret2_vpn_disorder, R.string.zapret2_vpn_split),
                             host.prefs.zapret2VpnStrategy.ordinal,
                         ) { index ->
                             host.prefs.zapret2VpnStrategy = Zapret2VpnStrategy.entries[index]
+                            host.reconnectIfBusy()
+                            host.changed()
+                        }, Ui.matchWidth(),
+                    )
+                    addView(Ui.divider(context))
+                    addView(
+                        Ui.switchRow(context, R.drawable.ic_route,
+                            context.getString(R.string.zapret2_vpn_force_tcp_title),
+                            context.getString(R.string.zapret2_vpn_force_tcp_note),
+                            host.prefs.zapret2VpnForceTcp,
+                        ) { enabled ->
+                            host.prefs.zapret2VpnForceTcp = enabled
                             host.reconnectIfBusy()
                             host.changed()
                         }, Ui.matchWidth(),
