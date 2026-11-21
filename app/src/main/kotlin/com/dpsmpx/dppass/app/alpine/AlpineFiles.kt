@@ -49,7 +49,12 @@ internal object AlpineFiles {
     @Synchronized
     fun install(context: Context) {
         check(supported(context)) { "Alpine runtime was not bundled; ARM64 and -Pdppass.alpine=true are required" }
-        if (installed(context)) return
+        if (installed(context)) {
+            // Existing Alpine installations from PR #37 predate the Zapret2
+            // executable. Upgrade in place without deleting user packages.
+            ensureZapret2Assets(context, File(layout(context).rootfs))
+            return
+        }
         // Two passes permit streaming extraction without an unverified archive.
         val digest = MessageDigest.getInstance("SHA-256")
         context.assets.open(ASSET).use { input ->
@@ -70,29 +75,7 @@ internal object AlpineFiles {
         check(staged.mkdirs())
         try {
             context.assets.open(ASSET).use { input -> unpack(GZIPInputStream(input.buffered()), staged) }
-            // Install the same portable Zapret2 planner that Android's
-            // protected-socket bridge uses. Executed under PRoot, not su.
-            val runtime = File(staged, "usr/local/bin/dppass-zapret2")
-            runtime.parentFile!!.mkdirs()
-            context.assets.open("alpine/zapret2-runtime.bin").use { input ->
-                FileOutputStream(runtime).use { out -> input.copyTo(out); out.fd.sync() }
-            }
-            Os.chmod(runtime.path, 493) // 0755
-            // Keep canonical upstream Lua alongside the Alpine strategy
-            // runtime for inspection and future Linux-backed packet adapters.
-            val luaDir = File(staged, "opt/dppass/zapret2/lua").apply { mkdirs() }
-            for (script in listOf("zapret-lib.lua", "zapret-antidpi.lua", "zapret-auto.lua", "zapret-obfs.lua")) {
-                context.assets.open("zapret2/lua/$script").use { input ->
-                    FileOutputStream(File(luaDir, script)).use { out -> input.copyTo(out); out.fd.sync() }
-                }
-            }
-            // This ELF is an upstream Android nfqws2 executable for the root
-            // adapter, NOT a general Alpine executable; it cannot obtain
-            // NFQUEUE privileges inside the fake-root guest.
-            val external = File(staged, "opt/dppass/zapret2/android").apply { mkdirs() }
-            context.assets.open("zapret2/arm64-v8a/nfqws2").use { input ->
-                FileOutputStream(File(external, "nfqws2")).use { out -> input.copyTo(out); out.fd.sync() }
-            }
+            ensureZapret2Assets(context, staged)
             File(staged, "root").mkdirs()
             File(staged, "tmp").mkdirs()
             val parent = finalRoot.parentFile ?: error("missing Alpine parent")
@@ -104,6 +87,58 @@ internal object AlpineFiles {
             staged.deleteRecursively()
             throw e
         }
+    }
+
+    /** Verify and copy portable strategy executable and upstream assets
+     * into the same guest on both fresh and upgraded installations. No code
+     * is executed through PRoot with privileged Android root permissions.
+     */
+    private fun ensureZapret2Assets(context: Context, root: File) {
+        check(root.isDirectory && !java.nio.file.Files.isSymbolicLink(root.toPath()))
+        val expected = context.assets.open("alpine/zapret2-runtime.sha256").bufferedReader()
+            .use { it.readText().trim() }
+        check(expected.matches(Regex("[0-9a-f]{64}"))) { "invalid pinned Zapret2 engine digest" }
+
+        fun put(asset: String, path: String, mode: Int, expectedSha: String? = null) {
+            val pieces = path.split('/')
+            check(pieces.all { it.isNotEmpty() && it != "." && it != ".." })
+            var dir = root
+            for (piece in pieces.dropLast(1)) {
+                dir = File(dir, piece)
+                check(!java.nio.file.Files.isSymbolicLink(dir.toPath())) { "Alpine asset parent is a symlink" }
+                if (!dir.isDirectory) check(dir.mkdirs()) { "cannot create Alpine asset dir" }
+            }
+            val target = File(dir, pieces.last())
+            val digest = MessageDigest.getInstance("SHA-256")
+            if (expectedSha != null && target.isFile &&
+                !java.nio.file.Files.isSymbolicLink(target.toPath()) &&
+                target.inputStream().use { input ->
+                    val buf = ByteArray(32 * 1024)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        digest.update(buf, 0, n)
+                    }
+                    digest.digest().joinToString("") { "%02x".format(it) } == expectedSha
+                }) return
+            // Always write to a new regular file and rename atomically over
+            // a prior file or symlink; never open an arbitrary target for write.
+            val tmp = File(dir, "." + pieces.last() + ".dppass-next")
+            if (tmp.exists() || java.nio.file.Files.isSymbolicLink(tmp.toPath()))
+                check(tmp.delete()) { "cannot replace old staged Alpine binary" }
+            context.assets.open(asset).use { input ->
+                FileOutputStream(tmp).use { out -> input.copyTo(out); out.fd.sync() }
+            }
+            Os.chmod(tmp.path, mode)
+            check(tmp.renameTo(target)) { "cannot activate Alpine runtime asset" }
+        }
+        put("alpine/zapret2-runtime.bin", "usr/local/bin/dppass-zapret2", 493, expected)
+        for (script in listOf("zapret-lib.lua", "zapret-antidpi.lua", "zapret-auto.lua", "zapret-obfs.lua")) {
+            val path = "opt/dppass/zapret2/lua/" + script
+            if (!File(root, path).isFile) put("zapret2/lua/" + script, path, 420)
+        }
+        val nfq = "opt/dppass/zapret2/android/nfqws2"
+        if (!File(root, nfq).isFile) put("zapret2/arm64-v8a/nfqws2", nfq, 420)
     }
 
     /** Refresh only a regular guest file; do not follow a rootfs symlink. */
