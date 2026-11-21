@@ -34,8 +34,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -103,29 +101,18 @@ func DesyncStats() (applied, skipped int64) {
 	return desyncApplied.Load(), desyncSkipped.Load()
 }
 
-// parseDesyncTag — вид приёма по тегу исходящего; ok — тег эксперимента.
+// parseDesyncTag adapts the single shared Zapret2 strategy registry to
+// the Xray bridge's legacy transport fields.
 func parseDesyncTag(tag string) (desyncMode, bool, error) {
-	rest, ok := strings.CutPrefix(tag, expTagPrefix)
-	if !ok {
-		return desyncMode{}, false, nil
-	}
-	if rest == "disorder" {
-		return desyncMode{kind: desyncDisorder, ttl: 1}, true, nil
-	}
-	if rest == "split-1" {
-		return desyncMode{kind: desyncSplitFirst}, true, nil
-	}
-	if rest == "split" {
-		return desyncMode{kind: desyncSplit}, true, nil
-	}
-	if v, ok := strings.CutPrefix(rest, "fake-"); ok {
-		ttl, err := strconv.Atoi(v)
-		if err != nil || ttl < minFakeTTL || ttl > maxFakeTTL {
-			return desyncMode{}, true, fmt.Errorf("TTL подделки %q — не число %d…%d", v, minFakeTTL, maxFakeTTL)
-		}
-		return desyncMode{kind: desyncFake, ttl: ttl}, true, nil
-	}
-	return desyncMode{}, true, fmt.Errorf("вид приёма %q не известен", rest)
+    mode, ok, err := zapret2.ParseTag(tag)
+    if !ok || err != nil { return desyncMode{}, ok, err }
+    switch mode.Kind {
+    case zapret2.Disorder: return desyncMode{kind: desyncDisorder, ttl: mode.TTL}, true, nil
+    case zapret2.Fake: return desyncMode{kind: desyncFake, ttl: mode.TTL}, true, nil
+    case zapret2.Split: return desyncMode{kind: desyncSplit}, true, nil
+    case zapret2.SplitFirst: return desyncMode{kind: desyncSplitFirst}, true, nil
+    default: return desyncMode{}, true, fmt.Errorf("unknown Zapret2 mode %v", mode.Kind)
+    }
 }
 
 // installDesyncDialer ставит обёртку набирателя — один раз на процесс,
