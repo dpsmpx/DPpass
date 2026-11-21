@@ -210,7 +210,8 @@ class XrayCompiler(
             splitQuicTag = when {
                 plan.forceQuicTcp -> XrayBackend.TAG_BLOCK
                 plan.desync is DesyncTrick.Fake -> XrayBackend.TAG_PROXY
-                else -> XrayBackend.TAG_DIRECT
+                plan.desync != null -> XrayBackend.TAG_DIRECT
+                else -> XrayBackend.TAG_BLOCK // retain D-73 default for regular serverless
             },
             forceQuicTcp = plan.forceQuicTcp,
             catchAllHttps = plan.catchAllHttps && plan.desync != null && !plan.splitRest,
