@@ -18,21 +18,11 @@ import (
     "github.com/dpsmpx/dppass/tools/xray/zapret2"
 )
 
-type Request struct {
-    Tag string `json:"tag"`
-    Network string `json:"network"`
-    First []byte `json:"first"`
-}
-type Response struct {
-    Plan zapret2.Plan `json:"plan"`
-    Error string `json:"error,omitempty"`
-}
-
-func request(req Request) Response {
-    if len(req.First) > 32*1024 { return Response{Error:"first packet too large"} }
+func request(req zapret2.Request) zapret2.Response {
+    if len(req.First) > zapret2.MaxFirst { return zapret2.Response{Error:"first packet too large"} }
     plan, err := zapret2.BuildPlan(req.Tag, req.Network, req.First)
-    if err != nil { return Response{Error:err.Error()} }
-    return Response{Plan:plan}
+    if err != nil { return zapret2.Response{Error:err.Error()} }
+    return zapret2.Response{Plan:plan}
 }
 
 func serve(path string) error {
@@ -53,7 +43,7 @@ func serve(path string) error {
             reader := bufio.NewReaderSize(c, 40*1024)
             line, err := reader.ReadBytes('\n')
             if err != nil || len(line) > 48*1024 { return }
-            var req Request
+            var req zapret2.Request
             if json.Unmarshal(line, &req) != nil { return }
             _ = json.NewEncoder(c).Encode(request(req))
         }(conn)
@@ -71,7 +61,7 @@ func main() {
     }
     if len(os.Args) == 2 && os.Args[1] == "--plan" {
         dec := json.NewDecoder(os.Stdin)
-        var req Request
+        var req zapret2.Request
         if err := dec.Decode(&req); err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(2) }
         _ = json.NewEncoder(os.Stdout).Encode(request(req))
         return
