@@ -306,6 +306,7 @@ if (alpineEnabled) {
             val executable = engineOut.readBytes()
             check(isAarch64Elf(executable)) { "Alpine strategy engine is not ARM64 ELF" }
             File(asset, "zapret2-runtime.bin").writeBytes(executable)
+            File(asset, "zapret2-runtime.sha256").writeText(sha256(executable) + "\n")
         }
     }
     androidComponents {

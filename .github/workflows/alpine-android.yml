@@ -60,6 +60,7 @@ jobs:
                   "lib/arm64-v8a/libdpai-native.so",
                   "assets/alpine/rootfs.tgz",
                   "assets/alpine/zapret2-runtime.bin",
+                  "assets/alpine/zapret2-runtime.sha256",
                   "assets/alpine/NOTICE.txt",
                   "assets/alpine/GPL-2.0.txt",
               ]
@@ -68,6 +69,8 @@ jobs:
               data = z.read("assets/alpine/rootfs.tgz")
               assert hashlib.sha256(data).hexdigest() == "4d3f80afaebd447c5591a63a73bde380a149fe8b2d85488cafabb2ff97551f50"
               assert z.read("assets/alpine/zapret2-runtime.bin").startswith(b"\x7fELF")
+              exe_digest = hashlib.sha256(z.read("assets/alpine/zapret2-runtime.bin")).hexdigest()
+              assert z.read("assets/alpine/zapret2-runtime.sha256").decode().strip() == exe_digest
               for path in required[:3]:
                   assert z.read(path).startswith(b"\x7fELF"), path
           print("Verified optional Alpine ARM64 APK:", files[0])
