@@ -175,9 +175,15 @@ internal object AlpineFiles {
                     val from = field(header, 157, 100).removePrefix("./")
                     // Alpine can contain hard links; copy only regular prior files.
                     val source = File(base, from)
-                    if (from.split('/').all { it.isNotEmpty() && it != ".." && it != "." } &&
-                        !source.toPath().toString().contains("..") && source.isFile &&
-                        !java.nio.file.Files.isSymbolicLink(source.toPath())) {
+                    val fromParts = from.split('/')
+                    var sourceAncestor = base
+                    val safeParents = fromParts.dropLast(1).all { piece ->
+                        sourceAncestor = File(sourceAncestor, piece)
+                        !java.nio.file.Files.isSymbolicLink(sourceAncestor.toPath())
+                    }
+                    if (fromParts.all { it.isNotEmpty() && it != ".." && it != "." } &&
+                        !from.startsWith('/') && !from.contains('\\') &&
+                        safeParents && source.isFile && !java.nio.file.Files.isSymbolicLink(source.toPath())) {
                         check(path.parentFile?.mkdirs() == true || path.parentFile?.isDirectory == true)
                         source.copyTo(path, overwrite = false)
                         Os.chmod(path.path, mode)
