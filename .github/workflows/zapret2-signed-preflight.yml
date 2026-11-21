@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - feature/zapret2-android-dual-mode
-      - release/zapret2-v0.7.54-alpha.4
+      - release/zapret2-v0.7.54-alpha.6
   workflow_dispatch:
 
 permissions:
@@ -130,20 +130,20 @@ jobs:
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url,isDraft,assets
 
       - name: Publish pinned-certificate experimental alpha to GitHub Releases
-        if: github.ref_name == 'release/zapret2-v0.7.54-alpha.4'
+        if: github.ref_name == 'release/zapret2-v0.7.54-alpha.6'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          tag="v0.7.54-alpha.4"
+          tag="v0.7.54-alpha.6"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "::error::Release tag already exists; refuse to overwrite artifacts."
             exit 1
           fi
           gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
             --prerelease --target "$GITHUB_SHA" \
-            --title "DPpass v0.7.54-alpha.4 — experimental local Zapret2" \
+            --title "DPpass v0.7.54-alpha.6 — experimental local Zapret2" \
             --notes "EXPERIMENTAL SIGNED ALPHA, NOT A FINAL VERIFIED RELEASE. Root uses upstream Zapret2 nfqws2 v1.0.7 + NFQUEUE; Android VpnService uses DPpass's own local TCP desync and experimental QUIC UDP fake (not all upstream Zapret2 strategies). No external proxy server. Device testing is required; PR #35 remains open. Signed with pinned SHA-256 certificate c18792812566ca4a18b518d51313515ff2d62bf8299446e99943eeb5d0630d11."
           gh release upload "$tag" build/zapret2-signed-preflight/* --repo "$GITHUB_REPOSITORY"
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url,isDraft,isPrerelease,assets
