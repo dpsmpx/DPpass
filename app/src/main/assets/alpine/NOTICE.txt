@@ -1,32 +1,26 @@
-DP AI Orcestrator — сторонние программы Linux-среды в этом APK
+DPpass Alpine in-app terminal — port of DPmetaApp/dpai components
 
-Linux-среда в приложении (D-75, D-115). В APK — proot, собранный из
-исходников форка Termux, и неизменённая minirootfs Alpine Linux 3.24
-(aarch64):
+Opt-in build includes:
 
-proot v5.1.107.102 (форк Termux, коммит 52d65a4dc140ca554d241a1438ddd4f6b00c9813)
-  Лицензия: GPL-2.0-or-later — текст: linux/GPL-2.0.txt рядом.
-  Исходники: https://github.com/termux/proot (тег v5.1.107.102).
-  Сборка: статически под musl, clang из Android NDK — скрипт
-  dpai/tools/linux/build-proot.sh репозитория DPmetaApp; код proot
-  не изменён, к каждой единице подключён заголовок совместимости
-  dpai/tools/linux/proot-musl-compat.h того же репозитория.
-  В APK: lib/arm64-v8a/libproot.so — proot; lib/arm64-v8a/libproot-loader.so —
-  его загрузчик (отдельным файлом).
-  Статически вшиты (пакеты Alpine 3.24, main/aarch64):
-    talloc 2.4.4 (talloc-static) — LGPL-3.0-or-later,
-      https://www.samba.org/ftp/talloc/;
-    musl 1.2.6 (musl-dev) — MIT, https://musl.libc.org/;
-    встроенные функции компилятора (libclang_rt.builtins из NDK) —
-      Apache-2.0 WITH LLVM-exception, https://github.com/llvm/llvm-project.
+1. PRoot v5.1.107.102, Termux fork
+   https://github.com/termux/proot
+   Commit: 52d65a4dc140ca554d241a1438ddd4f6b00c9813
+   License: GPL-2.0-or-later; see GPL-2.0.txt in this directory.
+   Build recipe: DPpass/tools/alpine/build-proot.sh and
+   DPpass/tools/alpine/proot-musl-compat.h, from DPmetaApp/dpai.
+   Static dependencies: talloc LGPL-3.0-or-later, musl MIT, LLVM builtins
+   Apache-2.0 WITH LLVM-exception.
 
-Alpine minirootfs 3.24.3 (alpine-minirootfs-3.24.3-aarch64.tar.gz)
-  Корневая система: busybox (GPL-2.0-only), musl (MIT), apk-tools
-  (GPL-2.0-only), alpine-baselayout (GPL-2.0-only) и другие пакеты Alpine;
-  лицензии — в данных пакетов (/lib/apk/db/installed, поле L:).
-  Исходники: https://gitlab.alpinelinux.org/alpine/aports (ветка 3.24-stable).
-  В APK: assets/linux/rootfs.tgz — архив без изменений.
+2. Alpine minirootfs 3.24.3 (aarch64)
+   https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/
+   SHA-256: 4d3f80afaebd447c5591a63a73bde380a149fe8b2d85488cafabb2ff97551f50
+   Individual package licenses are in /lib/apk/db/installed in the rootfs.
 
-Суммы SHA-256 и проверка подписей Alpine — dpai/docs/PROVENANCE.md, §4,
-dpai/tools/linux/build-proot.sh и dpai/android/build.gradle.kts
-репозитория DPmetaApp.
+Paths in the optional APK:
+lib/arm64-v8a/libproot.so, lib/arm64-v8a/libproot-loader.so,
+lib/<ABI>/libdpai-native.so, assets/alpine/rootfs.tgz,
+assets/alpine/NOTICE.txt and assets/alpine/GPL-2.0.txt.
+
+Native PTY API derived from the private dpsmpx/DPmetaApp/dpai repository,
+revision 8fb07caffcc6a3a60511b7da929eaddd287a5944.
+PRoot is not an Android privilege escalation method.
