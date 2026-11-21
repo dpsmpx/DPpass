@@ -25,6 +25,7 @@ import com.dpsmpx.dppass.connection.DPpassCore
 import com.dpsmpx.dppass.connection.Degradation
 import com.dpsmpx.dppass.connection.HealthChecker
 import com.dpsmpx.dppass.connection.ServerlessSettings
+import com.dpsmpx.dppass.connection.Zapret2Backend
 import com.dpsmpx.dppass.connection.SessionSupervisor
 import com.dpsmpx.dppass.connection.StabilityObservation
 import com.dpsmpx.dppass.connection.UsageMeter
@@ -132,6 +133,8 @@ class DPpassVpnService : VpnService() {
 
     private var connecting: Job? = null
     private var session: EngineSession? = null
+    private var rootZapret2: RootZapret2? = null
+    private var rootWatch: Job? = null
     private val tunnel = TunnelOwner()
     private var ticker: Job? = null
     private var supervisor: Job? = null
@@ -293,6 +296,20 @@ class DPpassVpnService : VpnService() {
         val graph = AppGraph.graph(this)
         val core = graph.core
         if (core.activation.state.activeConfig == null) core.restore()
+        // Zapret2 не использует профили Xray или внешние серверы; никогда не
+        // подменяем обычную подписку без явного выбора в настройках.
+        when (AppPrefs(this).zapret2Backend) {
+            Zapret2Backend.OFF -> Unit
+            Zapret2Backend.ROOT -> {
+                connectRootZapret2(core)
+                return
+            }
+            Zapret2Backend.VPN_SERVICE -> {
+                fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
+                    "Zapret2 через VpnService пока не реализован: необходим полноценный TUN TCP/UDP движок"))
+                return
+            }
+        }
         // Устройство раздачи (D-55): выбрано — подключение только через него, по сети, где оно ответило.
         val relay = AppPrefs(this).selectedRelay?.let(core.relays::find)
         viaRelay = relay != null
@@ -472,6 +489,41 @@ class DPpassVpnService : VpnService() {
      * вопрос о смене сервера (D-58) и проба IPv6 через сервер (D-66) не
      * запускаются: сервера нет.
      */
+    /** Root NFQUEUE, только отдельный экспериментальный режим. */
+    private suspend fun connectRootZapret2(core: DPpassCore) {
+        progress(TunnelStatus.Connecting("Zapret2 root"))
+        val root = RootZapret2(this)
+        // Root-команда завершается или откатывается, даже если пользователь нажал «Стоп».
+        val result = withContext(NonCancellable) { root.start() }
+        if (result.isFailure) {
+            fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
+                "Zapret2 root: " + (result.exceptionOrNull()?.message ?: "nfqws2 недоступен")))
+            return
+        }
+        val job = currentCoroutineContext().job
+        val accepted = state.withLock {
+            if (job.isCancelled) false else {
+                rootZapret2 = root
+                true
+            }
+        }
+        if (!accepted) {
+            root.stop()
+            return
+        }
+        progress(TunnelStatus.Connected(ProfileId("zapret2-root"), "Zapret2 root",
+            core.clock.nowMillis(), Clock.MONOTONIC.nowMillis()))
+        rootWatch = scope.launch {
+            while (isActive) {
+                delay(5_000L)
+                if (!root.alive()) {
+                    fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE, "Процесс nfqws2 больше не работает"))
+                    break
+                }
+            }
+        }
+    }
+
     private suspend fun connectServerless(graph: AppGraph.Graph, sites: SplitSites, settings: ServerlessSettings) {
         val core = graph.core
         val name = getString(R.string.serverless_name)
@@ -1009,6 +1061,8 @@ class DPpassVpnService : VpnService() {
     }
 
     private suspend fun shutdown(keepTunnel: Boolean = false) {
+        rootWatch?.cancel()
+        rootWatch = null
         stopObservers()
         state.withLock {
             sessionRegime = null
@@ -1019,6 +1073,9 @@ class DPpassVpnService : VpnService() {
             session = null
             pending
         }?.join()
+        // У root нет Xray EngineSession, но есть собственный процесс и NFQUEUE.
+        rootZapret2?.stop()
+        rootZapret2 = null
         // NonCancellable acceptance мог зарегистрировать наблюдателей после первой отмены.
         stopObservers()
         // establish мог завершиться после отмены: fd уже принадлежит владельцу.
