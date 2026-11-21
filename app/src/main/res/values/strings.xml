@@ -790,7 +790,7 @@
     <string name="desync_title">A/B measurement</string>
     <string name="desync_settings_note">Connection start tricks against DPI: a measurement, not a feature</string>
     <string name="desync_intro">DPpass connects to your selected server again and again without VPN: with no trick, with ClientHello splitting, with reordering (the start goes with TTL 1) and with a fake start for every TTL in the range. Variants go in random order, each the given number of times, with a 3 s pause. The result is an observation for this network today, not a promise that anything works.</string>
-    <string name="desync_warning">A fake with a TTL larger than the distance to the server reaches the server and breaks the connection — more failures at higher TTL are expected. Only your own server is contacted. Turn VPN off first.</string>
+    <string name="desync_warning">This A/B test checks TLS to your selected proxy server, NOT YouTube app/video/comment loading. A fake with a TTL larger than the distance to the server reaches the server and breaks the connection — more failures at higher TTL are expected. Only your own server is contacted. Turn VPN off first.</string>
     <string name="desync_ttl_from">Fake TTL from</string>
     <string name="desync_ttl_to">Fake TTL to</string>
     <string name="desync_attempts">Attempts per variant</string>
@@ -815,7 +815,7 @@
     <string name="zapret2_hostlist_title">Zapret2 · список доменов</string>
     <string name="zapret2_youtube_preset">YouTube + CDN</string>
     <string name="zapret2_hostlist_hint">example.org&#10;sub.example.org</string>
-    <string name="zapret2_hostlist_note">По одному домену на строку, без https:// и масок *. Пустой список — все подходящие сайты. Root использует hostlist nfqws2 на TCP 80/443 и QUIC 443; VpnService применяет приём только к выбранным доменам (не более 200), QUIC-подделка доступна при выборе TCP-подделки и выключенном переходе на TCP. Опция QUIC → TCP блокирует весь UDP 443 независимо от списка. IP-адреса и QUIC без распознанного имени могут не соответствовать списку.</string>
+    <string name="zapret2_hostlist_note">По одному домену на строку, без https:// и масок *. Пустой список — все подходящие сайты. Root использует hostlist nfqws2 на TCP 80/443 и QUIC 443; VpnService применяет приём только к выбранным доменам (не более 200), QUIC-подделка доступна при выборе TCP-подделки и выключенном переходе на TCP. Опция QUIC → TCP блокирует весь UDP 443 независимо от списка. IP-адреса и QUIC без распознанного имени могут не соответствовать списку. При включённой обработке TCP 443 без имени список не ограничивает HTTPS TCP.</string>
     <string name="zapret2_hostlist_vpn_limit">В режиме VpnService допустимо не более %1$d доменов</string>
     <string name="zapret2_hostlist_all">Все подходящие сайты (список пуст)</string>
     <string name="zapret2_hostlist_count">Доменов: %1$d</string>
@@ -826,6 +826,9 @@
     <string name="zapret2_vpn_fake5">Подделка, TTL 5</string>
     <string name="zapret2_vpn_disorder">Перестановка, TTL 1 (без подделки QUIC)</string>
     <string name="zapret2_vpn_split">Разделение SNI / Host на две TCP-части (без TTL)</string>
+    <string name="zapret2_vpn_split_first">Разбиение TLS после 1-го байта (без SNI и TTL)</string>
+    <string name="zapret2_vpn_fallback_title">VpnService · обрабатывать TCP 443 без определения домена</string>
+    <string name="zapret2_vpn_fallback_note">В мобильной сети YouTube может обращаться к CDN по IP или использовать TLS ECH: тогда домен не виден в VPN. Включено по умолчанию: все TCP/443 направляются через локальный DPI-приём даже при непустом списке доменов. Это может затронуть другие HTTPS-сайты. Выключите, чтобы строго ограничить обработку списком.</string>
     <string name="zapret2_vpn_force_tcp_title">VpnService · QUIC → TCP</string>
     <string name="zapret2_vpn_force_tcp_note">Для видео и CDN: блокировать UDP 443 внутри VPN, чтобы приложения попробовали TLS по TCP. Не все приложения поддерживают такой переход; DNS и другой UDP остаются доступны. Можно отключить для сравнения.</string>
 </resources>
