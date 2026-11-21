@@ -39,6 +39,9 @@ jobs:
           "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0" "ndk;30.0.16248370" "cmake;3.22.1"
       - name: Verify pinned Zapret2 assets
         run: python3 tools/zapret2/vendor.py
+      - name: Portable Zapret2 strategy and Xray bridge Go tests
+        working-directory: tools/xray
+        run: go test ./zapret2 ./bridge ./cmd/zapret2-alpine
       - name: Alpine process-layout JVM tests
         run: ./gradlew --no-daemon --console=plain :app:testDebugUnitTest
       - name: Build ARM64 app with actual Alpine minirootfs and PRoot
@@ -56,6 +59,7 @@ jobs:
                   "lib/arm64-v8a/libproot-loader.so",
                   "lib/arm64-v8a/libdpai-native.so",
                   "assets/alpine/rootfs.tgz",
+                  "assets/alpine/zapret2-runtime.bin",
                   "assets/alpine/NOTICE.txt",
                   "assets/alpine/GPL-2.0.txt",
               ]
@@ -63,6 +67,7 @@ jobs:
                   assert path in z.namelist(), path
               data = z.read("assets/alpine/rootfs.tgz")
               assert hashlib.sha256(data).hexdigest() == "4d3f80afaebd447c5591a63a73bde380a149fe8b2d85488cafabb2ff97551f50"
+              assert z.read("assets/alpine/zapret2-runtime.bin").startswith(b"\\x7fELF")
               for path in required[:3]:
                   assert z.read(path).startswith(b"\x7fELF"), path
           print("Verified optional Alpine ARM64 APK:", files[0])

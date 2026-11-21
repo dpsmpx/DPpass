@@ -134,7 +134,7 @@ def run(cmd, env, what):
 
 # Локальные пакеты, из которых собирается библиотека: их и только их видит
 # задача Gradle xrayNative<Вариант> (app/build.gradle.kts, входы).
-LIBRARY_PACKAGES = {"jni", "bridge"}
+LIBRARY_PACKAGES = {"jni", "bridge", "zapret2"}
 
 
 def check_library_packages(env):

@@ -182,7 +182,7 @@ androidComponents {
                 // (другие локальные native.py не пускает), модули и сборщик. Тесты
                 // Go в неё не входят — их правка не пересобирает ядро трёх ABI.
                 xray.asFileTree.matching {
-                    include("jni/**/*.go", "bridge/**/*.go", "go.mod", "go.sum", "native.py", "goenv.py")
+                    include("jni/**/*.go", "bridge/**/*.go", "zapret2/**/*.go", "go.mod", "go.sum", "native.py", "goenv.py")
                     exclude("**/*_test.go")
                 },
                 rootProject.layout.projectDirectory.file("gradle/libs.versions.toml"),
@@ -247,7 +247,9 @@ if (alpineEnabled) {
         val ndk = androidComponents.sdkComponents.ndkDirectory
         val url = "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/alpine-minirootfs-3.24.3-aarch64.tar.gz"
         val pin = "4d3f80afaebd447c5591a63a73bde380a149fe8b2d85488cafabb2ff97551f50"
-        inputs.files(builder, compat)
+        inputs.files(builder, compat, rootProject.file("tools/xray/go.mod"), rootProject.file("tools/xray/go.sum"))
+        inputs.files(rootProject.fileTree("tools/xray/zapret2") { include("**/*.go"); exclude("**/*_test.go") })
+        inputs.files(rootProject.fileTree("tools/xray/cmd/zapret2-alpine") { include("**/*.go") })
         inputs.property("rootfs-url", url)
         inputs.property("rootfs-sha256", pin)
         outputs.dirs(jni, assets)
@@ -286,6 +288,24 @@ if (alpineEnabled) {
             val asset = File(assets.get().asFile, "alpine")
             asset.mkdirs()
             File(asset, "rootfs.tgz").writeBytes(data)
+            // One portable strategy planner in Alpine; Android's VpnService
+            // remains the protected network socket/packet transport.
+            val engineOut = File(temporaryDir, "zapret2-alpine")
+            val engine = ProcessBuilder("go", "build", "-trimpath", "-buildvcs=false",
+                "-ldflags=-s -w -buildid=", "-o", engineOut.absolutePath,
+                "./cmd/zapret2-alpine")
+                .directory(rootProject.file("tools/xray"))
+                .redirectErrorStream(true)
+                .apply {
+                    environment()["GOOS"] = "linux"
+                    environment()["GOARCH"] = "arm64"
+                    environment()["CGO_ENABLED"] = "0"
+                }.start()
+            val engineLog = engine.inputStream.bufferedReader().use { it.readText() }
+            check(engine.waitFor() == 0) { "Alpine strategy engine compile failed:\n" + engineLog.takeLast(4000) }
+            val executable = engineOut.readBytes()
+            check(isAarch64Elf(executable)) { "Alpine strategy engine is not ARM64 ELF" }
+            File(asset, "zapret2-runtime.bin").writeBytes(executable)
         }
     }
     androidComponents {

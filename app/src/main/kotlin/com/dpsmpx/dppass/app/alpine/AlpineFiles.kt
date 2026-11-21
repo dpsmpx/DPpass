@@ -70,6 +70,29 @@ internal object AlpineFiles {
         check(staged.mkdirs())
         try {
             context.assets.open(ASSET).use { input -> unpack(GZIPInputStream(input.buffered()), staged) }
+            // Install the same portable Zapret2 planner that Android's
+            // protected-socket bridge uses. Executed under PRoot, not su.
+            val runtime = File(staged, "usr/local/bin/dppass-zapret2")
+            runtime.parentFile!!.mkdirs()
+            context.assets.open("alpine/zapret2-runtime.bin").use { input ->
+                FileOutputStream(runtime).use { out -> input.copyTo(out); out.fd.sync() }
+            }
+            Os.chmod(runtime.path, 493) // 0755
+            // Keep canonical upstream Lua alongside the Alpine strategy
+            // runtime for inspection and future Linux-backed packet adapters.
+            val luaDir = File(staged, "opt/dppass/zapret2/lua").apply { mkdirs() }
+            for (script in listOf("zapret-lib.lua", "zapret-antidpi.lua", "zapret-auto.lua", "zapret-obfs.lua")) {
+                context.assets.open("zapret2/lua/$script").use { input ->
+                    FileOutputStream(File(luaDir, script)).use { out -> input.copyTo(out); out.fd.sync() }
+                }
+            }
+            // This ELF is an upstream Android nfqws2 executable for the root
+            // adapter, NOT a general Alpine executable; it cannot obtain
+            // NFQUEUE privileges inside the fake-root guest.
+            val external = File(staged, "opt/dppass/zapret2/android").apply { mkdirs() }
+            context.assets.open("zapret2/arm64-v8a/nfqws2").use { input ->
+                FileOutputStream(File(external, "nfqws2")).use { out -> input.copyTo(out); out.fd.sync() }
+            }
             File(staged, "root").mkdirs()
             File(staged, "tmp").mkdirs()
             val parent = finalRoot.parentFile ?: error("missing Alpine parent")
