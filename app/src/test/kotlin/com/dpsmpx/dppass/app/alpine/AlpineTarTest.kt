@@ -47,11 +47,12 @@ class AlpineTarTest {
     }
 
     private val shell = Entry("bin/sh", "#!/bin/sh\n".toByteArray())
+    private val busybox = Entry("bin/busybox", "#!/bin/busybox\n".toByteArray())
 
     @Test
     fun extractRegularAlpineShell() {
         val dir = Files.createTempDirectory("alpine-good")
-        val result = AlpineTar.unpack(ByteArrayInputStream(archive(Entry("bin/", type = '5'), shell)), dir)
+        val result = AlpineTar.unpack(ByteArrayInputStream(archive(Entry("bin/", type = '5'), shell, busybox)), dir)
         assertTrue(Files.isRegularFile(dir.resolve("bin/sh")))
         assertEquals(1, result.files)
         assertEquals("#!/bin/sh\n", Files.readString(dir.resolve("bin/sh")))
@@ -65,6 +66,7 @@ class AlpineTarTest {
         val payload = archive(
             Entry("bin/", type = '5'),
             shell,
+            busybox,
             Entry("../escaped", "bad".toByteArray()),
             Entry("etc", type = '2', link = "../"),
             Entry("etc/escaped", "bad".toByteArray()),
@@ -74,6 +76,23 @@ class AlpineTarTest {
         assertFalse(Files.exists(outside))
         assertFalse(Files.exists(base.resolve("etc/escaped")))
         assertTrue(Files.isRegularFile(root.resolve("bin/sh")))
+    }
+
+    @Test
+    fun directoryEntryReplacingSymlinkCannotEscapeRootfs() {
+        val base = Files.createTempDirectory("alpine-symlink-replaced")
+        val root = base.resolve("root")
+        AlpineTar.unpack(
+            ByteArrayInputStream(archive(
+                Entry("bin/", type = '5'), shell, busybox,
+                Entry("etc", type = '2', link = "../"),
+                Entry("etc", type = '5'),
+                Entry("etc/hostname", "inside\n".toByteArray()),
+            )),
+            root,
+        )
+        assertTrue(Files.isRegularFile(root.resolve("etc/hostname")))
+        assertFalse(Files.exists(base.resolve("hostname")))
     }
 
     @Test
@@ -89,7 +108,7 @@ class AlpineTarTest {
 
     @Test
     fun truncatedArchiveIsRejected() {
-        val raw = archive(Entry("bin/", type = '5'), shell)
+        val raw = archive(Entry("bin/", type = '5'), shell, busybox)
         val corrupted = raw.copyOf(raw.size / 2)
         val dir = Files.createTempDirectory("alpine-truncated")
         var failed = false

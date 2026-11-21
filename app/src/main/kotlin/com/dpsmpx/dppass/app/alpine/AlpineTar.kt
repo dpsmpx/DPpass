@@ -61,6 +61,7 @@ internal object AlpineTar {
                 val mode = octal(h, 100, 8).toInt() and 511
                 when (type) {
                     '5' -> {
+                        if (Files.isSymbolicLink(dest)) Files.delete(dest)
                         Files.createDirectories(dest)
                         permissions(dest, mode)
                         dirs++
@@ -113,7 +114,8 @@ internal object AlpineTar {
                 }
             }
         }
-        if (files == 0 || !Files.exists(base.resolve("bin/sh"), LinkOption.NOFOLLOW_LINKS)) {
+        if (files == 0 || !Files.exists(base.resolve("bin/sh"), LinkOption.NOFOLLOW_LINKS) ||
+            !Files.exists(base.resolve("bin/busybox"), LinkOption.NOFOLLOW_LINKS)) {
             throw IOException("Alpine rootfs is incomplete: missing /bin/sh")
         }
         return Summary(files, dirs, links, total)

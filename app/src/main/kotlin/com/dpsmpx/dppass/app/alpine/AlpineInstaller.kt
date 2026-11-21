@@ -19,7 +19,8 @@ internal object AlpineInstaller {
 
     fun installed(home: File): Boolean =
         File(home, "ready").takeIf { it.isFile }?.readText()?.trim() == VERSION &&
-            Files.exists(File(home, "rootfs/bin/sh").toPath(), LinkOption.NOFOLLOW_LINKS)
+            Files.exists(File(home, "rootfs/bin/sh").toPath(), LinkOption.NOFOLLOW_LINKS) &&
+            Files.exists(File(home, "rootfs/bin/busybox").toPath(), LinkOption.NOFOLLOW_LINKS)
 
     @Synchronized
     fun install(context: Context, home: File): Boolean {
