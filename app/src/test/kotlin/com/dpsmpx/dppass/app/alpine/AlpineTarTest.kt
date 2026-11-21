@@ -54,7 +54,7 @@ class AlpineTarTest {
         val dir = Files.createTempDirectory("alpine-good")
         val result = AlpineTar.unpack(ByteArrayInputStream(archive(Entry("bin/", type = '5'), shell, busybox)), dir)
         assertTrue(Files.isRegularFile(dir.resolve("bin/sh")))
-        assertEquals(1, result.files)
+        assertEquals(2, result.files)
         assertEquals("#!/bin/sh\n", Files.readString(dir.resolve("bin/sh")))
     }
 
