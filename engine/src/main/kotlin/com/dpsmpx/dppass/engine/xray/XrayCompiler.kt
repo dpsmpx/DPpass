@@ -213,10 +213,10 @@ class XrayCompiler(
             val sockopt = stream.fields["sockopt"] as JsonObject
             JsonObject(
                 directBase.fields + mapOf(
-                    "tag" to Json.str(XrayBackend.TAG_PROXY),
+                    "tag" to JsonString(XrayBackend.TAG_PROXY),
                     "streamSettings" to JsonObject(
                         stream.fields + ("sockopt" to JsonObject(
-                            sockopt.fields + ("dialerProxy" to Json.str(experimentTag(plan.desync))),
+                            sockopt.fields + ("dialerProxy" to JsonString(experimentTag(plan.desync))),
                         )),
                     ),
                 ),
