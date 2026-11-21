@@ -130,6 +130,7 @@ import (
 	"unsafe"
 
 	"github.com/dpsmpx/dppass/tools/xray/bridge"
+	"github.com/dpsmpx/dppass/tools/xray/zapret2"
 )
 
 // Статусы ответа: 0 и 5 — успех; остальные — bridge.Kind.
@@ -195,6 +196,11 @@ func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeVersion(env *C.JNIEnv, _ C
 //export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSetAssetDir
 func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSetAssetDir(env *C.JNIEnv, _ C.jclass, dir C.jbyteArray) C.jbyteArray {
 	return statusOf(env, bridge.SetAssetDir(string(bytesOf(env, dir))))
+}
+
+//export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSetZapret2Planner
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSetZapret2Planner(env *C.JNIEnv, _ C.jclass, path C.jbyteArray) C.jbyteArray {
+    return statusOf(env, zapret2.SetPlannerSocket(string(bytesOf(env, path))))
 }
 
 //export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeValidate

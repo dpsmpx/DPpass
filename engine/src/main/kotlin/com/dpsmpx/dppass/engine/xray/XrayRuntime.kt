@@ -183,6 +183,9 @@ internal object XrayJni {
 
     @JvmStatic external fun nativeSetAssetDir(dir: ByteArray): ByteArray
 
+    /** Empty clears Alpine planning; non-empty selects private Unix socket. */
+    @JvmStatic external fun nativeSetZapret2Planner(path: ByteArray): ByteArray
+
     @JvmStatic external fun nativeValidate(config: ByteArray): ByteArray
 
     @JvmStatic external fun nativeStart(config: ByteArray, tunFd: Int, tunMtu: Int, protector: SocketProtector?): ByteArray
@@ -366,6 +369,14 @@ class JniXrayRuntime private constructor() : XrayRuntime {
 
     companion object {
         const val LIBRARY: String = "dppassxray"
+
+        /**
+         * Select Alpine as one strategy authority after its daemon is ready.
+         * Android still owns VpnService and protected sockets. No raw traffic
+         * leaves the app: the socket is under the app's private data directory.
+         */
+        fun configureZapret2Planner(socketPath: String?): XrayResult =
+            XrayJni.decode(XrayJni.nativeSetZapret2Planner(socketPath.orEmpty().encodeToByteArray()))
 
         /**
          * Загрузка библиотеки, сверка версии ядра и каталог геоданных.
