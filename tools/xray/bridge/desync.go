@@ -61,6 +61,7 @@ const (
 	desyncDisorder desyncKind = 1
 	desyncFake     desyncKind = 2
 	desyncSplit    desyncKind = 3
+	desyncSplitFirst desyncKind = 4
 )
 
 type desyncMode struct {
@@ -112,6 +113,9 @@ func parseDesyncTag(tag string) (desyncMode, bool, error) {
 	}
 	if rest == "disorder" {
 		return desyncMode{kind: desyncDisorder, ttl: 1}, true, nil
+	}
+	if rest == "split-1" {
+		return desyncMode{kind: desyncSplitFirst}, true, nil
 	}
 	if rest == "split" {
 		return desyncMode{kind: desyncSplit}, true, nil
@@ -202,6 +206,24 @@ func (c *desyncConn) Write(b []byte) (int, error) {
 // desyncFirst — первая запись с приёмом; не вышло до отправки хоть байта —
 // запись как есть.
 func (c *desyncConn) desyncFirst(b []byte) (int, error) {
+	// ClientHello fragmentation at position 1 can work for an HTTPS
+	// connection even when the SNI is absent or cannot be decoded (ECH).
+	// Only use it on an actual TLS handshake, never arbitrary TCP data.
+	if c.mode.kind == desyncSplitFirst {
+		if len(b) < 2 || !isTLSClientHelloPrefix(b) {
+			desyncSkipped.Add(1)
+			return c.TCPConn.Write(b)
+		}
+		n, err := c.TCPConn.Write(b[:1])
+		if err != nil || n != 1 {
+			return n, err
+		}
+		// Give TCP_NODELAY time to send this byte as its own segment.
+		time.Sleep(2 * time.Millisecond)
+		m, err := c.TCPConn.Write(b[1:])
+		if err == nil { desyncApplied.Add(1) }
+		return n + m, err
+	}
 	start, end, ok := firstHostRange(b)
 	if !ok {
 		desyncSkipped.Add(1)
@@ -461,6 +483,14 @@ func isQUICInitial(b []byte) bool {
 	kind := (b[0] >> 4) & 3
 	return (version == 0x00000001 && kind == 0) ||
 		(version == 0x6b3343cf && kind == 1)
+}
+
+// isTLSClientHelloPrefix checks the TLS record and handshake headers without
+// requiring a readable SNI. It is intentionally narrow; random HTTP/2 and
+// arbitrary TCP payloads must pass unmodified.
+func isTLSClientHelloPrefix(b []byte) bool {
+	return len(b) >= 9 && b[0] == 22 && b[1] == 3 && b[2] <= 4 &&
+		b[5] == 1 && binary.BigEndian.Uint16(b[3:5]) >= 4
 }
 
 // firstHostRange accepts TLS SNI or an HTTP/1.x Host header.
