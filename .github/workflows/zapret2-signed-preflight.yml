@@ -43,8 +43,10 @@ jobs:
           test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0" "ndk;30.0.16248370"
+      - name: Fetch verified upstream Zapret2 Android assets
+        run: python3 tools/zapret2/vendor.py
       - name: Unit tests
-        run: ./gradlew --no-daemon --console=plain :app:testDebugUnitTest
+        run: ./gradlew --no-daemon --console=plain :connection:test :app:testDebugUnitTest
       - name: Build, sign and verify three release APKs
         shell: bash
         run: |
