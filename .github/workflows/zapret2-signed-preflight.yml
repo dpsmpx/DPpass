@@ -10,7 +10,7 @@ on:
 permissions:
   contents: write
 concurrency:
-  group: zapret2-signed-preflight
+  group: zapret2-signed-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
