@@ -58,7 +58,7 @@ android {
         applicationId = AppIdentity.STABLE.applicationId
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 129
+        versionCode = 131
         versionName = "0.7.54-dev"
         // Ярлык приложения — через placeholder: стабильный для отладки,
         // случайный для личного release (D-47). Внутреннее имя «DPpass»
