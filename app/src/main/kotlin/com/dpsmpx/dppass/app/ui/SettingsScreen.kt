@@ -676,10 +676,15 @@ class SettingsScreen(host: Host) : Screen(host) {
         val dialog = AlertDialog.Builder(context)
             .setTitle(R.string.zapret2_hostlist_title)
             .setView(form)
+            .setNeutralButton(R.string.zapret2_youtube_preset, null)
             .setPositiveButton(R.string.action_save, null)
             .setNegativeButton(android.R.string.cancel, null)
             .show()
         Ui.secure(dialog)
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+            field.setText(Zapret2Hostlist.YOUTUBE_CDN_PRESET)
+            field.setSelection(field.text.length)
+        }
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             val parsed = Zapret2Hostlist.parse(field.text.toString())
             val hosts = parsed.getOrNull()
