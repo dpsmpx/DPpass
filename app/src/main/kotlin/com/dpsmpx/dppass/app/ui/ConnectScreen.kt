@@ -14,6 +14,7 @@ import com.dpsmpx.dppass.app.UsageAlerts
 import com.dpsmpx.dppass.connection.LocalProxyOffer
 import com.dpsmpx.dppass.connection.RoutingMode
 import com.dpsmpx.dppass.connection.ServerlessSettings
+import com.dpsmpx.dppass.connection.Zapret2Backend
 import com.dpsmpx.dppass.core.Clock
 import com.dpsmpx.dppass.diagnostics.Outcome
 import kotlinx.coroutines.Job
@@ -236,9 +237,10 @@ class ConnectScreen(host: Host) : Screen(host) {
         val sites = host.prefs.splitSites()
         val serverless = host.prefs.serverless
         val serverlessReady = core?.serverlessReady(sites, serverless, relaySelected = relay != null) == true
-        val canConnect = hasServers || serverlessReady
+        val localMode = host.prefs.zapret2Backend != Zapret2Backend.OFF
+        val canConnect = localMode || hasServers || serverlessReady
 
-        source.text = when (val s = ConfigSource.of(core?.activation?.state?.active?.source)) {
+        source.text = if (localMode) context.getString(R.string.zapret2_mode_title) else when (val s = ConfigSource.of(core?.activation?.state?.active?.source)) {
             ConfigSource.None -> context.getString(R.string.source_none)
             ConfigSource.Own -> context.getString(R.string.source_own)
             is ConfigSource.FromSubscription -> {
@@ -290,7 +292,7 @@ class ConnectScreen(host: Host) : Screen(host) {
         autoAvatar.visibility = if (relay == null && shown == null) View.VISIBLE else View.GONE
         serverLatency.removeAllViews()
         shown?.let { p -> Ui.latencyChip(context, LatencyLabel.of(core?.latency?.of(p.id)))?.let(serverLatency::addView) }
-        serverCard.visibility = if (hasServers) View.VISIBLE else View.GONE
+        serverCard.visibility = if (hasServers && !localMode) View.VISIBLE else View.GONE
 
         val policy = core?.userPolicy?.currentOrDefault()
         val own = core?.activation?.state?.active?.source == com.dpsmpx.dppass.connection.PolicyService.OWN_DOCUMENT
@@ -317,7 +319,7 @@ class ConnectScreen(host: Host) : Screen(host) {
             val line = if (status is TunnelStatus.Connected) R.string.local_proxy_row_connected else R.string.local_proxy_row_on
             localProxyRow.subtitle(context.getString(line, port))
         }
-        serverlessCard.visibility = if (serverlessReady) View.VISIBLE else View.GONE
+        serverlessCard.visibility = if (serverlessReady && !localMode) View.VISIBLE else View.GONE
         serverlessRow.subtitle(
             if (serverless.rest == ServerlessSettings.Rest.SPLIT) {
                 context.getString(R.string.serverless_summary_split, sites.size)
@@ -325,7 +327,7 @@ class ConnectScreen(host: Host) : Screen(host) {
                 context.getString(R.string.serverless_summary_direct, sites.size)
             },
         )
-        emptyCard.visibility = if (graph != null && !hasServers) View.VISIBLE else View.GONE
+        emptyCard.visibility = if (graph != null && !hasServers && !localMode) View.VISIBLE else View.GONE
         renderOffer(TunnelState.offer.value)
     }
 
