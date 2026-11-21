@@ -807,4 +807,9 @@
     <string name="desync_ok">Passed: %1$d/%2$d</string>
     <string name="desync_median">median %1$d ms</string>
     <string name="desync_not_applied">trick not applied %1$d×</string>
+    <string name="zapret2_mode_title">Zapret2 · локально</string>
+    <string name="zapret2_off">Выключен (подписки)</string>
+    <string name="zapret2_root">Root · NFQUEUE (эксперимент)</string>
+    <string name="zapret2_vpn">VpnService (в разработке)</string>
+    <string name="zapret2_experimental_note">Root требует su, NFQUEUE и совместимого ядра Android; физическая проверка не выполнена. Zapret2 через VpnService пока не реализован. Это не готовый выпуск.</string>
 </resources>
