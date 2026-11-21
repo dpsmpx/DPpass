@@ -268,3 +268,40 @@ DP-Verify, поставлен копией; руками не правится, 
 | Копия | Версия | Источник | SHA-256 манифеста |
 |---|---|---|---|
 | `tools/dpv/` | 1.0.0-rc2 | `dpsmpx/DP-Verify@938f68017a970049596b76892cb4f06be8e621fe` | `a2fae9e34198a01ad50c2768eb7839194fdbd4e367c61cfbfbc4eb50fbab1fac` |
+
+## 9. Alpine Linux и PRoot (перенос из DP_IDE, 21.11.2026)
+
+Источники кода терминала, эмулятора, JNI-процесса и исходного установщика
+принадлежат тому же автору: `dpsmpx/DPmetaApp`, каталог `dpai`
+(`dpai/android/src/main/kotlin/.../linux`, `dpai/terminal`,
+`dpai/android/src/main/cpp/dpai_native.c` и `dpai/tools/linux`).
+В DPpass использована отдельная реализация оболочки и экрана с сохранённым
+чистым эмулятором, JNI PTY и закреплённым сборщиком PRoot.
+
+- Alpine **3.24.3**, `aarch64`:
+  `https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/alpine-minirootfs-3.24.3-aarch64.tar.gz`;
+  архив SHA-256
+  `4d3f80afaebd447c5591a63a73bde380a149fe8b2d85488cafabb2ff97551f50`.
+  Скачать можно только на сборщике, в APK хранится `alpine/rootfs.tgz`;
+  при установке в данных Android проверяется та же SHA-256.
+- PRoot: форк `https://github.com/termux/proot`, коммит
+  `52d65a4dc140ca554d241a1438ddd4f6b00c9813` (v5.1.107.102).
+  Исходники не кладутся в репозиторий DPpass и проверяются как clean
+  checkout точного коммита. `tools/alpine/build-proot.sh` фиксирует
+  SHA-256 каждого статического пакета Alpine (musl, заголовки, talloc).
+  `tools/alpine/prepare.sh` собирает ELF из закреплённых исходников,
+  добавляет уведомление и GPL в APK.
+- Обработка PTY в `libdppass-alpine.so` — нативный код автора
+  (`dpai_native.c` из DP_IDE с переименованным JNI); NDK
+  `30.0.16248370`, API 26, выравнивание ELF 16 КБ.
+- APK не содержит готового `proot` из непроверенного источника.
+  Для ARM64 исполняемые файлы доставляются в `nativeLibraryDir`,
+  с `useLegacyPackaging` для запуска при targetSdk 36.
+  На остальных ABI кнопка терминала показывает отсутствие среды,
+  VPN работает как прежде.
+- PRoot `-0` подделывает root **внутри гостя**, но Android-процесс
+  остаётся UID приложения; полномочий `CAP_NET_ADMIN`, raw socket,
+  NFQUEUE, `iptables` у него не появляется. Движок Xray и состояние
+  DPpass VPN не зависят от установленной Alpine.
+
+Новые бинарные файлы в Git не добавлены: они генерируются Gradle.

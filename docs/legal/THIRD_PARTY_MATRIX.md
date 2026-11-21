@@ -260,3 +260,16 @@ Xray (`infra/conf`), а не DPpass, и отсечь их без правки up
   `capabilityDiff`.
 - Смена лицензии компонента при обновлении — повод остановиться и
   пересмотреть строку, а не обновить молча.
+
+## Alpine/PRoot из собственного проекта DP_IDE (21.11.2026)
+
+| Компонент | Версия | Лицензия | Куда | Статус | Зачем |
+|---|---|---|---|---|---|
+| `termux/proot` | `52d65a4dc140ca554d241a1438ddd4f6b00c9813`, v5.1.107.102 | GPL-2.0 | APK arm64: статические `libproot.so`, `libproot-loader.so` | разрешён | PRoot-гость, **не** root Android и **не** NFQUEUE; сборка из закреплённых исходников по скрипту DP_IDE |
+| Alpine Linux minirootfs | 3.24.3, aarch64 | лицензии пакетов Alpine (включая BusyBox GPL-2.0) | APK, `assets/alpine/rootfs.tgz` | разрешён | оболочка Linux/утилиты в данных приложения; список пакетов и лицензии — внутри `/lib/apk/db/installed` и Alpine |
+| Alpine musl и заголовки для PRoot | musl-dev 1.2.6-r3, linux-headers 7.0.0-r1, talloc-dev/static 2.4.4-r1, bsd-compat-headers 0.7.2-r6 | MIT (musl), GPL-2.0 WITH Linux-syscall-note (headers), LGPL-3.0+ (talloc), BSD/MIT (compat headers; проверять по пакету) | сборка PRoot; статические компоненты согласно upstream | разрешён | закреплённые SHA256 в `tools/alpine/build-proot.sh` |
+
+В APK размещены `assets/alpine/NOTICE.txt` и `GPL-2.0.txt`.
+Терминальный эмулятор, JNI-процессы и PRoot-обвязка перенесены из
+**собственного** репозитория автора `dpsmpx/DPmetaApp`, каталог `dpai`;
+это не новая внешняя библиотека и не добавляет разрешений Android.
