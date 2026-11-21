@@ -17,6 +17,7 @@ import com.dpsmpx.dppass.connection.DnsProvider
 import com.dpsmpx.dppass.connection.PolicyService
 import com.dpsmpx.dppass.connection.RoutingMode
 import com.dpsmpx.dppass.connection.ServerlessSettings
+import com.dpsmpx.dppass.connection.Zapret2Backend
 import com.dpsmpx.dppass.connection.UserPolicy
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Safe
@@ -276,6 +277,29 @@ class SettingsScreen(host: Host) : Screen(host) {
             },
             Ui.matchWidth(),
         )
+
+        // ---- локальный Zapret2: opt-in ----
+        body.addView(Ui.section(context, context.getString(R.string.zapret2_mode_title)))
+        body.addView(
+            Ui.listCard(context).apply {
+                addView(
+                    choiceRow(
+                        R.drawable.ic_shield,
+                        R.string.zapret2_mode_title,
+                        listOf(R.string.zapret2_off, R.string.zapret2_root, R.string.zapret2_vpn),
+                        host.prefs.zapret2Backend.ordinal,
+                    ) { index ->
+                        host.prefs.zapret2Backend = Zapret2Backend.entries[index]
+                        host.reconnectIfBusy()
+                        host.changed()
+                    },
+                    Ui.matchWidth(),
+                )
+            },
+            Ui.matchWidth(),
+        )
+        body.addView(Ui.text(context, R.style.Text_DPpass_Caption,
+            context.getString(R.string.zapret2_experimental_note)))
 
         // ---- без сервера (D-73) ----
         body.addView(Ui.section(context, context.getString(R.string.settings_serverless)))
