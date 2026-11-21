@@ -72,8 +72,8 @@ internal class RootZapret2(private val context: Context) {
                 " > " + quote(ROOT + "/nfqws.log") + " 2>&1 &",
             "pid=$!",
             "sleep 1",
-            "kill -0 \"$pid\"",
-            "echo \"$pid\" > " + quote(ROOT + "/pid"),
+            "kill -0 \"\$pid\"",
+            "echo \"\$pid\" > " + quote(ROOT + "/pid"),
             // Listener first, firewall second. Queue bypass prevents a traffic blackout.
             "iptables -t mangle -I OUTPUT " + TCP,
             "iptables -t mangle -I OUTPUT " + UDP,
