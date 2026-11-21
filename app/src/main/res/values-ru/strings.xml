@@ -860,4 +860,18 @@
     <string name="zapret2_vpn_fallback_note">В мобильной сети YouTube может обращаться к CDN по IP или использовать TLS ECH. Включено по умолчанию: TCP/443 направляется через локальный DPI-приём даже при непустом списке; при отключённом «QUIC → TCP» и стратегии Fake также обрабатывается неизвестный QUIC UDP/443. Это может затронуть другие HTTPS-сайты. Выключите, чтобы строго ограничить обработку списком.</string>
     <string name="zapret2_vpn_force_tcp_title">VpnService · QUIC → TCP</string>
     <string name="zapret2_vpn_force_tcp_note">Для видео и CDN: блокировать UDP 443 внутри VPN, чтобы приложения попробовали TLS по TCP. Не все приложения поддерживают такой переход; DNS и другой UDP остаются доступны. Можно отключить для сравнения.</string>
+    <string name="alpine_title">Терминал Alpine Linux</string>
+    <string name="alpine_settings_note">Дополнительная Linux-среда PRoot внутри приложения. Не даёт Android root и не перехватывает трафик VPN.</string>
+    <string name="alpine_note">Alpine работает с правами DPpass. Root внутри PRoot виртуальный: Android iptables/NFQUEUE недоступны. Минимальный терминал для строковых команд (без полноэкранных TUI).</string>
+    <string name="alpine_install">Установить Alpine</string>
+    <string name="alpine_installing">Проверка и установка Alpine…</string>
+    <string name="alpine_installed">Alpine установлен.</string>
+    <string name="alpine_start">Запустить shell</string>
+    <string name="alpine_started">Оболочка запущена.</string>
+    <string name="alpine_running">Оболочка работает</string>
+    <string name="alpine_command">Команда</string>
+    <string name="alpine_send">Отправить</string>
+    <string name="alpine_exited">Оболочка завершилась (код %1$d)</string>
+    <string name="alpine_failed">Ошибка Alpine: %1$s</string>
+    <string name="alpine_missing">PRoot ARM64 не включён в APK. Соберите с -Pdppass.alpine=true.</string>
 </resources>

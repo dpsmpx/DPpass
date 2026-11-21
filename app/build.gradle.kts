@@ -9,6 +9,12 @@ plugins {
     id("dppass.android-app")
 }
 
+/** Alpine/PRoot from DPmetaApp is intentionally opt-in while device validation is pending.
+ * Use -Pdppass.alpine=true to build the ARM64 Linux console; regular APKs stay unchanged.
+ */
+val alpineEnabled = providers.gradleProperty("dppass.alpine").map(String::toBoolean).getOrElse(false)
+
+
 // Личность устанавливаемого приложения (D-47). Пространство имён кода —
 // всегда `com.dpsmpx.dppass` (ниже `namespace`): меняется только личность.
 //   * отладочная сборка и проверки — стабильная личность (детерминизм);
@@ -50,6 +56,17 @@ require(robolectricSdk in robolectricImages) { "dppass.robolectric.sdk — од�
 android {
     namespace = "com.dpsmpx.dppass"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
+    if (alpineEnabled) {
+        // Native PTY from DPmetaApp/dpai, part of the opt-in Alpine console.
+        ndkVersion = libs.versions.android.ndk.get()
+        externalNativeBuild {
+            cmake {
+                path = file("src/main/cpp/CMakeLists.txt")
+                version = "3.22.1"
+            }
+        }
+    }
+
 
     defaultConfig {
         // Личность по умолчанию — стабильная (отладка, проверки); release её
@@ -111,6 +128,10 @@ android {
             // символов, выровнена по 16 КБ); AGP её не трогает — в APK ровно то,
             // что проверено (check_apk.py).
             keepDebugSymbols += "**/libdppassxray.so"
+            // PRoot is an ELF executable shipped as libproot.so; Android must
+            // extract it to nativeLibraryDir so execve can run it (API 29+).
+            if (alpineEnabled) useLegacyPackaging = true
+
         }
     }
 
@@ -207,6 +228,73 @@ androidComponents {
         }
         variant.sources.assets?.addGeneratedSourceDirectory(notices, LegalNoticesTask::outputDir)
     }
+}
+
+
+// Opt-in Alpine runtime: the same pinned Termux PRoot sources and Alpine
+// minirootfs as DPmetaApp/dpai. No unverified APK binaries or npm downloads.
+if (alpineEnabled) {
+    val alpineFiles = tasks.register("alpineFiles") {
+        val cache = File(gradle.gradleUserHomeDir, "caches/dppass-alpine")
+        val jni = layout.buildDirectory.dir("generated/alpine-jni")
+        val assets = layout.buildDirectory.dir("generated/alpine-assets")
+        val builder = rootProject.file("tools/alpine/build-proot.sh")
+        val compat = rootProject.file("tools/alpine/proot-musl-compat.h")
+        val ndk = androidComponents.sdkComponents.ndkDirectory
+        val url = "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/alpine-minirootfs-3.24.3-aarch64.tar.gz"
+        val pin = "4d3f80afaebd447c5591a63a73bde380a149fe8b2d85488cafabb2ff97551f50"
+        inputs.files(builder, compat)
+        inputs.property("rootfs-url", url)
+        inputs.property("rootfs-sha256", pin)
+        outputs.dirs(jni, assets)
+        doLast {
+            fun sha256(bytes: ByteArray) = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(bytes).joinToString("") { "%02x".format(it) }
+            cache.mkdirs()
+            val archive = File(cache, url.substringAfterLast('/'))
+            if (!archive.exists()) {
+                val partial = File(cache, archive.name + ".part")
+                java.net.URI(url).toURL().openStream().use { source ->
+                    partial.outputStream().use { dest -> source.copyTo(dest) }
+                }
+                check(partial.renameTo(archive)) { "failed to cache Alpine rootfs" }
+            }
+            val data = archive.readBytes()
+            check(sha256(data) == pin) { "Alpine minirootfs checksum mismatch" }
+            val built = temporaryDir.resolve("proot-aarch64")
+            val proc = ProcessBuilder("sh", builder.absolutePath, "aarch64",
+                built.absolutePath, cache.resolve("proot").absolutePath)
+                .redirectErrorStream(true)
+                .apply { environment()["NDK"] = ndk.get().asFile.absolutePath }
+                .start()
+            val log = proc.inputStream.bufferedReader().use { it.readText() }
+            check(proc.waitFor() == 0) { "Termux PRoot build failed:\n" + log.takeLast(4000) }
+            val p = File(built, "proot").readBytes()
+            val l = File(built, "loader").readBytes()
+            fun isAarch64Elf(b: ByteArray) = b.size > 64 && b[0] == 127.toByte() &&
+                b[1] == 'E'.code.toByte() && b[4] == 2.toByte() &&
+                java.nio.ByteBuffer.wrap(b, 18, 2).order(java.nio.ByteOrder.LITTLE_ENDIAN).short.toInt() == 183
+            check(isAarch64Elf(p) && isAarch64Elf(l)) { "unexpected proot/loader ELF ABI" }
+            val out = File(jni.get().asFile, "arm64-v8a")
+            out.mkdirs()
+            File(out, "libproot.so").writeBytes(p)
+            File(out, "libproot-loader.so").writeBytes(l)
+            val asset = File(assets.get().asFile, "alpine")
+            asset.mkdirs()
+            File(asset, "rootfs.tgz").writeBytes(data)
+        }
+    }
+    androidComponents {
+        onVariants { variant ->
+            variant.sources.assets?.addStaticSourceDirectory(layout.buildDirectory.dir("generated/alpine-assets").get().asFile.path)
+            variant.sources.jniLibs?.addStaticSourceDirectory(layout.buildDirectory.dir("generated/alpine-jni").get().asFile.path)
+        }
+    }
+    tasks.matching {
+        (it.name.startsWith("merge") || it.name.startsWith("package") || it.name.startsWith("copy")) &&
+            (it.name.endsWith("Assets") || it.name.contains("JniLib") || it.name.endsWith("NativeLibs")) ||
+            it.name.contains("lint", ignoreCase = true)
+    }.configureEach { dependsOn(alpineFiles) }
 }
 
 dependencies {

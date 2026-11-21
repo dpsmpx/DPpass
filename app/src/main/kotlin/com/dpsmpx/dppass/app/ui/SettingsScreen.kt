@@ -367,6 +367,17 @@ class SettingsScreen(host: Host) : Screen(host) {
             context.getString(R.string.zapret2_experimental_note)))
 
         // ---- без сервера (D-73) ----
+        // Separate optional user-space Alpine terminal from the VPN packet path.
+        body.addView(Ui.listCard(context).apply {
+            addView(
+                Ui.ListRow(context, R.drawable.ic_route, context.getString(R.string.alpine_title))
+                    .subtitle(context.getString(R.string.alpine_settings_note))
+                    .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                    .onClick { context.startActivity(Intent(context, com.dpsmpx.dppass.app.alpine.AlpineTerminalActivity::class.java)) },
+                Ui.matchWidth(),
+            )
+        }, Ui.matchWidth())
+
         body.addView(Ui.section(context, context.getString(R.string.settings_serverless)))
         val serverless = host.prefs.serverless
         body.addView(

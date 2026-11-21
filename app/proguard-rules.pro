@@ -26,3 +26,6 @@
 -keepclassmembers class * implements com.dpsmpx.dppass.engine.SocketProtector {
     boolean protect(int);
 }
+
+# JNI PTY from DPmetaApp/dpai; name is used by exported C JNI entrypoints.
+-keep class com.dpsmpx.dpai.android.linux.NativeCalls { native <methods>; }
