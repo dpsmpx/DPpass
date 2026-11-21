@@ -388,7 +388,7 @@ func (c *desyncUDPConn) Write(b []byte) (int, error) {
 	if !c.first {
 		c.first = true
 		if c.mode.kind == desyncFake && isQUICInitial(b) {
-			c.sendLowTTLDummyQUIC()
+			c.sendLowTTLDummyQUIC(b)
 		} else {
 			desyncSkipped.Add(1)
 		}
@@ -396,7 +396,7 @@ func (c *desyncUDPConn) Write(b []byte) (int, error) {
 	return c.UDPConn.Write(b)
 }
 
-func (c *desyncUDPConn) sendLowTTLDummyQUIC() {
+func (c *desyncUDPConn) sendLowTTLDummyQUIC(initial []byte) {
 	rc, err := c.SyscallConn()
 	if err != nil {
 		desyncSkipped.Add(1)
@@ -406,10 +406,11 @@ func (c *desyncUDPConn) sendLowTTLDummyQUIC() {
 	if a, ok := c.RemoteAddr().(*net.UDPAddr); ok {
 		v6 = a.IP.To4() == nil
 	}
-	// A deliberately non-Initial 620-byte dummy payload, same as the
-	// upstream nfqws2 fake_default_quic blob. Keep it below MTU.
-	fake := make([]byte, 620)
-	fake[0] = 0x40
+	// Preserve the actual QUIC v1/v2 Initial long-header shape so a DPI
+	// classifier sees an Initial rather than a short-header UDP datagram.
+	// Randomize the encrypted body; the original datagram is always sent
+	// unchanged after restoring the socket hop limit. No server keys needed.
+	fake := fakeQUICInitial(initial)
 	restore, err := setTTL(rc, v6, c.mode.ttl)
 	if err != nil {
 		desyncSkipped.Add(1)
@@ -430,6 +431,23 @@ func (c *desyncUDPConn) sendLowTTLDummyQUIC() {
 	} else {
 		desyncSkipped.Add(1)
 	}
+}
+
+// fakeQUICInitial copies a bounded first Initial datagram, keeping the QUIC
+// long header (including DCID/SCID) and replacing only ciphertext bytes.
+// This is a best-effort DPI decoy, not a valid QUIC handshake. The packet
+// should expire before the destination because of the temporary low TTL.
+func fakeQUICInitial(initial []byte) []byte {
+	fake := append([]byte(nil), initial...)
+	// Header protection and packet-number lengths vary. Keep the first 64
+	// bytes, which covers normal QUIC long headers; randomize the rest.
+	if len(fake) > 64 {
+		if _, err := rand.Read(fake[64:]); err != nil {
+			copy(fake[64:], initial[64:])
+			fake[len(fake)-1] ^= 0xff
+		}
+	}
+	return fake
 }
 
 // Minimal QUIC v1/v2 long-header Initial recognizer. Packet length >= 1200
