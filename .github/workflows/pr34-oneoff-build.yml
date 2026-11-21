@@ -2,9 +2,6 @@
 # Не сливать в main: проект использует локальный DP Verify (D-23).
 name: DPpass PR34 test binaries
 on:
-  push:
-    branches:
-      - build/pr34-20261121
   workflow_dispatch:
 
 permissions:
