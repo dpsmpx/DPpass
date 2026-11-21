@@ -20,6 +20,8 @@ import android.os.PowerManager
 import android.service.quicksettings.TileService
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.ui.Formats
+import com.dpsmpx.dppass.app.alpine.AlpineFiles
+import com.dpsmpx.dppass.app.alpine.AlpineZapret2Runtime
 import com.dpsmpx.dppass.connection.ConnectionReport
 import com.dpsmpx.dppass.connection.DPpassCore
 import com.dpsmpx.dppass.connection.Degradation
@@ -45,6 +47,8 @@ import com.dpsmpx.dppass.engine.ServerlessPlan
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.SocketProtector
 import com.dpsmpx.dppass.engine.xray.Ipv6Egress
+import com.dpsmpx.dppass.engine.xray.JniXrayRuntime
+import com.dpsmpx.dppass.engine.xray.XrayResult
 import com.dpsmpx.dppass.network.NetworkAssessment
 import com.dpsmpx.dppass.network.NetworkChangeChecks
 import com.dpsmpx.dppass.network.NetworkType
@@ -138,6 +142,9 @@ class DPpassVpnService : VpnService() {
     private var session: EngineSession? = null
     private var rootZapret2: RootZapret2? = null
     private var rootWatch: Job? = null
+    /** Alpine's sole strategy planner for local VpnService mode. */
+    private var alpineStrategy: AlpineZapret2Runtime? = null
+    private var alpineWatch: Job? = null
     private val tunnel = TunnelOwner()
     private var ticker: Job? = null
     private var supervisor: Job? = null
@@ -583,6 +590,30 @@ class DPpassVpnService : VpnService() {
             }
             is Outcome.Success -> spec.value
         }
+        // Alpine is the single strategy decision authority in opt-in ARM64
+        // builds. Android still owns TUN, protected sockets and TTL writes:
+        // PRoot cannot acquire CAP_NET_ADMIN or operate NFQUEUE.
+        if (desync != null && AppPrefs(this).zapret2Backend == Zapret2Backend.VPN_SERVICE &&
+            AlpineFiles.supported(this)) {
+            val started = runCatching { AlpineZapret2Runtime.start(this) }
+            val daemon = started.getOrNull()
+            if (daemon == null) {
+                fail(Diagnostic.fromThrowable(DiagCode.BACKEND_NOT_AVAILABLE,
+                    "Zapret2 Alpine: стратегия не запустилась", started.exceptionOrNull()!!))
+                return
+            }
+            alpineStrategy = daemon
+            when (val selection = JniXrayRuntime.configureZapret2Planner(daemon.socketPath)) {
+                is XrayResult.Failed -> {
+                    daemon.close()
+                    alpineStrategy = null
+                    fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
+                        "Не удалось включить Alpine-движок Zapret2: " + selection.text.take(200)))
+                    return
+                }
+                else -> Unit
+            }
+        }
         val handle = when (val t = AndroidTunnelProvider(this).establish(tunSpec)) {
             is Outcome.Failure -> {
                 t.errors.drop(1).forEach(core.log::diagnostic)
@@ -623,6 +654,19 @@ class DPpassVpnService : VpnService() {
                     progress(TunnelStatus.Connected(ServerlessPlan.PROFILE_ID, name, core.clock.nowMillis(), Clock.MONOTONIC.nowMillis()))
                     watchNetwork()
                     startTicker(session)
+                    alpineStrategy?.let { daemon ->
+                        alpineWatch?.cancel()
+                        alpineWatch = scope.launch {
+                            while (isActive) {
+                                delay(5_000L)
+                                if (!daemon.isAlive) {
+                                    fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
+                                        "Запущенный движок Zapret2 в Alpine завершился; трафик не обходится напрямую"))
+                                    break
+                                }
+                            }
+                        }
+                    }
                 } else {
                     session.stop()
                 }
@@ -1111,6 +1155,8 @@ class DPpassVpnService : VpnService() {
     }
 
     private suspend fun shutdown(keepTunnel: Boolean = false) {
+        alpineWatch?.cancel()
+        alpineWatch = null
         rootWatch?.cancel()
         rootWatch = null
         stopObservers()
@@ -1123,6 +1169,13 @@ class DPpassVpnService : VpnService() {
             session = null
             pending
         }?.join()
+        // The protected-socket engine must stop before the Alpine strategy
+        // daemon. Clear the socket to avoid stale state in the next session.
+        if (alpineStrategy != null) {
+            runCatching { JniXrayRuntime.configureZapret2Planner(null) }
+            runCatching { alpineStrategy?.close() }
+            alpineStrategy = null
+        }
         // У root нет Xray EngineSession, но есть собственный процесс и NFQUEUE.
         rootZapret2?.stop()?.onFailure { error ->
             DeviceLog.log.diagnostic(Diagnostic.fromThrowable(
