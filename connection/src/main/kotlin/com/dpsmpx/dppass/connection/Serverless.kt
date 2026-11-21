@@ -91,6 +91,8 @@ object ServerlessMode {
         dns = dns(s, policy),
     )
 
-    fun plan(s: ServerlessSettings, sites: SplitSites, policy: UserPolicy, desync: DesyncTrick? = null): ServerlessPlan =
-        ServerlessPlan(dns(s, policy), sites, splitRest = s.rest == ServerlessSettings.Rest.SPLIT, desync = desync)
+    fun plan(s: ServerlessSettings, sites: SplitSites, policy: UserPolicy, desync: DesyncTrick? = null,
+        forceQuicTcp: Boolean = false): ServerlessPlan =
+        ServerlessPlan(dns(s, policy), sites, splitRest = s.rest == ServerlessSettings.Rest.SPLIT,
+            desync = desync, forceQuicTcp = forceQuicTcp)
 }
