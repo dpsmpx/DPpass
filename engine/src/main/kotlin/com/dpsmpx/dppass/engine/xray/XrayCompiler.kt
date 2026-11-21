@@ -214,6 +214,7 @@ class XrayCompiler(
             },
             forceQuicTcp = plan.forceQuicTcp,
             catchAllHttps = plan.catchAllHttps && plan.desync != null && !plan.splitRest,
+            catchAllQuic = plan.catchAllHttps && plan.desync is DesyncTrick.Fake && !plan.forceQuicTcp && !plan.splitRest,
         )
         if (problems.any { it.isError }) return Outcome.Failure(problems)
         val split = if (plan.desync != null) {
@@ -563,6 +564,7 @@ class XrayCompiler(
             splitQuicTag: String = XrayBackend.TAG_BLOCK,
             forceQuicTcp: Boolean = false,
             catchAllHttps: Boolean = false,
+            catchAllQuic: Boolean = false,
         ): JsonObject {
             val lowered = AppLowering.lower(ir.routing)
             val rules = mutableListOf<JsonValue>()
@@ -623,6 +625,19 @@ class XrayCompiler(
                     "inboundTag" to Json.strings(listOf(XrayBackend.TAG_TUN_IN)),
                     "port" to Json.str("443"),
                     "network" to Json.str("tcp"),
+                    "outboundTag" to Json.str(XrayBackend.TAG_PROXY),
+                )
+            }
+            // QUIC Initial may not expose a domain to the sniffer. With
+            // the opt-in IP/ECH fallback, try the same local fake UDP
+            // dialer for unidentified UDP/443 as well. The dialer injects
+            // decoys only for recognized QUIC Initial; other UDP is intact.
+            if (catchAllQuic && withTun) {
+                rules += Json.obj(
+                    "ruleTag" to Json.str("${XrayBackend.SYSTEM_PREFIX}zapret2-quic-unmatched"),
+                    "inboundTag" to Json.strings(listOf(XrayBackend.TAG_TUN_IN)),
+                    "port" to Json.str("443"),
+                    "network" to Json.str("udp"),
                     "outboundTag" to Json.str(XrayBackend.TAG_PROXY),
                 )
             }
