@@ -205,6 +205,7 @@ class XrayCompiler(
         val routing = build.routing(
             ir, plan.withTun, splitSites = plan.splitSites, splitTag = XrayBackend.TAG_PROXY,
             splitQuicTag = if (plan.desync is DesyncTrick.Fake) XrayBackend.TAG_PROXY else XrayBackend.TAG_BLOCK,
+            forceQuicTcp = plan.forceQuicTcp,
         )
         if (problems.any { it.isError }) return Outcome.Failure(problems)
         val split = if (plan.desync != null) {
@@ -552,6 +553,7 @@ class XrayCompiler(
             splitSites: SplitSites = SplitSites.NONE,
             splitTag: String = XrayBackend.TAG_DIRECT_SPLIT,
             splitQuicTag: String = XrayBackend.TAG_BLOCK,
+            forceQuicTcp: Boolean = false,
         ): JsonObject {
             val lowered = AppLowering.lower(ir.routing)
             val rules = mutableListOf<JsonValue>()
@@ -587,6 +589,18 @@ class XrayCompiler(
                     "ruleTag" to Json.str("${XrayBackend.SYSTEM_PREFIX}dns:${s.id}"),
                     "inboundTag" to Json.strings(listOf(XrayBackend.dnsTag(s.id))),
                     "outboundTag" to Json.str(if (s.route == DnsRoute.TUNNEL) XrayBackend.TAG_PROXY else XrayBackend.TAG_DIRECT),
+                )
+            }
+            // Только локальный Zapret2 VPN: при сбоях QUIC принудить HTTP/2 по TCP.
+            // Срабатывает до domain/QUIC-sniffing: имена CDN и IP могут быть неизвестны.
+            // DNS (53) и весь прочий UDP пропускаем, обычные подписки не затронуты.
+            if (forceQuicTcp && withTun) {
+                rules += Json.obj(
+                    "ruleTag" to Json.str("${XrayBackend.SYSTEM_PREFIX}zapret2-quic-tcp"),
+                    "inboundTag" to Json.strings(listOf(XrayBackend.TAG_TUN_IN)),
+                    "port" to Json.str("443"),
+                    "network" to Json.str("udp"),
+                    "outboundTag" to Json.str(XrayBackend.TAG_BLOCK),
                 )
             }
             rules += splitSiteRules(splitSites, withTun, splitTag, splitQuicTag)
