@@ -50,7 +50,8 @@ enum class Zapret2VpnStrategy(val wire: String) {
     FAKE_TTL_3("fake-3"),
     FAKE_TTL_5("fake-5"),
     DISORDER("disorder"),
-    SPLIT_SNI("split");
+    SPLIT_SNI("split"),
+    SPLIT_FIRST("split-1");
 
     companion object {
         fun of(value: String?): Zapret2VpnStrategy =
