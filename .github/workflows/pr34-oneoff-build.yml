@@ -2,10 +2,15 @@
 # Не сливать в main: проект использует локальный DP Verify (D-23).
 name: DPpass PR34 test binaries
 on:
+  push:
+    branches:
+      - build/pr34-20261121
+    paths:
+      - .github/workflows/pr34-oneoff-build.yml
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   android:
@@ -35,14 +40,14 @@ jobs:
           "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0" "ndk;30.0.16248370"
       - name: Build and verify per-ABI APK (unsigned for developer key)
         run: python3 tools/release/sign_apks.py --unsigned
-      - name: Upload Android APK and checksums
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dppass-pr34-android-unsigned
-          path: build/release-apk/
-          if-no-files-found: warn
-          retention-days: 14
+      - name: Deliver Android APK via private draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mv build/release-apk/SHA256SUMS build/release-apk/SHA256SUMS-android.txt
+          mv build/release-apk/CERTIFICATE.txt build/release-apk/CERTIFICATE-android.txt
+          gh release upload pr34-test-20261121-452538a build/release-apk/* --clobber --repo "$GITHUB_REPOSITORY"
 
   linux:
     name: Linux archive and PKGBUILD
@@ -68,14 +73,13 @@ jobs:
           archive="$(find desktop/build/distributions -maxdepth 1 -name 'dppass-desktop-*.tar' -print -quit)"
           test -n "$archive"
           python3 tools/desktop/package.py "$archive" build/linux/dist
-      - name: Upload Linux package
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dppass-pr34-linux
-          path: build/linux/dist/
-          if-no-files-found: warn
-          retention-days: 14
+      - name: Deliver Linux archive via private draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mv build/linux/dist/SHA256SUMS build/linux/dist/SHA256SUMS-linux.txt
+          gh release upload pr34-test-20261121-452538a build/linux/dist/* --clobber --repo "$GITHUB_REPOSITORY"
 
   windows:
     name: Windows ZIP with setup.exe
@@ -99,11 +103,10 @@ jobs:
         run: sed -i 's@services.gradle.org/distributions@downloads.gradle.org/distributions@' gradle/wrapper/gradle-wrapper.properties
       - name: Build and check Windows distribution
         run: python3 tools/desktop/windows_package.py --require-tests
-      - name: Upload Windows ZIP and checksum
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dppass-pr34-windows
-          path: build/windows/dist/
-          if-no-files-found: warn
-          retention-days: 14
+      - name: Deliver Windows ZIP via private draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mv build/windows/dist/SHA256SUMS build/windows/dist/SHA256SUMS-windows.txt
+          gh release upload pr34-test-20261121-452538a build/windows/dist/* --clobber --repo "$GITHUB_REPOSITORY"
