@@ -24,9 +24,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: tools/xray/go.mod
-      - uses: android-actions/setup-android@v3
       - name: Install pinned Android SDK, build-tools, NDK
         run: |
+          set -e
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          sdkmanager --version
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "ndk;30.0.16248370"
       - name: Build and verify per-ABI APK (unsigned for developer key)
