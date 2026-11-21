@@ -10,7 +10,8 @@ on:
 permissions:
   contents: write
 concurrency:
-  group: zapret2-signed-preflight
+  # Keep feature checks independent from release signing; cancel only older same-branch runs.
+  group: zapret2-signed-preflight-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
