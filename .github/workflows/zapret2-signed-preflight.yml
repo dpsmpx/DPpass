@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - feature/zapret2-android-dual-mode
-      - release/zapret2-v0.7.54-alpha.1
+      - release/zapret2-v0.7.54-alpha.3
   workflow_dispatch:
 
 permissions:
@@ -64,7 +64,7 @@ jobs:
           test -n "$DPPASS_SIGNING_STORE_PASSWORD" || { echo "::error::KEYSTORE_PASSWORD secret missing"; exit 1; }
           test -n "$DPPASS_SIGNING_KEY_ALIAS" || { echo "::error::KEY_ALIAS secret missing"; exit 1; }
           test -n "$DPPASS_SIGNING_KEY_PASSWORD" || { echo "::error::KEY_PASSWORD secret missing"; exit 1; }
-          if [[ "$GITHUB_REF_NAME" == "release/zapret2-v0.7.54-alpha.1" ]]; then
+          if [[ "$GITHUB_REF_NAME" == "release/zapret2-v0.7.54-alpha.3" ]]; then
             python3 tools/release/sign_apks.py --out build/zapret2-signed-preflight \
               --pinned-fingerprint c18792812566ca4a18b518d51313515ff2d62bf8299446e99943eeb5d0630d11
           else
@@ -88,20 +88,20 @@ jobs:
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url,isDraft,assets
 
       - name: Publish pinned-certificate experimental alpha to GitHub Releases
-        if: github.ref_name == 'release/zapret2-v0.7.54-alpha.1'
+        if: github.ref_name == 'release/zapret2-v0.7.54-alpha.3'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          tag="v0.7.54-alpha.1"
+          tag="v0.7.54-alpha.3"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "::error::Release tag already exists; refuse to overwrite artifacts."
             exit 1
           fi
           gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
             --prerelease --target "$GITHUB_SHA" \
-            --title "DPpass v0.7.54-alpha.1 — experimental local Zapret2" \
-            --notes "EXPERIMENTAL SIGNED ALPHA, NOT A FINAL VERIFIED RELEASE. Root uses upstream Zapret2 nfqws2 v1.0.7 + NFQUEUE; Android VpnService uses DPpass's own local TCP desync and experimental QUIC UDP fake (not all upstream Zapret2 strategies). No external proxy server. Device testing is required; PR #35 remains open. Signed with pinned SHA-256 certificate c18792812566ca4a18b518d51313515ff2d62bf8299446e99943eeb5d0630d11."
+            --title "DPpass v0.7.54-alpha.3 — experimental CDN/QUIC improvements" \
+            --notes "EXPERIMENTAL SIGNED ALPHA, NOT A FINAL VERIFIED RELEASE. Root uses upstream nfqws2 v1.0.7 + NFQUEUE. Android VpnService adds QUIC-to-TCP fallback on UDP/443 (enabled by default, switchable), a TCP SNI/Host split profile and an editable YouTube CDN hostlist preset; fake TTL and disorder strategies remain. Not all upstream nfqws2 techniques are available without root. QUIC-only apps may fail with fallback enabled. No external proxy server. Physical Android testing is required; PR #35 remains draft. Signed with pinned SHA-256 certificate c18792812566ca4a18b518d51313515ff2d62bf8299446e99943eeb5d0630d11."
           gh release upload "$tag" build/zapret2-signed-preflight/* --repo "$GITHUB_REPOSITORY"
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url,isDraft,isPrerelease,assets
