@@ -1,0 +1,65 @@
+name: DPpass optional Alpine PRoot and terminal CI
+on:
+  push:
+    branches:
+      - feature/zapret2-alpine-terminal
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  alpine-android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/xray/go.mod
+      - name: Use pinned direct Gradle distribution
+        run: sed -i 's@services.gradle.org/distributions@downloads.gradle.org/distributions@' gradle/wrapper/gradle-wrapper.properties
+      - name: Install Android SDK, NDK and CMake for PRoot/JNI
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="/usr/local/lib/android/sdk"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0" "ndk;30.0.16248370" "cmake;3.22.1"
+      - name: Verify pinned Zapret2 assets
+        run: python3 tools/zapret2/vendor.py
+      - name: Alpine process-layout JVM tests
+        run: ./gradlew --no-daemon --console=plain :app:testDebugUnitTest
+      - name: Build ARM64 app with actual Alpine minirootfs and PRoot
+        run: ./gradlew --no-daemon --console=plain :app:assembleDebug -Pdppass.alpine=true -Pdppass.nativeAbis=arm64-v8a
+      - name: Verify PRoot executables, PTY JNI and Alpine rootfs packaged
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob, hashlib, zipfile
+          files = glob.glob("app/build/outputs/apk/debug/*.apk")
+          assert len(files) == 1, files
+          with zipfile.ZipFile(files[0]) as z:
+              required = [
+                  "lib/arm64-v8a/libproot.so",
+                  "lib/arm64-v8a/libproot-loader.so",
+                  "lib/arm64-v8a/libdpai-native.so",
+                  "assets/alpine/rootfs.tgz",
+                  "assets/alpine/NOTICE.txt",
+                  "assets/alpine/GPL-2.0.txt",
+              ]
+              for path in required:
+                  assert path in z.namelist(), path
+              data = z.read("assets/alpine/rootfs.tgz")
+              assert hashlib.sha256(data).hexdigest() == "4d3f80afaebd447c5591a63a73bde380a149fe8b2d85488cafabb2ff97551f50"
+              for path in required[:3]:
+                  assert z.read(path).startswith(b"\x7fELF"), path
+          print("Verified optional Alpine ARM64 APK:", files[0])
+          PY
