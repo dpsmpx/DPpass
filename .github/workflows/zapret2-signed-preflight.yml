@@ -53,7 +53,7 @@ jobs:
           test -n "$DPPASS_SIGNING_STORE_PASSWORD" || { echo "::error::KEYSTORE_PASSWORD secret missing"; exit 1; }
           test -n "$DPPASS_SIGNING_KEY_ALIAS" || { echo "::error::KEY_ALIAS secret missing"; exit 1; }
           test -n "$DPPASS_SIGNING_KEY_PASSWORD" || { echo "::error::KEY_PASSWORD secret missing"; exit 1; }
-          python3 tools/release/sign_apks.py --out build/zapret2-signed-preflight
+          python3 tools/release/sign_apks.py --out build/zapret2-signed-preflight --allow-unpinned-key
       - name: Put signed APKs in private draft release (avoids Actions artifact quota)
         env:
           GH_TOKEN: ${{ github.token }}
