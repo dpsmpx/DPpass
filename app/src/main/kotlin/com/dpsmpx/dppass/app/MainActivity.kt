@@ -36,6 +36,7 @@ import com.dpsmpx.dppass.app.ui.StorageLost
 import com.dpsmpx.dppass.app.ui.SubscriptionsScreen
 import com.dpsmpx.dppass.app.ui.Ui
 import com.dpsmpx.dppass.connection.LocalProxyOffer
+import com.dpsmpx.dppass.connection.Zapret2Backend
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
@@ -391,6 +392,11 @@ class MainActivity : Activity(), Host {
 
     override fun connect() {
         askNotifications()
+        // Root NFQUEUE не использует Android VpnService.Builder.
+        if (prefs.zapret2Backend == Zapret2Backend.ROOT) {
+            DPpassVpnService.start(this)
+            return
+        }
         // Без VPN (D-95): локальный прокси — согласие на VPN не нужно.
         if (graph?.core?.localProxy?.enabled() == true) {
             DPpassVpnService.start(this)
