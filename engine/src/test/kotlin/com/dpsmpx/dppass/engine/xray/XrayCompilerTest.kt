@@ -1063,4 +1063,42 @@ class XrayCompilerTest {
             "Disorder has no QUIC fake: force TCP fallback")
     }
 
+    @Test
+    fun localZapret2QuicFallbackBlocksUdp443BeforeHostRulesOnlyWhenEnabled() {
+        val dns = DnsPolicy(
+            listOf(DnsServer("local", DnsTransport.System, DnsRoute.DIRECT)),
+            "local", leakProtection = false,
+        )
+        val sites = SplitSites.parse("googlevideo.com\\nyoutube.com").valueOrNull()!!
+        fun doc(plan: ServerlessPlan): JsonObject {
+            val result = XrayCompiler().compileServerless(plan)
+            assertTrue(result.diagnostics.none { it.isError }, "${result.diagnostics}")
+            return Json.parse(result.valueOrNull()!!.payloadForEngine()) as JsonObject
+        }
+        val enabled = doc(ServerlessPlan(dns, sites, splitRest = false,
+            desync = DesyncTrick.Fake(3), forceQuicTcp = true))
+        val ordered = rules(enabled)
+        val quicIndex = ordered.indexOfFirst { it["ruleTag"].text == "dppass:zapret2-quic-tcp" }
+        val domainIndex = ordered.indexOfFirst { it["ruleTag"].text == XrayBackend.RULE_SPLIT_QUIC }
+        assertTrue(quicIndex >= 0 && domainIndex > quicIndex, "force TCP must precede QUIC allowlist")
+        val forced = ordered[quicIndex]
+        assertEquals("443", forced["port"].text)
+        assertEquals("udp", forced["network"].text)
+        assertEquals(XrayBackend.TAG_BLOCK, forced["outboundTag"].text)
+        assertEquals(listOf(XrayBackend.TAG_TUN_IN), forced["inboundTag"].items.map { it.text })
+        assertNull((forced as JsonObject)["domain"], "works even if CDN domain cannot be sniffed")
+        assertTrue(rules(doc(ServerlessPlan(dns, sites, splitRest = false,
+            desync = DesyncTrick.Fake(3)))).none { it["ruleTag"].text == "dppass:zapret2-quic-tcp" })
+        assertTrue(rules(doc(ServerlessPlan(dns, SplitSites.NONE, splitRest = true,
+            desync = DesyncTrick.Split, forceQuicTcp = true))).any {
+            it["ruleTag"].text == "dppass:zapret2-quic-tcp"
+        }, "empty hostlist still forces QUIC TCP fallback")
+        assertTrue(rules(doc(ServerlessPlan(dns, SplitSites.NONE, splitRest = true,
+            withTun = false, forceQuicTcp = true))).none { it["ruleTag"].text == "dppass:zapret2-quic-tcp" },
+            "no TUN, no QUIC interception")
+        val split = doc(ServerlessPlan(dns, SplitSites.NONE, splitRest = true, desync = DesyncTrick.Split))
+        assertEquals("dppass:exp-split",
+            outbound(split, XrayBackend.TAG_PROXY)["streamSettings"]["sockopt"]["dialerProxy"].text)
+    }
+
 }
