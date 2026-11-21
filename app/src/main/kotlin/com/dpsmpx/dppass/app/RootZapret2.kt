@@ -112,8 +112,8 @@ internal class RootZapret2(private val context: Context) {
 
     private companion object {
         const val ROOT = "/data/adb/dppass-zapret2"
-        const val TCP = "-p tcp -m multiport --dports 80,443 -j NFQUEUE --queue-num 20529 --queue-bypass"
-        const val UDP = "-p udp --dport 443 -j NFQUEUE --queue-num 20529 --queue-bypass"
+        const val TCP = "-p tcp -m mark ! --mark 0x40000000/0x40000000 -m multiport --dports 80,443 -j NFQUEUE --queue-num 20529 --queue-bypass"
+        const val UDP = "-p udp -m mark ! --mark 0x40000000/0x40000000 --dport 443 -j NFQUEUE --queue-num 20529 --queue-bypass"
         val ARCH = setOf("arm64-v8a", "armeabi-v7a", "x86_64")
         val LUA = listOf("zapret-lib.lua", "zapret-antidpi.lua", "zapret-auto.lua", "zapret-obfs.lua")
     }
