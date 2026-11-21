@@ -52,6 +52,11 @@ class AppPrefs(context: Context) {
         get() = prefs.getBoolean(ZAPRET2_VPN_FORCE_TCP, true)
         set(value) { prefs.edit().putBoolean(ZAPRET2_VPN_FORCE_TCP, value).apply() }
 
+    /** Локальный VPN: включать TCP/443 без распознанного домена (ECH/IP-only CDN). */
+    var zapret2VpnCatchAllHttps: Boolean
+        get() = prefs.getBoolean(ZAPRET2_VPN_CATCH_ALL_HTTPS, true)
+        set(value) { prefs.edit().putBoolean(ZAPRET2_VPN_CATCH_ALL_HTTPS, value).apply() }
+
     /** Сервер, выбранный пользователем (D-34); null — «автоматически» (D-15). */
     var selectedServer: ProfileId?
         get() = prefs.getString(SELECTED, null)?.takeIf(Ids::isValid)?.let(::ProfileId)
@@ -188,6 +193,7 @@ class AppPrefs(context: Context) {
         const val ZAPRET2_ROOT_QUIC = "zapret2_root_quic"
         const val ZAPRET2_VPN_STRATEGY = "zapret2_vpn_strategy"
         const val ZAPRET2_VPN_FORCE_TCP = "zapret2_vpn_force_tcp"
+        const val ZAPRET2_VPN_CATCH_ALL_HTTPS = "zapret2_vpn_catch_all_https"
         const val TAB = "tab"
         const val RELAY = "selected_relay"
         const val AUTO_SWITCH = "auto_switch"
