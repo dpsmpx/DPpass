@@ -5,6 +5,10 @@ on:
       - feature/zapret2-alpine-terminal
   workflow_dispatch:
 
+concurrency:
+  group: alpine-android-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
