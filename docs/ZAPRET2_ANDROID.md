@@ -1,50 +1,61 @@
-# Zapret2 on Android: experimental feature branch
+# Локальный Zapret2 в DPpass — статус и проверка
 
-**Not a production release.** The user requested a *full* serverless Zapret2 mode
-in addition to subscription mode, for both root and VpnService. They are
-technically different backends. Do not relabel the existing Xray serverless
-splitter as Zapret2.
+**Текущий этап: alpha для испытаний, не проверенный финальный выпуск.**
+Разработка идёт в [PR #35](https://github.com/dpsmpx/DPpass/pull/35), который
+продолжает PR #34. Бинарник ещё не проверен на реальном Android с root и без root.
 
-## Current implementation
-- Distinct persisted `Zapret2Backend` with `OFF` default, independent of
-  a Remnawave/Xray subscription or relay.
-- The root path stages pinned upstream v1.0.7 `nfqws2` Android binaries and Lua,
-  copies them into a root-owned directory, launches the NFQUEUE listener,
-  inserts scoped OUTPUT rules for TCP 80/443 and UDP 443, and removes only
-  its own matching rules on stop. `--queue-bypass` avoids a dead connection
-  if the listener dies. Foreground service monitors process survival.
-- The UI labels root experimental and the VpnService option unavailable.
-  Selecting the latter fails explicitly: **no fake connected state**.
-- A signed-APK workflow uses the four existing GitHub Secrets and checks the
-  actual APK with `apksigner`. Unknown key fingerprints are allowed **only**
-  in a private preflight release; the production path must verify a pinned key.
+## Три независимых варианта подключения
 
-## Pinned Zapret2 dependency
-`bol-van/zapret2` v1.0.7, MIT license, upstream release tarball SHA-256:
+1. **Подписки**: исходный Xray-сервер и политика пользователя; при выборе
+   «Выключено (подписки)» новый локальный режим не вмешивается.
+2. **Zapret2 / root**: оригинальный `nfqws2` v1.0.7 с Lua-стратегиями
+   по умолчанию upstream (HTTP/TLS/QUIC). Запуск через `su`; требуется
+   NFQUEUE на устройстве, рабочий iptables/ip6tables и право выполнить
+   бинарник из root-каталога. Создаются **только** правила OUTPUT TCP
+   80/443 и UDP 443, пакеты с меткой nfqws2 исключены из повторной
+   очереди. При остановке и гибели процесса cleanup/watchdog снимает
+   свои правила и завершает процесс; `--queue-bypass` страхует сбой
+   демона. Правила касаются всего устройства, а не только приложений
+   списка VpnService.
+3. **Локальный VpnService (без root)**: Android TUN -> локальное ядро Xray
+   для непосредственного выхода в Интернет, **без прокси-сервера**.
+   Выходные сокеты защищены `VpnService.protect`; отдельный Go-dialer
+   использует низкий TTL, обходные TCP-приёмы для TLS ClientHello и HTTP
+   Host и экспериментальные UDP/QUIC ложные пакеты. Пользовательская
+   подписка не требуется. Режим не запускает оригинальный `nfqws2`,
+   поскольку обычному Android VpnService недоступен NFQUEUE. Это
+   **не полная реализация всех Lua-стратегий Zapret2**, а ограниченный
+   безrootовый совместимый режим. Его эффективность зависит от сети
+   и конкретного DPI.
 
-`547a5dce3f4820721a425680ea3f7f3971b7e9c772b8c795dd2d623148da0928`
+## Исходники и доставка
 
-`python3 tools/zapret2/vendor.py` verifies this SHA-256 before extracting
-only three Android ELF executables, Lua source, and the upstream license.
-Builds without vendoring cannot claim to contain Zapret2.
+Источник: [bol-van/zapret2](https://github.com/bol-van/zapret2),
+upstream tag **v1.0.7**, лицензия **MIT**.
+SHA-256 архива `zapret2-v1.0.7.tar.gz`:
+`547a5dce3f4820721a425680ea3f7f3971b7e9c772b8c795dd2d623148da0928`.
+`tools/zapret2/vendor.py` сверяет SHA-256 до распаковки, разрешает
+только три Android ELF, четыре Lua-файла и текст лицензии и формирует
+`MANIFEST.sha256`. `tools/zapret2/check_apk_assets.py` проверяет,
+что все файлы действительно вошли в каждый подписанный APK.
 
-## Remaining acceptance gates
+GitHub Actions использует секреты `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`,
+`KEY_ALIAS`, `KEY_PASSWORD`. Для публичного alpha сертификат обязан
+иметь записанный в `docs/PROVENANCE.md` SHA-256. Файлы APK подписываются
+и проверяются штатным `apksigner` (v2/v3), затем публикуются с
+`SHA256SUMS`. Alpha не заменяет реальных испытаний.
 
-1. **Root on actual devices:** verify `su`, Android SELinux execution,
-   NFQUEUE target availability, firmware iptables versions, binary startup
-   and Lua init, correct packet handling (HTTP/TLS/QUIC), IPv4/IPv6,
-   stop/rollback under errors, reboot and concurrent VPN behavior.
-2. **VpnService mode not implemented:** implement a real TUN-to-socket
-   bidirectional TCP/UDP/QUIC relay with `VpnService.protect`, socket
-   ownership, DNS and IPv6 handling, and a genuine Zapret2 userspace
-   desynchronization engine. Xray ClientHello fragmentation does not
-   satisfy this requirement.
-3. **Product parity:** settings for DPI strategies/lists, exclusions,
-   app routing, metrics, re-connection and failure recovery. Do not
-   silently route traffic through any remote server.
-4. **Release:** pass instrumented device tests and DP Verify, then pin
-   the signing certificate fingerprint in `docs/PROVENANCE.md`.
-   Only after that may an actual public GitHub Release be published.
+## Недостающие испытания и ограничения
 
-Current branch should remain a **draft PR** and any APKs a **private draft
-release** until these requirements have been met.
+- Root: запуск Magisk/KernelSU, SELinux, NFQUEUE, перенаправление IPv4/IPv6,
+  QUIC, действия с несколькими приложениями, очистка правил после принудительной
+  остановки и перезагрузки, смена сети и реальная блокировка.
+- VpnService: TLS HTTP/2, HTTP/1.1, QUIC v1/v2, IPv6, DNS, переход Wi‑Fi/LTE,
+  конфликт с другим VPN, аварийное восстановление и тесты успешного/неуспешного
+  обхода реального DPI. UDP-фальшпакеты не являются эквивалентом полного
+  nfqws2 и не обязаны помогать в каждой сети.
+- Интерфейс пока не предоставляет полного редактора Lua-стратегий и hostlist;
+  root применяет известные настройки upstream по умолчанию, безrootовый
+  вариант — фиксированные безопасные режимы. Это остаётся открытым объёмом.
+- Реальный финальный релиз и закрытие задачи — **только после этих испытаний**
+  и проверки всех режимов, не по одному успешному статусу GitHub Actions.
