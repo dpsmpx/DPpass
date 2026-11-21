@@ -1,0 +1,32 @@
+DP AI Orcestrator — сторонние программы Linux-среды в этом APK
+
+Linux-среда в приложении (D-75, D-115). В APK — proot, собранный из
+исходников форка Termux, и неизменённая minirootfs Alpine Linux 3.24
+(aarch64):
+
+proot v5.1.107.102 (форк Termux, коммит 52d65a4dc140ca554d241a1438ddd4f6b00c9813)
+  Лицензия: GPL-2.0-or-later — текст: linux/GPL-2.0.txt рядом.
+  Исходники: https://github.com/termux/proot (тег v5.1.107.102).
+  Сборка: статически под musl, clang из Android NDK — скрипт
+  dpai/tools/linux/build-proot.sh репозитория DPmetaApp; код proot
+  не изменён, к каждой единице подключён заголовок совместимости
+  dpai/tools/linux/proot-musl-compat.h того же репозитория.
+  В APK: lib/arm64-v8a/libproot.so — proot; lib/arm64-v8a/libproot-loader.so —
+  его загрузчик (отдельным файлом).
+  Статически вшиты (пакеты Alpine 3.24, main/aarch64):
+    talloc 2.4.4 (talloc-static) — LGPL-3.0-or-later,
+      https://www.samba.org/ftp/talloc/;
+    musl 1.2.6 (musl-dev) — MIT, https://musl.libc.org/;
+    встроенные функции компилятора (libclang_rt.builtins из NDK) —
+      Apache-2.0 WITH LLVM-exception, https://github.com/llvm/llvm-project.
+
+Alpine minirootfs 3.24.3 (alpine-minirootfs-3.24.3-aarch64.tar.gz)
+  Корневая система: busybox (GPL-2.0-only), musl (MIT), apk-tools
+  (GPL-2.0-only), alpine-baselayout (GPL-2.0-only) и другие пакеты Alpine;
+  лицензии — в данных пакетов (/lib/apk/db/installed, поле L:).
+  Исходники: https://gitlab.alpinelinux.org/alpine/aports (ветка 3.24-stable).
+  В APK: assets/linux/rootfs.tgz — архив без изменений.
+
+Суммы SHA-256 и проверка подписей Alpine — dpai/docs/PROVENANCE.md, §4,
+dpai/tools/linux/build-proot.sh и dpai/android/build.gradle.kts
+репозитория DPmetaApp.
