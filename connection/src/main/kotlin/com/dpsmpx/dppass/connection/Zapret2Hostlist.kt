@@ -13,6 +13,12 @@ data class Zapret2Hostlist(val domains: List<String>) {
     fun format(): String = domains.joinToString("\n")
 
     companion object {
+        /** Редактируемый набор суффиксов, не полный перечень CDN: по умолчанию список пуст. */
+        val YOUTUBE_CDN_PRESET: String = listOf(
+            "youtube.com", "youtu.be", "youtube-nocookie.com",
+            "youtubei.googleapis.com", "googlevideo.com", "ytimg.com", "ggpht.com",
+        ).joinToString("\n")
+
         private const val MAX_TEXT = 65_536
         private const val MAX_DOMAINS = 2_048
         private val labelPattern = Regex("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
