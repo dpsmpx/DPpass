@@ -84,8 +84,12 @@ jobs:
             sudo chmod a+rw /dev/kvm
             accel=on
           fi
-          mkdir -p "$HOME/.android"
+          export ANDROID_USER_HOME="$RUNNER_TEMP/android-user"
+          export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
           printf 'no\n' | "$AVDMANAGER" create avd -n dppass-zapret2-ci -k "system-images;android-35;google_apis;x86_64" --force
+          "$ANDROID_HOME/emulator/emulator" -list-avds | tee "$RUNNER_TEMP/avd-list.txt"
+          grep -Fx "dppass-zapret2-ci" "$RUNNER_TEMP/avd-list.txt" || { echo "::error::AVD was not registered"; find "$ANDROID_AVD_HOME" -maxdepth 2 -type f -print; exit 1; }
           "$ANDROID_HOME/emulator/emulator" -avd dppass-zapret2-ci \
             -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -accel "$accel" \
             > "$RUNNER_TEMP/emulator.log" 2>&1 &
