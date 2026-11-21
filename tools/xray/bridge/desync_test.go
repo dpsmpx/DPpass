@@ -47,6 +47,7 @@ func TestParseDesyncTag(t *testing.T) {
 	for tag, want := range map[string]desyncMode{
 		"dppass:exp-disorder": {kind: desyncDisorder, ttl: 1},
 		"dppass:exp-split":    {kind: desyncSplit},
+		"dppass:exp-split-1":  {kind: desyncSplitFirst},
 		"dppass:exp-fake-1":   {kind: desyncFake, ttl: 1},
 		"dppass:exp-fake-8":   {kind: desyncFake, ttl: 8},
 		"dppass:exp-fake-64":  {kind: desyncFake, ttl: 64},
@@ -113,6 +114,34 @@ func TestSplitSendsValidClientHello(t *testing.T) {
 	if !bytes.Equal(got, hello) { t.Fatal("split corrupted TLS ClientHello") }
 	after, _ := DesyncStats()
 	if after <= before { t.Fatal("split was not applied") }
+}
+
+func TestSplitFirstPreservesTLSBytesWithoutSNILookup(t *testing.T) {
+	hello := clientHello(t, "r4.googlevideo.com")
+	if !isTLSClientHelloPrefix(hello) {
+		t.Fatal("real ClientHello should be detected")
+	}
+	if isTLSClientHelloPrefix([]byte("GET / HTTP/1.1\\r\\n")) || isTLSClientHelloPrefix([]byte{22, 3, 3, 0, 4, 2, 0, 0, 0}) {
+		t.Fatal("non ClientHello must not be fragmented")
+	}
+	ln, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil { t.Fatal(err) }
+	defer ln.Close()
+	client, err := net.DialTCP("tcp4", nil, ln.Addr().(*net.TCPAddr))
+	if err != nil { t.Fatal(err) }
+	defer client.Close()
+	server, err := ln.AcceptTCP()
+	if err != nil { t.Fatal(err) }
+	defer server.Close()
+	conn := &desyncConn{TCPConn: client, mode: desyncMode{kind: desyncSplitFirst}}
+	before, _ := DesyncStats()
+	if n, err := conn.Write(hello); err != nil || n != len(hello) { t.Fatalf("first-byte split write: %d %v", n, err) }
+	got := make([]byte, len(hello))
+	_ = server.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, err := io.ReadFull(server, got); err != nil { t.Fatal(err) }
+	if !bytes.Equal(got, hello) { t.Fatal("first-byte split corrupted TLS ClientHello") }
+	after, _ := DesyncStats()
+	if after <= before { t.Fatal("first-byte split was not counted") }
 }
 
 func TestFakeChunkReplacesOnlyTheName(t *testing.T) {
