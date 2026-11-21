@@ -85,7 +85,7 @@ class AlpineTerminalActivity : Activity() {
             text = "Alpine не подключена."
         }
         val scroll = ScrollView(this).apply {
-            fillViewport = true
+            isFillViewport = true
             addView(screen)
         }
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
