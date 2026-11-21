@@ -1069,7 +1069,7 @@ class XrayCompilerTest {
             listOf(DnsServer("local", DnsTransport.System, DnsRoute.DIRECT)),
             "local", leakProtection = false,
         )
-        val sites = SplitSites.parse("googlevideo.com\\nyoutube.com").valueOrNull()!!
+        val sites = SplitSites.parse("googlevideo.com\nyoutube.com").valueOrNull()!!
         fun doc(plan: ServerlessPlan): JsonObject {
             val result = XrayCompiler().compileServerless(plan)
             assertTrue(result.diagnostics.none { it.isError }, "${result.diagnostics}")
