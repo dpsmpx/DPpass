@@ -30,6 +30,14 @@ class Zapret2HostlistTest {
         assertTrue(Zapret2Hostlist.parse(many).isFailure)
     }
 
+    @Test fun youtubeMediaPresetIncludesVideoAndThumbnailCdns() {
+        val parsed = Zapret2Hostlist.parse(Zapret2Hostlist.YOUTUBE_CDN_PRESET).getOrThrow()
+        assertEquals(7, parsed.domains.size)
+        assertTrue("googlevideo.com" in parsed.domains)
+        assertTrue("ytimg.com" in parsed.domains)
+        assertTrue("youtubei.googleapis.com" in parsed.domains)
+    }
+
     @Test fun noRootStrategyFailsToDefaultForUnknownValues() {
         Zapret2VpnStrategy.entries.forEach { assertEquals(it, Zapret2VpnStrategy.of(it.wire)) }
         assertEquals(Zapret2VpnStrategy.FAKE_TTL_3, Zapret2VpnStrategy.of("inject"))
