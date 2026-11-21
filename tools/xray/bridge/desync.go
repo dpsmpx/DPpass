@@ -30,6 +30,7 @@ package bridge
 // Свой код по публичному описанию приёма (FAKE_PACKETS.md, §2; D-20).
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/binary"
@@ -135,8 +136,13 @@ type desyncDialer struct {
 
 func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Destination, sockopt *internet.SocketConfig) (net.Conn, error) {
 	conn, err := d.base.Dial(ctx, src, dest, sockopt)
-	if err != nil || dest.Network != xnet.Network_TCP {
+	if err != nil {
 		return conn, err
+	}
+	// Experimental tag is only consulted on TCP/UDP outbound sockets.
+	// Ordinary subscriptions, DNS and other traffic retain the stock dialer.
+	if dest.Network != xnet.Network_TCP && dest.Network != xnet.Network_UDP {
+		return conn, nil
 	}
 	obs := session.OutboundsFromContext(ctx)
 	if len(obs) == 0 {
@@ -146,12 +152,24 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
 	if !ok {
 		return conn, nil
 	}
-	tcp, isTCP := conn.(*net.TCPConn)
-	if perr != nil || !isTCP {
+	if perr != nil {
 		desyncSkipped.Add(1)
 		return conn, nil
 	}
-	return &desyncConn{TCPConn: tcp, mode: mode}, nil
+	if dest.Network == xnet.Network_TCP {
+		tcp, isTCP := conn.(*net.TCPConn)
+		if !isTCP {
+			desyncSkipped.Add(1)
+			return conn, nil
+		}
+		return &desyncConn{TCPConn: tcp, mode: mode}, nil
+	}
+	udp, isUDP := conn.(*net.UDPConn)
+	if !isUDP {
+		desyncSkipped.Add(1)
+		return conn, nil
+	}
+	return &desyncUDPConn{UDPConn: udp, mode: mode}, nil
 }
 
 func (d *desyncDialer) DestIpAddress() net.IP { return d.base.DestIpAddress() }
@@ -180,7 +198,7 @@ func (c *desyncConn) Write(b []byte) (int, error) {
 // desyncFirst — первая запись с приёмом; не вышло до отправки хоть байта —
 // запись как есть.
 func (c *desyncConn) desyncFirst(b []byte) (int, error) {
-	start, end, ok := sniRange(b)
+	start, end, ok := firstHostRange(b)
 	if !ok {
 		desyncSkipped.Add(1)
 		return c.TCPConn.Write(b)
@@ -339,6 +357,133 @@ func waitSent(rc syscall.RawConn) {
 		}
 		time.Sleep(sentPoll)
 	}
+}
+
+// desyncUDPConn sends a low-TTL dummy QUIC datagram *before* the actual first
+// Initial. This works without raw sockets, but is not equivalent to nfqws2's
+// packet-level engine; it is an opt-in best-effort UDP counterpart to the
+// existing TCP experiment. The real Initial is always sent unmodified and
+// with the original TTL. No extra packet is sent outside the QUIC Initial case.
+type desyncUDPConn struct {
+	*net.UDPConn
+	mode desyncMode
+	mu sync.Mutex
+	first bool
+}
+
+const dummyQuicRepeats = 6
+
+func (c *desyncUDPConn) Write(b []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.first {
+		c.first = true
+		if c.mode.kind == desyncFake && isQUICInitial(b) {
+			c.sendLowTTLDummyQUIC()
+		} else {
+			desyncSkipped.Add(1)
+		}
+	}
+	return c.UDPConn.Write(b)
+}
+
+func (c *desyncUDPConn) sendLowTTLDummyQUIC() {
+	rc, err := c.SyscallConn()
+	if err != nil {
+		desyncSkipped.Add(1)
+		return
+	}
+	v6 := false
+	if a, ok := c.RemoteAddr().(*net.UDPAddr); ok {
+		v6 = a.IP.To4() == nil
+	}
+	// A deliberately non-Initial 620-byte dummy payload, same as the
+	// upstream nfqws2 fake_default_quic blob. Keep it below MTU.
+	fake := make([]byte, 620)
+	fake[0] = 0x40
+	restore, err := setTTL(rc, v6, c.mode.ttl)
+	if err != nil {
+		desyncSkipped.Add(1)
+		return
+	}
+	allSent := true
+	for i := 0; i < dummyQuicRepeats; i++ {
+		if n, e := c.UDPConn.Write(fake); e != nil || n != len(fake) {
+			allSent = false
+			break
+		}
+	}
+	if err := restore(); err != nil {
+		allSent = false
+	}
+	if allSent {
+		desyncApplied.Add(1)
+	} else {
+		desyncSkipped.Add(1)
+	}
+}
+
+// Minimal QUIC v1/v2 long-header Initial recognizer. Packet length >= 1200
+// (RFC 9000) guards against DNS or other random UDP, and the version/type
+// check avoids injecting the dummy on unsupported long-header variants.
+func isQUICInitial(b []byte) bool {
+	if len(b) < 1200 || b[0]&0xc0 != 0xc0 {
+		return false
+	}
+	version := binary.BigEndian.Uint32(b[1:5])
+	kind := (b[0] >> 4) & 3
+	return (version == 0x00000001 && kind == 0) ||
+		(version == 0x6b3343cf && kind == 1)
+}
+
+// firstHostRange accepts TLS SNI or an HTTP/1.x Host header.
+func firstHostRange(b []byte) (start, end int, ok bool) {
+	if s, e, yes := sniRange(b); yes {
+		return s, e, true
+	}
+	return httpHostRange(b)
+}
+
+// Host header is only recognized in a complete HTTP/1.x request, avoiding
+// accidental manipulation of arbitrary TCP streams or partial headers.
+func httpHostRange(b []byte) (start, end int, ok bool) {
+	if len(b) < 22 || len(b) > 16*1024 {
+		return 0, 0, false
+	}
+	firstLine := bytes.Index(b, []byte("\r\n"))
+	headersEnd := bytes.Index(b, []byte("\r\n\r\n"))
+	if firstLine <= 0 || headersEnd <= firstLine || !bytes.Contains(b[:firstLine], []byte(" HTTP/1.")) {
+		return 0, 0, false
+	}
+	method := b[:firstLine]
+	valid := false
+	for _, m := range [][]byte{[]byte("GET "), []byte("POST "), []byte("HEAD "), []byte("PUT "), []byte("PATCH "), []byte("DELETE "), []byte("OPTIONS ")} {
+		if bytes.HasPrefix(method, m) {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return 0, 0, false
+	}
+	for p := firstLine + 2; p < headersEnd; {
+		rel := bytes.Index(b[p:headersEnd+2], []byte("\r\n"))
+		if rel < 0 { return 0, 0, false }
+		lineEnd := p + rel
+		colon := bytes.IndexByte(b[p:lineEnd], ':')
+		if colon > 0 && bytes.EqualFold(b[p:p+colon], []byte("Host")) {
+			a := p + colon + 1
+			for a < lineEnd && (b[a] == ' ' || b[a] == '\t') { a++ }
+			e := lineEnd
+			for e > a && (b[e-1] == ' ' || b[e-1] == '\t') { e-- }
+			if e-a == 0 || e-a > 255 || bytes.IndexAny(b[a:e], " \t\r\n") >= 0 {
+				return 0, 0, false
+			}
+			return a, e, true
+		}
+		p = lineEnd + 2
+	}
+	return 0, 0, false
 }
 
 // fakeChunk — подложная часть: те же байты, имя в [start, end) заменено

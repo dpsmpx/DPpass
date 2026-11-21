@@ -45,8 +45,11 @@ jobs:
           "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0" "ndk;30.0.16248370"
       - name: Fetch verified upstream Zapret2 Android assets
         run: python3 tools/zapret2/vendor.py
+      - name: Go bridge tests (TCP/UDP desync)
+        working-directory: tools/xray
+        run: go test ./bridge
       - name: Unit tests
-        run: ./gradlew --no-daemon --console=plain :connection:test :app:testDebugUnitTest
+        run: ./gradlew --no-daemon --console=plain :engine:test :connection:test :app:testDebugUnitTest
       - name: Build, sign and verify three release APKs
         shell: bash
         run: |

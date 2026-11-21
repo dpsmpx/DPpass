@@ -162,6 +162,61 @@ func TestDesyncDialerWrapsOnlyExperimentOutbounds(t *testing.T) {
 	}
 }
 
+
+func TestHttpHostAndQuicInitialRecognized(t *testing.T) {
+	http := []byte("GET / HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\n\r\n")
+	start, end, ok := firstHostRange(http)
+	if !ok || string(http[start:end]) != "example.com" {
+		t.Fatalf("http host: %v %q", ok, http[start:end])
+	}
+	for _, sample := range [][]byte{
+		[]byte("GET / HTTP/1.1\r\nHost: exam"),
+		[]byte("not http\r\nHost: example.com\r\n\r\n"),
+		[]byte("GET / HTTP/1.1\r\nHost: \r\n\r\n"),
+	} {
+		if _, _, ok := firstHostRange(sample); ok {
+			t.Fatalf("unexpected host in %q", sample)
+		}
+	}
+	initial := make([]byte, 1200)
+	initial[0], initial[4] = 0xc0, 1
+	if !isQUICInitial(initial) {
+		t.Fatal("QUIC v1 Initial not recognized")
+	}
+	initial[0] = 0xd0
+	if isQUICInitial(initial) {
+		t.Fatal("QUIC v1 handshake is not Initial")
+	}
+	initial[0], initial[1], initial[2], initial[3], initial[4] = 0xd0, 0x6b, 0x33, 0x43, 0xcf
+	if !isQUICInitial(initial) {
+		t.Fatal("QUIC v2 Initial not recognized")
+	}
+}
+
+func TestUDPFirstQUICWriteSendsDummyBeforeReal(t *testing.T) {
+	receiver, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127,0,0,1)})
+	if err != nil { t.Fatal(err) }
+	defer receiver.Close()
+	client, err := net.DialUDP("udp4", nil, receiver.LocalAddr().(*net.UDPAddr))
+	if err != nil { t.Fatal(err) }
+	defer client.Close()
+	conn := &desyncUDPConn{UDPConn: client, mode: desyncMode{kind: desyncFake, ttl: 1}}
+	initial := make([]byte, 1200)
+	initial[0], initial[4] = 0xc0, 1
+	if n, err := conn.Write(initial); err != nil || n != len(initial) {
+		t.Fatalf("first write: %d %v", n, err)
+	}
+	buf := make([]byte, 1400)
+	_ = receiver.SetReadDeadline(time.Now().Add(3 * time.Second))
+	for i:=0;i<dummyQuicRepeats;i++ {
+		n, _, e := receiver.ReadFromUDP(buf)
+		if e!=nil { t.Fatalf("fake %d: %v", i,e) }
+		if n!=620 || buf[0]!=0x40 { t.Fatalf("fake %d: size %d first %x",i,n,buf[0]) }
+	}
+	n, _, e := receiver.ReadFromUDP(buf)
+	if e != nil || n != 1200 || buf[0] != 0xc0 { t.Fatalf("real: size=%d %v",n,e) }
+}
+
 // ---- Стенд (FAKE_PACKETS.md, §6.1) ----
 //
 // Три сетевых пространства имён: клиент — маршрутизатор — сервер, пары
