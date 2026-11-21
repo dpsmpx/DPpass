@@ -67,7 +67,7 @@ jobs:
                   assert path in z.namelist(), path
               data = z.read("assets/alpine/rootfs.tgz")
               assert hashlib.sha256(data).hexdigest() == "4d3f80afaebd447c5591a63a73bde380a149fe8b2d85488cafabb2ff97551f50"
-              assert z.read("assets/alpine/zapret2-runtime.bin").startswith(b"\\x7fELF")
+              assert z.read("assets/alpine/zapret2-runtime.bin").startswith(b"\x7fELF")
               for path in required[:3]:
                   assert z.read(path).startswith(b"\x7fELF"), path
           print("Verified optional Alpine ARM64 APK:", files[0])
