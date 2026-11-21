@@ -49,6 +49,57 @@ internal object AlpineRuntime {
         if (!draft.renameTo(File(etc, "resolv.conf"))) draft.delete()
     }
 
+    /**
+     * apk-tools 3 must run WITHOUT binding /proc (DP_IDE D-82):
+     * O_TMPFILE/linkat via /proc/self/fd would fail under Android's
+     * hardlink restrictions. Every argument is an independent argv item.
+     */
+    fun runPackages(context: Context, action: String, packageNames: String): Pair<Int, String> {
+        check(installed(context)) { "Сначала установите Alpine" }
+        check(available(context)) { "Alpine/PRoot доступен только на ARM64" }
+        val guest = AlpinePackageCommand.arguments(action, packageNames)
+        refreshDns(context)
+        val lib = File(context.applicationInfo.nativeLibraryDir)
+        val tmp = File(context.cacheDir, "alpine-tmp").apply { mkdirs() }
+        val args = listOf(
+            File(lib, "libproot.so").absolutePath,
+            "--kill-on-exit", "--link2symlink", "-0", "-r",
+            File(root(context), "rootfs").absolutePath,
+            "-b", "/dev/null", "-b", "/dev/zero", "-b", "/dev/random",
+            "-b", "/dev/urandom",
+            "-w", "/root",
+        ) + guest
+        val environment = mutableMapOf(
+            "HOME" to "/root",
+            "PATH" to "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "LANG" to "C.UTF-8",
+            "TMPDIR" to "/tmp",
+            "PROOT_LOADER" to File(lib, "libproot-loader.so").absolutePath,
+            "PROOT_TMP_DIR" to tmp.absolutePath,
+        )
+        val process = ProcessBuilder(args)
+            .directory(context.filesDir)
+            .redirectErrorStream(true)
+            .apply { environment().clear(); environment().putAll(environment) }
+            .start()
+        val out = StringBuilder()
+        try {
+            process.inputStream.bufferedReader().use { input ->
+                val buf = CharArray(2048)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    out.append(buf, 0, n)
+                    if (out.length > 24_000) out.delete(0, out.length - 24_000)
+                }
+            }
+            val code = process.waitFor()
+            return code to out.toString()
+        } finally {
+            if (process.isAlive) process.destroyForcibly()
+        }
+    }
+
     fun shell(context: Context, cols: Int, rows: Int): AlpineChild {
         require(installed(context)) { "Сначала установите Alpine" }
         check(available(context)) { "Нет исполняемого PRoot для устройства" }

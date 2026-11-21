@@ -71,6 +71,10 @@ class AlpineTerminalActivity : Activity() {
         actions.addView(installButton, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         actions.addView(openButton, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         root.addView(actions)
+        root.addView(Button(this).apply {
+            text = "Alpine: установить пакет (apk add)"
+            setOnClickListener { addPackageDialog() }
+        })
         screen = TextView(this).apply {
             typeface = Typeface.MONOSPACE
             textSize = 12f
@@ -122,6 +126,39 @@ class AlpineTerminalActivity : Activity() {
             message("Установите встроенный Alpine minirootfs; внешняя загрузка на телефоне не требуется.")
             openButton.isEnabled = false
         }
+    }
+
+    private fun addPackageDialog() {
+        if (!AlpineRuntime.installed(this)) {
+            message("Сначала установите Alpine")
+            return
+        }
+        val entry = EditText(this).apply {
+            hint = "Например: curl git"
+            isSingleLine = true
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Установка пакетов Alpine")
+            .setMessage("Выполняет apk add без /proc, как в DP_IDE. Установленное ПО не получает root Android.")
+            .setView(entry)
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Установить") { _, _ ->
+                val names = entry.text.toString()
+                message("Установка пакетов Alpine…")
+                thread(name = "dppass-alpine-apk", isDaemon = true) {
+                    val result = runCatching { AlpineRuntime.runPackages(applicationContext, "add", names) }
+                    result.fold(
+                        onSuccess = { (code, out) ->
+                            message("apk add завершился: код $code")
+                            main.post {
+                                if (!closed) screen.text = out.takeLast(12000)
+                            }
+                        },
+                        onFailure = { message("apk add: " + (it.message ?: it.javaClass.simpleName)) },
+                    )
+                }
+            }
+            .show()
     }
 
     private fun submit() {
