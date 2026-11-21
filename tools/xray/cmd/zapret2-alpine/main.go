@@ -1,0 +1,81 @@
+//go:build linux
+
+// zapret2-alpine is the portable strategy planner. The Alpine daemon uses
+// app-private Unix-domain sockets; no raw sockets, NFQUEUE, or host root.
+package main
+
+import (
+    "bufio"
+    "encoding/json"
+    "errors"
+    "fmt"
+    "net"
+    "os"
+    "strings"
+    "syscall"
+    "time"
+
+    "github.com/dpsmpx/dppass/tools/xray/zapret2"
+)
+
+type Request struct {
+    Tag string `json:"tag"`
+    Network string `json:"network"`
+    First []byte `json:"first"`
+}
+type Response struct {
+    Plan zapret2.Plan `json:"plan"`
+    Error string `json:"error,omitempty"`
+}
+
+func request(req Request) Response {
+    if len(req.First) > 32*1024 { return Response{Error:"first packet too large"} }
+    plan, err := zapret2.BuildPlan(req.Tag, req.Network, req.First)
+    if err != nil { return Response{Error:err.Error()} }
+    return Response{Plan:plan}
+}
+
+func serve(path string) error {
+    if path == "" || !strings.HasPrefix(path, "/") || len(path) > 99 { return errors.New("socket requires absolute path <=99 chars") }
+    if _, err := os.Lstat(path); err == nil { return errors.New("socket already exists (do not remove unknown file)") } else if !os.IsNotExist(err) { return err }
+    old := syscall.Umask(0077)
+    listener, err := net.Listen("unix", path)
+    syscallUmask(old)
+    if err != nil { return err }
+    defer listener.Close()
+    defer os.Remove(path)
+    for {
+        conn, err := listener.Accept()
+        if err != nil { return err }
+        go func(c net.Conn) {
+            defer c.Close()
+            _ = c.SetDeadline(time.Now().Add(3*time.Second))
+            reader := bufio.NewReaderSize(c, 40*1024)
+            line, err := reader.ReadBytes('\n')
+            if err != nil || len(line) > 48*1024 { return }
+            var req Request
+            if json.Unmarshal(line, &req) != nil { return }
+            _ = json.NewEncoder(c).Encode(request(req))
+        }(conn)
+    }
+}
+
+func main() {
+    if len(os.Args) == 2 && os.Args[1] == "--list" {
+        for _, s := range zapret2.Profiles() { fmt.Println(s) }
+        return
+    }
+    if len(os.Args) == 3 && os.Args[1] == "--serve" {
+        if err := serve(os.Args[2]); err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }
+        return
+    }
+    if len(os.Args) == 2 && os.Args[1] == "--plan" {
+        dec := json.NewDecoder(os.Stdin)
+        var req Request
+        if err := dec.Decode(&req); err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(2) }
+        _ = json.NewEncoder(os.Stdout).Encode(request(req))
+        return
+    }
+    fmt.Fprintln(os.Stderr, "usage: zapret2-alpine --list | --plan | --serve /absolute/private/socket")
+    os.Exit(2)
+}
