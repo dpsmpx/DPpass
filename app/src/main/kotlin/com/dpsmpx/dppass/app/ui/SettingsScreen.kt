@@ -18,6 +18,8 @@ import com.dpsmpx.dppass.connection.PolicyService
 import com.dpsmpx.dppass.connection.RoutingMode
 import com.dpsmpx.dppass.connection.ServerlessSettings
 import com.dpsmpx.dppass.connection.Zapret2Backend
+import com.dpsmpx.dppass.connection.Zapret2Hostlist
+import com.dpsmpx.dppass.connection.Zapret2VpnStrategy
 import com.dpsmpx.dppass.connection.UserPolicy
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Safe
@@ -295,6 +297,43 @@ class SettingsScreen(host: Host) : Screen(host) {
                     },
                     Ui.matchWidth(),
                 )
+                if (host.prefs.zapret2Backend != Zapret2Backend.OFF) {
+                    addView(Ui.divider(context))
+                    addView(
+                        Ui.ListRow(context, R.drawable.ic_route, context.getString(R.string.zapret2_hostlist_title))
+                            .subtitle(zapret2HostlistSummary())
+                            .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                            .onClick { editZapret2Hostlist() },
+                        Ui.matchWidth(),
+                    )
+                }
+                if (host.prefs.zapret2Backend == Zapret2Backend.ROOT) {
+                    addView(Ui.divider(context))
+                    addView(
+                        Ui.switchRow(context, R.drawable.ic_shield,
+                            context.getString(R.string.zapret2_root_quic_title),
+                            context.getString(R.string.zapret2_root_quic_note),
+                            host.prefs.zapret2RootQuic,
+                        ) { enabled ->
+                            host.prefs.zapret2RootQuic = enabled
+                            host.reconnectIfBusy()
+                            host.changed()
+                        }, Ui.matchWidth(),
+                    )
+                }
+                if (host.prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE) {
+                    addView(Ui.divider(context))
+                    addView(
+                        choiceRow(R.drawable.ic_shield, R.string.zapret2_vpn_strategy_title,
+                            listOf(R.string.zapret2_vpn_fake3, R.string.zapret2_vpn_fake5, R.string.zapret2_vpn_disorder),
+                            host.prefs.zapret2VpnStrategy.ordinal,
+                        ) { index ->
+                            host.prefs.zapret2VpnStrategy = Zapret2VpnStrategy.entries[index]
+                            host.reconnectIfBusy()
+                            host.changed()
+                        }, Ui.matchWidth(),
+                    )
+                }
             },
             Ui.matchWidth(),
         )
@@ -591,6 +630,60 @@ class SettingsScreen(host: Host) : Screen(host) {
             row.subtitle(splitSitesSummary(sites))
             dialog.dismiss()
             host.reconnectIfBusy()
+        }
+    }
+
+    private fun zapret2HostlistSummary(): String {
+        val count = Zapret2Hostlist.parse(host.prefs.zapret2HostlistText)
+            .getOrNull()?.domains?.size ?: 0
+        return if (count == 0) context.getString(R.string.zapret2_hostlist_all)
+        else context.getString(R.string.zapret2_hostlist_count, count)
+    }
+
+    /** Shared root/VpnService domain filter; no raw shell arguments. */
+    private fun editZapret2Hostlist() {
+        val field = Ui.field(context, R.string.zapret2_hostlist_hint,
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS,
+        ).apply {
+            isSingleLine = false
+            minLines = 4
+            maxLines = 10
+            gravity = Gravity.TOP or Gravity.START
+            val p = Ui.dp(context, 12)
+            setPadding(Ui.dp(context, 16), p, Ui.dp(context, 16), p)
+            setText(host.prefs.zapret2HostlistText)
+        }
+        val form = Ui.column(context, 8).apply {
+            val p = Ui.dp(context, 24)
+            setPadding(p, Ui.dp(context, 8), p, 0)
+            addView(Ui.text(context, R.style.Text_DPpass_Secondary,
+                context.getString(R.string.zapret2_hostlist_note)), Ui.matchWidth())
+            addView(field, Ui.matchWidth())
+        }
+        val dialog = AlertDialog.Builder(context)
+            .setTitle(R.string.zapret2_hostlist_title)
+            .setView(form)
+            .setPositiveButton(R.string.action_save, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+        Ui.secure(dialog)
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val parsed = Zapret2Hostlist.parse(field.text.toString())
+            val hosts = parsed.getOrNull()
+            if (hosts == null) {
+                field.error = parsed.exceptionOrNull()?.message
+                return@setOnClickListener
+            }
+            if (host.prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE &&
+                hosts.domains.size > SplitSites.MAX_ENTRIES) {
+                field.error = context.getString(R.string.zapret2_hostlist_vpn_limit, SplitSites.MAX_ENTRIES)
+                return@setOnClickListener
+            }
+            host.prefs.zapret2HostlistText = hosts.format()
+            host.graph?.core?.log?.info("zapret2_hostlist_set", "n" to hosts.domains.size)
+            dialog.dismiss()
+            host.reconnectIfBusy()
+            host.changed()
         }
     }
 

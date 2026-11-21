@@ -50,6 +50,12 @@ jobs:
         run: go test ./bridge
       - name: Unit tests
         run: ./gradlew --no-daemon --console=plain :engine:test :connection:test :app:testDebugUnitTest
+      - name: Project static checks and Android Lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/hostcheck/run.sh --quick
+          ./gradlew --no-daemon --console=plain :app:lint
       - name: Build, sign and verify three release APKs
         shell: bash
         run: |

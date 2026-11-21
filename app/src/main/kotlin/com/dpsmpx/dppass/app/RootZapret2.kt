@@ -2,6 +2,8 @@ package com.dpsmpx.dppass.app
 
 import android.content.Context
 import android.os.Build
+import com.dpsmpx.dppass.connection.Zapret2Hostlist
+import com.dpsmpx.dppass.connection.Zapret2RootProfiles
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -13,16 +15,22 @@ import java.util.concurrent.TimeUnit
  * Does not establish Android VPN. No claim of physical-device acceptance.
  */
 internal class RootZapret2(private val context: Context) {
+    // Snapshot options at connection startup; mid-session preference changes
+    // require reconnect so watchdog and firewall agree on the active rules.
+    private val rootQuic = AppPrefs(context).zapret2RootQuic
+
     suspend fun start(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val abi = Build.SUPPORTED_ABIS.firstOrNull { it in ARCH }
                 ?: error("nfqws2 не собран для архитектуры устройства")
+            val hosts = Zapret2Hostlist.parse(AppPrefs(context).zapret2HostlistText).getOrThrow()
             val stage = File(context.noBackupFilesDir, "zapret2-stage").apply { mkdirs() }
             val binary = stageAsset("zapret2/" + abi + "/nfqws2", File(stage, "nfqws2"))
             val lua = LUA.map { stageAsset("zapret2/lua/" + it, File(stage, it)) }
+            val hostsFile = File(stage, "hosts.txt").apply { writeText(hosts.format() + "\n") }
             execute(cleanup())
             try {
-                execute(launch(binary, lua))
+                execute(launch(binary, lua, hostsFile, hosts.isEmpty))
             } catch (e: Exception) {
                 runCatching { execute(cleanup()) }
                 throw e
@@ -39,7 +47,7 @@ internal class RootZapret2(private val context: Context) {
         runCatching { execute("test -f " + quote(ROOT + "/pid") +
             " && kill -0 \"$(cat " + quote(ROOT + "/pid") + ")\"" +
             " && iptables -t mangle -C OUTPUT " + TCP +
-            " && iptables -t mangle -C OUTPUT " + UDP) }.isSuccess
+            (if (rootQuic) " && iptables -t mangle -C OUTPUT " + UDP else "")) }.isSuccess
     }
 
     private fun stageAsset(name: String, target: File): File {
@@ -49,7 +57,8 @@ internal class RootZapret2(private val context: Context) {
         return target
     }
 
-    private fun launch(bin: File, lua: List<File>): String {
+    private fun launch(bin: File, lua: List<File>, hostsFile: File, allHosts: Boolean): String {
+        val command = quote(ROOT + "/nfqws2") + Zapret2RootProfiles.arguments(allHosts, rootQuic)
         val parts = mutableListOf(
             "set -eu",
             "umask 077",
@@ -59,28 +68,20 @@ internal class RootZapret2(private val context: Context) {
             "chmod 700 " + quote(ROOT + "/nfqws2"),
         )
         lua.forEach { parts += "cp " + quote(it.absolutePath) + " " + quote(ROOT + "/" + it.name) }
+        parts += "cp " + quote(hostsFile.absolutePath) + " " + quote(ROOT + "/hosts.txt")
         parts += listOf(
             "cd " + quote(ROOT),
-            quote(ROOT + "/nfqws2") + " --qnum=20529" +
-                " --lua-init=@zapret-lib.lua --lua-init=@zapret-antidpi.lua" +
-                " --filter-tcp=80 --filter-l7=http --payload=http_req" +
-                " --lua-desync=fake:blob=fake_default_http:tcp_md5" +
-                " --lua-desync=multisplit:pos=method+2 --new" +
-                " --filter-tcp=443 --filter-l7=tls --payload=tls_client_hello" +
-                " --lua-desync=fake:blob=fake_default_tls:tcp_md5:tcp_seq=-10000" +
-                " --lua-desync=multidisorder:pos=1,midsld --new" +
-                " --filter-udp=443 --filter-l7=quic --payload=quic_initial" +
-                " --lua-desync=fake:blob=fake_default_quic:repeats=6" +
-                " > " + quote(ROOT + "/nfqws.log") + " 2>&1 &",
+            command + " > " + quote(ROOT + "/nfqws.log") + " 2>&1 &",
             "pid=$!",
             "sleep 1",
             "kill -0 \"\$pid\"",
             "echo \"\$pid\" > " + quote(ROOT + "/pid"),
             // Listener first, firewall second. Queue bypass prevents a traffic blackout.
             "iptables -t mangle -I OUTPUT " + TCP,
-            "iptables -t mangle -I OUTPUT " + UDP,
+            *(if (rootQuic) arrayOf("iptables -t mangle -I OUTPUT " + UDP) else emptyArray()),
             "if command -v ip6tables >/dev/null 2>&1; then " +
-                "ip6tables -t mangle -I OUTPUT " + TCP + "; ip6tables -t mangle -I OUTPUT " + UDP + "; fi",
+                "ip6tables -t mangle -I OUTPUT " + TCP +
+                (if (rootQuic) "; ip6tables -t mangle -I OUTPUT " + UDP else "") + "; fi",
         )
         // A root-owned watchdog removes our NFQUEUE hooks after force-stop or
         // process crash. An Android app cannot rely on onDestroy in that case.

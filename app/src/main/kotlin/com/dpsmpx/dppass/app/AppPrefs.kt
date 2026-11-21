@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.dpsmpx.dppass.connection.ServerlessSettings
 import com.dpsmpx.dppass.connection.Zapret2Backend
+import com.dpsmpx.dppass.connection.Zapret2VpnStrategy
 import com.dpsmpx.dppass.core.Ids
 import com.dpsmpx.dppass.core.ProfileId
 import com.dpsmpx.dppass.routing.RoutingValidator
@@ -26,6 +27,25 @@ class AppPrefs(context: Context) {
     var zapret2Backend: Zapret2Backend
         get() = Zapret2Backend.of(prefs.getString(ZAPRET2_BACKEND, null))
         set(value) { prefs.edit().putString(ZAPRET2_BACKEND, value.wire).apply() }
+
+    /**
+     * Root only. The UI validates and canonicalizes this text before persisting.
+     * The root adapter validates again before copying it to an nfqws2 hostlist.
+     * Empty = apply the upstream rules to all supported destinations.
+     */
+    var zapret2HostlistText: String
+        get() = prefs.getString(ZAPRET2_HOSTLIST, "").orEmpty()
+        set(value) { prefs.edit().putString(ZAPRET2_HOSTLIST, value).apply() }
+
+    /** Disable root QUIC manipulation without changing subscription or VPN settings. */
+    var zapret2RootQuic: Boolean
+        get() = prefs.getBoolean(ZAPRET2_ROOT_QUIC, true)
+        set(value) { prefs.edit().putBoolean(ZAPRET2_ROOT_QUIC, value).apply() }
+
+    /** Independent no-root TCP trick, never a remote proxy profile. */
+    var zapret2VpnStrategy: Zapret2VpnStrategy
+        get() = Zapret2VpnStrategy.of(prefs.getString(ZAPRET2_VPN_STRATEGY, null))
+        set(value) { prefs.edit().putString(ZAPRET2_VPN_STRATEGY, value.wire).apply() }
 
     /** Сервер, выбранный пользователем (D-34); null — «автоматически» (D-15). */
     var selectedServer: ProfileId?
@@ -159,6 +179,9 @@ class AppPrefs(context: Context) {
         const val FILE = "ui"
         const val SELECTED = "selected_server"
         const val ZAPRET2_BACKEND = "zapret2_backend"
+        const val ZAPRET2_HOSTLIST = "zapret2_hostlist"
+        const val ZAPRET2_ROOT_QUIC = "zapret2_root_quic"
+        const val ZAPRET2_VPN_STRATEGY = "zapret2_vpn_strategy"
         const val TAB = "tab"
         const val RELAY = "selected_relay"
         const val AUTO_SWITCH = "auto_switch"

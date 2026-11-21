@@ -26,6 +26,8 @@ import com.dpsmpx.dppass.connection.Degradation
 import com.dpsmpx.dppass.connection.HealthChecker
 import com.dpsmpx.dppass.connection.ServerlessSettings
 import com.dpsmpx.dppass.connection.Zapret2Backend
+import com.dpsmpx.dppass.connection.Zapret2VpnStrategy
+import com.dpsmpx.dppass.connection.Zapret2Hostlist
 import com.dpsmpx.dppass.connection.SessionSupervisor
 import com.dpsmpx.dppass.connection.StabilityObservation
 import com.dpsmpx.dppass.connection.UsageMeter
@@ -311,11 +313,32 @@ class DPpassVpnService : VpnService() {
                 // Отдельный локальный TUN: Xray выполняет только перенос пакетов,
                 // DPI-приём делает собственный Go dialer, без внешнего сервера.
                 val p = AppPrefs(this)
+                val hosts = Zapret2Hostlist.parse(p.zapret2HostlistText)
+                if (hosts.isFailure) {
+                    fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
+                        "Zapret2: некорректный список доменов: " + hosts.exceptionOrNull()?.message))
+                    return
+                }
+                val list = hosts.getOrThrow()
+                val sites = if (list.isEmpty) SplitSites.NONE else when (val parsed = SplitSites.parse(list.format())) {
+                    is Outcome.Success -> parsed.value
+                    is Outcome.Failure -> {
+                        fail(parsed.errors.first())
+                        return
+                    }
+                }
+                // A nonempty allowlist limits desync to matching sites.
+                // Without a list the local TCP/UDP trick applies to all destinations.
                 val settings = p.serverless.copy(
-                    rest = ServerlessSettings.Rest.SPLIT,
+                    rest = if (sites.isEmpty) ServerlessSettings.Rest.SPLIT else ServerlessSettings.Rest.DIRECT,
                     apps = ServerlessSettings.Apps.ALL,
                 )
-                connectServerless(graph, p.splitSites(), settings, DesyncTrick.Fake(3), "Zapret2 VPN (TCP)")
+                val trick = when (p.zapret2VpnStrategy) {
+                    Zapret2VpnStrategy.FAKE_TTL_3 -> DesyncTrick.Fake(3)
+                    Zapret2VpnStrategy.FAKE_TTL_5 -> DesyncTrick.Fake(5)
+                    Zapret2VpnStrategy.DISORDER -> DesyncTrick.Disorder
+                }
+                connectServerless(graph, sites, settings, trick, "Zapret2 VPN local")
                 return
             }
         }

@@ -202,7 +202,10 @@ class XrayCompiler(
         }
         val ir = ConfigIr(name = null, profiles = emptyList(), routing = RoutingPolicy(defaultAction = RouteAction.DIRECT), dns = plan.dns)
         val dns = build.dns(plan.dns)
-        val routing = build.routing(ir, plan.withTun, splitSites = plan.splitSites, splitTag = XrayBackend.TAG_PROXY)
+        val routing = build.routing(
+            ir, plan.withTun, splitSites = plan.splitSites, splitTag = XrayBackend.TAG_PROXY,
+            splitQuicTag = if (plan.desync is DesyncTrick.Fake) XrayBackend.TAG_PROXY else XrayBackend.TAG_BLOCK,
+        )
         if (problems.any { it.isError }) return Outcome.Failure(problems)
         val split = if (plan.desync != null) {
             // Не прокси и не внешний сервер: freedom напрямую, а dialerProxy
@@ -548,6 +551,7 @@ class XrayCompiler(
             share: ShareSpec? = null,
             splitSites: SplitSites = SplitSites.NONE,
             splitTag: String = XrayBackend.TAG_DIRECT_SPLIT,
+            splitQuicTag: String = XrayBackend.TAG_BLOCK,
         ): JsonObject {
             val lowered = AppLowering.lower(ir.routing)
             val rules = mutableListOf<JsonValue>()
@@ -585,7 +589,7 @@ class XrayCompiler(
                     "outboundTag" to Json.str(if (s.route == DnsRoute.TUNNEL) XrayBackend.TAG_PROXY else XrayBackend.TAG_DIRECT),
                 )
             }
-            rules += splitSiteRules(splitSites, withTun, splitTag)
+            rules += splitSiteRules(splitSites, withTun, splitTag, splitQuicTag)
             val user = mutableListOf<JsonObject>()
             for ((i, rule) in lowered.engineRules.withIndex()) {
                 val at = "$.routing.rules[${ir.routing.rules.indexOf(rule).takeIf { it >= 0 } ?: i}]"
@@ -655,7 +659,11 @@ class XrayCompiler(
          * TCP — на [splitTag]: с сервером — `dppass:direct-split`, без сервера —
          * `proxy` (D-73).
          */
-        fun splitSiteRules(sites: SplitSites, withTun: Boolean, splitTag: String = XrayBackend.TAG_DIRECT_SPLIT): List<JsonObject> {
+        fun splitSiteRules(
+            sites: SplitSites, withTun: Boolean,
+            splitTag: String = XrayBackend.TAG_DIRECT_SPLIT,
+            splitQuicTag: String = XrayBackend.TAG_BLOCK,
+        ): List<JsonObject> {
             if (sites.isEmpty) return emptyList()
             checkGeo(sites.geoSites, emptyList(), SplitSites.PATH)
             val names = sites.domains.map { "domain:$it" } + sites.geoSites.map { "geosite:$it" }
@@ -667,7 +675,7 @@ class XrayCompiler(
                     "domain" to Json.strings(names),
                     "port" to Json.str("443"),
                     "network" to Json.str("udp"),
-                    "outboundTag" to Json.str(XrayBackend.TAG_BLOCK),
+                    "outboundTag" to Json.str(splitQuicTag),
                 ),
                 Json.obj(
                     "ruleTag" to Json.str(XrayBackend.RULE_SPLIT_SITES),

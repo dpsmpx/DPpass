@@ -1034,4 +1034,33 @@ class XrayCompilerTest {
         assertTrue(doc["outbounds"].items.none { it["protocol"].text !in setOf("freedom", "blackhole", "dns") })
     }
 
+
+    @Test
+    fun localZapret2HostlistKeepsQuicOnLocalFakeDialer() {
+        val dns = DnsPolicy(
+            listOf(DnsServer("local", DnsTransport.System, DnsRoute.DIRECT)),
+            "local", leakProtection = false,
+        )
+        val sites = SplitSites.parse("example.org").valueOrNull()!!
+        fun compiled(trick: DesyncTrick): JsonObject {
+            val result = XrayCompiler().compileServerless(
+                ServerlessPlan(dns, sites, splitRest = false, desync = trick),
+            )
+            assertTrue(result.diagnostics.none { it.isError }, "${result.diagnostics}")
+            return Json.parse(result.valueOrNull()!!.payloadForEngine()) as JsonObject
+        }
+        val fake = compiled(DesyncTrick.Fake(3))
+        val fakeQuic = rules(fake).single { it["ruleTag"].text == XrayBackend.RULE_SPLIT_QUIC }
+        assertEquals(XrayBackend.TAG_PROXY, fakeQuic["outboundTag"].text,
+            "Selected QUIC must reach local fake dialer, never a remote proxy")
+        assertEquals("dppass:exp-fake-3",
+            outbound(fake, XrayBackend.TAG_PROXY)["streamSettings"]["sockopt"]["dialerProxy"].text)
+        assertEquals(XrayBackend.TAG_DIRECT, fake["outbounds"].items.first()["tag"].text,
+            "Outside the allowlist, traffic stays direct")
+        val disorder = compiled(DesyncTrick.Disorder)
+        val disorderQuic = rules(disorder).single { it["ruleTag"].text == XrayBackend.RULE_SPLIT_QUIC }
+        assertEquals(XrayBackend.TAG_BLOCK, disorderQuic["outboundTag"].text,
+            "Disorder has no QUIC fake: force TCP fallback")
+    }
+
 }
