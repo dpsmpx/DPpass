@@ -46,6 +46,7 @@ func clientHello(t *testing.T, name string) []byte {
 func TestParseDesyncTag(t *testing.T) {
 	for tag, want := range map[string]desyncMode{
 		"dppass:exp-disorder": {kind: desyncDisorder, ttl: 1},
+		"dppass:exp-split":    {kind: desyncSplit},
 		"dppass:exp-fake-1":   {kind: desyncFake, ttl: 1},
 		"dppass:exp-fake-8":   {kind: desyncFake, ttl: 8},
 		"dppass:exp-fake-64":  {kind: desyncFake, ttl: 64},
@@ -89,6 +90,29 @@ func TestSniRangeFindsTheNameInARealClientHello(t *testing.T) {
 			t.Errorf("%s: имени быть не должно", name)
 		}
 	}
+}
+
+func TestSplitSendsValidClientHello(t *testing.T) {
+	// Разделение должно сохранять байты TLS ClientHello, в отличие от fake TTL.
+	hello := clientHello(t, "r1.googlevideo.com")
+	ln, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil { t.Fatal(err) }
+	defer ln.Close()
+	client, err := net.DialTCP("tcp4", nil, ln.Addr().(*net.TCPAddr))
+	if err != nil { t.Fatal(err) }
+	defer client.Close()
+	server, err := ln.AcceptTCP()
+	if err != nil { t.Fatal(err) }
+	defer server.Close()
+	conn := &desyncConn{TCPConn: client, mode: desyncMode{kind: desyncSplit}}
+	before, _ := DesyncStats()
+	if n, err := conn.Write(hello); err != nil || n != len(hello) { t.Fatalf("split write: %d %v", n, err) }
+	got := make([]byte, len(hello))
+	_ = server.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, err := io.ReadFull(server, got); err != nil { t.Fatal(err) }
+	if !bytes.Equal(got, hello) { t.Fatal("split corrupted TLS ClientHello") }
+	after, _ := DesyncStats()
+	if after <= before { t.Fatal("split was not applied") }
 }
 
 func TestFakeChunkReplacesOnlyTheName(t *testing.T) {
