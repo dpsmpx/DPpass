@@ -827,8 +827,8 @@
     <string name="zapret2_vpn_disorder">Перестановка, TTL 1 (без подделки QUIC)</string>
     <string name="zapret2_vpn_split">Разделение SNI / Host на две TCP-части (без TTL)</string>
     <string name="zapret2_vpn_split_first">Разбиение TLS после 1-го байта (без SNI и TTL)</string>
-    <string name="zapret2_vpn_fallback_title">VpnService · обрабатывать TCP 443 без определения домена</string>
-    <string name="zapret2_vpn_fallback_note">В мобильной сети YouTube может обращаться к CDN по IP или использовать TLS ECH: тогда домен не виден в VPN. Включено по умолчанию: все TCP/443 направляются через локальный DPI-приём даже при непустом списке доменов. Это может затронуть другие HTTPS-сайты. Выключите, чтобы строго ограничить обработку списком.</string>
+    <string name="zapret2_vpn_fallback_title">VpnService · обрабатывать HTTPS/QUIC без определения домена</string>
+    <string name="zapret2_vpn_fallback_note">В мобильной сети YouTube может обращаться к CDN по IP или использовать TLS ECH: тогда домен не виден в VPN. Включено по умолчанию: TCP/443 направляется через локальный DPI-приём даже при непустом списке; при отключённом «QUIC → TCP» и стратегии Fake также обрабатывается неизвестный QUIC UDP/443. Это может затронуть другие HTTPS-сайты. Выключите, чтобы строго ограничить обработку списком.</string>
     <string name="zapret2_vpn_force_tcp_title">VpnService · QUIC → TCP</string>
     <string name="zapret2_vpn_force_tcp_note">Для видео и CDN: блокировать UDP 443 внутри VPN, чтобы приложения попробовали TLS по TCP. Не все приложения поддерживают такой переход; DNS и другой UDP остаются доступны. Можно отключить для сравнения.</string>
 </resources>

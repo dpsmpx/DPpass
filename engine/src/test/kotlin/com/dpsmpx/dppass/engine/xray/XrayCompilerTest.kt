@@ -1112,6 +1112,37 @@ class XrayCompilerTest {
 
 
     @Test
+    fun zapret2IpOnlyQuicDecoyRespectsForceTcpSwitch() {
+        val dns = DnsPolicy(
+            listOf(DnsServer("local", DnsTransport.System, DnsRoute.DIRECT)),
+            "local", leakProtection = false,
+        )
+        val sites = SplitSites.parse("googlevideo.com").valueOrNull()!!
+        fun doc(forceTcp: Boolean, fallback: Boolean): JsonObject {
+            val result = XrayCompiler().compileServerless(
+                ServerlessPlan(dns, sites, splitRest = false, desync = DesyncTrick.Fake(3),
+                    forceQuicTcp = forceTcp, catchAllHttps = fallback),
+            )
+            assertTrue(result.diagnostics.none { it.isError }, "${result.diagnostics}")
+            return Json.parse(result.valueOrNull()!!.payloadForEngine()) as JsonObject
+        }
+        val routed = rules(doc(forceTcp = false, fallback = true))
+        val hostlist = routed.indexOfFirst { it["ruleTag"].text == XrayBackend.RULE_SPLIT_QUIC }
+        val opaque = routed.indexOfFirst { it["ruleTag"].text == "dppass:zapret2-quic-unmatched" }
+        assertTrue(opaque > hostlist, "QUIC IP fallback follows named CDN rule")
+        assertEquals(XrayBackend.TAG_PROXY, routed[opaque]["outboundTag"].text)
+        assertEquals("udp", routed[opaque]["network"].text)
+        assertEquals("443", routed[opaque]["port"].text)
+        assertNull((routed[opaque] as JsonObject)["domain"])
+        assertTrue(rules(doc(forceTcp = true, fallback = true)).none {
+            it["ruleTag"].text == "dppass:zapret2-quic-unmatched"
+        }, "explicit QUIC-to-TCP blocks UDP 443 instead")
+        assertTrue(rules(doc(forceTcp = false, fallback = false)).none {
+            it["ruleTag"].text == "dppass:zapret2-quic-unmatched"
+        }, "strict domain mode must not match unlisted IPs")
+    }
+
+    @Test
     fun zapret2OpaqueHttpsFallbackRoutesOnlyTcp443ToLocalDialer() {
         val dns = DnsPolicy(
             listOf(DnsServer("local", DnsTransport.System, DnsRoute.DIRECT)),
