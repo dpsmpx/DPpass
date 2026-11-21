@@ -42,16 +42,70 @@ mount /sys, exposes only minimal /dev paths and does not inherit Android's
 environment. The shell is terminated when its Activity is destroyed. DNS
 resolvers are refreshed from Android's active link properties at shell start.
 
-## Important network boundary
+## Zapret2 strategy architecture (single shared implementation)
 
-PRoot **does not grant Android root**, CAP_NET_ADMIN, NFQUEUE, iptables/nftables
-or raw sockets. An unmodified `nfqws2` process inside this Alpine cannot
-intercept Android device traffic. Guest processes share the app's normal
-network privileges. They are **not wired into VpnService's TUN**; the existing
-VPN core and YouTube desync behavior have not been changed by this port.
-A separate user-space packet adapter is needed before Alpine-side code can
-participate in VPN routing.
+**There is one portable strategy implementation** in
+`tools/xray/zapret2/`: strategy catalog and TTL limits, TLS ClientHello/SNI,
+HTTP Host, QUIC v1/v2 Initial, decoy building and TCP/UDP first-payload plans.
+The Android Xray package `tools/xray/bridge/desync.go` no longer contains
+independent packet parsing or decoy algorithms; it is a **transport adapter**
+that performs the protected-socket writes, TCP TTL changes, vmsplice and
+UDP sends already required on Android.
 
-Device installation, interactive shell correctness, real-world packet tests
-and YouTube playback are NOT yet verified. The dedicated Actions workflow
-checks build and package integrity, not the live phone environment.
+The same Go package builds the optional static ARM64 executable
+`/usr/local/bin/dppass-zapret2` *inside Alpine*.
+
+When the user selects **Zapret2 → VpnService** in an opt-in ARM64 build:
+
+1. DPpass verifies and installs Alpine 3.24.3 and ensures the packaged
+   `dppass-zapret2` executable matches the APK's SHA-256 (existing Alpine
+   installations are upgraded in place without deleting packages).
+2. `DPpassVpnService` starts the Alpine daemon through PRoot and probes
+   an app-private Unix-domain socket under the guest's `/root`.
+3. The Go JNI bridge selects that Unix socket. For initial TCP/UDP data,
+   the Android adapter requests a strategy **plan** from Alpine.
+4. Alpine selects the split position, TTL, and any TLS/QUIC decoy bytes;
+   Android transmits through its already-protected outbound socket, with no
+   external VPN or server and no root permissions.
+5. When the tunnel stops, the Alpine daemon is stopped **after** the engine.
+   If the selected Alpine daemon dies, planning returns an error rather
+   than silently using unmodified direct traffic. A service watchdog also
+   marks the session failed.
+
+The protocol is defined only once in `tools/xray/zapret2/client.go`:
+JSON request (tag, network, first bytes) and JSON response (plan/error),
+one connection per decision, bounded packet and response size with deadlines.
+No listener is exposed on a network TCP/UDP port. User TLS payloads are
+not logged or persisted by the strategy daemon.
+
+**Default DPpass APKs without `-Pdppass.alpine=true`** still call this
+**same** planner package in-process; the Go strategy algorithm is not
+duplicated. They do not start PRoot. Opt-in APKs make Alpine the runtime
+decision authority for the local no-root mode.
+
+### Privileged NFQUEUE is necessarily a separate OS adapter
+
+The root-backed path still has to execute the pinned upstream
+`nfqws2` using `su` and kernel NFQUEUE hooks, and manage their
+iptables/watchdog cleanup **outside PRoot**. Alpine fake UID=0 grants
+neither `CAP_NET_ADMIN` nor NFQUEUE. Copying `nfqws2` and upstream Lua
+into `/opt/dppass/zapret2` inside Alpine makes the assets inspectable
+and available to future adapters, but it does not make the Android binary
+privileged or executable under the Alpine musl ABI.
+
+The Android `Zapret2RootProfiles` configuration remains a platform
+adapter for the original upstream Lua engine; it is **not the same
+algorithm** as the experimental no-root Go transport and cannot simply
+be replaced by a PRoot process. The Kotlin app still owns Android VPN,
+user settings and root firewall lifecycle.
+
+### Acceptance status
+
+CI tests strategy parsing, TCP/QUIC plans, a real Unix-socket decision,
+fail-closed behavior on daemon failure, Kotlin unit tests, and a full
+ARM64 APK containing verified PRoot, Lua and Alpine strategy executable.
+These checks **do not establish** that PRoot executes the daemon correctly
+on a physical Android device or that YouTube's home, comments and actual
+`googlevideo.com` playback work over a mobile operator. All prior failed
+YouTube trials remain valid; no more of the same diagnostics are needed.
+Keep the PR experimental until live device acceptance.
