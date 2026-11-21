@@ -160,7 +160,7 @@ class SessionRecoveryTest {
     fun successfulProbeDuringNetworkLossDoesNotCompleteRecovery() {
         // Проба закончилась успехом уже без сети: до её возвращения статус не должен стать Connected.
         val w = World(
-            network = { it !in 1_000 until 30_000 },
+            network = { it !in 4_000 until 30_000 },
             probe = { Outcome.Success(Unit) },
             restart = null,
             probeMillis = 2_000,
@@ -178,7 +178,7 @@ class SessionRecoveryTest {
     fun successfulRestartDuringNetworkLossDoesNotCompleteRecovery() {
         // Linux: ядро вернуло успех, но сеть исчезла во время запуска; TUN остаётся, ждём сеть.
         val w = World(
-            network = { it !in 1_000 until 30_000 },
+            network = { it !in 4_000 until 30_000 },
             probe = { null },
             restart = { Outcome.Success(Unit) },
             restartMillis = 2_000,
