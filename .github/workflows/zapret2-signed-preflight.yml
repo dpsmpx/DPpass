@@ -144,6 +144,6 @@ jobs:
           gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
             --prerelease --target "$GITHUB_SHA" \
             --title "DPpass v0.7.54-alpha.5 — experimental local Zapret2" \
-            --notes "EXPERIMENTAL SIGNED ALPHA: early TLS first-byte split and fallback for opaque YouTube CDN TCP/443. Not proven to play videos on a mobile network. Root uses upstream Zapret2 nfqws2 v1.0.7 + NFQUEUE; Android VpnService uses DPpass's own local TCP desync and experimental QUIC UDP fake (not all upstream Zapret2 strategies). No external proxy server. Device testing is required; PR #35 remains open. Signed with pinned SHA-256 certificate c18792812566ca4a18b518d51313515ff2d62bf8299446e99943eeb5d0630d11."
+            --notes "EXPERIMENTAL SIGNED ALPHA: TLS first-byte split, fallback for opaque YouTube CDN TCP/443, corrected QUIC-to-TCP OFF behavior. Not proven to play videos on a mobile network. Root uses upstream Zapret2 nfqws2 v1.0.7 + NFQUEUE; Android VpnService uses DPpass's own local TCP desync and experimental QUIC UDP fake (not all upstream Zapret2 strategies). No external proxy server. Device testing is required; PR #35 remains open. Signed with pinned SHA-256 certificate c18792812566ca4a18b518d51313515ff2d62bf8299446e99943eeb5d0630d11."
           gh release upload "$tag" build/zapret2-signed-preflight/* --repo "$GITHUB_REPOSITORY"
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url,isDraft,isPrerelease,assets
