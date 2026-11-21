@@ -51,7 +51,7 @@ import (
 )
 
 // expTagPrefix — тег исходящего эксперимента; дальше — вид приёма:
-// "disorder" или "fake-<ttl>". Договор с XrayBackend.TAG_EXPERIMENT (Kotlin).
+// "disorder", "split" или "fake-<ttl>". Договор с XrayBackend.TAG_EXPERIMENT (Kotlin).
 const expTagPrefix = "dppass:exp-"
 
 // desyncKind — вид приёма.
@@ -60,6 +60,7 @@ type desyncKind uint8
 const (
 	desyncDisorder desyncKind = 1
 	desyncFake     desyncKind = 2
+	desyncSplit    desyncKind = 3
 )
 
 type desyncMode struct {
@@ -111,6 +112,9 @@ func parseDesyncTag(tag string) (desyncMode, bool, error) {
 	}
 	if rest == "disorder" {
 		return desyncMode{kind: desyncDisorder, ttl: 1}, true, nil
+	}
+	if rest == "split" {
+		return desyncMode{kind: desyncSplit}, true, nil
 	}
 	if v, ok := strings.CutPrefix(rest, "fake-"); ok {
 		ttl, err := strconv.Atoi(v)
@@ -211,6 +215,11 @@ func (c *desyncConn) desyncFirst(b []byte) (int, error) {
 		sent, err = c.lowTTLWrite(b[:cut])
 	case desyncFake:
 		sent, err = c.fakeWrite(b[:cut], fakeChunk(b[:cut], start, end))
+	case desyncSplit:
+		// Две записи на TCP-сокет с TCP_NODELAY по умолчанию в Go.
+		// Без поддельных байтов: безопасный вариант multisplit для сетей,
+		// где малый TTL ломает соединение или не помогает.
+		sent, err = c.TCPConn.Write(b[:cut])
 	}
 	if sent == 0 && err != nil {
 		// Ничего не ушло: приём не удался до отправки — как есть.
