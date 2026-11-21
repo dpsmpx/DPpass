@@ -83,14 +83,19 @@ jobs:
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)"
           AVDMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name avdmanager -print -quit)"
           "$SDKMANAGER" --install "emulator" "system-images;android-35;google_apis;x86_64"
+          accel=off
+          if [[ -e /dev/kvm ]]; then
+            sudo chmod a+rw /dev/kvm
+            accel=on
+          fi
           mkdir -p "$HOME/.android"
           printf 'no\n' | "$AVDMANAGER" create avd -n dppass-zapret2-ci -k "system-images;android-35;google_apis;x86_64" --force
           "$ANDROID_HOME/emulator/emulator" -avd dppass-zapret2-ci \
-            -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect \
+            -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -accel "$accel" \
             > "$RUNNER_TEMP/emulator.log" 2>&1 &
           emulator_pid=$!
           trap 'kill "$emulator_pid" 2>/dev/null || true; tail -n 80 "$RUNNER_TEMP/emulator.log" || true' EXIT
-          "$ANDROID_HOME/platform-tools/adb" wait-for-device
+          timeout 240s "$ANDROID_HOME/platform-tools/adb" wait-for-device
           ready=0
           for i in $(seq 1 180); do
             if [[ "$("$ANDROID_HOME/platform-tools/adb" shell getprop sys.boot_completed | tr -d '\r')" == "1" ]]; then
