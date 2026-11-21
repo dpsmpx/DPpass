@@ -231,6 +231,8 @@ def main():
     a.add_argument("--out", default=os.path.join(PROJ, "build", "release-apk"))
     a.add_argument("--skip-build", action="store_true", help="не собирать: взять готовые APK из app/build/outputs")
     a.add_argument("--fingerprint", action="store_true", help="напечатать отпечаток ключа из окружения и выйти")
+    a.add_argument("--allow-unpinned-key", action="store_true",
+                   help="только черновик для проверки нового ключа: проверить подпись, но не требовать запись в PROVENANCE")
     a.add_argument("--unsigned", action="store_true",
                    help="без подписи: сертификат — из записанного отпечатка, подпись — на устройстве автора")
     args = a.parse_args()
@@ -247,9 +249,13 @@ def main():
             if args.fingerprint:
                 print(f"| `{alias}` | {actual} |")
                 return 0
-            expected = recorded(alias)
-            if actual != expected:
-                fail(f"ключ из окружения ({actual}) — не тот, что записан в docs/PROVENANCE.md, §7 ({expected})")
+            if args.allow_unpinned_key:
+                expected = actual
+                print(f"⚠ Preflight: сертификат SHA-256 {actual}; ключ НЕ закреплён в docs/PROVENANCE.md, официальный выпуск запрещён", flush=True)
+            else:
+                expected = recorded(alias)
+                if actual != expected:
+                    fail(f"ключ из окружения ({actual}) — не тот, что записан в docs/PROVENANCE.md, §7 ({expected})")
         version = version_name()
         want = STABLE_IDENTITY
         sdk = sdk_dir()
@@ -300,7 +306,10 @@ def main():
                 f.write(f"{sha256(os.path.join(args.out, name))}  {name}\n")
         package, label = next(iter(packages))
         with open(os.path.join(args.out, "CERTIFICATE.txt"), "w", encoding="utf-8") as f:
-            f.write(f"# Ключ {alias}: SHA-256 сертификата — docs/PROVENANCE.md, §7; пакет и ярлык постоянны (D-114).\n")
+            if args.allow_unpinned_key:
+                f.write("# ПРЕДВАРИТЕЛЬНЫЙ APK: сертификат НЕ закреплён в docs/PROVENANCE.md, §7.\n")
+            else:
+                f.write(f"# Ключ {alias}: SHA-256 сертификата — docs/PROVENANCE.md, §7; пакет и ярлык постоянны (D-114).\n")
             if args.unsigned:
                 f.write("# APK не подписаны: подписывает автор (resign-apk.sh).\n")
             f.write(f"alias: {alias}\ncertificate-sha256: {expected}\npackage: {package}\nlabel: {label}\n")
@@ -311,7 +320,7 @@ def main():
                   f"{os.path.basename(TERMUX_SIGNER)}: {os.path.relpath(args.out, PROJ)}")
             return 0
         print(f"✓ {len(made)} APK ({version}, {rev}) подписаны ключом {alias} ({expected[:16]}…), "
-              f"сертификат сверен с docs/PROVENANCE.md, §7, check_apk.py --abi --release пройден; пакет {package} «{label}»: "
+              f"сертификат проверен по ключу подписи" + (" (НЕ закреплён в PROVENANCE)" if args.allow_unpinned_key else " и docs/PROVENANCE.md, §7") + f", check_apk.py --abi --release пройден; пакет {package} «{label}»: "
               f"{os.path.relpath(args.out, PROJ)}")
         return 0
     except Refusal as e:
