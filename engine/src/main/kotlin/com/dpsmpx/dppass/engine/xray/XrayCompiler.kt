@@ -206,6 +206,7 @@ class XrayCompiler(
             ir, plan.withTun, splitSites = plan.splitSites, splitTag = XrayBackend.TAG_PROXY,
             splitQuicTag = if (plan.desync is DesyncTrick.Fake) XrayBackend.TAG_PROXY else XrayBackend.TAG_BLOCK,
             forceQuicTcp = plan.forceQuicTcp,
+            catchAllHttps = plan.catchAllHttps && plan.desync != null && !plan.splitRest,
         )
         if (problems.any { it.isError }) return Outcome.Failure(problems)
         val split = if (plan.desync != null) {
@@ -554,6 +555,7 @@ class XrayCompiler(
             splitTag: String = XrayBackend.TAG_DIRECT_SPLIT,
             splitQuicTag: String = XrayBackend.TAG_BLOCK,
             forceQuicTcp: Boolean = false,
+            catchAllHttps: Boolean = false,
         ): JsonObject {
             val lowered = AppLowering.lower(ir.routing)
             val rules = mutableListOf<JsonValue>()
@@ -604,6 +606,19 @@ class XrayCompiler(
                 )
             }
             rules += splitSiteRules(splitSites, withTun, splitTag, splitQuicTag)
+            // Unknown IP/SNI and ECH routes cannot reliably match the domain
+            // allowlist. Opt-in Android Zapret2 fallback: send all TCP/443
+            // through the same local desync dialer (never a remote proxy).
+            // DNS and all other ports remain governed by their usual rules.
+            if (catchAllHttps && withTun) {
+                rules += Json.obj(
+                    "ruleTag" to Json.str("${XrayBackend.SYSTEM_PREFIX}zapret2-https-unmatched"),
+                    "inboundTag" to Json.strings(listOf(XrayBackend.TAG_TUN_IN)),
+                    "port" to Json.str("443"),
+                    "network" to Json.str("tcp"),
+                    "outboundTag" to Json.str(XrayBackend.TAG_PROXY),
+                )
+            }
             val user = mutableListOf<JsonObject>()
             for ((i, rule) in lowered.engineRules.withIndex()) {
                 val at = "$.routing.rules[${ir.routing.rules.indexOf(rule).takeIf { it >= 0 } ?: i}]"
