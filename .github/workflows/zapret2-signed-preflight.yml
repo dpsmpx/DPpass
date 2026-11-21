@@ -80,7 +80,7 @@ jobs:
           AVDMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name avdmanager -print -quit)"
           "$SDKMANAGER" --install "emulator" "system-images;android-35;google_apis;x86_64"
           mkdir -p "$HOME/.android"
-          printf 'no\\n' | "$AVDMANAGER" create avd -n dppass-zapret2-ci -k "system-images;android-35;google_apis;x86_64" --force
+          printf 'no\n' | "$AVDMANAGER" create avd -n dppass-zapret2-ci -k "system-images;android-35;google_apis;x86_64" --force
           "$ANDROID_HOME/emulator/emulator" -avd dppass-zapret2-ci \
             -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect \
             > "$RUNNER_TEMP/emulator.log" 2>&1 &
@@ -89,7 +89,7 @@ jobs:
           "$ANDROID_HOME/platform-tools/adb" wait-for-device
           ready=0
           for i in $(seq 1 180); do
-            if [[ "$("$ANDROID_HOME/platform-tools/adb" shell getprop sys.boot_completed | tr -d '\\r')" == "1" ]]; then
+            if [[ "$("$ANDROID_HOME/platform-tools/adb" shell getprop sys.boot_completed | tr -d '\r')" == "1" ]]; then
               ready=1
               break
             fi
