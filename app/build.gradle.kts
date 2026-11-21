@@ -4,6 +4,10 @@ import com.dpsmpx.dppass.build.AppIdentity
 import com.dpsmpx.dppass.build.LegalNoticesTask
 import com.dpsmpx.dppass.build.XrayGeodataTask
 import com.dpsmpx.dppass.build.XrayNativeTask
+import java.net.URI
+import java.security.MessageDigest
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 plugins {
     id("dppass.android-app")
@@ -248,13 +252,13 @@ if (alpineEnabled) {
         inputs.property("rootfs-sha256", pin)
         outputs.dirs(jni, assets)
         doLast {
-            fun sha256(bytes: ByteArray) = java.security.MessageDigest.getInstance("SHA-256")
+            fun sha256(bytes: ByteArray) = MessageDigest.getInstance("SHA-256")
                 .digest(bytes).joinToString("") { "%02x".format(it) }
             cache.mkdirs()
             val archive = File(cache, url.substringAfterLast('/'))
             if (!archive.exists()) {
                 val partial = File(cache, archive.name + ".part")
-                java.net.URI(url).toURL().openStream().use { source ->
+                URI(url).toURL().openStream().use { source ->
                     partial.outputStream().use { dest -> source.copyTo(dest) }
                 }
                 check(partial.renameTo(archive)) { "failed to cache Alpine rootfs" }
@@ -273,7 +277,7 @@ if (alpineEnabled) {
             val l = File(built, "loader").readBytes()
             fun isAarch64Elf(b: ByteArray) = b.size > 64 && b[0] == 127.toByte() &&
                 b[1] == 'E'.code.toByte() && b[4] == 2.toByte() &&
-                java.nio.ByteBuffer.wrap(b, 18, 2).order(java.nio.ByteOrder.LITTLE_ENDIAN).short.toInt() == 183
+                ByteBuffer.wrap(b, 18, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt() == 183
             check(isAarch64Elf(p) && isAarch64Elf(l)) { "unexpected proot/loader ELF ABI" }
             val out = File(jni.get().asFile, "arm64-v8a")
             out.mkdirs()
