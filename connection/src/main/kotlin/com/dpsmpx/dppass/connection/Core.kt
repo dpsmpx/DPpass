@@ -512,9 +512,10 @@ class DPpassCore(
         systemTun: SystemTun? = null,
         desync: DesyncTrick? = null,
         forceQuicTcp: Boolean = false,
+        catchAllHttps: Boolean = false,
         check: suspend (EngineSession, DnsPolicy) -> Outcome<Unit>,
     ): Outcome<EngineSession> {
-        val plan = ServerlessMode.plan(settings, sites, userPolicy.currentOrDefault(), desync, forceQuicTcp)
+        val plan = ServerlessMode.plan(settings, sites, userPolicy.currentOrDefault(), desync, forceQuicTcp, catchAllHttps)
         log.info(
             "serverless",
             "rest" to Safe(settings.rest.wire),
@@ -523,6 +524,7 @@ class DPpassCore(
             "n" to sites.size,
             "local_desync" to Safe(desync?.label ?: "off"),
             "quic_force_tcp" to forceQuicTcp,
+            "https_unmatched" to catchAllHttps,
         )
         require(tun == null || systemTun == null) { "TUN платформы и TUN ядра вместе (D-97)" }
         val compiled = when (val c = compiler.compileServerless(plan.copy(withTun = tun != null || systemTun != null, systemTun = systemTun))) {
