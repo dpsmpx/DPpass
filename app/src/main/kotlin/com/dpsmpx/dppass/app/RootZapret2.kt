@@ -30,14 +30,16 @@ internal class RootZapret2(private val context: Context) {
         }
     }
 
-    suspend fun stop() = withContext(Dispatchers.IO) {
+    /** Cleanup result must not be silently discarded when firewall rules remain. */
+    suspend fun stop(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching { execute(cleanup()) }
-        Unit
     }
 
     suspend fun alive(): Boolean = withContext(Dispatchers.IO) {
         runCatching { execute("test -f " + quote(ROOT + "/pid") +
-            " && kill -0 \"$(cat " + quote(ROOT + "/pid") + ")\"") }.isSuccess
+            " && kill -0 \"$(cat " + quote(ROOT + "/pid") + ")\"" +
+            " && iptables -t mangle -C OUTPUT " + TCP +
+            " && iptables -t mangle -C OUTPUT " + UDP) }.isSuccess
     }
 
     private fun stageAsset(name: String, target: File): File {
@@ -80,11 +82,29 @@ internal class RootZapret2(private val context: Context) {
             "if command -v ip6tables >/dev/null 2>&1; then " +
                 "ip6tables -t mangle -I OUTPUT " + TCP + "; ip6tables -t mangle -I OUTPUT " + UDP + "; fi",
         )
+        // A root-owned watchdog removes our NFQUEUE hooks after force-stop or
+        // process crash. An Android app cannot rely on onDestroy in that case.
+        val watchdogScript = "while kill -0 " + android.os.Process.myPid() +
+            " 2>/dev/null; do sleep 3; done\n" + cleanup(stopWatch = false)
+        parts += listOf(
+            "cat > " + quote(ROOT + "/watchdog.sh") +
+                " <<'DPPASS_WATCHDOG'\n#!/system/bin/sh\n" + watchdogScript + "\nDPPASS_WATCHDOG",
+            "chmod 700 " + quote(ROOT + "/watchdog.sh"),
+            "sh " + quote(ROOT + "/watchdog.sh") + " < /dev/null > " +
+                quote(ROOT + "/watchdog.log") + " 2>&1 &",
+            "echo \"\$!\" > " + quote(ROOT + "/watch.pid"),
+        )
         return parts.joinToString("\n")
     }
 
-    private fun cleanup(): String = listOf(
-        "set +e",
+    private fun cleanup(stopWatch: Boolean = true): String = (
+        listOf("set +e") +
+            (if (stopWatch) listOf(
+                "if test -f " + quote(ROOT + "/watch.pid") + "; then kill \"$(cat " +
+                    quote(ROOT + "/watch.pid") + ")\" 2>/dev/null; rm -f " +
+                    quote(ROOT + "/watch.pid") + "; fi",
+            ) else emptyList()) +
+            listOf(
         "while iptables -t mangle -C OUTPUT " + TCP +
             " 2>/dev/null; do iptables -t mangle -D OUTPUT " + TCP + " || break; done",
         "while iptables -t mangle -C OUTPUT " + UDP +
@@ -96,7 +116,7 @@ internal class RootZapret2(private val context: Context) {
             " 2>/dev/null; do ip6tables -t mangle -D OUTPUT " + UDP + " || break; done; fi",
         "if test -f " + quote(ROOT + "/pid") + "; then kill \"$(cat " +
             quote(ROOT + "/pid") + ")\" 2>/dev/null; rm -f " + quote(ROOT + "/pid") + "; fi",
-    ).joinToString("\n")
+        )).joinToString("\n")
 
     private fun execute(script: String) {
         val process = ProcessBuilder("su", "-c", script).redirectErrorStream(true).start()

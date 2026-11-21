@@ -258,7 +258,9 @@ class DPpassVpnService : VpnService() {
     /** Остановить прежнее и подключиться заново — если за этим запросом не ждёт ещё один. */
     private suspend fun restart() {
         lifecycle.withLock {
-            shutdown(keepTunnel = true)
+            // Switching from VpnService to root must release the old TUN;
+            // otherwise packets stay trapped in an inactive Android VPN.
+            shutdown(keepTunnel = AppPrefs(this@DPpassVpnService).zapret2Backend != Zapret2Backend.ROOT)
             if (restarts.decrementAndGet() == 0) start() else DeviceLog.log.info("service_reconnect_superseded")
         }
     }
@@ -524,7 +526,11 @@ class DPpassVpnService : VpnService() {
             while (isActive) {
                 delay(5_000L)
                 if (!root.alive()) {
-                    root.stop()
+                    root.stop().onFailure { error ->
+                        DeviceLog.log.diagnostic(Diagnostic.fromThrowable(
+                            DiagCode.BACKEND_NOT_AVAILABLE, "не удалось снять правила Zapret2 после сбоя", error,
+                        ))
+                    }
                     rootZapret2 = null
                     fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE, "Процесс nfqws2 больше не работает"))
                     break
@@ -1089,7 +1095,11 @@ class DPpassVpnService : VpnService() {
             pending
         }?.join()
         // У root нет Xray EngineSession, но есть собственный процесс и NFQUEUE.
-        rootZapret2?.stop()
+        rootZapret2?.stop()?.onFailure { error ->
+            DeviceLog.log.diagnostic(Diagnostic.fromThrowable(
+                DiagCode.BACKEND_NOT_AVAILABLE, "не удалось снять правила Zapret2 при остановке", error,
+            ))
+        }
         rootZapret2 = null
         // NonCancellable acceptance мог зарегистрировать наблюдателей после первой отмены.
         stopObservers()
