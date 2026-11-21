@@ -1,0 +1,30 @@
+# Одноразовая проверка возможности хранить тестовые файлы в черновике релиза.
+name: DPpass test-build delivery check
+on:
+  push:
+    branches:
+      - build/pr34-20261121
+    paths:
+      - .github/workflows/pr34-release-preflight.yml
+permissions:
+  contents: write
+jobs:
+  check-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create private draft and upload test marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: pr34-test-20261121-452538a
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --draft --prerelease \
+            --target 452538a54fa3574f21f254e885bdcab1cbed063b \
+            --title "DPpass PR34 test binaries (not an official release)" \
+            --notes "Черновик для передачи тестовых бинарников DPpass PR #34. Исходники: 452538a. APK без подписи. Не является публичным релизом и не предназначен для повседневного использования."
+          printf 'PR #34 source: 452538a54fa3574f21f254e885bdcab1cbed063b\n' > "$RUNNER_TEMP/BUILD_SOURCE.txt"
+          gh release upload "$TAG" "$RUNNER_TEMP/BUILD_SOURCE.txt" --clobber --repo "$GITHUB_REPOSITORY"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,isDraft,assets
