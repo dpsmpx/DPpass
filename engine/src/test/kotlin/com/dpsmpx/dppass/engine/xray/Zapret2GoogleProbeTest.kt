@@ -26,6 +26,17 @@ class Zapret2GoogleProbeTest {
         assertEquals("contract_error", Zapret2GoogleProbe.fromWire("v1\tok\t200\t-2\t0\t0\t0".encodeToByteArray()).outcome)
     }
 
+    @Test fun medianOfTwoUsesBothTimesAndPreservesHalfMilliseconds() {
+        assertEquals("-", Zapret2GoogleReport.medianMillis(emptyList()))
+        assertEquals("275", Zapret2GoogleReport.medianMillis(listOf(275)))
+        assertEquals("301", Zapret2GoogleReport.medianMillis(listOf(335, 267)))
+        assertEquals("300.5", Zapret2GoogleReport.medianMillis(listOf(323, 278)))
+        assertEquals("458.5", Zapret2GoogleReport.medianMillis(listOf(489, 428)))
+        assertEquals("270", Zapret2GoogleReport.medianMillis(listOf(275, 265)))
+        assertEquals("300", Zapret2GoogleReport.medianMillis(listOf(100, 1000, 300)))
+        assertEquals("400", Zapret2GoogleReport.medianMillis(listOf(100, 300, 500, 700)))
+    }
+
     @Test fun completeReportIncludesFailuresAndWarnsAboutGoogleVsYoutube() {
         val attempts = listOf(
             Zapret2GoogleAttempt("plain", 1, Zapret2GoogleProbe.fromWire(
