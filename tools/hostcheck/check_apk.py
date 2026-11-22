@@ -334,7 +334,7 @@ def check_natives(apk, problems, only_abi=None, alpine=False):
                     # libdppassxray.so; they do not export Xray JNI symbols.
                     with open(path, "rb") as native_file:
                         elf = native_file.read(20)
-                    if (len(elf) < 20 or elf[:4] != b"\\x7fELF"
+                    if (len(elf) < 20 or elf[:4] != bytes((127, 69, 76, 70))
                         or elf[4] != 2 or int.from_bytes(elf[18:20], "little") != 183):
                         problems.append(f"{n}: неверный ELF/ARM64 ABI у Alpine-компонента")
             except RuntimeError as e:
