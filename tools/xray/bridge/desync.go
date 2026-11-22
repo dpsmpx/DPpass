@@ -33,6 +33,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -184,6 +185,20 @@ type desyncConn struct {
     adaptiveSelection atomic.Pointer[adaptivePick]
     received atomic.Int64
     observed sync.Once
+}
+
+// net.TCPConn promotes io.ReaderFrom and io.WriterTo through embedding.
+// io.Copy in Xray is allowed to select these optimized methods instead of
+// calling our Write/Read overrides. That would silently bypass the first
+// ClientHello strategy *and* downstream evidence collection. Hide both
+// optimizations behind interface-only wrappers so all bytes go through the
+// adapter's interception and counters.
+func (c *desyncConn) ReadFrom(r io.Reader) (int64, error) {
+    return io.Copy(struct{ io.Writer }{c}, r)
+}
+
+func (c *desyncConn) WriteTo(w io.Writer) (int64, error) {
+    return io.Copy(w, struct{ io.Reader }{c})
 }
 
 // Read observes actual downstream bytes, not mere TCP dial/TLS readiness.
