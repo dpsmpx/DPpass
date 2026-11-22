@@ -14,6 +14,7 @@ import (
 )
 
 var adaptiveCandidates = [...]string{"split-1", "split", "fake-3", "fake-5", "disorder"}
+var adaptiveQuicCandidates = [...]string{"fake-3", "fake-5"}
 // 128 KiB of actual downstream traffic is stronger evidence than the
 // small JSON/HTML metadata which can load even while media/CDN stalls.
 const adaptivePayloadThreshold = 128 * 1024
@@ -97,8 +98,18 @@ func ConfigureZapret2AdaptiveHosts(text string) error { return zapret2Auto.confi
 // remains fixed for the lifetime of a TLS connection; changing its packet
 // manipulation mid-stream would corrupt the TCP protocol.
 func (a *adaptiveSelector) choose(host string) string {
+    return a.chooseFrom(host, adaptiveCandidates[:])
+}
+
+// QUIC Initials cannot reveal an SNI without TLS decryption. Trial evidence
+// is kept separately by protected UDP destination IP, never mixed with TCP.
+func (a *adaptiveSelector) chooseQUIC(host string) string {
+    return a.chooseFrom("udp:"+host, adaptiveQuicCandidates[:])
+}
+
+func (a *adaptiveSelector) chooseFrom(host string, candidates []string) string {
     host = canonicalAdaptiveHost(host)
-    if host == "" { return adaptiveCandidates[0] }
+    if host == "" { return candidates[0] }
     a.mu.Lock()
     defer a.mu.Unlock()
     if len(a.entries) >= adaptiveMaxHosts {
@@ -108,7 +119,7 @@ func (a *adaptiveSelector) choose(host string) string {
     e := a.entries[host]
     if e == nil { e = &adaptiveEntry{}; a.entries[host] = e }
     if e.preferred != "" { return e.preferred }
-    tag := adaptiveCandidates[e.index%len(adaptiveCandidates)]
+    tag := candidates[e.index%len(candidates)]
     e.index++
     return tag
 }
