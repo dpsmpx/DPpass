@@ -66,6 +66,15 @@ jobs:
               ]
               for path in required:
                   assert path in z.namelist(), path
+              # The opt-in strategy MLP is distributed only as a separate
+              # pinned download. No neural weights/model file may enter APK.
+              forbidden = [
+                  name for name in z.namelist()
+                  if "zapret2-mlp-seed-v1.json" in name
+                  or name.startswith("models/")
+                  or name.startswith("assets/models/")
+              ]
+              assert not forbidden, ("downloadable neural weights bundled in APK", forbidden)
               data = z.read("assets/alpine/rootfs.tgz")
               assert hashlib.sha256(data).hexdigest() == "4d3f80afaebd447c5591a63a73bde380a149fe8b2d85488cafabb2ff97551f50"
               assert z.read("assets/alpine/zapret2-runtime.bin").startswith(b"\x7fELF")
