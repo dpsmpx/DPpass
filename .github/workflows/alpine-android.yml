@@ -90,9 +90,13 @@ jobs:
           set -euo pipefail
           APK="$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)"
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | grep -F "package: name='com.dpsmpx.dppass.alpine'"
+      - name: Refuse Android downgrade against last published signed alpha
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/release/check_upgrade_code.py
       - name: Build optimized ARM64 release variant with Alpine and Xray
         run: ./gradlew --no-daemon --console=plain :app:assembleRelease -Pdppass.alpine=true -Pdppass.nativeAbis=arm64-v8a -Pdppass.abiSplit=true
-      - name: Sign official-package ARM64 release with pinned DPpass certificate
+      - name: Sign official-package ARM64 release with pinned experimental alpha certificate
         shell: bash
         env:
           DPPASS_SIGNING_KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -110,7 +114,7 @@ jobs:
           python3 tools/release/sign_apks.py --skip-build --abis arm64-v8a \
             --out build/alpine-release-signed \
             --pinned-fingerprint c18792812566ca4a18b518d51313515ff2d62bf8299446e99943eeb5d0630d11
-      - name: Verify release APK identity, Alpine and absence of neural weights
+      - name: Verify signed release APK identity, Alpine and absence of neural weights
         shell: bash
         run: |
           set -euo pipefail
@@ -131,7 +135,7 @@ jobs:
                            if n.startswith("models/") or n.startswith("assets/models/")
                            or "zapret2-mlp-seed" in n or n.endswith("server-v1.json")]
               assert not forbidden, forbidden
-          print("Verified production-certificate ARM64 release APK:", apks[0])
+          print("Verified pinned alpha-certificate ARM64 release APK:", apks[0])
           PY
           apk="$(find build/alpine-release-signed -maxdepth 1 -type f -name '*.apk' -print -quit)"
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.dpsmpx.dppass'"
@@ -201,7 +205,7 @@ jobs:
           Commit: ${GITHUB_SHA}
           Actions run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           Android package: com.dpsmpx.dppass.alpine
-          Build: experimental Android ARM64 DEBUG + optimized RELEASE signed by pinned DPpass key
+          Build: experimental Android ARM64 DEBUG + optimized RELEASE signed by pinned alpha key
           Release applicationId: com.dpsmpx.dppass
           Release signer SHA256: c18792812566ca4a18b518d51313515ff2d62bf8299446e99943eeb5d0630d11
           EOF
@@ -209,7 +213,7 @@ jobs:
           Experimental **Android ARM64 debug + production-certificate signed release** builds of DPpass Zapret2 Alpine/PRoot.
           Built from \`${GITHUB_SHA}\` and verified by CI.
 
-          - **Signed release APK:** \`DPpass-Neural-*-release-signed.apk\`, package \`com.dpsmpx.dppass\`. Optimized release variant, signed with pinned DPpass certificate; can update the main app only if that installed app has the same signing key and a compatible versionCode.
+          - **Signed release APK:** \`DPpass-Neural-*-release-signed.apk\`, package \`com.dpsmpx.dppass\`. Optimized release variant, signed with the **pinned experimental alpha certificate** (not the store production key); can update an installed alpha only if that app has the same signing key and a compatible versionCode.
           - **Debug APK:** \`DPpass-Zapret2-Alpine-*-debug.apk\`, separate package \`com.dpsmpx.dppass.alpine\`; does not replace regular DPpass.
           - Includes Alpine minirootfs, PRoot, JNI bridge and the shared Zapret2 planner.
           - Local strategy/server neural weights are NOT packaged; create them in app settings (32/128/512/1024 neurons).
