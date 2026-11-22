@@ -206,6 +206,9 @@ internal object XrayJni {
 
     @JvmStatic external fun nativeDesyncStats(): LongArray?
 
+    /** Per-domain adaptive strategy overrides, held only in the Go process. */
+    @JvmStatic external fun nativeSetZapret2AdaptiveHosts(hosts: ByteArray): ByteArray
+
     /**
      * Снимок учёта соединений (D-106): текст UTF-8, строки через перевод
      * строки. Первая — `v1`, включён ли учёт (`1`/`0`) и сколько не учтено,
@@ -377,6 +380,10 @@ class JniXrayRuntime private constructor() : XrayRuntime {
          */
         fun configureZapret2Planner(socketPath: String?): XrayResult =
             XrayJni.decode(XrayJni.nativeSetZapret2Planner(socketPath.orEmpty().encodeToByteArray()))
+
+        /** Update selected domain overrides without reconnecting active TCP sessions. */
+        fun configureZapret2AdaptiveHosts(hostsText: String): XrayResult =
+            XrayJni.decode(XrayJni.nativeSetZapret2AdaptiveHosts(hostsText.encodeToByteArray()))
 
         /**
          * Загрузка библиотеки, сверка версии ядра и каталог геоданных.
