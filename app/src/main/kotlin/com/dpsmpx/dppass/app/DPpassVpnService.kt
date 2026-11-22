@@ -1083,6 +1083,17 @@ class DPpassVpnService : VpnService() {
                     } else {
                         DeviceLog.log.info("zapret2_adaptive_reset", "reason" to Safe("network_change"))
                     }
+                    // Restart optional local MLP from the downloaded seed
+                    // on each physical network change. Do not carry learned
+                    // priors between unrelated mobile/Wi-Fi conditions.
+                    val model = Zapret2NeuralModel.readVerified(this@DPpassVpnService)
+                    val reloaded = runCatching {
+                        JniXrayRuntime.configureZapret2NeuralModel(model ?: ByteArray(0))
+                    }.getOrNull()
+                    if (reloaded == null || reloaded is XrayResult.Failed) {
+                        DeviceLog.log.warning("zapret2_neural_reset_failed",
+                            "reason" to Safe("network_change"))
+                    }
                 }
                 val from = underlyingType
                 current = handle
