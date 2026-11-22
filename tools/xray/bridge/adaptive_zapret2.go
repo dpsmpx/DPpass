@@ -18,6 +18,12 @@ const adaptivePayloadThreshold = 32 * 1024
 const adaptiveMaxHosts = 1024
 const adaptiveMaxTargets = 512
 
+// Published atomically from a first Write and observed by concurrent Close.
+type adaptivePick struct {
+    host string
+    strategy string
+}
+
 type adaptiveEntry struct {
     index int
     preferred string
