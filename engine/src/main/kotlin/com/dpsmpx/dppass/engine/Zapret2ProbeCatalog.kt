@@ -21,6 +21,21 @@ object Zapret2ProbeCatalog {
     )
 
     /** Dedicated test ingress; routes through the real protected exp dialer. */
+    /** Fixed safe HTTPS destinations; no user-provided URL or redirect chain. */
+    val targets: List<String> = listOf(
+        "google_final",
+        "youtube_home",
+        "youtube_thumbnail",
+    )
+
+    /** User-visible diagnostic meaning for each allowlisted probe ID. */
+    fun targetLabel(id: String): String = when (id) {
+        "google_final" -> "www.google.com/ (HTML)"
+        "youtube_home" -> "www.youtube.com/ (HTML)"
+        "youtube_thumbnail" -> "i.ytimg.com/ (JPEG)"
+        else -> "unknown"
+    }
+
     fun tag(strategy: String): String? =
         if (strategy !in strategies) null
         else if (strategy == "plain") PLAIN_TAG
