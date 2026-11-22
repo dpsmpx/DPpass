@@ -3,8 +3,10 @@
 package bridge
 
 import (
+    "net"
     "strconv"
     "testing"
+    "time"
 )
 
 func TestAdaptiveRotatesPerHostUntilEnoughPayload(t *testing.T) {
@@ -141,4 +143,57 @@ func TestAdaptiveQUICIncludesUnmodifiedBaselineAfterExistingCandidates(t *testin
         if got := a.chooseQUIC(host); got != "pass" { t.Fatalf("QUIC baseline preference lost: %s", got) }
     }
     if got := a.choose(host); got != "split-1" { t.Fatalf("QUIC selection changed TCP: %s", got) }
+}
+
+func TestAdaptiveTCPPlainBaselineFollowsLegacyStrategies(t *testing.T) {
+    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    host := "video.example.org"
+    for _, want := range []string{"split-1", "split", "fake-3", "fake-5", "disorder", "tlsrec-split", "pass"} {
+        if got := a.choose(host); got != want { t.Fatalf("got %q, expected %q", got, want) }
+    }
+    a.observe(host, "pass", adaptivePayloadThreshold)
+    if got := a.choose(host); got != "pass" { t.Fatalf("plain TCP should be learnable: %q", got) }
+    for _, want := range []string{"split-1", "split", "fake-3", "fake-5", "disorder", "pass"} {
+        if got, _ := a.chooseHTTPTracked("feeds.example.org"); got != want {
+            t.Fatalf("HTTP candidate %q, expected %q", got, want)
+        }
+    }
+}
+
+func TestAdaptiveTCPFirstReplyTimeoutNotDoubleCountedOnClose(t *testing.T) {
+    if err := zapret2Auto.configureHosts(""); err != nil { t.Fatal(err) }
+    t.Cleanup(func() { _ = zapret2Auto.configureHosts("") })
+    host := "timeout-test.example.org"
+    strategy, generation := zapret2Auto.chooseTracked(host)
+    zapret2Auto.observeTracked(host, strategy, adaptivePayloadThreshold, generation)
+    for flow := 0; flow < 2; flow++ {
+        listener, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+        if err != nil { t.Fatal(err) }
+        client, err := net.DialTCP("tcp", nil, listener.Addr().(*net.TCPAddr))
+        if err != nil { listener.Close(); t.Fatal(err) }
+        peer, err := listener.AcceptTCP()
+        if err != nil { client.Close(); listener.Close(); t.Fatal(err) }
+        // Simulate a previously sent ClientHello and a server that never
+        // replies. No real DPI planner or external endpoint is involved.
+        conn := &desyncConn{TCPConn: client, firstDone: true}
+        conn.stageHelloSent.Store(true)
+        conn.adaptiveSelection.Store(&adaptivePick{host: host, strategy: strategy, generation: generation})
+        if err := client.SetReadDeadline(time.Now().Add(-time.Millisecond)); err != nil { t.Fatal(err) }
+        if _, err := conn.Read(make([]byte, 8)); !isZapret2Timeout(err) {
+            t.Fatalf("expected a timeout, got %v", err)
+        }
+        if err := conn.Close(); err != nil { t.Fatal(err) }
+        peer.Close()
+        listener.Close()
+        zapret2Auto.mu.Lock()
+        entry := zapret2Auto.entries[host]
+        preferred, failures := entry.preferred, entry.weakFailures
+        zapret2Auto.mu.Unlock()
+        if flow == 0 && (preferred != strategy || failures != 1) {
+            t.Fatalf("timeout and Close duplicated failure: preferred=%q failures=%d", preferred, failures)
+        }
+        if flow == 1 && preferred != "" {
+            t.Fatalf("two stalled connections should release the pinned strategy: %q", preferred)
+        }
+    }
 }

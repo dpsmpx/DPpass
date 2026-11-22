@@ -13,10 +13,11 @@ import (
     "unicode"
 )
 
-// Keep the five established candidates in order; the lossless TLS-record
-// plus TCP split is a sixth candidate on new connections, not a forced
-// replacement for the user\u0027s existing selections.
-var adaptiveCandidates = [...]string{"split-1", "split", "fake-3", "fake-5", "disorder", "tlsrec-split"}
+// Keep the five established TCP techniques, then lossless TLS-record splitting.
+// An unmodified TCP baseline is the final AUTO candidate for unfiltered networks.
+var adaptiveCandidates = [...]string{"split-1", "split", "fake-3", "fake-5", "disorder", "tlsrec-split", "pass"}
+// HTTP/1 cannot use TLS-record splitting, but can use the plain baseline.
+var adaptiveHTTPCandidates = [...]string{"split-1", "split", "fake-3", "fake-5", "disorder", "pass"}
 // After the existing fake-3/fake-5 attempts, test ordinary QUIC instead
 // of assuming that a random-ciphertext Initial always deceives the DPI.
 var adaptiveQuicCandidates = [...]string{"fake-3", "fake-5", "pass"}
@@ -147,7 +148,7 @@ func (a *adaptiveSelector) chooseHTTPTracked(host string) (string, uint64) {
     // HTTP and TLS share a destination but not the same usable strategies.
     // Keep their live observations independent; HTTPS probe evidence stays
     // with the original TLS hostname.
-    return a.chooseWithGeneration("http:"+host, adaptiveCandidates[:len(adaptiveCandidates)-1])
+    return a.chooseWithGeneration("http:"+host, adaptiveHTTPCandidates[:])
 }
 
 // QUIC evidence is separate and keyed by the protected UDP destination IP.

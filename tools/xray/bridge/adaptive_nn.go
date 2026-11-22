@@ -23,7 +23,7 @@ const (
     adaptiveNNInput = 8
     adaptiveNNMinHidden = 8
     adaptiveNNMaxHidden = 1024
-    adaptiveNNOutput = 9 // 6 TCP + 3 QUIC candidate positions
+    adaptiveNNOutput = 9 // 6 transformed TCP + 3 QUIC; TCP pass rotates without model weights
     adaptiveNNMaxBytes = 1 << 20
 )
 

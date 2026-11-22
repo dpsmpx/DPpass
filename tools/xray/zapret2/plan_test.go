@@ -166,3 +166,18 @@ func TestQUICAutoPassPlanIsUnmodified(t *testing.T) {
         t.Fatal("plain QUIC planning mutated input")
     }
 }
+
+func TestTCPAutoPassBaselinePreservesOriginalTraffic(t *testing.T) {
+    for _, original := range [][]byte{
+        []byte{22, 3, 3, 0, 4, 1, 0, 0, 0},
+        []byte("GET /feed HTTP/1.1\r\nHost: feeds.example.org\r\n\r\n"),
+    } {
+        untouched := bytes.Clone(original)
+        plan, err := BuildPlan(TagPrefix+"pass", "tcp", original)
+        if err != nil || plan.Applied || len(plan.Fake) != 0 ||
+            len(plan.Rewrite) != 0 || plan.Cut != 0 {
+            t.Fatalf("plain TCP baseline modified traffic: %+v %v", plan, err)
+        }
+        if !bytes.Equal(original, untouched) { t.Fatal("plan mutated input") }
+    }
+}

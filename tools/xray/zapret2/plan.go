@@ -27,7 +27,7 @@ func BuildPlan(tag, network string, first []byte) (Plan, error) {
     if !ok { return Plan{}, nil }
     if mode.Kind == Auto { return Plan{}, fmt.Errorf("adaptive mode must be resolved per connection before Alpine planning") }
     p := Plan{Strategy: tag, Network: network, TTL: mode.TTL}
-    if mode.Kind == Pass { p.Reason = "intentional unmodified QUIC baseline"; return p, nil }
+    if mode.Kind == Pass { p.Reason = "intentional unmodified transport baseline"; return p, nil }
     switch network {
     case "tcp":
         if mode.Kind == TLSRecordSplit {

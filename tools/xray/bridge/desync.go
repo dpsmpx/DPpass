@@ -255,6 +255,13 @@ func (c *desyncConn) Read(b []byte) (int, error) {
     if err != nil && c.stageHelloSent.Load() && !c.stageFirstReply.Load() &&
         isZapret2Timeout(err) && c.stageReadTimedOut.CompareAndSwap(false, true) {
         zapret2Stage.tcpReadTimeout.Add(1)
+        // A timed-out ClientHello can remain open indefinitely. Teach AUTO
+        // about the zero-byte stall for future flows, not the current stream.
+        if c.received.Load() == 0 {
+            if pick := c.adaptiveSelection.Load(); pick != nil {
+                zapret2Auto.observeTracked(pick.host, pick.strategy, 0, pick.generation)
+            }
+        }
     }
     return n, err
 }
@@ -268,7 +275,12 @@ func (c *desyncConn) Close() error {
     }
     c.observed.Do(func() {
         if selected := c.adaptiveSelection.Load(); selected != nil {
-            zapret2Auto.observeTracked(selected.host, selected.strategy, c.received.Load(), selected.generation)
+            total := c.received.Load()
+            // Do not double-count the no-reply timeout on Close. A late
+            // response can still supply real evidence after that timeout.
+            if total > 0 || !c.stageReadTimedOut.Load() {
+                zapret2Auto.observeTracked(selected.host, selected.strategy, total, selected.generation)
+            }
         }
     })
     closeErr := c.TCPConn.Close()
