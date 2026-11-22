@@ -8,6 +8,7 @@ import com.dpsmpx.dppass.connection.ConnectionReport
 import com.dpsmpx.dppass.connection.DPpassCore
 import com.dpsmpx.dppass.connection.HealthState
 import com.dpsmpx.dppass.network.NetworkType
+import com.dpsmpx.dppass.diagnostics.Safe
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
@@ -211,7 +212,7 @@ object ServerAutoModel {
     private fun clamped(v: Double) = v.coerceIn(-4.0, 4.0)
 
     /** Train only on real orchestrator attempts after content health checks. */
-    fun observe(context: Context, report: ConnectionReport) {
+    fun observe(context: Context, report: ConnectionReport, core: DPpassCore) {
         val (feats, expectedHidden, originalDigest) = synchronized(guard) {
             val copy = pending
             val size = pendingSize
@@ -221,14 +222,28 @@ object ServerAutoModel {
             pendingDigest = ""
             Triple(copy, size, previous)
         }
-        if (feats.isEmpty()) return
-        val raw = Zapret2NeuralModel.readVerified(context, Zapret2NeuralModel.Kind.SERVER) ?: return
+        if (feats.isEmpty()) {
+            core.log.info("server_auto_learning", "trained" to 0, "persisted" to false)
+            return
+        }
+        val raw = Zapret2NeuralModel.readVerified(context, Zapret2NeuralModel.Kind.SERVER)
+        if (raw == null) {
+            core.log.warning("server_auto_learning_failed", "reason" to Safe("model_not_found"))
+            return
+        }
         // A user may regenerate another model of the same width while
         // connecting. Never train stale features into replacement weights.
-        if (digest(raw) != originalDigest) return
+        if (digest(raw) != originalDigest) {
+            core.log.info("server_auto_learning", "trained" to 0,
+                "persisted" to false, "replaced" to true)
+            return
+        }
         runCatching {
             val model = JSONObject(raw.decodeToString())
-            if (model.getJSONArray("hidden").length() != expectedHidden) return@runCatching
+            if (model.getJSONArray("hidden").length() != expectedHidden) {
+                core.log.warning("server_auto_learning_failed", "reason" to Safe("model_width_changed"))
+                return@runCatching
+            }
             val hiddenRows = model.getJSONArray("hidden")
             val bias = model.getJSONArray("bias")
             val outputRows = model.getJSONArray("output")
@@ -296,16 +311,30 @@ object ServerAutoModel {
                     }
                 }
             }
-            if (learned == 0) return@runCatching
+            if (learned == 0) {
+                core.log.info("server_auto_learning", "trained" to 0, "persisted" to false)
+                return@runCatching
+            }
             model.put("observations", (model.optInt("observations", 0) + learned).coerceAtMost(100000))
             // Revalidate and atomically persist only the numeric model,
             // not the server IDs or training examples.
-            if (modern(model))
+            val persisted = if (modern(model))
                 Zapret2NeuralModel.storeLearnedSnapshot(context,
                     Zapret2NeuralModel.Kind.SERVER, model.toString().encodeToByteArray())
             else
                 Zapret2NeuralModel.store(context,
                     Zapret2NeuralModel.Kind.SERVER, model.toString().encodeToByteArray())
+            core.log.info("server_auto_learning",
+                "trained" to learned,
+                "observations" to model.getInt("observations"),
+                "persisted" to persisted)
+            if (!persisted) core.log.warning("server_auto_learning_failed",
+                "reason" to Safe("storage_or_stale_model"))
+        }.onFailure {
+            // Prior versions swallowed training failures, making a zero
+            // observation count indistinguishable from a true cold start.
+            core.log.warning("server_auto_learning_failed",
+                "reason" to Safe("invalid_model_or_storage"))
         }
     }
 
