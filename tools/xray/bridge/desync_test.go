@@ -413,6 +413,77 @@ func TestFailedLowTTLQUICDecoyReturnsError(t *testing.T) {
     }
 }
 
+// QUIC clients may send a non-Initial packet before any Initial and retry
+// Initial datagrams. The old "first UDP Write only" policy missed both cases.
+func TestQUICRetriesUseAlpinePlansForEveryInitial(t *testing.T) {
+    receiver, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+    if err != nil { t.Fatal(err) }
+    defer receiver.Close()
+    client, err := net.DialUDP("udp4", nil, receiver.LocalAddr().(*net.UDPAddr))
+    if err != nil { t.Fatal(err) }
+    defer client.Close()
+    conn := &desyncUDPConn{UDPConn: client, mode: desyncMode{kind: desyncFake, ttl: 1}}
+    buf := make([]byte, 1500)
+    read := func() []byte {
+        t.Helper()
+        _ = receiver.SetReadDeadline(time.Now().Add(3 * time.Second))
+        n, _, err := receiver.ReadFromUDP(buf)
+        if err != nil { t.Fatal(err) }
+        return bytes.Clone(buf[:n])
+    }
+
+    // A non-Initial must not consume the budget for an actual QUIC Initial.
+    preflight := []byte("non-initial UDP data")
+    if n, err := conn.Write(preflight); err != nil || n != len(preflight) {
+        t.Fatalf("preflight %d %v", n, err)
+    }
+    if got := read(); !bytes.Equal(got, preflight) { t.Fatal("unexpected preflight payload") }
+    if conn.initialFlights != 0 { t.Fatal("non-Initial consumed the QUIC strategy budget") }
+
+    for flight := 0; flight < 2; flight++ {
+        original := make([]byte, 1200)
+        original[0], original[4], original[len(original)-1] = 0xc0, 1, byte(flight)
+        if n, err := conn.Write(original); err != nil || n != len(original) {
+            t.Fatalf("QUIC flight %d: %d %v", flight, n, err)
+        }
+        for i := 0; i < dummyQuicRepeats; i++ {
+            fake := read()
+            if len(fake) != len(original) || !bytes.Equal(fake[:64], original[:64]) ||
+                bytes.Equal(fake[64:], original[64:]) {
+                t.Fatalf("flight %d fake %d wrong bytes", flight, i)
+            }
+        }
+        if got := read(); !bytes.Equal(got, original) {
+            t.Fatalf("flight %d real Initial missing or corrupted", flight)
+        }
+    }
+    if conn.initialFlights != 2 { t.Fatalf("expected two protected Initials, got %d", conn.initialFlights) }
+}
+
+func TestExcessiveQUICInitialRetriesFailClosed(t *testing.T) {
+    receiver, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+    if err != nil { t.Fatal(err) }
+    defer receiver.Close()
+    client, err := net.DialUDP("udp4", nil, receiver.LocalAddr().(*net.UDPAddr))
+    if err != nil { t.Fatal(err) }
+    defer client.Close()
+    conn := &desyncUDPConn{UDPConn: client, mode: desyncMode{kind: desyncFake, ttl: 1},
+        initialFlights: maxQuicInitialFlights}
+    initial := make([]byte, 1200)
+    initial[0], initial[4] = 0xc0, 1
+    if n, err := conn.Write(initial); n != 0 || err == nil {
+        t.Fatalf("QUIC retry beyond cap must fail, not bypass: %d %v", n, err)
+    }
+    if n, err := conn.Write([]byte("more")); n != 0 || err == nil {
+        t.Fatalf("strategy failure must be sticky: %d %v", n, err)
+    }
+    _ = receiver.SetReadDeadline(time.Now().Add(200*time.Millisecond))
+    buf := make([]byte, 1500)
+    if n, err := receiver.Read(buf); n != 0 || err == nil {
+        t.Fatalf("unmodified Initial leaked through exhausted strategy: %d %v", n, err)
+    }
+}
+
 // ---- Стенд (FAKE_PACKETS.md, §6.1) ----
 //
 // Три сетевых пространства имён: клиент — маршрутизатор — сервер, пары
