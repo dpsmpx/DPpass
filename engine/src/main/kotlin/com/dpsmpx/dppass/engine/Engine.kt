@@ -506,6 +506,9 @@ interface ProxyEngine {
     /** Счётчики эксперимента с началом соединения (D-116); null — ядро их не ведёт. */
     fun desyncCounters(): DesyncCounters? = null
 
+    /** Обезличенные стадии экспериментальных TCP/QUIC соединений; без DNS/HTTPS. */
+    fun zapret2Stages(): Zapret2Stages? = null
+
     /** Снимок учёта соединений (D-106); null — ядро учёта не умеет или не загружено. */
     fun connections(): EngineConnections? = null
 }
