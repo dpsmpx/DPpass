@@ -118,6 +118,11 @@ sealed interface DesyncTrick {
     /** Для журнала замера: вид и TTL, без адресов. */
     val label: String
 
+    /** Per-destination adaptive choice on new TCP ClientHello connections. */
+    data object Auto : DesyncTrick {
+        override val label: String = "auto"
+    }
+
     /** Перестановка: начало до середины имени — с TTL 1, остальное — как обычно; начало повторит ядро ОС. */
     data object Disorder : DesyncTrick {
         override val label: String = "disorder"
