@@ -499,7 +499,17 @@ class DPpassVpnService : VpnService() {
                 if (accepted) {
                     core.log.info("connected", "profile" to Safe(report.profileId.value), "attempts" to report.attempts.size)
                     // Автопереключение выключено: держим именно этот сервер, пока пользователь не выберет другой (D-113).
-                    if (relay == null && !AppPrefs(this@DPpassVpnService).autoSwitch) pinned = report.profileId
+                    // With the separately generated server AUTO model, choosing
+                    // "Automatically" explicitly allows a fresh comparison at
+                    // the next connection. An explicitly selected server is
+                    // still pinned and never replaced by ML.
+                    if (relay == null && !AppPrefs(this@DPpassVpnService).autoSwitch &&
+                        (AppPrefs(this@DPpassVpnService).selectedServer != null ||
+                         !Zapret2NeuralModel.isInstalled(this@DPpassVpnService, Zapret2NeuralModel.Kind.SERVER))) {
+                        pinned = report.profileId
+                    } else {
+                        pinned = null
+                    }
                     // Подключился сервер, который под белым списком только отказывал: список, скорее всего,
                     // выключили — режим снова неизвестен, порядок и опыт — общие (D-64).
                     val contradicted = regime != null && report.profileId in failingUnderRegime
@@ -1159,6 +1169,10 @@ class DPpassVpnService : VpnService() {
     private fun pinTarget(core: DPpassCore): ProfileId? {
         val prefs = AppPrefs(this)
         if (prefs.autoSwitch) return null
+        // Explicit opt-in server-auto MLP means no silent reuse of the last
+        // connected server as a hard pin during subsequent starts.
+        if (prefs.selectedServer == null &&
+            Zapret2NeuralModel.isInstalled(this, Zapret2NeuralModel.Kind.SERVER)) return null
         val present = core.activation.state.activeConfig?.profiles?.map { it.id }.orEmpty()
         return prefs.selectedServer?.takeIf { it in present } ?: pinned?.takeIf { it in present }
     }
