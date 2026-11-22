@@ -14,7 +14,9 @@ import (
 )
 
 var adaptiveCandidates = [...]string{"split-1", "split", "fake-3", "fake-5", "disorder"}
-const adaptivePayloadThreshold = 32 * 1024
+// 128 KiB of actual downstream traffic is stronger evidence than the
+// small JSON/HTML metadata which can load even while media/CDN stalls.
+const adaptivePayloadThreshold = 128 * 1024
 const adaptiveMaxHosts = 1024
 const adaptiveMaxTargets = 512
 
