@@ -7,6 +7,8 @@ on:
       - release/zapret2-v0.7.56-neural-auto
       - feature/neural-variable-parameters-context-persistence
       - release/zapret2-v0.7.57-param-auto
+      - fix/neural-learning-diagnostics-20261123
+      - release/zapret2-v0.7.58-learning
   workflow_dispatch:
 
 concurrency:
@@ -164,7 +166,7 @@ jobs:
   publish-release:
     name: Publish tested Alpine APK to Releases
     needs: alpine-android
-    if: github.ref == 'refs/heads/feature/zapret2-alpine-terminal' || github.ref == 'refs/heads/release/zapret2-v0.7.56-neural-auto' || github.ref == 'refs/heads/release/zapret2-v0.7.57-param-auto'
+    if: github.ref == 'refs/heads/feature/zapret2-alpine-terminal' || github.ref == 'refs/heads/release/zapret2-v0.7.56-neural-auto' || github.ref == 'refs/heads/release/zapret2-v0.7.57-param-auto' || github.ref == 'refs/heads/release/zapret2-v0.7.58-learning'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
