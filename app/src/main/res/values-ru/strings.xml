@@ -902,4 +902,8 @@
     <string name="zapret2_model_active_on_reconnect">Модель сохранена и включится при следующем подключении VPN.</string>
     <string name="zapret2_model_failed">Ошибка скачивания или проверки модели. Встроенный AUTO не изменился.</string>
     <string name="zapret2_model_deleted">Нейромодель удалена. Встроенный AUTO продолжает работать.</string>
+    <string name="path_provider">VPN-сервер</string>
+    <string name="path_local_auto">Стратегии</string>
+    <string name="path_provider_explained">Через VPN-провайдера: выбранный сервер или автоматический подбор.</string>
+    <string name="path_local_explained">Прямые соединения через локальный Zapret2 AUTO, без VPN-провайдера.</string>
 </resources>
