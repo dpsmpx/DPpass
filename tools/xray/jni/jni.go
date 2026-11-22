@@ -273,6 +273,19 @@ func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeDesyncStats(env *C.JNIEnv,
 	return C.dppass_new_longs(env, C.jlong(applied), C.jlong(skipped))
 }
 
+//export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeZapret2Stages
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeZapret2Stages(env *C.JNIEnv, _ C.jclass) C.jbyteArray {
+    // v1 + fifteen unsigned 64-bit big-endian monotonic counters.
+    // The packet content and destination are never serialized.
+    values := bridge.Zapret2Stages()
+    wire := make([]byte, 1, 1+8*len(values))
+    wire[0] = 1
+    for _, count := range values {
+        wire = binary.BigEndian.AppendUint64(wire, uint64(count))
+    }
+    return newBytes(env, wire)
+}
+
 //export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeProbeDns
 func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeProbeDns(env *C.JNIEnv, _ C.jclass, target C.jbyteArray, timeoutMillis C.jint) C.jbyteArray {
 	r := bridge.ProbeDNS(string(bytesOf(env, target)), time.Duration(timeoutMillis)*time.Millisecond)
