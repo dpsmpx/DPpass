@@ -409,6 +409,10 @@ class JniXrayRuntime private constructor() : XrayRuntime {
         fun configureZapret2AdaptiveHosts(hostsText: String): XrayResult =
             XrayJni.decode(XrayJni.nativeSetZapret2AdaptiveHosts(hostsText.encodeToByteArray()))
 
+        /** Optional downloaded model is not included in any APK asset. */
+        fun configureZapret2NeuralModel(model: ByteArray): XrayResult =
+            XrayJni.decode(XrayJni.nativeSetZapret2NeuralModel(model))
+
         /**
          * Загрузка библиотеки, сверка версии ядра и каталог геоданных.
          * [loadLibrary] — на Android `System.loadLibrary(LIBRARY)`, на хосте
