@@ -28,6 +28,7 @@ import com.dpsmpx.dppass.engine.CapabilityChecker
 import com.dpsmpx.dppass.engine.CompilePlan
 import com.dpsmpx.dppass.engine.CompiledConfig
 import com.dpsmpx.dppass.engine.DesyncTrick
+import com.dpsmpx.dppass.engine.Zapret2ProbeCatalog
 import com.dpsmpx.dppass.engine.EngineCapabilities
 import com.dpsmpx.dppass.engine.LocalProxySpec
 import com.dpsmpx.dppass.engine.ServerlessPlan
@@ -241,9 +242,26 @@ class XrayCompiler(
             build.directSplitOutbound(plan.dns.strategy, XrayBackend.TAG_PROXY)
         }
         val direct = build.directOutbound(plan.dns.strategy)
+        // Private probe-only outbounds: the one-click Google HTTPS test
+        // forces one tag per strategy with core.Dial. No routing rule can
+        // select these outbounds, and the user's active strategy is preserved.
+        // Do not duplicate the already configured live desync outbound.
+        val testOutbounds = if (plan.withTun && plan.desync != null) {
+            val live = experimentTag(plan.desync)
+            Zapret2ProbeCatalog.strategies.mapNotNull { strategy ->
+                val tag = Zapret2ProbeCatalog.tag(strategy)!!
+                when (tag) {
+                    live -> null
+                    Zapret2ProbeCatalog.PLAIN_TAG ->
+                        JsonObject(direct.fields + ("tag" to JsonString(tag)))
+                    else -> Json.obj("tag" to Json.str(tag), "protocol" to Json.str("freedom"))
+                }
+            }
+        } else emptyList()
         // Первый исходящий — маршрут по умолчанию; по proxy идут счётчики.
         val outbounds = (if (plan.splitRest) listOf(split, direct) else listOf(direct, split)) +
-            listOfNotNull(plan.desync?.let(::experimentOutbound), blockOutbound(), dnsOutbound().takeIf { plan.withTun })
+            listOfNotNull(plan.desync?.let(::experimentOutbound), blockOutbound(), dnsOutbound().takeIf { plan.withTun }) +
+            testOutbounds
         val inbounds = listOfNotNull(tunInbound(plan.systemTun).takeIf { plan.withTun })
         return Outcome.Success(compiled(ServerlessPlan.PROFILE_ID, document(dns, routing, inbounds, outbounds)), problems)
     }
