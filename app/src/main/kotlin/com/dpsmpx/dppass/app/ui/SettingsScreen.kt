@@ -731,10 +731,14 @@ class SettingsScreen(host: Host) : Screen(host) {
 
     private fun modelRow(kind: Zapret2NeuralModel.Kind): View {
         val size = Zapret2NeuralModel.size(context, kind)
+        val budget = Zapret2NeuralModel.parameters(context, kind)
         val title = if (kind == Zapret2NeuralModel.Kind.STRATEGY)
             R.string.model_strategy_title else R.string.model_server_title
-        val subtitle = if (size != null) context.getString(R.string.model_installed_size, size)
-            else context.getString(R.string.model_not_generated)
+        val subtitle = when {
+            size == null -> context.getString(R.string.model_not_generated)
+            budget != null -> context.getString(R.string.model_installed_parameters, budget, size)
+            else -> context.getString(R.string.model_installed_size, size)
+        }
         return Ui.ListRow(context, R.drawable.ic_speed, context.getString(title))
             .subtitle(subtitle)
             .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
@@ -745,39 +749,19 @@ class SettingsScreen(host: Host) : Screen(host) {
         val sizes = Zapret2NeuralModel.SIZES
         var index = sizes.indexOf(Zapret2NeuralModel.size(context, kind))
             .takeIf { it >= 0 } ?: sizes.indexOf(Zapret2NeuralModel.DEFAULT_HIDDEN)
-        val names = sizes.map { size ->
+        val names = (sizes.map { size ->
             context.getString(R.string.model_size_choice, size) +
                 if (size == Zapret2NeuralModel.DEFAULT_HIDDEN)
                     context.getString(R.string.model_recommended) else ""
-        }.toTypedArray()
+        } + context.getString(R.string.model_manual_parameters)).toTypedArray()
         val title = if (kind == Zapret2NeuralModel.Kind.STRATEGY)
             R.string.model_strategy_title else R.string.model_server_title
         val dialog = AlertDialog.Builder(context)
             .setTitle(title)
             .setSingleChoiceItems(names, index) { _, selected -> index = selected }
             .setPositiveButton(R.string.model_generate_action) { _, _ ->
-                val hidden = sizes[index]
-                host.scope.launch {
-                    val result = withContext(Dispatchers.Default) {
-                        Zapret2NeuralModel.generate(context.applicationContext, kind, hidden)
-                    }
-                    if (result.isSuccess) {
-                        // Inject updated weights without restarting the tunnel;
-                        // new sockets use the new model. Provider model is
-                        // automatically consulted at the next AUTO connection.
-                        if (kind == Zapret2NeuralModel.Kind.STRATEGY &&
-                            host.prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE &&
-                            TunnelState.status.value is TunnelStatus.Connected) {
-                            val status = runCatching {
-                                JniXrayRuntime.configureZapret2NeuralModel(result.getOrThrow())
-                            }.getOrNull()
-                            host.toast(context.getString(
-                                if (status is XrayResult.Failed || status == null)
-                                    R.string.model_ready_reconnect else R.string.model_created))
-                        } else host.toast(context.getString(R.string.model_created))
-                    } else host.toast(context.getString(R.string.model_generation_failed))
-                    host.changed()
-                }
+                if (index == sizes.size) chooseParameterBudget(kind)
+                else generateModel(kind, hidden = sizes[index])
             }
             .setNegativeButton(android.R.string.cancel, null)
         if (Zapret2NeuralModel.isInstalled(context, kind)) {
@@ -795,6 +779,70 @@ class SettingsScreen(host: Host) : Screen(host) {
             }
         }
         Ui.secure(dialog.show())
+    }
+
+    /**
+     * Explicit parameter count, not hidden neuron count. Refuse values
+     * outside the safe logical limit BEFORE allocating any arrays.
+     */
+    private fun chooseParameterBudget(kind: Zapret2NeuralModel.Kind) {
+        val input = Ui.field(context, R.string.model_parameters_hint,
+            InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
+        input.setText(Zapret2NeuralModel.parameters(context, kind)?.toString() ?: "100000")
+        val dialog = AlertDialog.Builder(context)
+            .setTitle(R.string.model_manual_parameters)
+            .setMessage(R.string.model_sparse_explanation)
+            .setView(input)
+            .setPositiveButton(R.string.model_generate_action, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val value = input.text.toString().trim().toLongOrNull()
+                if (value == null ||
+                    value !in Zapret2NeuralModel.minParameters(kind)..Zapret2NeuralModel.MAX_PARAMETERS) {
+                    input.error = context.getString(R.string.model_parameters_invalid,
+                        Zapret2NeuralModel.minParameters(kind),
+                        Zapret2NeuralModel.MAX_PARAMETERS)
+                } else {
+                    dialog.dismiss()
+                    generateModel(kind, parameters = value)
+                }
+            }
+        }
+        Ui.secure(dialog.show())
+    }
+
+    private fun generateModel(
+        kind: Zapret2NeuralModel.Kind,
+        hidden: Int? = null,
+        parameters: Long? = null,
+    ) {
+        host.scope.launch {
+            val result = withContext(Dispatchers.Default) {
+                if (parameters != null)
+                    Zapret2NeuralModel.generateParameters(context.applicationContext, kind, parameters)
+                else Zapret2NeuralModel.generate(context.applicationContext, kind,
+                    requireNotNull(hidden))
+            }
+            if (result.isSuccess) {
+                com.dpsmpx.dppass.app.ServerAutoModel.resetTransient()
+                // Existing streams are not modified, new sockets use the
+                // replacement strategy model. Server weights are loaded by
+                // the next AUTO connection from the existing subscription.
+                if (kind == Zapret2NeuralModel.Kind.STRATEGY &&
+                    host.prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE &&
+                    TunnelState.status.value is TunnelStatus.Connected) {
+                    val status = runCatching {
+                        JniXrayRuntime.configureZapret2NeuralModel(result.getOrThrow())
+                    }.getOrNull()
+                    host.toast(context.getString(
+                        if (status is XrayResult.Failed || status == null)
+                            R.string.model_ready_reconnect else R.string.model_created))
+                } else host.toast(context.getString(R.string.model_created))
+            } else host.toast(context.getString(R.string.model_generation_failed))
+            host.changed()
+        }
     }
 
     private fun openSystem(intent: Intent) {
