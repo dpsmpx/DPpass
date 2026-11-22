@@ -417,45 +417,63 @@ func waitSent(rc syscall.RawConn) {
 	}
 }
 
-// desyncUDPConn sends a low-TTL dummy QUIC datagram *before* the actual first
-// Initial. This works without raw sockets, but is not equivalent to nfqws2's
-// packet-level engine; it is an opt-in best-effort UDP counterpart to the
-// existing TCP experiment. The real Initial is always sent unmodified and
-// with the original TTL. No extra packet is sent outside the QUIC Initial case.
+// desyncUDPConn sends low-TTL decoys *before each eligible QUIC Initial*,
+// including retries, while bounding the number of initial flights. It is not
+// equivalent to nfqws2's packet-level NFQUEUE engine. Genuine payloads are
+// sent only after successful decoys and original TTL restoration. Other UDP
+// datagrams are unmodified; additional Initials beyond the budget fail closed.
 type desyncUDPConn struct {
 	*net.UDPConn
 	mode desyncMode
 	mu sync.Mutex
-	first bool
+    initialFlights int
 	plannerErr error
 }
 
 const dummyQuicRepeats = 6
 
+// Bound per-connection injection work. After the budget is exhausted we
+// reject additional Initial retransmissions instead of quietly sending
+// the initial handshake without its selected DPI strategy.
+const maxQuicInitialFlights = 8
+
 func (c *desyncUDPConn) Write(b []byte) (int, error) {
     c.mu.Lock()
     defer c.mu.Unlock()
     if c.plannerErr != nil { return 0, c.plannerErr }
-    if !c.first {
-        c.first = true
-        plan, err := zapret2.PlanFor(modeTag(c.mode), "udp", b)
-        if err != nil {
-            c.plannerErr = err
-            return 0, err
-        }
-        if plan.Applied && c.mode.kind == desyncFake {
-            if err := c.sendLowTTLDummyQUIC(plan.Fake, plan.Repeats); err != nil {
-                // A failed decoy is not a valid successful strategy. Do
-                // not transmit the real QUIC Initial unmodified.
-                desyncSkipped.Add(1)
-                c.plannerErr = fmt.Errorf("Zapret2 QUIC decoy failed: %w", err)
-                return 0, c.plannerErr
-            }
-            desyncApplied.Add(1)
-        } else {
-            desyncSkipped.Add(1)
-        }
+
+    // QUIC clients can send a non-Initial datagram first and then retry
+    // Initial multiple times. Checking only the very first Write allowed
+    // every later Initial to bypass the selected strategy. This classifier
+    // is shared with the Alpine planner; no independent parser lives here.
+    if c.mode.kind != desyncFake || !zapret2.IsQUICInitial(b) {
+        return c.UDPConn.Write(b)
     }
+    if c.initialFlights >= maxQuicInitialFlights {
+        c.plannerErr = errors.New("Zapret2 QUIC Initial retry limit reached")
+        desyncSkipped.Add(1)
+        return 0, c.plannerErr
+    }
+    // Alpine remains the strategy authority. Android only checks whether
+    // a planner call is needed and performs the protected socket writes.
+    plan, err := zapret2.PlanFor(modeTag(c.mode), "udp", b)
+    if err != nil {
+        c.plannerErr = err
+        return 0, err
+    }
+    if !plan.Applied {
+        desyncSkipped.Add(1)
+        return c.UDPConn.Write(b)
+    }
+    c.initialFlights++
+    if err := c.sendLowTTLDummyQUIC(plan.Fake, plan.Repeats); err != nil {
+        // A failed decoy is not a successful strategy; never send
+        // this QUIC Initial unmodified as a fallback.
+        desyncSkipped.Add(1)
+        c.plannerErr = fmt.Errorf("Zapret2 QUIC decoy failed: %w", err)
+        return 0, c.plannerErr
+    }
+    desyncApplied.Add(1)
     return c.UDPConn.Write(b)
 }
 
