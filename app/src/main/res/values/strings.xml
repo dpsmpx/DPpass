@@ -864,15 +864,6 @@
     <string name="zapret2_autotest_cancelled">Test cancelled before completion; no partial report copied.</string>
     <string name="zapret2_auto_primary_title">Automatic DPI strategy</string>
     <string name="zapret2_auto_primary_note">Primary mode: AUTO. Manual TCP techniques are tested only inside the built-in diagnostics.</string>
-    <string name="zapret2_model_download_title">Download local AI model</string>
-    <string name="zapret2_model_download_note">Optional tiny neural network. Download only on tap; inference and learning stay on device. AUTO also works without it.</string>
-    <string name="zapret2_model_installed_note">Verified model installed. Tap to download again.</string>
-    <string name="zapret2_model_delete_title">Remove AI model</string>
-    <string name="zapret2_model_delete_note">Delete downloaded weights and return to the built-in AUTO learner.</string>
-    <string name="zapret2_model_ready">Model verified and installed. Learning stays on device.</string>
-    <string name="zapret2_model_active_on_reconnect">Model saved; it will activate on the next VPN connection.</string>
-    <string name="zapret2_model_failed">Model download or verification failed. Built-in AUTO is unchanged.</string>
-    <string name="zapret2_model_deleted">Optional model removed; built-in AUTO remains active.</string>
     <string name="path_provider">VPN server</string>
     <string name="path_local_auto">Local strategies</string>
     <string name="path_provider_explained">Use your configured VPN provider and the selected or automatic server.</string>
