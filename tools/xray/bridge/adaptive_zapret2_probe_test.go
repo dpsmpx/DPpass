@@ -11,6 +11,69 @@ func newProbeAdaptiveSelector() *adaptiveSelector {
     }
 }
 
+func TestAutoLearnsAPIHTTPTransportSeparatelyFromYouTubeHTML(t *testing.T) {
+    a := newProbeAdaptiveSelector()
+    generation := a.generationSnapshot()
+    const api = "youtubei.googleapis.com"
+    for i := 0; i < 2; i++ {
+        a.observeAPITransportProbe(api, "plain", "timeout", 8000, generation)
+    }
+    a.observeAPITransportProbe(api, "fake-5", "http_reachable", 530, generation)
+    if got := a.choose(api); got != "split-1" {
+        t.Fatalf("single API HTTP reply should not pin: %s", got)
+    }
+    a.observeAPITransportProbe(api, "fake-5", "http_reachable", 610, generation)
+    if got := a.choose(api); got != "fake-5" {
+        t.Fatalf("2/2 valid API transport replies should seed exact host: %s", got)
+    }
+    if got := a.choose("www.youtube.com"); got != "split-1" {
+        t.Fatalf("API transport cannot seed unrelated YouTube homepage: %s", got)
+    }
+    if got := a.choose("r1.googlevideo.com"); got != "split-1" {
+        t.Fatalf("API transport cannot seed video CDN: %s", got)
+    }
+    a.observe(api, "fake-5", 8192)
+    if got := a.choose(api); got != "fake-5" {
+        t.Fatalf("8KiB real API response should preserve temporary selection: %s", got)
+    }
+}
+
+func TestAutoAPITransportRejectsRedirectAndBaselineSuccess(t *testing.T) {
+    a := newProbeAdaptiveSelector()
+    generation := a.generationSnapshot()
+    const api = "youtubei.googleapis.com"
+    for i := 0; i < 2; i++ {
+        a.observeAPITransportProbe(api, "plain", "timeout", 8000, generation)
+        a.observeAPITransportProbe(api, "fake-5", "redirect", 200, generation)
+    }
+    if got := a.choose(api); got != "split-1" {
+        t.Fatalf("redirect must not prove API transport: %s", got)
+    }
+    // A new run with a successful baseline cannot force a DPI winner.
+    a.observeAPITransportProbe(api, "plain", "http_reachable", 200, generation)
+    a.observeAPITransportProbe(api, "plain", "http_reachable", 300, generation)
+    for i := 0; i < 2; i++ {
+        a.observeAPITransportProbe(api, "fake-5", "http_reachable", 500, generation)
+    }
+    if got := a.choose(api); got != "split" {
+        t.Fatalf("baseline API transport reachable: a winner must not be seeded: %s", got)
+    }
+}
+
+func TestAutoAPITransportEvidenceDoesNotCrossNetworkGeneration(t *testing.T) {
+    a := newProbeAdaptiveSelector()
+    const api = "youtubei.googleapis.com"
+    old := a.generationSnapshot()
+    if err := a.configureHosts("youtube.com"); err != nil { t.Fatal(err) }
+    for i := 0; i < 2; i++ {
+        a.observeAPITransportProbe(api, "plain", "timeout", 8000, old)
+        a.observeAPITransportProbe(api, "fake-5", "http_reachable", 400, old)
+    }
+    if got := a.choose(api); got != "split-1" {
+        t.Fatalf("stale API probe must not seed a winner: %s", got)
+    }
+}
+
 func TestAutoLearnsVerifiedYouTubeHTMLButNotRedirectOrPartial(t *testing.T) {
     a := newProbeAdaptiveSelector()
     const host = "www.youtube.com"
