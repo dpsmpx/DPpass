@@ -71,7 +71,7 @@ jobs:
               for path in required:
                   assert path in z.namelist(), path
               # The opt-in strategy MLP is distributed only as a separate
-              # pinned download. No neural weights/model file may enter APK.
+              # No neural model downloads or bundled weights may enter this APK.
               forbidden = [
                   name for name in z.namelist()
                   if "zapret2-mlp-seed-v1.json" in name
@@ -220,15 +220,15 @@ jobs:
           - **Signed release APK:** \`DPpass-Neural-*-release-signed.apk\`, package \`com.dpsmpx.dppass\`. Optimized release variant, signed with the **pinned experimental alpha certificate** (not the store production key); can update an installed alpha only if that app has the same signing key and a compatible versionCode.
           - **Debug APK:** \`DPpass-Zapret2-Alpine-*-debug.apk\`, separate package \`com.dpsmpx.dppass.alpine\`; does not replace regular DPpass.
           - Includes Alpine minirootfs, PRoot, JNI bridge and the shared Zapret2 planner.
-          - No GitHub neural-model download. Generate two independent models directly in Settings at 32, 128, 512 or 1024 hidden neurons.
+          - Models are generated locally: use 32/128/512/1024-neuron presets OR enter a manual parameter budget (100,000; 100,000,000; up to 1 billion). The large number is SPARSE ADDRESSABLE CAPACITY, not allocated/trained dense weights. At most 4096 sparse positions are stored, with a compact 1- or 2-layer core.
           - Provider server selection: choose VPN server on the main screen and Automatically in the server list. Existing subscriptions and their keys remain in app-private storage.
-          - Signed release has versionCode 134. The signing certificate is the PINNED experimental alpha key, not the original dev or store certificate.
+          - Signed release has versionCode 135, versionName 0.7.57-dev, package com.dpsmpx.dppass; uses the same pinned experimental alpha signing certificate as DPpass 0.7.56-dev (not the original author or production store key).
           - Video playback and YouTube feed scrolling on real mobile networks are **not verified** by CI.
-          - Includes PR #38 AUTO stall fixes (plain TCP baseline, first-reply timeout learning).
+          - Neural training keeps separate MOBILE/Wi-Fi/OTHER and TCP/QUIC/TLS/HTTP scenario heads. Native learned strategy weights are saved on-device after traffic, on shutdown, and survive network switching. Also includes PR #38 AUTO stall fixes.
           - Includes SHA256SUMS.txt and BUILD_SOURCE.txt for reproducibility.
 
           Source workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
-          Development PR: https://github.com/dpsmpx/DPpass/pull/38
+          Development PR: https://github.com/dpsmpx/DPpass/pull/39
           EOF
       - name: Create or update commit-specific GitHub prerelease
         shell: bash

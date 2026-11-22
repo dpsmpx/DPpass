@@ -414,7 +414,7 @@ class JniXrayRuntime private constructor() : XrayRuntime {
         fun configureZapret2AdaptiveHosts(hostsText: String): XrayResult =
             XrayJni.decode(XrayJni.nativeSetZapret2AdaptiveHosts(hostsText.encodeToByteArray()))
 
-        /** Optional downloaded model is not included in any APK asset. */
+        /** Optional locally generated model; weights are never bundled or downloaded. */
         fun configureZapret2NeuralModel(model: ByteArray): XrayResult =
             XrayJni.decode(XrayJni.nativeSetZapret2NeuralModel(model))
 
