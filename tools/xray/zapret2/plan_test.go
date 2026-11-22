@@ -5,6 +5,9 @@ package zapret2
 import (
     "bytes"
     "encoding/json"
+    "encoding/binary"
+    "crypto/tls"
+    "io"
     "net"
     "path/filepath"
     "testing"
@@ -90,4 +93,64 @@ func TestUnixPlannerMatchesInProcessAndFailsClosed(t *testing.T) {
     _ = SetPlannerSocket("")
     p, err = PlanFor(TagPrefix+"split-1", "tcp", hello)
     if err != nil || p.Cut != 1 { t.Fatal("non-Alpine build must use same shared planner") }
+}
+
+
+// TLS-record splitting must preserve each ClientHello handshake byte and all
+// following records. A second TLS header is only an encoding change, not a
+// change to the certificate, SNI, or encrypted application data.
+func tlsClientHelloFixture(t *testing.T, name string) []byte {
+    t.Helper()
+    a, b := net.Pipe()
+    defer a.Close()
+    defer b.Close()
+    go func() { _ = tls.Client(a, &tls.Config{ServerName: name, MinVersion: tls.VersionTLS12}).Handshake() }()
+    header := make([]byte, 5)
+    if _, err := io.ReadFull(b, header); err != nil { t.Fatal(err) }
+    body := make([]byte, int(binary.BigEndian.Uint16(header[3:5])))
+    if _, err := io.ReadFull(b, body); err != nil { t.Fatal(err) }
+    return append(header, body...)
+}
+
+func TestCombinedTLSRecordAndTCPSplitPreservesHandshake(t *testing.T) {
+    original := tlsClientHelloFixture(t, "r1.googlevideo.com")
+    trailer := []byte{23, 3, 3, 0, 1, 0x55} // untouched following TLS record
+    combined := append(bytes.Clone(original), trailer...)
+    p, err := BuildPlan(TagPrefix+"tlsrec-split", "tcp", combined)
+    if err != nil || !p.Applied || len(p.Fake) != 0 || len(p.Rewrite) != len(combined)+5 {
+        t.Fatalf("combined TLS plan: %+v: %v", p, err)
+    }
+    if p.Cut < 9 || p.Cut >= len(p.Rewrite)-5 { t.Fatal("invalid split position", p.Cut) }
+    firstLen := int(binary.BigEndian.Uint16(p.Rewrite[3:5]))
+    secondLen := int(binary.BigEndian.Uint16(p.Rewrite[p.Cut+3:p.Cut+5]))
+    if p.Cut != 5+firstLen || firstLen+secondLen != len(original)-5 {
+        t.Fatalf("invalid record framing: first=%d second=%d cut=%d", firstLen, secondLen, p.Cut)
+    }
+    if !bytes.Equal(p.Rewrite[:3], original[:3]) ||
+        !bytes.Equal(p.Rewrite[p.Cut:p.Cut+3], original[:3]) {
+        t.Fatal("fragment record headers changed TLS type/version")
+    }
+    recovered := append(bytes.Clone(p.Rewrite[5:p.Cut]), p.Rewrite[p.Cut+5:p.Cut+5+secondLen]...)
+    if !bytes.Equal(recovered, original[5:]) {
+        t.Fatal("fragmented TLS records changed the handshake bytes")
+    }
+    if !bytes.Equal(p.Rewrite[p.Cut+5+secondLen:], trailer) {
+        t.Fatal("trailing TLS records were changed")
+    }
+    // If a TLS record is incomplete, do not rewrite it or invent fake bytes.
+    for _, incomplete := range [][]byte{original[:8], original[:30], original[:len(original)-1]} {
+        q, err := BuildPlan(TagPrefix+"tlsrec-split", "tcp", incomplete)
+        if err != nil || q.Applied || len(q.Rewrite) != 0 {
+            t.Fatalf("incomplete TLS must not be rewritten: %+v: %v", q, err)
+        }
+    }
+    for _, unrecognized := range [][]byte{
+        []byte("GET / HTTP/1.1\\r\\nHost: example.org\\r\\n\\r\\n"),
+        []byte("SSH-2.0-test"),
+    } {
+        q, err := BuildPlan(TagPrefix+"tlsrec-split", "tcp", unrecognized)
+        if err != nil || q.Applied || len(q.Rewrite) != 0 {
+            t.Fatalf("unrelated TCP was modified: %+v: %v", q, err)
+        }
+    }
 }
