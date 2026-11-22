@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - feature/zapret2-alpine-terminal
+      - fix/zapret2-auto-stall-baseline-20261123
   workflow_dispatch:
 
 concurrency:
