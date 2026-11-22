@@ -279,7 +279,7 @@
     <string name="netcheck_title">Network check</string>
     <string name="netcheck_settings_note">What the network lets through right now</string>
     <string name="netcheck_intro">DPpass checks, one at a time, what this network lets through: names, connections, secure connections, QUIC and a large transfer — to ya.ru, speed.cloudflare.com and www.google.com, past the tunnel. Nothing about you or the phone is sent; these sites see the phone’s address, as when opening a page.</string>
-    <string name="netcheck_note">For your information only: the result doesn’t change how a server is chosen yet. Repeated checks are paced — skipped steps are not network failures.</string>
+    <string name="netcheck_note">These probes run over mobile data or Wi-Fi outside the VPN. Even if all pass, YouTube access and DPI bypass through DPpass are not established. Use the separate measurement below to test the DPpass route. Repeated checks are rate-limited.</string>
     <string name="netcheck_run">Check network</string>
     <string name="netcheck_running">Checking…</string>
     <string name="netcheck_run_wait">Check network — in %1$d s</string>
@@ -323,7 +323,7 @@
     <string name="netconf_medium">medium</string>
     <string name="netconf_high">high</string>
     <string name="speed_section">Speed through the tunnel</string>
-    <string name="speed_note">Ping, jitter and download speed through the server DPpass is connected to: 10 small requests and a download of up to 25 MB (no longer than 8 s) from speed.cloudflare.com through the server. On a mobile network this counts against your plan. The next measurement is available a minute later.</string>
+    <string name="speed_note">Measurement through the selected Xray route (subscription server or local Zapret2): 10 small HTTPS requests and up to 25 MB of downloads (no more than 8 s) from speed.cloudflare.com. This does not test YouTube. Mobile data charges may apply; retry after one minute.</string>
     <string name="speed_run">Measure speed</string>
     <string name="speed_running">Measuring…</string>
     <string name="speed_run_wait">Measure speed — in %1$d s</string>
