@@ -4,7 +4,10 @@ package bridge
 
 import (
 	"crypto/x509"
+	"io"
+	"net"
 	"net/http"
+	"strings"
 	"net/http/httptest"
 	"strconv"
 	"testing"
@@ -99,6 +102,50 @@ func TestSpeedTestSeesDataStoppingMidTransfer(t *testing.T) {
 	}
 }
 
+// A mobile network can accept TCP and even return some TLS bytes but fail
+// to complete the handshake. This must not be labelled "download stalled":
+// users otherwise cannot distinguish blocked TLS from stalled HTTP payload.
+func TestSpeedTLSHandshakeDeadlineReportsAccurateStage(t *testing.T) {
+    ln, err := net.Listen("tcp", "127.0.0.1:0")
+    if err != nil { t.Fatal(err) }
+    defer ln.Close()
+    go func() {
+        conn, err := ln.Accept()
+        if err != nil { return }
+        defer conn.Close()
+        _, _ = io.Copy(io.Discard, conn) // accept ClientHello, never send ServerHello
+    }()
+    startProxy(t)
+    r := SpeedTest("https://"+ln.Addr().String()+"/__down",
+        2, 1024, 100*time.Millisecond, 650*time.Millisecond)
+    if r.Outcome != ProbeTLS || r.Err == nil ||
+        !strings.Contains(r.Err.Error(), "speed_stage=tls_handshake") ||
+        !strings.Contains(r.Err.Error(), "completed_pings=0") {
+        t.Fatalf("TLS handshake timeout misreported as L7 stall: %+v", r)
+    }
+}
+
+// TLS may succeed while the actual HTTP measurement endpoint never sends
+// response headers. The phase is safe to log and distinguishes this from
+// failure to initiate TLS or from a body stalled mid-download.
+func TestSpeedHTTPHeadersDeadlineReportsLatencyStage(t *testing.T) {
+    s := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        <-r.Context().Done() // no HTTP headers until caller cancels
+    }))
+    defer s.Close()
+    roots := x509.NewCertPool()
+    roots.AddCert(s.Certificate())
+    withRoots(t, roots)
+    startProxy(t)
+    r := SpeedTest(s.URL+"/__down", 2, 1024,
+        100*time.Millisecond, 650*time.Millisecond)
+    if r.Outcome != ProbeStalled || r.Err == nil ||
+        !strings.Contains(r.Err.Error(), "speed_stage=latency_http") ||
+        !strings.Contains(r.Err.Error(), "completed_pings=0") {
+        t.Fatalf("HTTP header stall needs a distinct phase: %+v", r)
+    }
+}
+
 func TestSpeedTestOutcomes(t *testing.T) {
 	t.Run("не 200", func(t *testing.T) {
 		u, roots := down(t, http.StatusForbidden, 1, 0, false)
@@ -119,7 +166,9 @@ func TestSpeedTestOutcomes(t *testing.T) {
 		u, roots := down(t, http.StatusOK, 1, 0, true)
 		withRoots(t, roots)
 		startProxy(t)
-		if r := SpeedTest(u, 2, 1<<20, 300*time.Millisecond, 5*time.Second); r.Outcome != ProbeStalled || len(r.Pings) != 2 {
+		if r := SpeedTest(u, 2, 1<<20, 300*time.Millisecond, 5*time.Second); r.Outcome != ProbeStalled || len(r.Pings) != 2 || r.Err == nil ||
+            !strings.Contains(r.Err.Error(), "speed_stage=download_body") ||
+            !strings.Contains(r.Err.Error(), "completed_pings=2") {
 			t.Fatalf("ожидался ProbeStalled после пингов: %+v", r)
 		}
 	})
