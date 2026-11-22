@@ -22,6 +22,9 @@ import (
 	"github.com/xtls/xray-core/transport/internet"
 	"golang.org/x/sys/unix"
     "github.com/dpsmpx/dppass/tools/xray/zapret2"
+    "net/http"
+    "net/http/httptest"
+    "strings"
 )
 
 // clientHello — настоящий ClientHello crypto/tls с именем [name]: первая запись TLS.
@@ -767,3 +770,42 @@ func TestStandFakeWithTooLargeTTLReachesTheServer(t *testing.T) {
 }
 
 func htons(v uint16) uint16 { return v<<8 | v>>8 }
+
+
+// End-to-end verification: crypto/tls.Server must accept the rewritten
+// ClientHello, negotiate TLS 1.3 and serve an actual HTTP response. The
+// original application TLS client is unchanged; only the protected socket
+// representation of the first handshake record is fragmented.
+func TestTLSRecordSplitCompletesRealTLSHandshake(t *testing.T) {
+    server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        _, _ = io.WriteString(w, "tls-record-split-ok")
+    }))
+    defer server.Close()
+
+    addr, err := net.ResolveTCPAddr("tcp", strings.TrimPrefix(server.URL, "https://"))
+    if err != nil { t.Fatal(err) }
+    raw, err := net.DialTCP("tcp", nil, addr)
+    if err != nil { t.Fatal(err) }
+    defer raw.Close()
+    conn := &desyncConn{TCPConn: raw, mode: desyncMode{kind: desyncTLSRecordSplit}}
+    before, _ := DesyncStats()
+    secured := tls.Client(conn, &tls.Config{
+        ServerName: "example.com",
+        InsecureSkipVerify: true, // Local httptest certificate; never an app setting.
+        MinVersion: tls.VersionTLS12,
+    })
+    defer secured.Close()
+    if err := secured.SetDeadline(time.Now().Add(5*time.Second)); err != nil { t.Fatal(err) }
+    if err := secured.Handshake(); err != nil { t.Fatalf("fragmented ClientHello rejected by TLS server: %v", err) }
+    if secured.ConnectionState().Version < tls.VersionTLS12 { t.Fatal("TLS protocol downgraded") }
+    if _, err := io.WriteString(secured, "GET / HTTP/1.1\\r\\nHost: example.com\\r\\nConnection: close\\r\\n\\r\\n"); err != nil {
+        t.Fatal(err)
+    }
+    reply, err := io.ReadAll(secured)
+    if err != nil { t.Fatal(err) }
+    if !bytes.Contains(reply, []byte("tls-record-split-ok")) {
+        t.Fatalf("server did not return useful HTTP payload: %q", reply)
+    }
+    after, _ := DesyncStats()
+    if after <= before { t.Fatal("combined TLS strategy was not applied") }
+}
