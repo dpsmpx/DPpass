@@ -232,6 +232,8 @@ def main():
     a = argparse.ArgumentParser(description="Тестовые APK по ABI, подписанные ключом разработчика (D-35)")
     a.add_argument("--out", default=os.path.join(PROJ, "build", "release-apk"))
     a.add_argument("--skip-build", action="store_true", help="не собирать: взять готовые APK из app/build/outputs")
+    a.add_argument("--abis", nargs="+", choices=ABIS, default=list(ABIS),
+                   help="опционально подписать выбранные ABI из готовых APK (по умолчанию все три)")
     a.add_argument("--fingerprint", action="store_true", help="напечатать отпечаток ключа из окружения и выйти")
     a.add_argument("--allow-unpinned-key", action="store_true",
                    help="только закрытый черновик: тест нового сертификата без записи в PROVENANCE")
@@ -288,7 +290,7 @@ def main():
         os.makedirs(args.out, exist_ok=True)
         rev = revision()
         problems, made, packages = [], [], set()
-        for abi in ABIS:
+        for abi in dict.fromkeys(args.abis):
             unsigned = os.path.join(OUTPUTS, f"app-{abi}-release-unsigned.apk")
             if not os.path.isfile(unsigned):
                 problems.append(f"{abi}: нет {os.path.relpath(unsigned, PROJ)}")
