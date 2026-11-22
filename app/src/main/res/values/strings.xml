@@ -877,4 +877,17 @@
     <string name="path_local_auto">Local strategies</string>
     <string name="path_provider_explained">Use your configured VPN provider and the selected or automatic server.</string>
     <string name="path_local_explained">Direct connections with local Zapret2 AUTO; no VPN provider.</string>
+    <string name="model_server_section">Local server selection model</string>
+    <string name="model_strategy_title">Generate local strategy model</string>
+    <string name="model_server_title">Generate automatic server model</string>
+    <string name="model_not_generated">Not generated; built-in adaptive algorithm remains active.</string>
+    <string name="model_installed_size">Local model created: %1$d hidden neurons. Tap to resize or remove.</string>
+    <string name="model_size_choice">%1$d hidden neurons</string>
+    <string name="model_recommended"> · recommended</string>
+    <string name="model_generate_action">Generate</string>
+    <string name="model_remove_action">Delete model</string>
+    <string name="model_created">Model generated locally. No download was needed.</string>
+    <string name="model_ready_reconnect">Model saved. It will be activated after reconnection.</string>
+    <string name="model_removed">Local model deleted. Built-in selection remains available.</string>
+    <string name="model_generation_failed">Model generation or installation failed; existing selection was preserved.</string>
 </resources>
