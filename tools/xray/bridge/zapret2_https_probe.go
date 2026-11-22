@@ -32,13 +32,13 @@ const zapret2PlainTag = "dppass:test-plain"
 // arbitrary outbound tag or URL from Java or user input.
 var zapret2TestStrategies = map[string]string{
     "plain": zapret2PlainTag,
-    "split-1": "dppass:exp-split-1",
-    "split": "dppass:exp-split",
-    "tlsrec-split": "dppass:exp-tlsrec-split",
-    "fake-3": "dppass:exp-fake-3",
-    "fake-5": "dppass:exp-fake-5",
-    "disorder": "dppass:exp-disorder",
-    "auto": "dppass:exp-auto",
+    "split-1": "dppass:test-split-1",
+    "split": "dppass:test-split",
+    "tlsrec-split": "dppass:test-tlsrec-split",
+    "fake-3": "dppass:test-fake-3",
+    "fake-5": "dppass:test-fake-5",
+    "disorder": "dppass:test-disorder",
+    "auto": "dppass:test-auto",
 }
 
 // Zapret2HTTPSResult carries only a stage/status and aggregate measurements.
@@ -114,7 +114,6 @@ func probeGoogleHTTPSWithConn(ctx context.Context, c net.Conn) Zapret2HTTPSResul
 func ProbeZapret2HTTPS(strategy string, timeout time.Duration) Zapret2HTTPSResult {
     started := time.Now()
     out := Zapret2HTTPSResult{Outcome:"invalid_strategy"}
-    defer func(){ out.Elapsed = time.Since(started) }() // see explicit finish below
     tag, valid := zapret2TestStrategies[strings.TrimSpace(strategy)]
     if !valid || strategy != strings.TrimSpace(strategy) { return out }
     if timeout < time.Second || timeout > 15*time.Second {
