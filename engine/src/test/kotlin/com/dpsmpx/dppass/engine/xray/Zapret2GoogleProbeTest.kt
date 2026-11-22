@@ -166,7 +166,6 @@ class Zapret2GoogleProbeTest {
         assertTrue(report.contains("does NOT prove"))
         assertTrue(report.contains("Scope: TCP/HTTPS"))
     }
-}
 
     @Test fun stageTimeoutsAreValidAndNotMisclassifiedAsContent() {
         for (stage in listOf("timeout_dial", "timeout_tls", "timeout_write",
@@ -198,3 +197,5 @@ class Zapret2GoogleProbeTest {
         assertEquals(null, Zapret2GoogleReport.provisionalAPITransportHint(listOf(
             attempt("youtube_api_ipv4", "http_reachable", 403))))
     }
+
+}
