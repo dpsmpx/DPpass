@@ -51,17 +51,31 @@ object Zapret2GoogleReport {
      * Require two baseline failures and two verified 200+HTML bodies for
      * the same manual TCP strategy. Do not infer from 301, Google or JPEG.
      */
-    fun provisionalYouTubeHint(attempts: List<Zapret2GoogleAttempt>): String? {
-        val home = attempts.filter { it.target == "youtube_home" }
-        val plain = home.filter { it.strategy == "plain" }
+    fun provisionalYouTubeHint(attempts: List<Zapret2GoogleAttempt>): String? =
+        provisionalHint(attempts, "youtube_home") { it.success }
+
+    /**
+     * Provisional API *transport* only. Even HTTP 403/404 may establish
+     * verified HTTPS routing, but never authorizes or proves feed content.
+     */
+    fun provisionalAPITransportHint(attempts: List<Zapret2GoogleAttempt>): String? =
+        provisionalHint(attempts, "youtube_api_transport") { it.httpReachable }
+
+    private fun provisionalHint(
+        attempts: List<Zapret2GoogleAttempt>,
+        target: String,
+        reached: (Zapret2GoogleProbe) -> Boolean,
+    ): String? {
+        val rows = attempts.filter { it.target == target }
+        val plain = rows.filter { it.strategy == "plain" }
         if (plain.size != 2 || !plain.all {
                 it.result.outcome in setOf("timeout", "dial_failed", "tls_failed")
             }) return null
         return Zapret2ProbeCatalog.strategies.filter { it != "auto" && it != "plain" }
             .mapNotNull { strategy ->
-                val rows = home.filter { it.strategy == strategy }
-                if (rows.size == 2 && rows.all { it.result.success }) {
-                    strategy to rows.sumOf { it.result.elapsedMillis }
+                val attemptsForMode = rows.filter { it.strategy == strategy }
+                if (attemptsForMode.size == 2 && attemptsForMode.all { reached(it.result) }) {
+                    strategy to attemptsForMode.sumOf { it.result.elapsedMillis }
                 } else null
             }.minByOrNull { it.second }?.first
     }
@@ -136,6 +150,15 @@ object Zapret2GoogleReport {
             appendLine("This does NOT make YouTube app feeds, API, thumbnails or video verified.")
         } else {
             appendLine("No verified per-host AUTO preference inferred from this diagnostic.")
+        }
+        val apiHint = provisionalAPITransportHint(attempts)
+        if (apiHint != null) {
+            appendLine("Provisional exact-host AUTO transport candidate: $apiHint for youtubei.googleapis.com")
+            appendLine("Evidence: plain failed 2/2; $apiHint received TLS-verified HTTP replies 2/2.")
+            appendLine("HTTP replies to an unauthenticated GET do NOT prove real YouTube app feed/API access.")
+            appendLine("The API-host preference is separate and temporary; no transfer to googlevideo.com.")
+        } else {
+            appendLine("No verified API-host transport preference inferred from this diagnostic.")
         }
         appendLine("Do not choose a global best DPI strategy from these 2-sample results.")
     }
