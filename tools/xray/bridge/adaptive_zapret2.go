@@ -116,6 +116,13 @@ func (a *adaptiveSelector) chooseTracked(host string) (string, uint64) {
     return a.chooseWithGeneration(host, adaptiveCandidates[:])
 }
 
+// Plain HTTP/1 Host headers are eligible for legacy TCP tricks, but not
+// TLS-record rewriting. A learned TLS-only winner must not disable
+// desynchronization for a subsequent HTTP request to the same destination.
+func (a *adaptiveSelector) chooseHTTPTracked(host string) (string, uint64) {
+    return a.chooseWithGeneration(host, adaptiveCandidates[:len(adaptiveCandidates)-1])
+}
+
 // QUIC evidence is separate and keyed by the protected UDP destination IP.
 func (a *adaptiveSelector) chooseQUIC(host string) string {
     choice, _ := a.chooseQUICTracked(host)
@@ -141,7 +148,11 @@ func (a *adaptiveSelector) chooseWithGeneration(host string, candidates []string
     }
     e := a.entries[host]
     if e == nil { e = &adaptiveEntry{}; a.entries[host] = e }
-    if e.preferred != "" { return e.preferred, a.generation }
+    if e.preferred != "" {
+        for _, candidate := range candidates {
+            if candidate == e.preferred { return e.preferred, a.generation }
+        }
+    }
     tag := candidates[e.index%len(candidates)]
     e.index++
     return tag, a.generation
