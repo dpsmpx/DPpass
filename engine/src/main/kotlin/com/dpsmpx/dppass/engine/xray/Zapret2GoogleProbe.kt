@@ -11,14 +11,16 @@ data class Zapret2GoogleProbe(
     val appliedDelta: Long,
     val skippedDelta: Long,
 ) {
-    val success: Boolean get() = outcome == "ok" || outcome == "redirect"
+    /** An HTTP 3xx proves reachability, not final content. */
+    val success: Boolean get() = outcome == "ok"
 
     companion object {
         val outcomes: Set<String> = setOf(
             "ok", "redirect", "engine_off", "invalid_strategy", "invalid_timeout",
             "dial_failed", "timeout", "tls_failed", "tls_ca_failed",
             "request_failed", "http_failed", "http_status", "body_failed",
-            "empty_body", "unsupported", "contract_error",
+            "empty_body", "content_type_mismatch", "content_invalid",
+            "invalid_target", "unsupported", "contract_error",
         )
         fun unavailable(): Zapret2GoogleProbe =
             Zapret2GoogleProbe("contract_error", 0, 0, 0, 0, 0)
@@ -37,6 +39,7 @@ data class Zapret2GoogleAttempt(
     val strategy: String,
     val attempt: Int,
     val result: Zapret2GoogleProbe,
+    val target: String = "google_final",
 )
 
 /** Complete plaintext report for clipboard; all attempts, including failures. */
@@ -58,35 +61,46 @@ object Zapret2GoogleReport {
         quicForceTcp: Boolean,
         attempts: List<Zapret2GoogleAttempt>,
     ): String = buildString {
-        appendLine("=== DPpass — Zapret2 Google HTTPS autotest ===")
+        appendLine("=== DPpass — Zapret2 multi-site HTTPS autotest ===")
         appendLine("Time: $timestamp")
         appendLine("Network: $network")
-        appendLine("Target: https://google.com/ (GET; verified TLS certificate)")
-        appendLine("Mode: experimental VpnService; QUIC->TCP=$quicForceTcp")
-        appendLine("Scope: TCP/HTTPS; QUIC is not tested")
-        appendLine("Redirects: reported, not followed")
+        appendLine("Mode: active experimental VpnService; AUTO primary; QUIC->TCP=$quicForceTcp")
+        appendLine("Transport: TLS certificate verified, direct GET / GET JPEG, max 8 KiB")
+        appendLine("Targets: google_final=www.google.com/ (HTML after google.com 301); " +
+            "youtube_home=www.youtube.com/ (HTML); " +
+            "youtube_thumbnail=i.ytimg.com/vi/jNQXAC9IVRw/hqdefault.jpg (JPEG)")
+        appendLine("Redirects are NOT followed; a redirect is not a verified content success.")
+        appendLine("HTTP 200 alone is not success: HTML/JPEG signatures checked.")
+        appendLine("Scope: TCP/HTTPS only; QUIC, YouTube app API and video streaming NOT tested.")
         appendLine("Strategies: ${Zapret2ProbeCatalog.strategies.joinToString(", ")}")
-        appendLine("Attempts: ${attempts.size}")
+        appendLine("Targets count: ${Zapret2ProbeCatalog.targets.size}; attempts: ${attempts.size}")
         appendLine()
-        appendLine("Summary:")
-        for (name in Zapret2ProbeCatalog.strategies) {
-            val rows = attempts.filter { it.strategy == name }
-            val ok = rows.count { it.result.success }
-            val median = medianMillis(rows.filter { it.result.success }.map { it.result.elapsedMillis })
-            val outcomes = rows.map { it.result.outcome }.joinToString(",").ifEmpty { "not_run" }
-            appendLine("$name: $ok/${rows.size} HTTP replies; median_ms=$median; outcomes=$outcomes")
+        appendLine("Summary by target:")
+        for (target in Zapret2ProbeCatalog.targets) {
+            appendLine("TARGET $target — ${Zapret2ProbeCatalog.targetLabel(target)}")
+            for (strategy in Zapret2ProbeCatalog.strategies) {
+                val rows = attempts.filter { it.target == target && it.strategy == strategy }
+                val ok = rows.count { it.result.success }
+                val median = medianMillis(rows.filter { it.result.success }
+                    .map { it.result.elapsedMillis })
+                val outcomes = rows.map { it.result.outcome }.joinToString(",").ifEmpty { "not_run" }
+                appendLine("  $strategy: $ok/${rows.size} content; median_ok_ms=$median; outcomes=$outcomes")
+            }
         }
         appendLine()
         appendLine("Every attempt:")
         attempts.forEachIndexed { index, a ->
             val r = a.result
-            appendLine("${index + 1}. ${a.strategy} #${a.attempt}: " +
+            appendLine("${index + 1}. target=${a.target} strategy=${a.strategy} #${a.attempt}: " +
                 "outcome=${r.outcome} http=${r.httpStatus} body_bytes=${r.bodyBytes} " +
                 "elapsed_ms=${r.elapsedMillis} applied_delta=${r.appliedDelta} skipped_delta=${r.skippedDelta}")
         }
         appendLine()
-        appendLine("Applied/skipped deltas are process-wide and may include unrelated apps.")
-        appendLine("A Google HTTP response does not prove YouTube feed/video works.")
-        appendLine("DNS/TCP/TLS, IP reachability and routing can fail independently.")
+        appendLine("All modes run through private test outbounds; ordinary VPN strategy is unchanged.")
+        appendLine("Applied/skipped counters are process-wide and may include unrelated apps.")
+        appendLine("A Google reply does NOT prove YouTube works; a YouTube HTML/thumbnail " +
+            "reply does NOT prove the app API or video streams work.")
+        appendLine("i.ytimg.com is thumbnail CDN, NOT the googlevideo.com media stream.")
+        appendLine("No winning DPI strategy is auto-selected from this test.")
     }
 }
