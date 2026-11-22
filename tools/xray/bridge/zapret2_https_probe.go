@@ -152,11 +152,19 @@ func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2
         return out
     }
     beforeApplied, beforeSkipped := DesyncStats()
+    generation := zapret2Auto.generationSnapshot()
     finish := func(r Zapret2HTTPSResult) Zapret2HTTPSResult {
         nowApplied, nowSkipped := DesyncStats()
         r.AppliedDelta = max(0, nowApplied-beforeApplied)
         r.SkippedDelta = max(0, nowSkipped-beforeSkipped)
         r.Elapsed = time.Since(started)
+        // Only the hardcoded www.youtube.com HTML target may teach AUTO.
+        // Verified page bytes, not TCP/TLS or a 301, are required.
+        // The selector rejects late evidence from a previous VPN session.
+        if targetID == "youtube_home" {
+            zapret2Auto.observeHTMLProbe(target.host, strategy, r.Outcome,
+                r.Elapsed.Milliseconds(), generation)
+        }
         return r
     }
     mu.Lock()
