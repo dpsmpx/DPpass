@@ -173,3 +173,43 @@ func SNIRange(b []byte) (start, end int, ok bool) {
 	}
 	return 0, 0, false
 }
+
+
+// SplitTLSRecordClientHello rewrites a complete, single-record ClientHello
+// into two valid TLS handshake records. It preserves every handshake byte and
+// all trailing TLS records; only one additional five-byte record header is
+// introduced. The returned cut is the boundary between the two records.
+// Incomplete or already fragmented handshakes are deliberately left intact.
+func SplitTLSRecordClientHello(first []byte) ([]byte, int, bool) {
+    if !IsTLSClientHelloPrefix(first) {
+        return nil, 0, false
+    }
+    recordLen := int(binary.BigEndian.Uint16(first[3:5]))
+    if recordLen < 8 || recordLen > 16384 || len(first) < 5+recordLen {
+        return nil, 0, false
+    }
+    body := first[5 : 5+recordLen]
+    // The TLS handshake header is type(1) + length(3). Require exactly
+    // one complete ClientHello before rewriting its record framing.
+    handshakeLen := int(body[1])<<16 | int(body[2])<<8 | int(body[3])
+    if handshakeLen < 4 || handshakeLen+4 != recordLen {
+        return nil, 0, false
+    }
+    // Split the handshake after its four-byte header. Keep both TLS
+    // record fragments nonempty and within the TLS 16 KiB record limit.
+    leftLen := recordLen / 2
+    if leftLen < 4 || leftLen >= recordLen {
+        return nil, 0, false
+    }
+    rightLen := recordLen - leftLen
+    out := make([]byte, 0, len(first)+5)
+    out = append(out, first[:5]...)
+    binary.BigEndian.PutUint16(out[3:5], uint16(leftLen))
+    out = append(out, body[:leftLen]...)
+    cut := len(out)
+    out = append(out, first[:3]...)
+    out = append(out, byte(rightLen>>8), byte(rightLen))
+    out = append(out, body[leftLen:]...)
+    out = append(out, first[5+recordLen:]...)
+    return out, cut, true
+}
