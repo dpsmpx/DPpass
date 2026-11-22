@@ -51,6 +51,10 @@ type zapret2TestTarget struct {
 var zapret2TestTargets = map[string]zapret2TestTarget{
     "google_final": {"www.google.com", "/", "html"},
     "youtube_home": {"www.youtube.com", "/", "html"},
+    // A credentials-free request cannot validate the real mobile API.
+    // HTTP 4xx from this allowlisted route still proves authenticated TLS
+    // and an HTTP reply from youtubei.googleapis.com, not feed access.
+    "youtube_api_transport": {"youtubei.googleapis.com", "/youtubei/v1/browse", "http_transport"},
     "youtube_thumbnail": {"i.ytimg.com", "/vi/jNQXAC9IVRw/hqdefault.jpg", "jpeg"},
 }
 
@@ -73,6 +77,12 @@ func (r Zapret2HTTPSResult) Wire() []byte {
 
 func classifyProbeHTTP(code int, contentType string, body []byte, readErr error, target zapret2TestTarget) string {
     if code >= 300 && code < 400 { return "redirect" }
+    // This is ONLY a transport probe: unauthenticated GET on an API that
+    // normally needs POST/keys. 4xx is not working feed content.
+    if target.contentKind == "http_transport" {
+        if code >= 200 && code < 500 { return "http_reachable" }
+        return "http_status"
+    }
     if code < 200 || code >= 300 { return "http_status" }
     if readErr != nil && !errors.Is(readErr, io.EOF) && !errors.Is(readErr, io.ErrUnexpectedEOF) {
         return "body_failed"
