@@ -19,8 +19,12 @@ func TestZapret2GoogleStrategyRegistryIsComplete(t *testing.T) {
         if tag == "" { t.Fatalf("missing %s", n) }
         if n == "plain" {
             if tag != zapret2PlainTag { t.Fatal("plain must use its own tag") }
-        } else if _, recognized, err := parseDesyncTag(tag); !recognized || err != nil {
-            t.Fatalf("invalid test strategy tag %s: %v", tag, err)
+        } else {
+            expected := "dppass:test-" + n
+            if tag != expected { t.Fatalf("%s: got %q, want %q", n, tag, expected) }
+            if _, recognized, err := parseDesyncTag("dppass:exp-" + n); !recognized || err != nil {
+                t.Fatalf("invalid underlying experiment tag %s: %v", n, err)
+            }
         }
     }
 }
