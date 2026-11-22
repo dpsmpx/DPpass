@@ -242,13 +242,25 @@ func (a *adaptiveSelector) generationSnapshot() uint64 {
     return a.generation
 }
 
-// A per-host preference can be seeded ONLY by successful HTTPS content
-// probes, never by an HTTP redirect, TLS server bytes, or an unrelated host.
-// This is intentionally conservative: 2/2 baseline failures and 2/2 valid
-// HTML responses for a fixed, non-AUTO candidate. It affects the exact
-// www.youtube.com hostname, not Google, thumbnails, API or googlevideo.
+// Two independent exact-host kinds of diagnostic evidence:
+// - www.youtube.com: validated HTTP 200 HTML content (outcome=ok)
+// - youtubei.googleapis.com: TLS-verified HTTP 2xx/4xx response
+//   (outcome=http_reachable), which proves transport ONLY, not a feed.
+// Neither permits promoting strategies for unrelated Googlevideo/CDN/Google
+// domains. Do not train from redirects, one success, or TLS bytes alone.
 func (a *adaptiveSelector) observeHTMLProbe(host, strategy, outcome string, elapsedMillis int64, generation uint64) {
-    if host != "www.youtube.com" || strategy == "auto" || elapsedMillis < 0 { return }
+    a.observeVerifiedProbe(host, "www.youtube.com", "ok",
+        strategy, outcome, elapsedMillis, generation)
+}
+
+func (a *adaptiveSelector) observeAPITransportProbe(host, strategy, outcome string, elapsedMillis int64, generation uint64) {
+    a.observeVerifiedProbe(host, "youtubei.googleapis.com", "http_reachable",
+        strategy, outcome, elapsedMillis, generation)
+}
+
+func (a *adaptiveSelector) observeVerifiedProbe(host, requiredHost, validOutcome,
+    strategy, outcome string, elapsedMillis int64, generation uint64) {
+    if host != requiredHost || strategy == "auto" || elapsedMillis < 0 { return }
     if strategy != "plain" {
         recognized := false
         for _, candidate := range adaptiveCandidates {
@@ -271,7 +283,7 @@ func (a *adaptiveSelector) observeHTMLProbe(host, strategy, outcome string, elap
     }
     evidence.lastStrategy = strategy
     if strategy == "plain" {
-        if outcome == "ok" { evidence.plainSuccesses++ }
+        if outcome == validOutcome { evidence.plainSuccesses++ }
         if outcome == "timeout" || outcome == "dial_failed" || outcome == "tls_failed" {
             evidence.plainFailures++
         }
@@ -279,7 +291,7 @@ func (a *adaptiveSelector) observeHTMLProbe(host, strategy, outcome string, elap
     }
     sample := evidence.candidates[strategy]
     sample.tried++
-    if outcome == "ok" {
+    if outcome == validOutcome {
         sample.verified++
         sample.totalMillis += elapsedMillis
     }
@@ -289,8 +301,8 @@ func (a *adaptiveSelector) observeHTMLProbe(host, strategy, outcome string, elap
         sample.tried != 2 || sample.verified != 2 {
         return
     }
-    // Prefer a confirmed winner with lower total latency, but do not
-    // mistake a 1/2 success or 301 redirect for a verified result.
+    // Prefer a confirmed same-host transport/content winner with lower
+    // total latency; do not mistake a redirect or a single success for proof.
     if evidence.winner != "" && sample.totalMillis >= evidence.winnerMillis { return }
     evidence.winner, evidence.winnerMillis = strategy, sample.totalMillis
     e := a.entries[host]
