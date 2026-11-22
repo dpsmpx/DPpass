@@ -416,22 +416,7 @@ class DPpassVpnService : VpnService() {
         }
         tunnel.replace(handle)
         if (tunSpec != null) {
-            if (desync != null && AppPrefs(this).zapret2Backend == Zapret2Backend.VPN_SERVICE) {
-            // Go stores only user-selected destinations, not traffic logs;
-            // changing the selection never interrupts an existing TLS flow.
-            val targets = AppPrefs(this).zapret2AdaptiveTargetsText
-            when (val chosen = JniXrayRuntime.configureZapret2AdaptiveHosts(targets)) {
-                is XrayResult.Failed -> {
-                    fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
-                        "Некорректный список адресов автоподбора Zapret2: " + chosen.text.take(160)))
-                    return
-                }
-                else -> core.log.info("zapret2_adaptive_enabled",
-                    "all_tcp" to (desync == DesyncTrick.Auto),
-                    "selected" to targets.lines().count { it.isNotBlank() })
-            }
-        }
-        core.log.info("tunnel_up", "routes" to tunSpec.routes.size, "apps" to Safe(tunSpec.apps::class.simpleName ?: "?"))
+            core.log.info("tunnel_up", "routes" to tunSpec.routes.size, "apps" to Safe(tunSpec.apps::class.simpleName ?: "?"))
         } else {
             core.log.info("local_proxy_up", "port" to local?.port)
         }
@@ -664,6 +649,21 @@ class DPpassVpnService : VpnService() {
                     core.log.info("zapret2_planner", "mode" to Safe("alpine"),
                         "status" to Safe("selected"))
                 }
+            }
+        }
+        if (desync != null && AppPrefs(this).zapret2Backend == Zapret2Backend.VPN_SERVICE) {
+            // Go stores only user-selected destinations, not traffic logs;
+            // changing the selection never interrupts an existing TLS flow.
+            val targets = AppPrefs(this).zapret2AdaptiveTargetsText
+            when (val chosen = JniXrayRuntime.configureZapret2AdaptiveHosts(targets)) {
+                is XrayResult.Failed -> {
+                    fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
+                        "Некорректный список адресов автоподбора Zapret2: " + chosen.text.take(160)))
+                    return
+                }
+                else -> core.log.info("zapret2_adaptive_enabled",
+                    "all_tcp" to (desync == DesyncTrick.Auto),
+                    "selected" to targets.lines().count { it.isNotBlank() })
             }
         }
         core.log.info("tunnel_up", "routes" to tunSpec.routes.size, "apps" to Safe(tunSpec.apps::class.simpleName ?: "?"))
