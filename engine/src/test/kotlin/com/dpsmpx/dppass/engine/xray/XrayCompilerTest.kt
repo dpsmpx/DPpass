@@ -1026,7 +1026,18 @@ class XrayCompilerTest {
         val probeTags = Zapret2ProbeCatalog.strategies.mapNotNull(Zapret2ProbeCatalog::tag)
         assertEquals(probeTags.toSet(), tags.toSet().intersect(probeTags.toSet()))
         assertEquals(tags.size, tags.toSet().size, "duplicate Xray outbound tags")
-        assertEquals(5 + probeTags.size - 1, tags.size, "one selected tag is already registered")
+        assertEquals(5 + (probeTags.size - 2) + probeTags.size, tags.size,
+            "selected experiment is already registered, other six are added for probes")
+        for (strategy in Zapret2ProbeCatalog.strategies.filter { it != "plain" }) {
+            val testTag = Zapret2ProbeCatalog.tag(strategy)!!
+            val experimentTag = Zapret2ProbeCatalog.experimentTag(strategy)!!
+            assertEquals(experimentTag,
+                outbound(doc, testTag)["streamSettings"]["sockopt"]["dialerProxy"].text,
+                "test must use the real protected strategy dialer")
+            assertEquals(outbound(doc, XrayBackend.TAG_DIRECT)["streamSettings"]["sockopt"]["domainStrategy"],
+                outbound(doc, testTag)["streamSettings"]["sockopt"]["domainStrategy"],
+                "all strategies must use the same DNS policy")
+        }
         assertTrue(rules(doc).none { it["outboundTag"].text in probeTags },
             "private test outbounds must never become a routing default")
         assertEquals("freedom", outbound(doc, XrayBackend.TAG_PROXY)["protocol"].text)
