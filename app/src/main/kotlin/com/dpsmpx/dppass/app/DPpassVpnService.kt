@@ -148,6 +148,14 @@ class DPpassVpnService : VpnService() {
     private var alpineWatch: Job? = null
     private val tunnel = TunnelOwner()
     private var ticker: Job? = null
+    // Keep a short-session diagnostic baseline outside the 30-second ticker.
+    // Shutdown records it before stopping Xray; no destination information.
+    private data class Zapret2FinalState(
+        val session: EngineSession,
+        val counters: Zapret2FinalCounter,
+        val startedMillis: Long,
+    )
+    @Volatile private var zapret2FinalState: Zapret2FinalState? = null
     private var supervisor: Job? = null
     private var shareWatch: Job? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -738,6 +746,11 @@ class DPpassVpnService : VpnService() {
      */
     private fun startTicker(session: EngineSession) {
         ticker?.cancel()
+        val diagnosticEnabled = AppPrefs(this).zapret2Backend == Zapret2Backend.VPN_SERVICE
+        val initialCounters = if (diagnosticEnabled) AppGraph.graph(this).engine.desyncCounters() else null
+        val diagnostic = if (diagnosticEnabled) Zapret2FinalCounter(
+            initialCounters?.applied ?: 0L, initialCounters?.skipped ?: 0L) else null
+        zapret2FinalState = diagnostic?.let { Zapret2FinalState(session, it, Clock.MONOTONIC.nowMillis()) }
         ticker = scope.launch {
             val meter = TrafficMeter()
             val pace = NotificationPace()
@@ -751,8 +764,8 @@ class DPpassVpnService : VpnService() {
             var diagDown = 0L
             // Xray desync counters are process-wide; baselines must start at
             // this VPN session, unlike per-session traffic counters.
-            var diagApplied = graph.engine.desyncCounters()?.applied ?: 0L
-            var diagSkipped = graph.engine.desyncCounters()?.skipped ?: 0L
+            var diagApplied = initialCounters?.applied ?: 0L
+            var diagSkipped = initialCounters?.skipped ?: 0L
             var ticks = 0L
             while (isActive) {
                 core.usage.record(usage.delta(session.stats()), underlyingType)?.let { UsageAlerts.show(this@DPpassVpnService, core, it) }
@@ -1250,6 +1263,32 @@ class DPpassVpnService : VpnService() {
         shareWatch = null
         ticker?.cancel()
         ticker = null
+        // A reconnect may happen before the first 30-second transfer window.
+        // Emit the whole-session snapshot while the old engine is still alive,
+        // and at most once even when shutdown invokes stopObservers twice.
+        val final = zapret2FinalState
+        zapret2FinalState = null
+        if (final != null) {
+            runCatching {
+                val current = final.session.stats()
+                val probes = AppGraph.graph(this).engine.desyncCounters()
+                val summary = final.counters.finish(
+                    current.uplinkBytes, current.downlinkBytes,
+                    probes?.applied ?: 0L, probes?.skipped ?: 0L,
+                )
+                if (summary != null) AppGraph.core(this).log.info("zapret2_transfer_final",
+                    "duration_ms" to (Clock.MONOTONIC.nowMillis() - final.startedMillis).coerceAtLeast(0L),
+                    "up_bytes" to summary.upBytes,
+                    "down_bytes" to summary.downBytes,
+                    "applied_delta" to summary.appliedDelta,
+                    "skipped_delta" to summary.skippedDelta,
+                    "applied_total" to summary.appliedTotal,
+                    "skipped_total" to summary.skippedTotal)
+            }.onFailure {
+                DeviceLog.log.warning("zapret2_transfer_final_unavailable",
+                    "reason" to Safe(it.javaClass.simpleName))
+            }
+        }
         unwatchNetwork()
         TunnelState.share(emptyList())
     }
