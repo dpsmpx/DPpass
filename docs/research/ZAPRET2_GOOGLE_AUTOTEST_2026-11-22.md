@@ -1,72 +1,75 @@
-# One-button Google HTTPS strategy autotest (D-119)
+# One-button multi-site HTTPS diagnostic for AUTO-first Zapret2 (D-119)
 
-**Goal:** reproduce a deterministic, browser-free HTTPS check for all available
-rootless Zapret2 VpnService TCP strategies and copy the complete result with
-one tap. This does **not** imply that YouTube works; previous field testing
-showed YouTube did not load even text.
+## User experience
 
-## Usage
+In experimental **Zapret2 VpnService**, the main user-facing DPI mode is
+**AUTO**. The manual TCP strategy picker and the obsolete standalone A/B
+screen/toggle have been removed from Android settings; lower-level modes
+remain available to the **single integrated diagnostic button**.
+The QUIC→TCP switch, unmatched HTTPS handling, hostlist, and root backend
+are still available. Existing subscription functionality is untouched.
 
-1. Activate the experimental **Zapret2 → VpnService** backend and connect the VPN.
-2. Open **Settings → Zapret2 · Test all strategies on Google**. The first tap
-   opens the progress screen and **starts automatically**, no separate
-   start button needed.
-3. The screen displays the current mode and attempt, progress from 0/16
-   to 16/16 and a report once complete.
-4. After all 16 attempts, Android's ClipboardManager receives the **entire**
-   plaintext report. DPpass shows **“Test complete. Full report copied to
-   clipboard.”** If access to the clipboard fails, the result remains
-   selectable on screen with an explicit error message.
-5. The screen also has a button to rerun all tests. Leaving the screen
-   cancels the remaining attempts and does **not** copy a partial report.
+Choose **Settings → Zapret2 → Diagnose Google and YouTube** while VPN
+is connected. Opening the diagnostic screen starts the run without a second
+button press. It displays the current target, strategy and attempt, plus a
+0/48 progress bar. On completion it displays the full report, copies it
+to Android's clipboard and shows a completion message. If clipboard
+writing fails the result stays selectable on screen. Leaving the
+diagnostic screen cancels subsequent probes, with no false "complete" toast.
 
-## Technical contract
+## Network behavior
 
-- Target is **hardcoded** to `https://google.com/`; an authenticated TLS
-  connection performs `GET /`, requires a valid X.509 certificate, and
-  reads at most **8 KiB** of response body. A 3xx redirect is reported
-  without following it: the test stays on google.com.
-- Outbounds registered in serverless Xray config are used exclusively
-  by a forced internal `core.Dial`. No routing rule refers to them,
-  and the active VPN strategy, tunnel and serverless routing remain
-  unchanged. The Android protected-socket hook is preserved.
-- Strategies per round: `plain` (control), `split-1`, `split`,
-  `tlsrec-split`, `fake-3`, `fake-5`, `disorder`, `auto`.
-  There are two rounds per strategy: **16 attempts**, each bounded
-  by **8 seconds**. These are the selectable VpnService TCP modes
-  plus one control. Root-only nfqws2 profiles and QUIC UDP tricks
-  are **not** tested by a TCP HTTPS probe.
-- Result fields: `outcome`, HTTP status, body bytes, elapsed milliseconds,
-  process-wide `applied_delta` and `skipped_delta`. The deltas may include
-  concurrent connections and **are not** per-probe proof that the trick was
-  applied. A `redirect` confirms TLS+HTTP response but not that
-  the redirected site works. A response of `ok` needs 2xx plus nonempty
-  body.
-- The native JNI contract returns a compact `v1` tab-separated record
-  with only fixed outcome codes and numbers. It never returns the fetched
-  content, user DNS names, IP addresses, TLS keys or raw errors.
-- Experimental test outbounds are created **only** when serverless
-  desync and TUN are enabled; regular subscriptions retain their config.
-  If the engine is off or the VPN mode is incorrect, the screen refuses
-  to run rather than silently testing an unrelated network path.
-- Running a test generates **intentional traffic** to Google. Normal web
-  content outside Google is never fetched by the probe. A successful
-  Google response does not establish a working YouTube feed or video.
+The test sends exactly **48** bounded HTTPS requests from inside Xray:
+three targets × eight protected TCP variants × two attempts.
 
-## Classification
+| Target ID | Exact fixed target | Verification |
+|---|---|---|
+| `google_final` | `https://www.google.com/` | Valid TLS X.509 certificate, HTTP 2xx, Content-Type text/html and HTML start marker. This is the known destination after the original `google.com` 301; it is requested directly rather than redirect-followed. |
+| `youtube_home` | `https://www.youtube.com/` | Valid TLS, HTTP 2xx, Content-Type text/html and HTML marker. An HTTPS page is **not** the app feed/API. |
+| `youtube_thumbnail` | `https://i.ytimg.com/vi/jNQXAC9IVRw/hqdefault.jpg` | Valid TLS, HTTP 2xx, Content-Type image/jpeg, JPEG magic bytes and at least 128 response bytes. This checks a public thumbnail, **not** video stream transport from googlevideo.com. |
 
-| Native status | Interpretation |
-|---|---|
-| `ok` | Verified TLS + 2xx + some HTTP body content |
-| `redirect` | Verified TLS + 3xx HTTP response, redirect not followed |
-| `dial_failed`, `timeout` | No complete result within TCP/connection timeout |
-| `tls_failed`, `tls_ca_failed` | TLS handshake or certificate failed |
-| `request_failed`, `http_failed`, `body_failed` | Failure during HTTP exchange |
-| `http_status` | HTTP 4xx/5xx (server responded, test still failed) |
-| `empty_body` | 2xx response with no returned content |
-| `engine_off`, `unsupported`, `contract_error` | Prerequisite/API problem, not a DPI verdict |
+Strategies include `plain` (baseline), `split-1`, `split`,
+`tlsrec-split`, `fake-3`, `fake-5`, `disorder`, and `auto`.
+Each request is limited to an 8-second timeout and the first 8 KiB of body.
+Requests are **not redirected** to new hosts. Google and YouTube can
+reply with 3xx for consent/regional reasons; this yields `redirect`,
+which is a real verified HTTP response but **not** successful content.
 
-**Follow-up:** If all TCP variants fail, inspect the existing
-`zapret2_stage_window` data and compare DNS/DoH to isolate IP-level
-blocks. If Google succeeds but YouTube remains blank, the failure is
-site-specific and cannot be inferred from a Google-only probe.
+The private Xray test outbound for each strategy shares the DNS policy
+and protected socket dialer used by the live VPN, but cannot be selected
+by regular routing rules. A run never switches the current VPN strategy
+or restarts the tunnel. TCP/HTTPS only; QUIC, HTTP/3, signed YouTube app
+APIs and streaming video segments are outside this test.
+
+## Outcomes and safety limits
+
+- `ok`: 2xx with verified HTML/JPEG body signature and expected content type.
+- `redirect`: 3xx from the requested host; not counted as content success.
+- `http_status`: other HTTP statuses, including 403/404.
+- `content_type_mismatch` / `content_invalid`: 2xx without expected content.
+- `dial_failed`, `timeout`, `tls_failed`, `tls_ca_failed`,
+  `request_failed`, `http_failed`, `body_failed`, `empty_body`.
+- `invalid_target`, `invalid_strategy`, `invalid_timeout`,
+  `engine_off`, `unsupported`, `contract_error`: diagnostic prerequisites/errors.
+
+No arbitrary URL input is accepted by the Go bridge. The native result
+contains only fixed outcome codes and numeric HTTP status, limited byte
+counts, elapsed time and **process-wide** applied/skipped counter deltas.
+No response bytes, IP addresses, domains contacted by other apps or
+URL history are written into journal messages. The clipboard report
+contains only this fixed catalog and its numerical test results.
+
+The report groups outcomes by **target and strategy** and includes
+all 48 individual attempts. It displays an exact median among successful
+content checks (including *.5 ms when needed). Because mobile latency
+varies and two samples are sparse, it must not automatically announce
+a winning DPI strategy or equate Google/thumbnail success with YouTube
+app feed/video availability.
+
+## Field validation still required
+
+The previous field logs proved only HTTP 301 for `google.com` across
+all strategies. Re-run the expanded test on MOBILE and Wi-Fi, verify
+clipboard auto-copy and retention of the live VPN, and report whether
+YouTube's feed and video actually load. No DPI bypass success is claimed
+before that physical validation.
