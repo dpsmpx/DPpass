@@ -99,9 +99,20 @@ object NetworkCheck {
     suspend fun speed(engine: XrayProxyEngine, log: Logger, profile: ProfileId?): Outcome<SpeedReport>? {
         if (speedCooldown.remainingMillis() > 0 || !measuring.compareAndSet(false, true)) return null
         quiet.begin()
+        // Counters are process-wide, not per speed-test request. These
+        // deltas still show whether DPI tricks were attempted while the
+        // measurement ran, without exposing destinations or user payloads.
+        val desyncBefore = engine.desyncCounters()
         var r: Outcome<SpeedReport>? = null
         return try {
             r = withContext(Dispatchers.IO) { engine.speedTest() }
+            val desyncAfter = engine.desyncCounters()
+            if (desyncBefore != null && desyncAfter != null) {
+                log.info("speed_desync_counters",
+                    "scope" to Safe("process_delta"),
+                    "applied" to (desyncAfter.applied - desyncBefore.applied).coerceAtLeast(0),
+                    "skipped" to (desyncAfter.skipped - desyncBefore.skipped).coerceAtLeast(0))
+            }
             when (r) {
                 is Outcome.Success -> with(r.value) {
                     log.info(
