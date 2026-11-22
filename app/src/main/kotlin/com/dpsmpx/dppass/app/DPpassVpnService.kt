@@ -973,8 +973,23 @@ class DPpassVpnService : VpnService() {
                 val u = NetworkCheck.underlying(this@DPpassVpnService)
                 val handle = u.network?.networkHandle
                 if (registered && handle == current) return
+                val networkChanged = registered && handle != current
                 val wasLost = registered && current == null
                 registered = true
+                // A strategy learned on LTE must not silently be reused on
+                // another carrier/Wi-Fi or after a network outage. Keep the
+                // explicit selections, but clear ephemeral per-host evidence.
+                if (networkChanged && AppPrefs(this@DPpassVpnService).zapret2Backend == Zapret2Backend.VPN_SERVICE) {
+                    val result = runCatching {
+                        JniXrayRuntime.configureZapret2AdaptiveHosts(
+                            AppPrefs(this@DPpassVpnService).zapret2AdaptiveTargetsText)
+                    }.getOrNull()
+                    if (result == null || result is XrayResult.Failed) {
+                        DeviceLog.log.warning("zapret2_adaptive_reset_failed", "reason" to Safe("network_change"))
+                    } else {
+                        DeviceLog.log.info("zapret2_adaptive_reset", "reason" to Safe("network_change"))
+                    }
+                }
                 val from = underlyingType
                 current = handle
                 underlyingType = u.type
