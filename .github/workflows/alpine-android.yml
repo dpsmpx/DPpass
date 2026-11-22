@@ -88,3 +88,76 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 21
+
+  publish-release:
+    name: Publish tested Alpine APK to Releases
+    needs: alpine-android
+    if: github.ref == 'refs/heads/feature/zapret2-alpine-terminal'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download APK from the successful build
+        uses: actions/download-artifact@v4
+        with:
+          name: DPpass-Alpine-Zapret2-ARM64-debug
+          path: release-input
+      - name: Prepare versioned APK and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          mapfile -d '' -t apks < <(find release-input -type f -name '*.apk' -print0)
+          if [[ ${#apks[@]} -ne 1 ]]; then
+            echo "::error::Expected exactly one verified ARM64 APK, found ${#apks[@]}"
+            exit 1
+          fi
+          short="${GITHUB_SHA:0:12}"
+          cp -- "${apks[0]}" "release-assets/DPpass-Zapret2-Alpine-${short}-arm64-v8a-debug.apk"
+          (
+            cd release-assets
+            sha256sum ./*.apk > SHA256SUMS.txt
+          )
+          cat > release-assets/BUILD_SOURCE.txt <<EOF
+          Repository: ${GITHUB_REPOSITORY}
+          Branch: ${GITHUB_REF_NAME}
+          Commit: ${GITHUB_SHA}
+          Actions run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          Android package: com.dpsmpx.dppass.alpine
+          Build: experimental Android ARM64 DEBUG (not signed with production key)
+          EOF
+          cat > "${RUNNER_TEMP}/alpine-release-notes.md" <<EOF
+          Experimental **Android ARM64 debug** build of DPpass Zapret2 Alpine/PRoot.
+          Built from \`${GITHUB_SHA}\` and verified by CI.
+
+          - Separate Android package: \`com.dpsmpx.dppass.alpine\` (does not replace regular DPpass).
+          - Includes Alpine minirootfs, PRoot, JNI bridge and the shared Zapret2 planner.
+          - APK is **not signed with the official app's production signing key**.
+          - Video playback and YouTube feed scrolling on real mobile networks are **not verified** by CI.
+          - Includes SHA256SUMS.txt and BUILD_SOURCE.txt for reproducibility.
+
+          Source workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          Development PR: https://github.com/dpsmpx/DPpass/pull/37
+          EOF
+      - name: Create or update commit-specific GitHub prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="zapret2-alpine-${GITHUB_SHA:0:12}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            target="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq '.targetCommitish')"
+            if [[ "$target" != "$GITHUB_SHA" ]]; then
+              echo "::error::Existing release $tag targets a different commit ($target)"
+              exit 1
+            fi
+          else
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --prerelease --latest=false \
+              --title "DPpass Zapret2 Alpine ARM64 (debug ${GITHUB_SHA:0:12})" \
+              --notes-file "$RUNNER_TEMP/alpine-release-notes.md"
+          fi
+          gh release upload "$tag" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url,isDraft,isPrerelease,assets
