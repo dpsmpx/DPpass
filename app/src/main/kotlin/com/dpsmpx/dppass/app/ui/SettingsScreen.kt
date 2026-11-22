@@ -365,6 +365,15 @@ class SettingsScreen(host: Host) : Screen(host) {
                             host.changed()
                         }, Ui.matchWidth(),
                     )
+                    addView(Ui.divider(context))
+                    addView(
+                        Ui.ListRow(context, R.drawable.ic_speed,
+                            context.getString(R.string.zapret2_autotest_title))
+                            .subtitle(context.getString(R.string.zapret2_autotest_subtitle))
+                            .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                            .onClick { host.push(Zapret2AutoTestScreen(host)) },
+                        Ui.matchWidth(),
+                    )
                 }
             },
             Ui.matchWidth(),
