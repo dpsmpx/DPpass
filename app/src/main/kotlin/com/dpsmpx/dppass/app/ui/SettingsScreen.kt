@@ -376,63 +376,17 @@ class SettingsScreen(host: Host) : Screen(host) {
                         Ui.matchWidth(),
                     )
                     addView(Ui.divider(context))
-                    addView(
-                        Ui.ListRow(context, R.drawable.ic_speed,
-                            context.getString(R.string.zapret2_model_download_title))
-                            .subtitle(context.getString(
-                                if (Zapret2NeuralModel.isInstalled(context))
-                                    R.string.zapret2_model_installed_note
-                                else R.string.zapret2_model_download_note))
-                            .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
-                            .onClick {
-                                host.scope.launch {
-                                    val outcome = withContext(Dispatchers.IO) {
-                                        Zapret2NeuralModel.download(context.applicationContext)
-                                    }
-                                    if (outcome.isSuccess) {
-                                        if (TunnelState.status.value is TunnelStatus.Connected) {
-                                            // No VPN restart: changes affect new flows only.
-                                            val native = runCatching {
-                                                JniXrayRuntime.configureZapret2NeuralModel(outcome.getOrThrow())
-                                            }.getOrNull()
-                                            if (native is XrayResult.Failed || native == null) {
-                                                host.toast(context.getString(R.string.zapret2_model_active_on_reconnect))
-                                            } else {
-                                                host.toast(context.getString(R.string.zapret2_model_ready))
-                                            }
-                                        } else host.toast(context.getString(R.string.zapret2_model_ready))
-                                        host.changed()
-                                    } else {
-                                        host.toast(context.getString(R.string.zapret2_model_failed))
-                                    }
-                                }
-                            },
-                        Ui.matchWidth(),
-                    )
-                    if (Zapret2NeuralModel.isInstalled(context)) {
-                        addView(Ui.divider(context))
-                        addView(
-                            Ui.ListRow(context, R.drawable.ic_file,
-                                context.getString(R.string.zapret2_model_delete_title))
-                                .subtitle(context.getString(R.string.zapret2_model_delete_note))
-                                .onClick {
-                                    if (Zapret2NeuralModel.delete(context)) {
-                                        if (TunnelState.status.value is TunnelStatus.Connected) {
-                                            runCatching {
-                                                JniXrayRuntime.configureZapret2NeuralModel(ByteArray(0))
-                                            }
-                                        }
-                                        host.toast(context.getString(R.string.zapret2_model_deleted))
-                                        host.changed()
-                                    } else host.toast(context.getString(R.string.zapret2_model_failed))
-                                },
-                            Ui.matchWidth(),
-                        )
-                    }
+                    addView(modelRow(Zapret2NeuralModel.Kind.STRATEGY), Ui.matchWidth())
                 }
             },
             Ui.matchWidth(),
         )
+        // The provider model can be generated even when currently using
+        // local strategies; the two models do not share training examples.
+        body.addView(Ui.section(context, context.getString(R.string.model_server_section)))
+        body.addView(Ui.listCard(context).apply {
+            addView(modelRow(Zapret2NeuralModel.Kind.SERVER), Ui.matchWidth())
+        }, Ui.matchWidth())
         body.addView(Ui.text(context, R.style.Text_DPpass_Caption,
             context.getString(R.string.zapret2_experimental_note)))
 
@@ -773,6 +727,74 @@ class SettingsScreen(host: Host) : Screen(host) {
             host.reconnectIfBusy()
             host.changed()
         }
+    }
+
+    private fun modelRow(kind: Zapret2NeuralModel.Kind): View {
+        val size = Zapret2NeuralModel.size(context, kind)
+        val title = if (kind == Zapret2NeuralModel.Kind.STRATEGY)
+            R.string.model_strategy_title else R.string.model_server_title
+        val subtitle = if (size != null) context.getString(R.string.model_installed_size, size)
+            else context.getString(R.string.model_not_generated)
+        return Ui.ListRow(context, R.drawable.ic_speed, context.getString(title))
+            .subtitle(subtitle)
+            .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+            .onClick { chooseModelSize(kind) }
+    }
+
+    private fun chooseModelSize(kind: Zapret2NeuralModel.Kind) {
+        val sizes = Zapret2NeuralModel.SIZES
+        var index = sizes.indexOf(Zapret2NeuralModel.size(context, kind))
+            .takeIf { it >= 0 } ?: sizes.indexOf(Zapret2NeuralModel.DEFAULT_HIDDEN)
+        val names = sizes.map { size ->
+            context.getString(R.string.model_size_choice, size) +
+                if (size == Zapret2NeuralModel.DEFAULT_HIDDEN)
+                    context.getString(R.string.model_recommended) else ""
+        }.toTypedArray()
+        val title = if (kind == Zapret2NeuralModel.Kind.STRATEGY)
+            R.string.model_strategy_title else R.string.model_server_title
+        val dialog = AlertDialog.Builder(context)
+            .setTitle(title)
+            .setSingleChoiceItems(names, index) { _, selected -> index = selected }
+            .setPositiveButton(R.string.model_generate_action) { _, _ ->
+                val hidden = sizes[index]
+                host.scope.launch {
+                    val result = withContext(Dispatchers.Default) {
+                        Zapret2NeuralModel.generate(context.applicationContext, kind, hidden)
+                    }
+                    if (result.isSuccess) {
+                        // Inject updated weights without restarting the tunnel;
+                        // new sockets use the new model. Provider model is
+                        // automatically consulted at the next AUTO connection.
+                        if (kind == Zapret2NeuralModel.Kind.STRATEGY &&
+                            host.prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE &&
+                            TunnelState.status.value is TunnelStatus.Connected) {
+                            val status = runCatching {
+                                JniXrayRuntime.configureZapret2NeuralModel(result.getOrThrow())
+                            }.getOrNull()
+                            host.toast(context.getString(
+                                if (status is XrayResult.Failed || status == null)
+                                    R.string.model_ready_reconnect else R.string.model_created))
+                        } else host.toast(context.getString(R.string.model_created))
+                    } else host.toast(context.getString(R.string.model_generation_failed))
+                    host.changed()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+        if (Zapret2NeuralModel.isInstalled(context, kind)) {
+            dialog.setNeutralButton(R.string.model_remove_action) { _, _ ->
+                if (Zapret2NeuralModel.delete(context, kind)) {
+                    if (kind == Zapret2NeuralModel.Kind.STRATEGY &&
+                        host.prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE &&
+                        TunnelState.status.value is TunnelStatus.Connected) {
+                        runCatching { JniXrayRuntime.configureZapret2NeuralModel(ByteArray(0)) }
+                    }
+                    com.dpsmpx.dppass.app.ServerAutoModel.resetTransient()
+                    host.toast(context.getString(R.string.model_removed))
+                } else host.toast(context.getString(R.string.model_generation_failed))
+                host.changed()
+            }
+        }
+        Ui.secure(dialog.show())
     }
 
     private fun openSystem(intent: Intent) {
