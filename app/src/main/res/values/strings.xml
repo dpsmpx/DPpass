@@ -873,4 +873,8 @@
     <string name="zapret2_model_active_on_reconnect">Model saved; it will activate on the next VPN connection.</string>
     <string name="zapret2_model_failed">Model download or verification failed. Built-in AUTO is unchanged.</string>
     <string name="zapret2_model_deleted">Optional model removed; built-in AUTO remains active.</string>
+    <string name="path_provider">VPN server</string>
+    <string name="path_local_auto">Local strategies</string>
+    <string name="path_provider_explained">Use your configured VPN provider and the selected or automatic server.</string>
+    <string name="path_local_explained">Direct connections with local Zapret2 AUTO; no VPN provider.</string>
 </resources>
