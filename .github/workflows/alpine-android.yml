@@ -4,6 +4,7 @@ on:
     branches:
       - feature/zapret2-alpine-terminal
       - fix/zapret2-auto-stall-baseline-20261123
+      - release/zapret2-v0.7.56-neural-auto
   workflow_dispatch:
 
 concurrency:
@@ -161,7 +162,7 @@ jobs:
   publish-release:
     name: Publish tested Alpine APK to Releases
     needs: alpine-android
-    if: github.ref == 'refs/heads/feature/zapret2-alpine-terminal'
+    if: github.ref == 'refs/heads/feature/zapret2-alpine-terminal' || github.ref == 'refs/heads/release/zapret2-v0.7.56-neural-auto'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -217,12 +218,15 @@ jobs:
           - **Signed release APK:** \`DPpass-Neural-*-release-signed.apk\`, package \`com.dpsmpx.dppass\`. Optimized release variant, signed with the **pinned experimental alpha certificate** (not the store production key); can update an installed alpha only if that app has the same signing key and a compatible versionCode.
           - **Debug APK:** \`DPpass-Zapret2-Alpine-*-debug.apk\`, separate package \`com.dpsmpx.dppass.alpine\`; does not replace regular DPpass.
           - Includes Alpine minirootfs, PRoot, JNI bridge and the shared Zapret2 planner.
-          - Local strategy/server neural weights are NOT packaged; create them in app settings (32/128/512/1024 neurons).
+          - No GitHub neural-model download. Generate two independent models directly in Settings at 32, 128, 512 or 1024 hidden neurons.
+          - Provider server selection: choose VPN server on the main screen and Automatically in the server list. Existing subscriptions and their keys remain in app-private storage.
+          - Signed release has versionCode 134. The signing certificate is the PINNED experimental alpha key, not the original dev or store certificate.
           - Video playback and YouTube feed scrolling on real mobile networks are **not verified** by CI.
+          - Includes PR #38 AUTO stall fixes (plain TCP baseline, first-reply timeout learning).
           - Includes SHA256SUMS.txt and BUILD_SOURCE.txt for reproducibility.
 
           Source workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
-          Development PR: https://github.com/dpsmpx/DPpass/pull/37
+          Development PR: https://github.com/dpsmpx/DPpass/pull/38
           EOF
       - name: Create or update commit-specific GitHub prerelease
         shell: bash
@@ -240,7 +244,7 @@ jobs:
           else
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" --prerelease --latest=false \
-              --title "DPpass Zapret2 Alpine ARM64 (debug ${GITHUB_SHA:0:12})" \
+              --title "DPpass Neural AUTO ARM64 signed alpha test (${GITHUB_SHA:0:12})" \
               --notes-file "$RUNNER_TEMP/alpine-release-notes.md"
           fi
           gh release upload "$tag" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber

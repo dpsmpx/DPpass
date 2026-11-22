@@ -83,6 +83,9 @@ object ServerAutoModel {
                network: NetworkType, now: Long): ConnectionPlan {
         val snapshot = Zapret2NeuralModel.readVerified(context, Zapret2NeuralModel.Kind.SERVER)
         if (snapshot == null || plan.attempts.size <= 1) {
+            // No server identities, IP addresses or subscription URLs in logs.
+            core.log.info("server_auto_model", "installed" to (snapshot != null),
+                "candidates" to plan.attempts.size, "reordered" to 0)
             resetTransient()
             return plan
         }
@@ -116,6 +119,14 @@ object ServerAutoModel {
                     scored[i + 1] = left
                 }
             }
+            val reordered = scored.indices.count { i ->
+                scored[i].first.profile.id != plan.attempts[i].profile.id
+            }
+            core.log.info("server_auto_model", "installed" to true,
+                "hidden" to model.getJSONArray("hidden").length(),
+                "observations" to observations,
+                "candidates" to plan.attempts.size,
+                "reordered" to reordered)
             plan.copy(attempts = scored.map { it.first })
         }.getOrElse {
             resetTransient()
