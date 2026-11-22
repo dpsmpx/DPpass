@@ -313,3 +313,43 @@ YouTube. Два последующих слабых завершения ран�
 испытания названий, миниатюр, комментариев, ленты, видео и перехода
 MOBILE↔Wi-Fi остаются **открытыми**. Не закрывать PR до полевых
 результатов.
+
+## 2026-11-22: Feed-aware adaptive mode and field diagnostics
+
+The Android 0.7.54-dev Alpine-enabled device log showed a running planner and
+a successful Xray DNS health probe while YouTube loaded some titles but not the
+next feed page. A `connected` event is **transport-ready**, not evidence that
+YouTube feed pagination, thumbnails, comments or media playback succeeded.
+The new event records `content_verified=false`; every 30 seconds
+`zapret2_transfer_window` records aggregate uplink/downlink byte deltas and
+cumulative applied/skipped strategy counts. No domain, full URL, cookie, token
+or remote address is written by this event.
+
+New local-VpnService settings default to `AUTO` if no explicit strategy was
+previously stored. New AUTO configurations do not force UDP/443 to TCP by
+default; the user's explicitly saved `QUIC → TCP` choice is respected.
+The five shared TCP choices remain split-1, split, fake-3, fake-5 and disorder.
+For protected QUIC flows the two selectable low-TTL fake modes remain fake-3
+and fake-5. Explicit domains/IP addresses from the Connections screen are
+adaptive even when a manual global TCP mode is selected (QUIC IP selection
+also takes effect; encrypted QUIC destinations cannot in general be mapped
+back to a selected hostname without more data).
+
+The selector still does not inspect decrypted application content. A
+128-KiB received payload confirms substantial transport progress and pins
+the successful mode **before the long-lived connection closes**. Three
+separate responses of at least 12 KiB each can weakly prefer the same
+strategy for smaller feed/API traffic; one TLS handshake is not sufficient.
+Two short closing flows remove an earlier preference, allowing rotation.
+Learning is scoped to the active underlying network: generation-tagged
+observations from old connections are ignored after network change or
+selection change. Existing live TCP/QUIC streams are not modified mid-flight.
+
+These are *heuristics*, not an assertion that YouTube has been unblocked.
+Field acceptance must separately verify: feed scroll/pagination, images,
+comments, video playback, Wi-Fi ↔ mobile transitions, explicit target
+selection and force-TCP on/off, with the 30-second transport summaries.
+The `work_finished reason=activity_stop` event in the supplied log is an
+Activity work lifecycle event and does not itself prove that the VPN died.
+The prior activation restore race was handled separately by a blocking
+`restoreAwaitingActivation()` call and an informational busy status.
