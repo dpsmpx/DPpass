@@ -111,16 +111,17 @@ class NetworkCheckScreen(host: Host) : SubScreen(host, R.string.netcheck_title) 
         if (job?.isActive != true) {
             val wait = NetworkCheck.readyInMillis()
             val busy = NetworkCheck.busy()
-            run.isEnabled = wait == 0L && !busy
+            run.isEnabled = wait == 0L && !busy && !NetworkCheck.speedBusy()
             run.text = when {
-                busy -> context.getString(R.string.netcheck_running)
+                busy || NetworkCheck.speedBusy() -> context.getString(R.string.netcheck_running)
                 wait == 0L -> context.getString(R.string.netcheck_run)
                 else -> context.getString(R.string.netcheck_run_wait, seconds(wait))
             }
         }
         if (speedJob?.isActive != true) {
             val wait = NetworkCheck.speedReadyInMillis()
-            speedRun.isEnabled = wait == 0L && TunnelState.status.value is TunnelStatus.Connected
+            speedRun.isEnabled = wait == 0L && !NetworkCheck.busy() &&
+                TunnelState.status.value is TunnelStatus.Connected
             speedRun.text = if (wait == 0L) context.getString(R.string.speed_run) else context.getString(R.string.speed_run_wait, seconds(wait))
         }
     }
@@ -148,7 +149,7 @@ class NetworkCheckScreen(host: Host) : SubScreen(host, R.string.netcheck_title) 
         speedJob = host.scope.launch {
             try {
                 when (val r = NetworkCheck.speed(graph.engine, graph.core.log, connected.profileId)) {
-                    null -> Unit
+                    null -> host.toast(context.getString(R.string.netcheck_busy))
                     is Outcome.Success -> showSpeed(r.value)
                     is Outcome.Failure -> host.problem(context.getString(R.string.speed_failed), r.errors.first())
                 }
