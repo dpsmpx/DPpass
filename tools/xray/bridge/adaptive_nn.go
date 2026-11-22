@@ -11,6 +11,7 @@ import (
     "bytes"
     "encoding/json"
     "errors"
+    "io"
     "math"
     "net"
     "strings"
@@ -46,7 +47,10 @@ func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
     decoder := json.NewDecoder(bytes.NewReader(raw))
     decoder.DisallowUnknownFields()
     if err := decoder.Decode(&w); err != nil { return nil, errors.New("invalid neural model JSON") }
-    if decoder.More() { return nil, errors.New("multiple neural model values") }
+    var extra json.RawMessage
+    if err := decoder.Decode(&extra); err != io.EOF {
+        return nil, errors.New("trailing neural model content")
+    }
     if w.Format != "dppass-zapret2-mlp-v1" ||
         len(w.Hidden) != adaptiveNNHidden || len(w.Bias) != adaptiveNNHidden ||
         len(w.Output) != adaptiveNNOutput || len(w.OutputBias) != adaptiveNNOutput {
