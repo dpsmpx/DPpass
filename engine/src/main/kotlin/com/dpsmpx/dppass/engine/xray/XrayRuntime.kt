@@ -213,6 +213,9 @@ internal object XrayJni {
     /** Versioned aggregate socket-phase counters, no destinations. */
     @JvmStatic external fun nativeZapret2Stages(): ByteArray
 
+    /** One user-triggered Google HTTPS GET through the requested test outbound. */
+    @JvmStatic external fun nativeProbeZapret2Google(strategy: ByteArray, timeoutMillis: Int): ByteArray
+
     /** Per-domain adaptive strategy overrides, held only in the Go process. */
     @JvmStatic external fun nativeSetZapret2AdaptiveHosts(hosts: ByteArray): ByteArray
 
@@ -391,6 +394,11 @@ class JniXrayRuntime private constructor() : XrayRuntime {
             XrayJni.decode(XrayJni.nativeSetZapret2Planner(socketPath.orEmpty().encodeToByteArray()))
 
         /** Update selected domain overrides without reconnecting active TCP sessions. */
+        /** Fixed google.com destination; never changes the active VPN profile. */
+        fun probeZapret2Google(strategy: String, timeoutMillis: Int): Zapret2GoogleProbe =
+            Zapret2GoogleProbe.fromWire(
+                XrayJni.nativeProbeZapret2Google(strategy.encodeToByteArray(), timeoutMillis))
+
         fun configureZapret2AdaptiveHosts(hostsText: String): XrayResult =
             XrayJni.decode(XrayJni.nativeSetZapret2AdaptiveHosts(hostsText.encodeToByteArray()))
 
