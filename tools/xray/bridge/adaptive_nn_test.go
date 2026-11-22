@@ -3,6 +3,7 @@
 package bridge
 
 import (
+    "bytes"
     "encoding/json"
     "math"
     "strings"
@@ -166,7 +167,14 @@ func TestNeuralSparseHundredMillionParametersAndContextPersistence(t *testing.T)
     }
     learned:=ExportZapret2NeuralModel()
     if len(learned)==0 {t.Fatal("learning not exported")}
-    if next:=ExportZapret2NeuralModel();len(next)!=0 {t.Fatal("unmodified model exported again")}
+    // Export must not clear dirty until a successful Android file write.
+    if next:=ExportZapret2NeuralModel();!bytes.Equal(next,learned) {
+        t.Fatal("unacknowledged snapshot was lost")
+    }
+    if err:=AcknowledgeZapret2NeuralModel(learned);err!=nil {t.Fatal(err)}
+    if next:=ExportZapret2NeuralModel();len(next)!=0 {
+        t.Fatal("acknowledged snapshot was exported again")
+    }
     parsed,err:=parseAdaptiveNN(learned)
     if err!=nil {t.Fatal(err)}
     if parsed.Parameters!=100_000_000 || parsed.ContextObservations[0] != 6 {
@@ -205,4 +213,29 @@ func TestNeuralSparseSchemaRejectsUnsafeBudgets(t *testing.T) {
     w.Sparse=map[string]float64{"100000000": 0.2}
     bad,_=json.Marshal(w)
     if _,err:=parseAdaptiveNN(bad);err==nil {t.Fatal("out-of-range slot accepted")}
+}
+
+
+func TestNeuralSnapshotAcknowledgementPreservesConcurrentNewLearning(t *testing.T) {
+    defer func() {
+        _=ConfigureZapret2NeuralModel(nil)
+        _=ConfigureZapret2NeuralNetwork("UNKNOWN")
+    }()
+    if err:=ConfigureZapret2NeuralModel(generatedSparseTestModel(t,100_000_000,32));err!=nil {t.Fatal(err)}
+    _=ConfigureZapret2NeuralNetwork("MOBILE")
+    zapret2Neural.learn("www.example.org","tlsrec-split",adaptivePayloadThreshold)
+    first:=ExportZapret2NeuralModel()
+    if len(first)==0 {t.Fatal("first snapshot empty")}
+    // A second flow arrives while Android is persisting first.
+    zapret2Neural.learn("www.example.org","tlsrec-split",adaptivePayloadThreshold)
+    if err:=AcknowledgeZapret2NeuralModel(first);err==nil {
+        t.Fatal("stale acknowledgement cleared new observations")
+    }
+    next:=ExportZapret2NeuralModel()
+    if len(next)==0 || bytes.Equal(next,first) {t.Fatal("new outcome was lost")}
+    if err:=AcknowledgeZapret2NeuralModel(next);err!=nil {t.Fatal(err)}
+    if pending:=ExportZapret2NeuralModel();len(pending)!=0 {
+        t.Fatal("acknowledged native model remained dirty")
+    }
+    if err:=AcknowledgeZapret2NeuralModel(nil);err==nil {t.Fatal("empty ACK accepted")}
 }
