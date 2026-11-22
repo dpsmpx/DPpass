@@ -181,7 +181,7 @@ type desyncConn struct {
 	first sync.Once
 	plannerErr error
     host string
-    adaptiveTag string
+    adaptiveSelection atomic.Pointer[adaptivePick]
     received atomic.Int64
     observed sync.Once
 }
@@ -196,7 +196,9 @@ func (c *desyncConn) Read(b []byte) (int, error) {
 
 func (c *desyncConn) Close() error {
     c.observed.Do(func() {
-        if c.adaptiveTag != "" { zapret2Auto.observe(c.host, c.adaptiveTag, c.received.Load()) }
+        if selected := c.adaptiveSelection.Load(); selected != nil {
+            zapret2Auto.observe(selected.host, selected.strategy, c.received.Load())
+        }
     })
     return c.TCPConn.Close()
 }
@@ -239,7 +241,7 @@ func (c *desyncConn) desyncFirst(b []byte) (int, error) {
             return 0, c.plannerErr
         }
         c.mode = resolved
-        c.adaptiveTag = choice
+        c.adaptiveSelection.Store(&adaptivePick{host: c.host, strategy: choice})
     }
     // Strategy decisions and offsets still come from the shared Go planner,
     // including Alpine over its app-private Unix socket.
