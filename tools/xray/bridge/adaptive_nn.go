@@ -197,8 +197,30 @@ func ExportZapret2NeuralModel() []byte {
     if zapret2Neural.weights == nil || !zapret2Neural.dirty { return nil }
     raw, err := json.Marshal(zapret2Neural.weights)
     if err != nil || len(raw) > adaptiveNNMaxBytes { return nil }
-    zapret2Neural.dirty = false
+    // Export is non-destructive: only acknowledge after Android has
+    // durably written the snapshot. Otherwise failed disk I/O or a
+    // regenerated user model silently discards the last update.
     return raw
+}
+
+// Acknowledge exactly the weights Android committed. If a connection
+// learned more between export and acknowledgement, preserve its dirty bit
+// for the next flush. Compare bytes instead of revision counters so both
+// legacy v2 and current v3 models use the same safe protocol.
+func AcknowledgeZapret2NeuralModel(saved []byte) error {
+    if len(saved) == 0 || len(saved) > adaptiveNNMaxBytes {
+        return errors.New("invalid neural acknowledgement")
+    }
+    zapret2Neural.mu.Lock()
+    defer zapret2Neural.mu.Unlock()
+    if zapret2Neural.weights == nil { return errors.New("neural model not installed") }
+    if !zapret2Neural.dirty { return nil }
+    current, err := json.Marshal(zapret2Neural.weights)
+    if err != nil || !bytes.Equal(current, saved) {
+        return errors.New("neural model updated after snapshot")
+    }
+    zapret2Neural.dirty = false
+    return nil
 }
 
 func nnCandidateIndex(tag string, quic bool) int {
