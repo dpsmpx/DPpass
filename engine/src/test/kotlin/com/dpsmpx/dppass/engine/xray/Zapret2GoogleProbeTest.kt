@@ -1,6 +1,9 @@
 package com.dpsmpx.dppass.engine.xray
 
 import com.dpsmpx.dppass.engine.Zapret2ProbeCatalog
+import com.dpsmpx.dppass.engine.Zapret2Stages
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -56,6 +59,28 @@ class Zapret2GoogleProbeTest {
         assertTrue(report.contains("target=youtube_api_transport strategy=plain"))
         assertTrue(report.contains("outcome=http_reachable http=403"))
         assertEquals(null, Zapret2GoogleReport.provisionalYouTubeHint(listOf(attempt)))
+    }
+
+    @Test fun clipboardReportIncludesStageIPv4IPv6Breakdown() {
+        val counters = LongArray(21)
+        counters[0] = 7
+        counters[3] = 4
+        counters[15] = 3
+        counters[16] = 3
+        counters[17] = 1
+        counters[18] = 1
+        counters[19] = 2
+        counters[20] = 1
+        val wire = ByteBuffer.allocate(1 + 21 * 8).order(ByteOrder.BIG_ENDIAN)
+        wire.put(2.toByte())
+        counters.forEach(wire::putLong)
+        val stages = Zapret2Stages.fromWire(wire.array())!!
+        val report = Zapret2GoogleReport.render("test", "MOBILE", false, emptyList(), stages)
+        assertTrue(report.contains("tcp_dial_unreachable=4"))
+        assertTrue(report.contains("tcp_unreachable_ipv4=1"))
+        assertTrue(report.contains("tcp_unreachable_ipv6=2"))
+        assertTrue(report.contains("tcp_unreachable_unknown=1"))
+        assertTrue(report.contains("include background apps"))
     }
 
     @Test fun provisionalAPITransportPreferenceRequiresTwoRepliesAndNoBaseline() {
