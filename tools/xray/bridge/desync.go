@@ -146,8 +146,11 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
 		return conn, nil
 	}
 	if perr != nil {
+		// An explicitly selected but invalid DPI profile must never be
+		// interpreted as an ordinary unmodified direct connection.
 		desyncSkipped.Add(1)
-		return conn, nil
+		_ = conn.Close()
+		return nil, fmt.Errorf("invalid Zapret2 strategy: %w", perr)
 	}
 	if dest.Network == xnet.Network_TCP {
 		tcp, isTCP := conn.(*net.TCPConn)
@@ -229,14 +232,22 @@ func (c *desyncConn) desyncFirst(b []byte) (int, error) {
         c.plannerErr = errors.New("invalid Zapret2 strategy")
         return 0, c.plannerErr
     }
-    if sent == 0 && err != nil {
+    if err != nil || sent != plan.Cut {
+        // Never silently turn a failed low-TTL / vmsplice attempt into
+        // ordinary direct TLS/HTTP: that bypasses the selected strategy.
+        if err == nil { err = errors.New("short Zapret2 TCP injection write") }
         desyncSkipped.Add(1)
-        return c.TCPConn.Write(b)
+        c.plannerErr = fmt.Errorf("Zapret2 TCP strategy failed: %w", err)
+        return sent, c.plannerErr
     }
-    if err != nil { return sent, err }
     desyncApplied.Add(1)
     m, err := c.TCPConn.Write(b[plan.Cut:])
-    return sent+m, err
+    if err != nil || m != len(b)-plan.Cut {
+        if err == nil { err = errors.New("short Zapret2 TCP tail write") }
+        c.plannerErr = fmt.Errorf("Zapret2 TCP tail failed: %w", err)
+        return sent+m, c.plannerErr
+    }
+    return sent+m, nil
 }
 
 // modeTag is only an adapter from the existing Xray Kotlin wire contract
@@ -257,14 +268,19 @@ func modeTag(m desyncMode) string {
 func (c *desyncConn) splitFirstTLS(b []byte) (int, error) {
 	n, err := c.TCPConn.Write(b[:1])
 	if err != nil || n != 1 {
-		return n, err
+        if err == nil { err = errors.New("short TLS first-byte write") }
+        c.plannerErr = fmt.Errorf("Zapret2 TLS split failed: %w", err)
+		return n, c.plannerErr
 	}
 	time.Sleep(2 * time.Millisecond)
 	m, err := c.TCPConn.Write(b[1:])
-	if err == nil && m == len(b)-1 {
-		desyncApplied.Add(1)
-	}
-	return n + m, err
+	if err != nil || m != len(b)-1 {
+        if err == nil { err = errors.New("short TLS tail write") }
+        c.plannerErr = fmt.Errorf("Zapret2 TLS split failed: %w", err)
+        return n + m, c.plannerErr
+    }
+    desyncApplied.Add(1)
+	return n + m, nil
 }
 
 // lowTTLWrite — перестановка: часть с TTL 1, затем TTL прежний.
@@ -428,7 +444,14 @@ func (c *desyncUDPConn) Write(b []byte) (int, error) {
             return 0, err
         }
         if plan.Applied && c.mode.kind == desyncFake {
-            c.sendLowTTLDummyQUIC(plan.Fake, plan.Repeats)
+            if err := c.sendLowTTLDummyQUIC(plan.Fake, plan.Repeats); err != nil {
+                // A failed decoy is not a valid successful strategy. Do
+                // not transmit the real QUIC Initial unmodified.
+                desyncSkipped.Add(1)
+                c.plannerErr = fmt.Errorf("Zapret2 QUIC decoy failed: %w", err)
+                return 0, c.plannerErr
+            }
+            desyncApplied.Add(1)
         } else {
             desyncSkipped.Add(1)
         }
@@ -436,28 +459,23 @@ func (c *desyncUDPConn) Write(b []byte) (int, error) {
     return c.UDPConn.Write(b)
 }
 
-func (c *desyncUDPConn) sendLowTTLDummyQUIC(fake []byte, repeats int) {
+// The caller transmits the genuine QUIC Initial only after every decoy
+// write and original TTL restoration succeeded.
+func (c *desyncUDPConn) sendLowTTLDummyQUIC(fake []byte, repeats int) error {
     rc, err := c.SyscallConn()
-    if err != nil {
-        desyncSkipped.Add(1)
-        return
-    }
+    if err != nil { return err }
     v6 := false
     if a, ok := c.RemoteAddr().(*net.UDPAddr); ok { v6 = a.IP.To4() == nil }
     restore, err := setTTL(rc, v6, c.mode.ttl)
-    if err != nil {
-        desyncSkipped.Add(1)
-        return
-    }
-    allSent := true
+    if err != nil { return err }
+    var sendErr error
     for i := 0; i < repeats; i++ {
-        if n, e := c.UDPConn.Write(fake); e != nil || n != len(fake) {
-            allSent = false
-            break
-        }
+        n, e := c.UDPConn.Write(fake)
+        if e != nil { sendErr = e; break }
+        if n != len(fake) { sendErr = errors.New("short QUIC decoy write"); break }
     }
-    if err := restore(); err != nil { allSent = false }
-    if allSent { desyncApplied.Add(1) } else { desyncSkipped.Add(1) }
+    if err := restore(); err != nil && sendErr == nil { sendErr = err }
+    return sendErr
 }
 
 
