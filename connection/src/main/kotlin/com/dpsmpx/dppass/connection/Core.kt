@@ -158,6 +158,10 @@ class DPpassCore(
 
     fun restore(): List<Diagnostic> = activation.restore().also { it.forEach(log::diagnostic) }
 
+    /** Android startup awaits ongoing activation, rather than reporting a transient race as fatal. */
+    suspend fun restoreAwaitingActivation(): List<Diagnostic> =
+        activation.restoreAwaitingActivation().also { it.forEach(log::diagnostic) }
+
     /**
      * Сброс хранилища — только действием пользователя (D-19), когда
      * сохранённое не прочитать: прежде всего `STORAGE_DATA_KEY_LOST`. Всё
