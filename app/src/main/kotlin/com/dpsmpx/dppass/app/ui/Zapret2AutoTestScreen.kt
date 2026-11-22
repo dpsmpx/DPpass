@@ -102,6 +102,10 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             0, TOTAL, Zapret2ProbeCatalog.targets.first(), "plain", 0, REPEATS)
         job = host.scope.launch {
             try {
+                val stageStart = withContext(Dispatchers.IO) {
+                    try { JniXrayRuntime.snapshotZapret2Stages() }
+                    catch (_: LinkageError) { null }
+                }
                 var done = 0
                 for (target in Zapret2ProbeCatalog.targets) {
                     for (strategy in Zapret2ProbeCatalog.strategies) {
@@ -129,7 +133,13 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                         }
                     }
                 }
-                val report = Zapret2GoogleReport.render(stamp, network, quic, rows)
+                val stageEnd = withContext(Dispatchers.IO) {
+                    try { JniXrayRuntime.snapshotZapret2Stages() }
+                    catch (_: LinkageError) { null }
+                }
+                val stages = if (stageStart == null || stageEnd == null) null
+                    else stageEnd.delta(stageStart)
+                val report = Zapret2GoogleReport.render(stamp, network, quic, rows, stages)
                 resultText.text = report
                 resultText.visibility = View.VISIBLE
                 val copied = try {
