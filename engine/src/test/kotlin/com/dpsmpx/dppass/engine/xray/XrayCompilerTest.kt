@@ -1026,8 +1026,8 @@ class XrayCompilerTest {
         val probeTags = Zapret2ProbeCatalog.strategies.mapNotNull(Zapret2ProbeCatalog::tag)
         assertEquals(probeTags.toSet(), tags.toSet().intersect(probeTags.toSet()))
         assertEquals(tags.size, tags.toSet().size, "duplicate Xray outbound tags")
-        assertEquals(5 + (probeTags.size - 2) + probeTags.size, tags.size,
-            "selected experiment is already registered, other six are added for probes")
+        assertEquals(5 + (probeTags.size - 2) + probeTags.size * 2, tags.size,
+            "selected experiment registered once; regular and IPv4-only probes stay private")
         for (strategy in Zapret2ProbeCatalog.strategies.filter { it != "plain" }) {
             val testTag = Zapret2ProbeCatalog.tag(strategy)!!
             val experimentTag = Zapret2ProbeCatalog.experimentTag(strategy)!!
@@ -1036,10 +1036,20 @@ class XrayCompilerTest {
                 "test must use the real protected strategy dialer")
             assertEquals(outbound(doc, XrayBackend.TAG_DIRECT)["streamSettings"]["sockopt"]["domainStrategy"],
                 outbound(doc, testTag)["streamSettings"]["sockopt"]["domainStrategy"],
-                "all strategies must use the same DNS policy")
+                "all regular strategies must use the same DNS policy")
+            assertEquals("ForceIPv4",
+                outbound(doc, testTag + "-ipv4")["streamSettings"]["sockopt"]["domainStrategy"].text,
+                "only the optional private test control may force IPv4")
+            if (strategy != "plain") {
+                assertEquals(experimentTag,
+                    outbound(doc, testTag + "-ipv4")["streamSettings"]["sockopt"]["dialerProxy"].text,
+                    "IPv4 control must use the same real protected strategy")
+            }
         }
-        assertTrue(rules(doc).none { it["outboundTag"].text in probeTags },
-            "private test outbounds must never become a routing default")
+        assertTrue(rules(doc).none {
+            it["outboundTag"].text in probeTags ||
+                it["outboundTag"].text in probeTags.map { tag -> tag + "-ipv4" }
+        }, "private regular/IPv4 test outbounds must never become a routing default")
         assertEquals("freedom", outbound(doc, XrayBackend.TAG_PROXY)["protocol"].text)
         assertEquals(
             "dppass:exp-fake-3",
