@@ -856,6 +856,12 @@
     <string name="zapret2_vpn_disorder">Перестановка, TTL 1 (без подделки QUIC)</string>
     <string name="zapret2_vpn_split">Разделение SNI / Host на две TCP-части</string>
     <string name="zapret2_vpn_split_first">Разбиение TLS после 1-го байта (без SNI и TTL)</string>
+    <string name="zapret2_vpn_auto">Автоподбор для каждого TCP-соединения</string>
+    <string name="zapret2_auto_target_enable">Автоподбор Zapret2 для этого адреса</string>
+    <string name="zapret2_auto_target_disable">Убрать автоподбор для этого адреса</string>
+    <string name="zapret2_auto_target_added">Автоподбор включён для новых соединений с этим адресом</string>
+    <string name="zapret2_auto_target_removed">Автоподбор отключён для новых соединений с этим адресом</string>
+    <string name="zapret2_auto_target_error">Не удалось обновить автоподбор для адреса</string>
     <string name="zapret2_vpn_fallback_title">VpnService · обрабатывать HTTPS/QUIC без определения домена</string>
     <string name="zapret2_vpn_fallback_note">В мобильной сети YouTube может обращаться к CDN по IP или использовать TLS ECH. Включено по умолчанию: TCP/443 направляется через локальный DPI-приём даже при непустом списке; при отключённом «QUIC → TCP» и стратегии Fake также обрабатывается неизвестный QUIC UDP/443. Это может затронуть другие HTTPS-сайты. Выключите, чтобы строго ограничить обработку списком.</string>
     <string name="zapret2_vpn_force_tcp_title">VpnService · QUIC → TCP</string>
