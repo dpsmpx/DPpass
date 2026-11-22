@@ -58,6 +58,36 @@ class Zapret2GoogleProbeTest {
         assertEquals(null, Zapret2GoogleReport.provisionalYouTubeHint(listOf(attempt)))
     }
 
+    @Test fun provisionalAPITransportPreferenceRequiresTwoRepliesAndNoBaseline() {
+        fun row(strategy: String, attempt: Int, outcome: String, status: Int) =
+            Zapret2GoogleAttempt(strategy, attempt,
+                Zapret2GoogleProbe.fromWire(
+                    "v1\\t$outcome\\t$status\\t120\\t420\\t1\\t0"
+                        .replace("\\t", "\t").encodeToByteArray()), "youtube_api_transport")
+        val rows = listOf(
+            row("plain", 1, "timeout", 0),
+            row("plain", 2, "timeout", 0),
+            row("fake-5", 1, "http_reachable", 403),
+            row("fake-5", 2, "http_reachable", 404),
+            row("auto", 1, "http_reachable", 400),
+            row("auto", 2, "http_reachable", 404),
+        )
+        assertEquals("fake-5", Zapret2GoogleReport.provisionalAPITransportHint(rows))
+        assertTrue(Zapret2GoogleReport.render("test", "MOBILE", false, rows)
+            .contains("Provisional exact-host AUTO transport candidate: fake-5 for youtubei.googleapis.com"))
+        assertEquals(null, Zapret2GoogleReport.provisionalYouTubeHint(rows))
+        assertEquals(null, Zapret2GoogleReport.provisionalAPITransportHint(
+            rows.filterNot { it.strategy == "plain" } +
+                row("plain", 1, "http_reachable", 403) +
+                row("plain", 2, "http_reachable", 403)))
+        assertEquals(null, Zapret2GoogleReport.provisionalAPITransportHint(
+            rows.filterNot { it.strategy == "fake-5" }))
+        assertEquals(null, Zapret2GoogleReport.provisionalAPITransportHint(
+            rows.filterNot { it.strategy == "fake-5" } +
+                row("fake-5", 1, "http_reachable", 403) +
+                row("fake-5", 2, "redirect", 301)))
+    }
+
     @Test fun provisionalAutoCandidateRequiresTwoVerifiedYouTubeHTMLResponses() {
         fun row(target: String, strategy: String, attempt: Int, outcome: String, ms: Long) =
             Zapret2GoogleAttempt(strategy, attempt,
