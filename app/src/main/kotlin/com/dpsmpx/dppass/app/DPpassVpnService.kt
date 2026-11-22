@@ -684,6 +684,12 @@ class DPpassVpnService : VpnService() {
             }
             // The MLP is strictly optional; download is a user action.
             // A corrupt or absent cache must never prevent serverless VPN.
+            val networkClass = when (NetworkCheck.underlying(this).type) {
+                NetworkType.MOBILE -> "MOBILE"
+                NetworkType.WIFI -> "WIFI"
+                else -> "OTHER"
+            }
+            JniXrayRuntime.configureZapret2NeuralNetwork(networkClass)
             val modelBytes = Zapret2NeuralModel.readVerified(this)
             when (val configured = JniXrayRuntime.configureZapret2NeuralModel(modelBytes ?: ByteArray(0))) {
                 is XrayResult.Failed -> core.log.warning("zapret2_neural_model_rejected",
@@ -1086,6 +1092,12 @@ class DPpassVpnService : VpnService() {
                     // Restart optional local MLP from the downloaded seed
                     // on each physical network change. Do not carry learned
                     // priors between unrelated mobile/Wi-Fi conditions.
+                    val networkClass = when (u.type) {
+                        NetworkType.MOBILE -> "MOBILE"
+                        NetworkType.WIFI -> "WIFI"
+                        else -> "OTHER"
+                    }
+                    runCatching { JniXrayRuntime.configureZapret2NeuralNetwork(networkClass) }
                     val model = Zapret2NeuralModel.readVerified(this@DPpassVpnService)
                     val reloaded = runCatching {
                         JniXrayRuntime.configureZapret2NeuralModel(model ?: ByteArray(0))
