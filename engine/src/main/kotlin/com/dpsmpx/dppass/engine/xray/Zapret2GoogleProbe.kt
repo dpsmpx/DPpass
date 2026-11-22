@@ -1,6 +1,7 @@
 package com.dpsmpx.dppass.engine.xray
 
 import com.dpsmpx.dppass.engine.Zapret2ProbeCatalog
+import com.dpsmpx.dppass.engine.Zapret2Stages
 
 /** Bounded v1 native HTTPS probe response; no payloads or URL input. */
 data class Zapret2GoogleProbe(
@@ -96,6 +97,7 @@ object Zapret2GoogleReport {
         network: String,
         quicForceTcp: Boolean,
         attempts: List<Zapret2GoogleAttempt>,
+        stageDelta: Zapret2Stages? = null,
     ): String = buildString {
         appendLine("=== DPpass — Zapret2 multi-site HTTPS autotest ===")
         appendLine("Time: $timestamp")
@@ -161,5 +163,28 @@ object Zapret2GoogleReport {
             appendLine("No verified API-host transport preference inferred from this diagnostic.")
         }
         appendLine("Do not choose a global best DPI strategy from these 2-sample results.")
+        appendLine()
+        appendLine("Experimental TCP stages during this diagnostic:")
+        if (stageDelta == null) {
+            appendLine("Stage counters unavailable (no address-family conclusion).")
+        } else {
+            appendLine("tcp_dial_ok=${stageDelta.tcpDialOk} " +
+                "tcp_dial_timeout=${stageDelta.tcpDialTimeout} " +
+                "tcp_dial_unreachable=${stageDelta.tcpDialUnreachable}")
+            appendLine("tcp_dial_ok_ipv4=${stageDelta.tcpDialOkV4} " +
+                "tcp_dial_ok_ipv6=${stageDelta.tcpDialOkV6} " +
+                "tcp_dial_ok_unknown=${stageDelta.tcpDialOkUnknown}")
+            appendLine("tcp_unreachable_ipv4=${stageDelta.tcpDialUnreachableV4} " +
+                "tcp_unreachable_ipv6=${stageDelta.tcpDialUnreachableV6} " +
+                "tcp_unreachable_unknown=${stageDelta.tcpDialUnreachableUnknown}")
+            appendLine("tcp_clienthello_sent=${stageDelta.tcpHelloSent} " +
+                "tcp_first_reply=${stageDelta.tcpFirstReply} " +
+                "tcp_closed_no_reply=${stageDelta.tcpClosedNoReply} " +
+                "tcp_read_timeout=${stageDelta.tcpReadTimeout}")
+            appendLine("quic_initial_sent=${stageDelta.udpInitialSent} " +
+                "udp_first_reply=${stageDelta.udpFirstReply}")
+        }
+        appendLine("These Xray counters include background apps; not attributable to any test or site.")
+        appendLine("IPv4/IPv6 unknown means the address family could not be determined, not IPv4.")
     }
 }
