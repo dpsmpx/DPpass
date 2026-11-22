@@ -56,7 +56,9 @@ enum class Zapret2VpnStrategy(val wire: String) {
     AUTO("auto");
 
     companion object {
+        // A newly enabled local VPN starts with adaptive selection. An
+        // explicitly saved manual choice is never changed by migration.
         fun of(value: String?): Zapret2VpnStrategy =
-            entries.firstOrNull { it.wire == value } ?: FAKE_TTL_3
+            if (value == null) AUTO else entries.firstOrNull { it.wire == value } ?: FAKE_TTL_3
     }
 }
