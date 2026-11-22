@@ -284,11 +284,11 @@ func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeProbeZapret2Google(env *C.
 
 //export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeZapret2Stages
 func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeZapret2Stages(env *C.JNIEnv, _ C.jclass) C.jbyteArray {
-    // v1 + fifteen unsigned 64-bit big-endian monotonic counters.
-    // The packet content and destination are never serialized.
+    // v2: original fifteen counters followed by six address-family
+    // aggregate counters. No IP addresses or hostnames are serialized.
     values := bridge.Zapret2Stages()
     wire := make([]byte, 1, 1+8*len(values))
-    wire[0] = 1
+    wire[0] = 2
     for _, count := range values {
         wire = binary.BigEndian.AppendUint64(wire, uint64(count))
     }
