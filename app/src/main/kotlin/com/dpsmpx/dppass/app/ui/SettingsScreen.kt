@@ -327,7 +327,8 @@ class SettingsScreen(host: Host) : Screen(host) {
                         choiceRow(R.drawable.ic_shield, R.string.zapret2_vpn_strategy_title,
                             listOf(R.string.zapret2_vpn_fake3, R.string.zapret2_vpn_fake5,
                                 R.string.zapret2_vpn_disorder, R.string.zapret2_vpn_split,
-                                R.string.zapret2_vpn_split_first, R.string.zapret2_vpn_auto),
+                                R.string.zapret2_vpn_split_first, R.string.zapret2_vpn_auto,
+                                R.string.zapret2_vpn_tlsrec_split),
                             host.prefs.zapret2VpnStrategy.ordinal,
                         ) { index ->
                             host.prefs.zapret2VpnStrategy = Zapret2VpnStrategy.entries[index]
