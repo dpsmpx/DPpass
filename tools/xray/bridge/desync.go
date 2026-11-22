@@ -205,14 +205,24 @@ func (c *desyncConn) WriteTo(w io.Writer) (int64, error) {
 // It does not consume data; Xray receives every byte normally.
 func (c *desyncConn) Read(b []byte) (int, error) {
     n, err := c.TCPConn.Read(b)
-    if n > 0 { c.received.Add(int64(n)) }
+    if n > 0 {
+        total := c.received.Add(int64(n))
+        if total >= adaptivePayloadThreshold {
+            if selected := c.adaptiveSelection.Load(); selected != nil {
+                // Learn from long-lived HTTP/2/QUIC streams before Close.
+                c.observed.Do(func() {
+                    zapret2Auto.observeTracked(selected.host, selected.strategy, total, selected.generation)
+                })
+            }
+        }
+    }
     return n, err
 }
 
 func (c *desyncConn) Close() error {
     c.observed.Do(func() {
         if selected := c.adaptiveSelection.Load(); selected != nil {
-            zapret2Auto.observe(selected.host, selected.strategy, c.received.Load())
+            zapret2Auto.observeTracked(selected.host, selected.strategy, c.received.Load(), selected.generation)
         }
     })
     return c.TCPConn.Close()
@@ -249,14 +259,14 @@ func (c *desyncConn) desyncFirst(b []byte) (int, error) {
         return c.TCPConn.Write(b)
     }
     if eligible && (c.mode.kind == desyncAuto || zapret2Auto.wants(c.host)) {
-        choice := zapret2Auto.choose(c.host)
+        choice, generation := zapret2Auto.chooseTracked(c.host)
         resolved, ok, err := parseDesyncTag(zapret2.TagPrefix + choice)
         if !ok || err != nil || resolved.kind == desyncAuto {
             c.plannerErr = fmt.Errorf("adaptive strategy selection rejected: %v", err)
             return 0, c.plannerErr
         }
         c.mode = resolved
-        c.adaptiveSelection.Store(&adaptivePick{host: c.host, strategy: choice})
+        c.adaptiveSelection.Store(&adaptivePick{host: c.host, strategy: choice, generation: generation})
     }
     // Strategy decisions and offsets still come from the shared Go planner,
     // including Alpine over its app-private Unix socket.
@@ -498,14 +508,23 @@ type desyncUDPConn struct {
 
 func (c *desyncUDPConn) Read(b []byte) (int, error) {
     n, err := c.UDPConn.Read(b)
-    if n > 0 { c.received.Add(int64(n)) }
+    if n > 0 {
+        total := c.received.Add(int64(n))
+        if total >= adaptivePayloadThreshold {
+            if selected := c.adaptiveSelection.Load(); selected != nil {
+                c.observed.Do(func() {
+                    zapret2Auto.observeTracked(selected.host, selected.strategy, total, selected.generation)
+                })
+            }
+        }
+    }
     return n, err
 }
 
 func (c *desyncUDPConn) Close() error {
     c.observed.Do(func() {
         if pick := c.adaptiveSelection.Load(); pick != nil {
-            zapret2Auto.observe(pick.host, pick.strategy, c.received.Load())
+            zapret2Auto.observeTracked(pick.host, pick.strategy, c.received.Load(), pick.generation)
         }
     })
     return c.UDPConn.Close()
@@ -522,18 +541,18 @@ func (c *desyncUDPConn) Write(b []byte) (int, error) {
     c.mu.Lock()
     defer c.mu.Unlock()
     if c.plannerErr != nil { return 0, c.plannerErr }
-    if c.mode.kind == desyncAuto && zapret2.IsQUICInitial(b) {
+    if (c.mode.kind == desyncAuto || zapret2Auto.wants(c.host)) && zapret2.IsQUICInitial(b) {
         // Apply one chosen TTL for this UDP flow, including retransmitted
         // Initials; no silent fallback to unmodified QUIC on injection error.
         if c.adaptiveSelection.Load() == nil {
-            choice := zapret2Auto.chooseQUIC(c.host)
+            choice, generation := zapret2Auto.chooseQUICTracked(c.host)
             resolved, ok, err := parseDesyncTag(zapret2.TagPrefix + choice)
             if !ok || err != nil || resolved.kind != desyncFake {
                 c.plannerErr = fmt.Errorf("adaptive QUIC strategy rejected: %v", err)
                 return 0, c.plannerErr
             }
             c.mode = resolved
-            c.adaptiveSelection.Store(&adaptivePick{host:"udp:"+c.host, strategy:choice})
+            c.adaptiveSelection.Store(&adaptivePick{host:"udp:"+c.host, strategy:choice, generation:generation})
         }
     }
 
