@@ -29,7 +29,6 @@ import com.dpsmpx.dppass.connection.Degradation
 import com.dpsmpx.dppass.connection.HealthChecker
 import com.dpsmpx.dppass.connection.ServerlessSettings
 import com.dpsmpx.dppass.connection.Zapret2Backend
-import com.dpsmpx.dppass.connection.Zapret2VpnStrategy
 import com.dpsmpx.dppass.connection.Zapret2Hostlist
 import com.dpsmpx.dppass.connection.SessionSupervisor
 import com.dpsmpx.dppass.connection.StabilityObservation
@@ -351,15 +350,11 @@ class DPpassVpnService : VpnService() {
                     rest = if (sites.isEmpty) ServerlessSettings.Rest.SPLIT else ServerlessSettings.Rest.DIRECT,
                     apps = ServerlessSettings.Apps.ALL,
                 )
-                val trick = when (p.zapret2VpnStrategy) {
-                    Zapret2VpnStrategy.FAKE_TTL_3 -> DesyncTrick.Fake(3)
-                    Zapret2VpnStrategy.FAKE_TTL_5 -> DesyncTrick.Fake(5)
-                    Zapret2VpnStrategy.DISORDER -> DesyncTrick.Disorder
-                    Zapret2VpnStrategy.SPLIT_SNI -> DesyncTrick.Split
-                    Zapret2VpnStrategy.SPLIT_FIRST -> DesyncTrick.SplitFirst
-                    Zapret2VpnStrategy.AUTO -> DesyncTrick.Auto
-                    Zapret2VpnStrategy.TLS_RECORD_SPLIT -> DesyncTrick.TLSRecordSplit
-                }
+                // One user-facing mode. Old manually persisted modes are
+                // ignored to avoid silently retaining an outdated fixed
+                // strategy after updating from an earlier debug build.
+                // Other candidates remain available to private diagnostics.
+                val trick = DesyncTrick.Auto
                 connectServerless(graph, sites, settings, trick, "Zapret2 VPN local",
                     p.zapret2VpnForceTcp, p.zapret2VpnCatchAllHttps)
                 return
