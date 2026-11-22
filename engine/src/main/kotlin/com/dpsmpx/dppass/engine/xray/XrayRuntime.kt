@@ -8,6 +8,7 @@ import com.dpsmpx.dppass.diagnostics.Redactor
 import com.dpsmpx.dppass.engine.ConnNetwork
 import com.dpsmpx.dppass.engine.ConnState
 import com.dpsmpx.dppass.engine.DesyncCounters
+import com.dpsmpx.dppass.engine.Zapret2Stages
 import com.dpsmpx.dppass.engine.EngineConnection
 import com.dpsmpx.dppass.engine.EngineConnections
 import com.dpsmpx.dppass.engine.InboundKind
@@ -74,6 +75,9 @@ interface XrayRuntime {
 
     /** Счётчики эксперимента с началом соединения (D-116): с запуска процесса. */
     fun desyncStats(): DesyncCounters = DesyncCounters(0, 0)
+
+    /** Stages of protected experimental sockets; no URL or HTTP content. */
+    fun zapret2Stages(): Zapret2Stages? = null
 }
 
 /** Вид кода геоданных; [code] — договор с `bridge.GeoKind` (Go). */
@@ -205,6 +209,9 @@ internal object XrayJni {
     @JvmStatic external fun nativeConnections(): ByteArray
 
     @JvmStatic external fun nativeDesyncStats(): LongArray?
+
+    /** Versioned aggregate socket-phase counters, no destinations. */
+    @JvmStatic external fun nativeZapret2Stages(): ByteArray
 
     /** Per-domain adaptive strategy overrides, held only in the Go process. */
     @JvmStatic external fun nativeSetZapret2AdaptiveHosts(hosts: ByteArray): ByteArray
@@ -369,6 +376,8 @@ class JniXrayRuntime private constructor() : XrayRuntime {
     override fun connections(): EngineConnections = XrayJni.decodeConnections(XrayJni.nativeConnections())
 
     override fun desyncStats(): DesyncCounters = XrayJni.nativeDesyncStats()?.let { DesyncCounters(it[0], it[1]) } ?: DesyncCounters(0, 0)
+
+    override fun zapret2Stages(): Zapret2Stages? = Zapret2Stages.fromWire(XrayJni.nativeZapret2Stages())
 
     companion object {
         const val LIBRARY: String = "dppassxray"
