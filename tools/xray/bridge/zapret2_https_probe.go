@@ -2,12 +2,11 @@
 
 package bridge
 
-// A user-triggered, serverless HTTPS A/B probe. This is not a browser and
-// cannot inspect YouTube's encrypted application traffic. It sends only a
-// bounded GET https://google.com/ through a private Xray test outbound, and
-// leaves the active VPN routing and user-selected strategy untouched.
+// One-button, protected Xray HTTPS probes. All targets and paths are hardcoded
+// and allowlisted: no arbitrary URL, redirects, credentials, or payload logs.
 import (
     "bufio"
+    "bytes"
     "context"
     "crypto/tls"
     "crypto/x509"
@@ -24,12 +23,11 @@ import (
     "github.com/xtls/xray-core/core"
 )
 
-const Zapret2TestHost = "google.com"
 const zapret2TestBodyLimit = 8192
 const zapret2PlainTag = "dppass:test-plain"
 
-// Strategies must match engine.Zapret2ProbeCatalog. Never accept an
-// arbitrary outbound tag or URL from Java or user input.
+// Separate entry tags from protected exp dialers; every candidate uses the
+// same DNS resolution policy and the live socket-protection hook.
 var zapret2TestStrategies = map[string]string{
     "plain": zapret2PlainTag,
     "split-1": "dppass:test-split-1",
@@ -41,9 +39,23 @@ var zapret2TestStrategies = map[string]string{
     "auto": "dppass:test-auto",
 }
 
-// Zapret2HTTPSResult carries only a stage/status and aggregate measurements.
-// Applied/skipped deltas are process-wide and may include unrelated apps;
-// they MUST NOT be represented as proof that this probe's trick was applied.
+type zapret2TestTarget struct {
+    host string
+    path string
+    contentKind string
+}
+
+// google_final is the known google.com 301 destination, requested directly.
+// YouTube HTML and one stable public thumbnail test different service hosts.
+// A thumbnail on i.ytimg.com is not a googlevideo media-streaming proof.
+var zapret2TestTargets = map[string]zapret2TestTarget{
+    "google_final": {"www.google.com", "/", "html"},
+    "youtube_home": {"www.youtube.com", "/", "html"},
+    "youtube_thumbnail": {"i.ytimg.com", "/vi/jNQXAC9IVRw/hqdefault.jpg", "jpeg"},
+}
+
+// All reported fields are numbers and fixed outcome codes; no page bodies,
+// request paths, hostnames or addresses are serialized over JNI.
 type Zapret2HTTPSResult struct {
     Outcome string
     HTTPStatus int
@@ -59,19 +71,35 @@ func (r Zapret2HTTPSResult) Wire() []byte {
         r.AppliedDelta, r.SkippedDelta))
 }
 
-func classifyGoogleHTTP(code int, bodyBytes int64, readErr error) string {
-    if code >= 300 && code < 400 { return "redirect" } // TLS + HTTP response; no second domain
+func classifyProbeHTTP(code int, contentType string, body []byte, readErr error, target zapret2TestTarget) string {
+    if code >= 300 && code < 400 { return "redirect" }
     if code < 200 || code >= 300 { return "http_status" }
-    if readErr != nil { return "body_failed" }
-    if bodyBytes == 0 { return "empty_body" }
+    if readErr != nil && !errors.Is(readErr, io.EOF) && !errors.Is(readErr, io.ErrUnexpectedEOF) {
+        return "body_failed"
+    }
+    if len(body) == 0 { return "empty_body" }
+    ct := strings.ToLower(contentType)
+    switch target.contentKind {
+    case "html":
+        if !strings.Contains(ct, "text/html") { return "content_type_mismatch" }
+        prefix := bytes.ToLower(body[:min(2048,len(body))])
+        if !bytes.Contains(prefix, []byte("<html")) && !bytes.Contains(prefix, []byte("<!doctype html")) {
+            return "content_invalid"
+        }
+    case "jpeg":
+        if !strings.Contains(ct, "image/jpeg") { return "content_type_mismatch" }
+        if len(body) < 128 || !bytes.HasPrefix(body, []byte{0xff, 0xd8, 0xff}) { return "content_invalid" }
+    default:
+        return "invalid_target"
+    }
     return "ok"
 }
 
-func probeGoogleHTTPSWithConn(ctx context.Context, c net.Conn) Zapret2HTTPSResult {
+func probeHTTPSWithConn(ctx context.Context, c net.Conn, target zapret2TestTarget) Zapret2HTTPSResult {
     result := Zapret2HTTPSResult{Outcome: "tls_failed"}
     tc := tls.Client(c, &tls.Config{
-        ServerName: Zapret2TestHost,
-        RootCAs: probeRoots, // nil -> platform roots; never disable verification
+        ServerName: target.host,
+        RootCAs: probeRoots, // nil uses Android/platform roots
         NextProtos: []string{"http/1.1"},
         MinVersion: tls.VersionTLS12,
     })
@@ -81,41 +109,44 @@ func probeGoogleHTTPSWithConn(ctx context.Context, c net.Conn) Zapret2HTTPSResul
         if errors.As(err, &unknownAuthority) { result.Outcome = "tls_ca_failed" }
         return result
     }
-    request, err := http.NewRequestWithContext(ctx, http.MethodGet,
-        "https://"+Zapret2TestHost+"/", nil)
+    req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+        "https://"+target.host+target.path, nil)
     if err != nil { result.Outcome = "request_failed"; return result }
-    request.Header.Set("Accept", "text/html")
-    request.Header.Set("Accept-Encoding", "identity")
-    request.Close = true
-    if err = request.Write(tc); err != nil {
+    req.Header.Set("Accept", "text/html,image/jpeg")
+    req.Header.Set("Accept-Encoding", "identity")
+    req.Close = true
+    if err = req.Write(tc); err != nil {
         result.Outcome = "request_failed"
         return result
     }
-    resp, err := http.ReadResponse(bufio.NewReader(tc), request)
+    resp, err := http.ReadResponse(bufio.NewReader(tc), req)
     if err != nil {
         result.Outcome = "http_failed"
         return result
     }
     defer resp.Body.Close()
     result.HTTPStatus = resp.StatusCode
-    // Stop after 8 KiB: enough to prove Google returned content, never
-    // collect or log the body itself. Google may return HTTP 301; this is a
-    // valid HTTP response and not evidence that www.google.com also works.
-    bytesRead, readErr := io.Copy(io.Discard,
-        io.LimitReader(resp.Body, zapret2TestBodyLimit))
-    result.BodyBytes = bytesRead
-    result.Outcome = classifyGoogleHTTP(resp.StatusCode, bytesRead, readErr)
+
+    // A small fixed read proves the expected HTML/JPEG content exists,
+    // but never stores it beyond this stack or returns it to Kotlin.
+    bounded := make([]byte, zapret2TestBodyLimit)
+    n, readErr := io.ReadFull(resp.Body, bounded)
+    result.BodyBytes = int64(n)
+    result.Outcome = classifyProbeHTTP(resp.StatusCode, resp.Header.Get("Content-Type"),
+        bounded[:n], readErr, target)
     return result
 }
 
-// ProbeZapret2HTTPS sends exactly one test request. It does not restart
-// Xray or the VPN. The caller should invoke it on a worker thread and
-// perform the 8 strategies serially; every attempt has a hard timeout.
-func ProbeZapret2HTTPS(strategy string, timeout time.Duration) Zapret2HTTPSResult {
+// ProbeZapret2HTTPS performs exactly one network request via an allowlisted
+// private outbound, without changing the active VPN routing or strategy.
+// The UI calls this serially on a background thread, per-attempt timeout.
+func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2HTTPSResult {
     started := time.Now()
     out := Zapret2HTTPSResult{Outcome:"invalid_strategy"}
-    tag, valid := zapret2TestStrategies[strings.TrimSpace(strategy)]
-    if !valid || strategy != strings.TrimSpace(strategy) { return out }
+    tag, valid := zapret2TestStrategies[strategy]
+    if !valid { return out }
+    target, valid := zapret2TestTargets[targetID]
+    if !valid { out.Outcome = "invalid_target"; return out }
     if timeout < time.Second || timeout > 15*time.Second {
         out.Outcome = "invalid_timeout"
         return out
@@ -137,8 +168,8 @@ func ProbeZapret2HTTPS(strategy string, timeout time.Duration) Zapret2HTTPSResul
     }
     ctx, cancel := context.WithTimeout(context.Background(), timeout)
     defer cancel()
-    address := xnet.ParseAddress(Zapret2TestHost)
-    dest := xnet.Destination{Network:xnet.Network_TCP,Address:address,Port:443}
+    dest := xnet.Destination{Network:xnet.Network_TCP,
+        Address:xnet.ParseAddress(target.host), Port:443}
     forced := session.SetForcedOutboundTagToContext(ctx, tag)
     raw, err := core.Dial(forced, inst, dest)
     if err != nil {
@@ -147,17 +178,17 @@ func ProbeZapret2HTTPS(strategy string, timeout time.Duration) Zapret2HTTPSResul
         return finish(out)
     }
     defer raw.Close()
-    stopped := make(chan struct{})
-    defer close(stopped)
+    done := make(chan struct{})
+    defer close(done)
     go func() {
         select {
         case <-ctx.Done(): _ = raw.Close()
-        case <-stopped:
+        case <-done:
         }
     }()
-    r := probeGoogleHTTPSWithConn(ctx, raw)
-    if ctx.Err() != nil && r.Outcome != "ok" && r.Outcome != "redirect" {
-        r.Outcome = "timeout"
+    result := probeHTTPSWithConn(ctx, raw, target)
+    if ctx.Err() != nil && result.Outcome != "ok" && result.Outcome != "redirect" {
+        result.Outcome = "timeout"
     }
-    return finish(r)
+    return finish(result)
 }
