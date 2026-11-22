@@ -171,8 +171,14 @@ func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2
         // Only the hardcoded www.youtube.com HTML target may teach AUTO.
         // Verified page bytes, not TCP/TLS or a 301, are required.
         // The selector rejects late evidence from a previous VPN session.
-        if targetID == "youtube_home" {
+        switch targetID {
+        case "youtube_home":
             zapret2Auto.observeHTMLProbe(target.host, strategy, r.Outcome,
+                r.Elapsed.Milliseconds(), generation)
+        case "youtube_api_transport":
+            // A 4xx with valid TLS proves HTTP transport only. Learn a
+            // different exact-host preference; never call it API success.
+            zapret2Auto.observeAPITransportProbe(target.host, strategy, r.Outcome,
                 r.Elapsed.Milliseconds(), generation)
         }
         return r
