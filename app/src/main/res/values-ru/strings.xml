@@ -856,6 +856,7 @@
     <string name="zapret2_vpn_disorder">Перестановка, TTL 1 (без подделки QUIC)</string>
     <string name="zapret2_vpn_split">Разделение SNI / Host на две TCP-части</string>
     <string name="zapret2_vpn_split_first">Разбиение TLS после 1-го байта (без SNI и TTL)</string>
+    <string name="zapret2_vpn_tlsrec_split">Совместное разбиение TLS-записей и TCP (эксперимент, без TTL)</string>
     <string name="zapret2_vpn_auto">Автоподбор для каждого TCP-соединения</string>
     <string name="zapret2_auto_target_enable">Автоподбор Zapret2 для этого адреса</string>
     <string name="zapret2_auto_target_disable">Убрать автоподбор для этого адреса</string>
