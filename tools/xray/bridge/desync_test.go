@@ -21,6 +21,7 @@ import (
 	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/transport/internet"
 	"golang.org/x/sys/unix"
+    "github.com/dpsmpx/dppass/tools/xray/zapret2"
 )
 
 // clientHello — настоящий ClientHello crypto/tls с именем [name]: первая запись TLS.
