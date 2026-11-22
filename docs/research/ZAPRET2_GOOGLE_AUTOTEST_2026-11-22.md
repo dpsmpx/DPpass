@@ -142,6 +142,14 @@ accept v1 for compatibility. The counters do **not** identify which
 application or domain failed, and cannot by themselves confirm
 DNS/DoH failure or YouTube app success.
 
+The one-button diagnostic snapshots these same native counters at the
+beginning and after the final probe and **includes the aggregate delta
+in the automatically copied report**. There is no need to export a
+second journal just to see `tcp_unreachable_ipv4/ipv6/unknown`.
+The interval can include background apps, such as push notifications,
+so the report explicitly warns that the counters cannot be attributed
+to any individual probe, website or application.
+
 API-host probe evidence is **completely separate** from
 `www.youtube.com` HTML learning: if plain has two TCP/TLS/dial
 failures on `youtubei.googleapis.com` but one alternative has
