@@ -112,7 +112,7 @@ class MainActivity : Activity(), Host {
         scope.launch {
             val (g, restored) = withContext(Dispatchers.IO) {
                 val g = AppGraph.graph(this@MainActivity)
-                g to if (g.core.activation.state.activeConfig == null) g.core.restore() else emptyList()
+                g to if (g.core.activation.state.activeConfig == null) g.core.restoreAwaitingActivation() else emptyList()
             }
             graph = g
             changed()
