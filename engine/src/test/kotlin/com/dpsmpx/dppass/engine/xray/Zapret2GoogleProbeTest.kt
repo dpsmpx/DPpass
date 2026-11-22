@@ -10,7 +10,8 @@ class Zapret2GoogleProbeTest {
     @Test fun exactStrategiesAndNativeTags() {
         assertEquals(8, Zapret2ProbeCatalog.strategies.size)
         assertEquals("dppass:test-plain", Zapret2ProbeCatalog.tag("plain"))
-        assertEquals("dppass:exp-tlsrec-split", Zapret2ProbeCatalog.tag("tlsrec-split"))
+        assertEquals("dppass:test-tlsrec-split", Zapret2ProbeCatalog.tag("tlsrec-split"))
+        assertEquals("dppass:exp-tlsrec-split", Zapret2ProbeCatalog.experimentTag("tlsrec-split"))
         assertEquals(null, Zapret2ProbeCatalog.tag("fake-9"))
     }
 
