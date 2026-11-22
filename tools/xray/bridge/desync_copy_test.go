@@ -59,9 +59,9 @@ func TestTCPReadFromCannotBypassClientHelloStrategy(t *testing.T) {
 func TestTCPWriteToCountsDownloadedPayload(t *testing.T) {
     outgoing, incoming := tcpCopyPair(t)
     const host = "adaptive-copy-test.example.org"
-    _ = zapret2Auto.choose(host)
+    _, generation := zapret2Auto.chooseTracked(host)
     conn := &desyncConn{TCPConn: outgoing}
-    conn.adaptiveSelection.Store(&adaptivePick{host:host, strategy:"fake-5"})
+    conn.adaptiveSelection.Store(&adaptivePick{host:host, strategy:"fake-5", generation:generation})
     payload := bytes.Repeat([]byte("video-payload-"), 12000)
     sent := make(chan error, 1)
     go func() {
@@ -74,6 +74,11 @@ func TestTCPWriteToCountsDownloadedPayload(t *testing.T) {
         t.Fatalf("io.Copy downstream n=%d err=%v", n, err)
     }
     if err := <-sent; err != nil { t.Fatal(err) }
+    // A long-lived HTTP/2 stream must count before the connection closes.
+    zapret2Auto.mu.Lock()
+    earlyWinner := zapret2Auto.entries[host].preferred
+    zapret2Auto.mu.Unlock()
+    if earlyWinner != "fake-5" { t.Fatalf("streaming payload not observed before Close: %q", earlyWinner) }
     _ = conn.Close()
     if conn.received.Load() != int64(len(payload)) {
         t.Fatal("io.WriterTo bypassed observed downstream bytes")
