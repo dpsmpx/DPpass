@@ -854,8 +854,8 @@
     <string name="alpine_failed">Alpine error: %1$s</string>
     <string name="alpine_missing">No ARM64 PRoot bundled. Build with -Pdppass.alpine=true.</string>
     <string name="zapret2_autotest_title">Zapret2 · Check Google and YouTube</string>
-    <string name="zapret2_autotest_subtitle">One tap: 4 HTTPS targets × 8 TCP modes × 2 attempts; copy the full result</string>
-    <string name="zapret2_autotest_note">Uses active Zapret2 VPN without a browser: checks Google HTML, YouTube HTML, public JPEG thumbnail and TLS/HTTP reachability of youtubei.googleapis.com (no API authorization). 64 requests total, TLS and HTML/JPEG signatures verified. An API HTTP 400/403 proves only server reachability, not working feed or video. Full report copied on completion.</string>
+    <string name="zapret2_autotest_subtitle">One tap: 6 HTTPS targets × 8 TCP modes × 2 attempts; copy the full result</string>
+    <string name="zapret2_autotest_note">Uses the active VPN without changing its strategy: 96 HTTPS/HTTP1.1 attempts, including a fixed Google search request and YouTube API transport over configured DNS versus an IPv4-only private test. Timeouts identify the failed stage (TCP, TLS, HTTP). Search HTML does not prove usable results; API HTTP 4xx does not prove app feed or video playback. Results are copied when finished.</string>
     <string name="zapret2_autotest_again">Run all tests again</string>
     <string name="zapret2_autotest_need_connection">Connect the experimental Zapret2 VpnService VPN before running the test.</string>
     <string name="zapret2_autotest_progress">%1$d/%2$d completed · %3$s · %4$s attempt %5$d/%6$d</string>
