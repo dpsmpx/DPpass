@@ -17,7 +17,7 @@ object Zapret2NeuralModel {
     const val MAX_BYTES = 4096
     const val EXPECTED_SHA256 =
         "a9172f287e6bd4e6ac6ce5cdc3a606cf125b3ec3a8041ebd9ba59b12ac6d7a2b"
-    private const val URL =
+    private const val MODEL_URL =
         "https://raw.githubusercontent.com/dpsmpx/DPpass/" +
             "e754342d747819f4d1133b32b0426cf3c9354302/models/zapret2-mlp-seed-v1.json"
     private const val DIRECTORY = "zapret2-model"
@@ -44,7 +44,7 @@ object Zapret2NeuralModel {
 
     /** Called only from a user's explicit click, on Dispatchers.IO. */
     fun download(context: Context): Result<ByteArray> = runCatching {
-        val connection = (URL(URL).openConnection() as HttpsURLConnection).apply {
+        val connection = (URL(MODEL_URL).openConnection() as HttpsURLConnection).apply {
             instanceFollowRedirects = false
             connectTimeout = 10_000
             readTimeout = 15_000
