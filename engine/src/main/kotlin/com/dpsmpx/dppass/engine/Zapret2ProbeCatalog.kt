@@ -25,6 +25,7 @@ object Zapret2ProbeCatalog {
     val targets: List<String> = listOf(
         "google_final",
         "youtube_home",
+        "youtube_api_transport",
         "youtube_thumbnail",
     )
 
@@ -32,6 +33,7 @@ object Zapret2ProbeCatalog {
     fun targetLabel(id: String): String = when (id) {
         "google_final" -> "www.google.com/ (HTML)"
         "youtube_home" -> "www.youtube.com/ (HTML)"
+        "youtube_api_transport" -> "youtubei.googleapis.com/youtubei/v1/browse (TLS+HTTP only)"
         "youtube_thumbnail" -> "i.ytimg.com/ (JPEG)"
         else -> "unknown"
     }
