@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 class Zapret2GoogleProbeTest {
     @Test fun completeStrategyAndDestinationCatalogs() {
         assertEquals(8, Zapret2ProbeCatalog.strategies.size)
-        assertEquals(listOf("google_final", "youtube_home", "youtube_thumbnail"),
+        assertEquals(listOf("google_final", "youtube_home", "youtube_api_transport", "youtube_thumbnail"),
             Zapret2ProbeCatalog.targets)
         assertEquals("dppass:test-plain", Zapret2ProbeCatalog.tag("plain"))
         assertEquals("dppass:test-tlsrec-split", Zapret2ProbeCatalog.tag("tlsrec-split"))
@@ -25,6 +25,9 @@ class Zapret2GoogleProbeTest {
         assertFalse(Zapret2GoogleProbe.fromWire("v1\tredirect\t301\t220\t100\t0\t0".encodeToByteArray()).success)
         assertFalse(Zapret2GoogleProbe.fromWire("v1\tcontent_invalid\t200\t220\t100\t1\t0".encodeToByteArray()).success)
         assertFalse(Zapret2GoogleProbe.fromWire("v1\ttls_failed\t0\t0\t100\t0\t0".encodeToByteArray()).success)
+        val api = Zapret2GoogleProbe.fromWire("v1\thttp_reachable\t403\t126\t180\t1\t0".encodeToByteArray())
+        assertTrue(api.httpReachable)
+        assertFalse(api.success) // never credit API response as working feed
     }
 
     @Test fun contractRejectsBadVersionAndNumbers() {
@@ -42,6 +45,17 @@ class Zapret2GoogleProbeTest {
         assertEquals("270", Zapret2GoogleReport.medianMillis(listOf(275, 265)))
         assertEquals("300", Zapret2GoogleReport.medianMillis(listOf(100, 1000, 300)))
         assertEquals("400", Zapret2GoogleReport.medianMillis(listOf(100, 300, 500, 700)))
+    }
+
+    @Test fun apiHTTPIsReportedOnlyAsTransportNotContent() {
+        val attempt = Zapret2GoogleAttempt("plain", 1, Zapret2GoogleProbe.fromWire(
+            "v1\\thttp_reachable\\t403\\t126\\t150\\t0\\t0"
+                .replace("\\t", "\t").encodeToByteArray()), "youtube_api_transport")
+        val report = Zapret2GoogleReport.render("test", "MOBILE", false, listOf(attempt))
+        assertTrue(report.contains("plain: 1/1 HTTP transport (not API content)"))
+        assertTrue(report.contains("target=youtube_api_transport strategy=plain"))
+        assertTrue(report.contains("outcome=http_reachable http=403"))
+        assertEquals(null, Zapret2GoogleReport.provisionalYouTubeHint(listOf(attempt)))
     }
 
     @Test fun provisionalAutoCandidateRequiresTwoVerifiedYouTubeHTMLResponses() {
@@ -86,6 +100,7 @@ class Zapret2GoogleProbeTest {
         val report = Zapret2GoogleReport.render("2026-11-22T21:00:00+03:00", "MOBILE", false, attempts)
         assertTrue(report.contains("google_final=www.google.com/"))
         assertTrue(report.contains("youtube_home=www.youtube.com/"))
+        assertTrue(report.contains("youtube_api_transport=youtubei.googleapis.com/"))
         assertTrue(report.contains("youtube_thumbnail=i.ytimg.com/"))
         assertTrue(report.contains("plain: 1/1 content"))
         assertTrue(report.contains("fake-5: 0/1 content"))
