@@ -3,6 +3,8 @@
 package bridge
 
 import (
+    "context"
+    "net"
     "errors"
     "io"
     "strings"
@@ -31,10 +33,12 @@ func TestZapret2AllManualModesAndPrivateProbeTags(t *testing.T) {
 
 func TestZapret2HTTPSAllowlistedDestinations(t *testing.T) {
     wants := map[string]zapret2TestTarget{
-        "google_final": {"www.google.com", "/", "html"},
-        "youtube_home": {"www.youtube.com", "/", "html"},
-        "youtube_api_transport": {"youtubei.googleapis.com", "/youtubei/v1/browse", "http_transport"},
-        "youtube_thumbnail": {"i.ytimg.com", "/vi/jNQXAC9IVRw/hqdefault.jpg", "jpeg"},
+        "google_final": {"www.google.com", "/", "html", false},
+        "google_search": {"www.google.com", "/search?q=site%3Aexample.com", "html", false},
+        "youtube_home": {"www.youtube.com", "/", "html", false},
+        "youtube_api_transport": {"youtubei.googleapis.com", "/youtubei/v1/browse", "http_transport", false},
+        "youtube_api_ipv4": {"youtubei.googleapis.com", "/youtubei/v1/browse", "http_transport", true},
+        "youtube_thumbnail": {"i.ytimg.com", "/vi/jNQXAC9IVRw/hqdefault.jpg", "jpeg", false},
     }
     if len(wants) != len(zapret2TestTargets) { t.Fatal("target list changed") }
     for key, want := range wants {
@@ -104,5 +108,29 @@ func TestZapret2HTTPSWireDoesNotLeakBodiesOrDestinations(t *testing.T) {
     }
     if strings.Contains(got, "youtube.com") || strings.Contains(got, "http") {
         t.Fatal("serialized response leaked URL")
+    }
+}
+
+func TestZapret2TLSPhaseTimeoutDoesNotHideAsGenericTimeout(t *testing.T) {
+    // A protected TCP socket has opened, but the TLS peer never sends
+    // ServerHello. Report that specific phase, not dial/HTTP timeout.
+    client, server := net.Pipe()
+    defer client.Close()
+    defer server.Close()
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+    defer cancel()
+    got := probeHTTPSWithConn(ctx, client, zapret2TestTargets["youtube_api_transport"])
+    if got.Outcome != "timeout_tls" { t.Fatalf("timeout stage got %s",got.Outcome) }
+}
+
+func TestZapret2IPv4ProbeIsTheSameHostAndHTTPRoute(t *testing.T) {
+    regular:=zapret2TestTargets["youtube_api_transport"]
+    ipv4:=zapret2TestTargets["youtube_api_ipv4"]
+    if regular.ipv4Only || !ipv4.ipv4Only || regular.host!=ipv4.host ||
+        regular.path!=ipv4.path || regular.contentKind!=ipv4.contentKind {
+        t.Fatal("IPv4 control must differ ONLY by its DNS address family")
+    }
+    if zapret2TestTargets["google_search"].path!="/search?q=site%3Aexample.com" {
+        t.Fatal("Google search test path is not a fixed, nonpersonal query")
     }
 }
