@@ -90,6 +90,61 @@ jobs:
           set -euo pipefail
           APK="$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)"
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | grep -F "package: name='com.dpsmpx.dppass.alpine'"
+      - name: Build optimized ARM64 release variant with Alpine and Xray
+        run: ./gradlew --no-daemon --console=plain :app:assembleRelease -Pdppass.alpine=true -Pdppass.nativeAbis=arm64-v8a -Pdppass.abiSplit=true
+      - name: Sign official-package ARM64 release with pinned DPpass certificate
+        shell: bash
+        env:
+          DPPASS_SIGNING_KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          DPPASS_SIGNING_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          DPPASS_SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          DPPASS_SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in DPPASS_SIGNING_KEYSTORE_BASE64 DPPASS_SIGNING_STORE_PASSWORD DPPASS_SIGNING_KEY_ALIAS DPPASS_SIGNING_KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Release signer is not configured: $name"
+              exit 1
+            fi
+          done
+          python3 tools/release/sign_apks.py --skip-build --abis arm64-v8a \
+            --out build/alpine-release-signed \
+            --pinned-fingerprint c18792812566ca4a18b518d51313515ff2d62bf8299446e99943eeb5d0630d11
+      - name: Verify release APK identity, Alpine and absence of neural weights
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob, hashlib, zipfile
+          apks = glob.glob("build/alpine-release-signed/*.apk")
+          assert len(apks) == 1, apks
+          with zipfile.ZipFile(apks[0]) as z:
+              for path in (
+                  "lib/arm64-v8a/libproot.so",
+                  "lib/arm64-v8a/libproot-loader.so",
+                  "lib/arm64-v8a/libdppassxray.so",
+                  "assets/alpine/rootfs.tgz",
+                  "assets/alpine/zapret2-runtime.bin",
+              ):
+                  assert path in z.namelist(), path
+              forbidden = [n for n in z.namelist()
+                           if n.startswith("models/") or n.startswith("assets/models/")
+                           or "zapret2-mlp-seed" in n or n.endswith("server-v1.json")]
+              assert not forbidden, forbidden
+          print("Verified production-certificate ARM64 release APK:", apks[0])
+          PY
+          apk="$(find build/alpine-release-signed -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.dpsmpx.dppass'"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DPpass-Alpine-Zapret2-ARM64-release-signed
+          path: |
+            build/alpine-release-signed/*.apk
+            build/alpine-release-signed/SHA256SUMS
+            build/alpine-release-signed/CERTIFICATE.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 21
       - uses: actions/upload-artifact@v4
         with:
           name: DPpass-Alpine-Zapret2-ARM64-debug
@@ -112,6 +167,11 @@ jobs:
         with:
           name: DPpass-Alpine-Zapret2-ARM64-debug
           path: release-input
+      - name: Download pinned-certificate release-signed APK from the same successful build
+        uses: actions/download-artifact@v4
+        with:
+          name: DPpass-Alpine-Zapret2-ARM64-release-signed
+          path: release-signed-input
       - name: Prepare versioned APK and checksums
         shell: bash
         run: |
@@ -124,6 +184,13 @@ jobs:
           fi
           short="${GITHUB_SHA:0:12}"
           cp -- "${apks[0]}" "release-assets/DPpass-Zapret2-Alpine-${short}-arm64-v8a-debug.apk"
+          mapfile -d '' -t signed < <(find release-signed-input -type f -name '*.apk' -print0)
+          if [[ ${#signed[@]} -ne 1 ]]; then
+            echo "::error::Expected one pinned-certificate release APK"
+            exit 1
+          fi
+          cp -- "${signed[0]}" "release-assets/DPpass-Neural-${short}-arm64-v8a-release-signed.apk"
+          cp -- release-signed-input/CERTIFICATE.txt release-assets/CERTIFICATE.txt
           (
             cd release-assets
             sha256sum ./*.apk > SHA256SUMS.txt
@@ -134,15 +201,18 @@ jobs:
           Commit: ${GITHUB_SHA}
           Actions run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           Android package: com.dpsmpx.dppass.alpine
-          Build: experimental Android ARM64 DEBUG (not signed with production key)
+          Build: experimental Android ARM64 DEBUG + optimized RELEASE signed by pinned DPpass key
+          Release applicationId: com.dpsmpx.dppass
+          Release signer SHA256: c18792812566ca4a18b518d51313515ff2d62bf8299446e99943eeb5d0630d11
           EOF
           cat > "${RUNNER_TEMP}/alpine-release-notes.md" <<EOF
-          Experimental **Android ARM64 debug** build of DPpass Zapret2 Alpine/PRoot.
+          Experimental **Android ARM64 debug + production-certificate signed release** builds of DPpass Zapret2 Alpine/PRoot.
           Built from \`${GITHUB_SHA}\` and verified by CI.
 
-          - Separate Android package: \`com.dpsmpx.dppass.alpine\` (does not replace regular DPpass).
+          - **Signed release APK:** \`DPpass-Neural-*-release-signed.apk\`, package \`com.dpsmpx.dppass\`. Optimized release variant, signed with pinned DPpass certificate; can update the main app only if that installed app has the same signing key and a compatible versionCode.
+          - **Debug APK:** \`DPpass-Zapret2-Alpine-*-debug.apk\`, separate package \`com.dpsmpx.dppass.alpine\`; does not replace regular DPpass.
           - Includes Alpine minirootfs, PRoot, JNI bridge and the shared Zapret2 planner.
-          - APK is **not signed with the official app's production signing key**.
+          - Local strategy/server neural weights are NOT packaged; create them in app settings (32/128/512/1024 neurons).
           - Video playback and YouTube feed scrolling on real mobile networks are **not verified** by CI.
           - Includes SHA256SUMS.txt and BUILD_SOURCE.txt for reproducibility.
 
