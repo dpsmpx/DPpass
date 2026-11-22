@@ -10,6 +10,7 @@ import com.dpsmpx.dppass.connection.HealthState
 import com.dpsmpx.dppass.network.NetworkType
 import org.json.JSONArray
 import org.json.JSONObject
+import java.security.MessageDigest
 import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
@@ -33,6 +34,11 @@ object ServerAutoModel {
     // leaking the answer into the training sample. Kept only in RAM.
     private var pending: Map<String, DoubleArray> = emptyMap()
     private var pendingSize: Int = 0
+    private var pendingDigest: String = ""
+
+    private fun digest(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
     private fun features(core: DPpassCore, profile: com.dpsmpx.dppass.config.ServerProfile,
                          rank: Int, network: NetworkType, now: Long): DoubleArray {
@@ -77,7 +83,7 @@ object ServerAutoModel {
                network: NetworkType, now: Long): ConnectionPlan {
         val snapshot = Zapret2NeuralModel.readVerified(context, Zapret2NeuralModel.Kind.SERVER)
         if (snapshot == null || plan.attempts.size <= 1) {
-            synchronized(guard) { pending = emptyMap(); pendingSize = 0 }
+            resetTransient()
             return plan
         }
         return runCatching {
@@ -89,6 +95,7 @@ object ServerAutoModel {
             synchronized(guard) {
                 pending = scored.associate { it.first.profile.id.value to it.second }
                 pendingSize = model.getJSONArray("hidden").length()
+                pendingDigest = digest(snapshot)
             }
             // Existing planner rank is the safety prior. Neural evidence
             // must overcome an explicit margin, not random initialization.
@@ -106,7 +113,7 @@ object ServerAutoModel {
             }
             plan.copy(attempts = scored.map { it.first })
         }.getOrElse {
-            synchronized(guard) { pending = emptyMap(); pendingSize = 0 }
+            resetTransient()
             plan
         }
     }
@@ -115,15 +122,20 @@ object ServerAutoModel {
 
     /** Train only on real orchestrator attempts after content health checks. */
     fun observe(context: Context, report: ConnectionReport) {
-        val (feats, expectedHidden) = synchronized(guard) {
+        val (feats, expectedHidden, originalDigest) = synchronized(guard) {
             val copy = pending
             val size = pendingSize
+            val previous = pendingDigest
             pending = emptyMap()
             pendingSize = 0
-            copy to size
+            pendingDigest = ""
+            Triple(copy, size, previous)
         }
         if (feats.isEmpty()) return
         val raw = Zapret2NeuralModel.readVerified(context, Zapret2NeuralModel.Kind.SERVER) ?: return
+        // A user may regenerate another model of the same width while
+        // connecting. Never train stale features into replacement weights.
+        if (digest(raw) != originalDigest) return
         runCatching {
             val model = JSONObject(raw.decodeToString())
             if (model.getJSONArray("hidden").length() != expectedHidden) return@runCatching
@@ -161,6 +173,6 @@ object ServerAutoModel {
 
     /** A network handoff changes the meaning of latency and failure data. */
     fun resetTransient() {
-        synchronized(guard) { pending = emptyMap(); pendingSize = 0 }
+        synchronized(guard) { pending = emptyMap(); pendingSize = 0; pendingDigest = "" }
     }
 }
