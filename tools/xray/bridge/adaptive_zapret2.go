@@ -43,6 +43,7 @@ type adaptiveEntry struct {
     weakFailures int
     smallResponses map[string]int
     probeSeeded bool // eligible for smaller verified-HTML responses
+    usage map[string]int // bounded per-destination cold-start exploration
 }
 
 // Probe evidence is distinct from transport-byte heuristics. It comes from
@@ -143,7 +144,10 @@ func (a *adaptiveSelector) chooseTracked(host string) (string, uint64) {
 // TLS-record rewriting. A learned TLS-only winner must not disable
 // desynchronization for a subsequent HTTP request to the same destination.
 func (a *adaptiveSelector) chooseHTTPTracked(host string) (string, uint64) {
-    return a.chooseWithGeneration(host, adaptiveCandidates[:len(adaptiveCandidates)-1])
+    // HTTP and TLS share a destination but not the same usable strategies.
+    // Keep their live observations independent; HTTPS probe evidence stays
+    // with the original TLS hostname.
+    return a.chooseWithGeneration("http:"+host, adaptiveCandidates[:len(adaptiveCandidates)-1])
 }
 
 // QUIC evidence is separate and keyed by the protected UDP destination IP.
@@ -177,7 +181,16 @@ func (a *adaptiveSelector) chooseWithGeneration(host string, candidates []string
         }
     }
     tag := candidates[e.index%len(candidates)]
+    // The optional downloaded MLP influences cold-start ordering only;
+    // every fifth connection still explores the deterministic rotation.
+    if e.index%5 != 4 {
+        if ranked, ok := zapret2Neural.rank(host, candidates, e.usage); ok {
+            tag = ranked
+        }
+    }
     e.index++
+    if e.usage == nil { e.usage = make(map[string]int) }
+    if e.usage[tag] < 100 { e.usage[tag]++ }
     return tag, a.generation
 }
 
@@ -197,6 +210,10 @@ func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int
     host = canonicalAdaptiveHost(host)
     e := a.entries[host]
     if e == nil { return }
+    // The same observations drive the old conservative per-host pinning
+    // AND, if explicitly installed, the optional global neural prior.
+    // Do not train on simulated selectors used by unit tests.
+    if a == zapret2Auto { zapret2Neural.learn(host, strategy, payloadBytes) }
     if payloadBytes >= adaptivePayloadThreshold {
         // A different candidate with a full-sized downstream flow may
         // supersede the HTML hint. The SAME verified candidate should not
