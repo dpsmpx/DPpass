@@ -12,20 +12,21 @@ are still available. Existing subscription functionality is untouched.
 Choose **Settings → Zapret2 → Diagnose Google and YouTube** while VPN
 is connected. Opening the diagnostic screen starts the run without a second
 button press. It displays the current target, strategy and attempt, plus a
-0/48 progress bar. On completion it displays the full report, copies it
+0/64 progress bar. On completion it displays the full report, copies it
 to Android's clipboard and shows a completion message. If clipboard
 writing fails the result stays selectable on screen. Leaving the
 diagnostic screen cancels subsequent probes, with no false "complete" toast.
 
 ## Network behavior
 
-The test sends exactly **48** bounded HTTPS requests from inside Xray:
-three targets × eight protected TCP variants × two attempts.
+The test sends exactly **64** bounded HTTPS requests from inside Xray:
+four targets × eight protected TCP variants × two attempts.
 
 | Target ID | Exact fixed target | Verification |
 |---|---|---|
 | `google_final` | `https://www.google.com/` | Valid TLS X.509 certificate, HTTP 2xx, Content-Type text/html and HTML start marker. This is the known destination after the original `google.com` 301; it is requested directly rather than redirect-followed. |
 | `youtube_home` | `https://www.youtube.com/` | Valid TLS, HTTP 2xx, Content-Type text/html and HTML marker. An HTTPS page is **not** the app feed/API. |
+| `youtube_api_transport` | `https://youtubei.googleapis.com/youtubei/v1/browse` | A fixed unauthenticated HTTPS GET; valid TLS followed by an HTTP 2xx or 4xx is **transport reachability only**. This is not a properly authorized YouTube API request (real clients use POST/context/keys); do not infer a successful feed from HTTP 400/403. |
 | `youtube_thumbnail` | `https://i.ytimg.com/vi/jNQXAC9IVRw/hqdefault.jpg` | Valid TLS, HTTP 2xx, Content-Type image/jpeg, JPEG magic bytes and at least 128 response bytes. This checks a public thumbnail, **not** video stream transport from googlevideo.com. |
 
 Strategies include `plain` (baseline), `split-1`, `split`,
@@ -45,7 +46,8 @@ APIs and streaming video segments are outside this test.
 
 - `ok`: 2xx with verified HTML/JPEG body signature and expected content type.
 - `redirect`: 3xx from the requested host; not counted as content success.
-- `http_status`: other HTTP statuses, including 403/404.
+- `http_reachable`: specifically for `youtube_api_transport` only; valid TLS plus an HTTP 2xx/4xx reply to an unauthenticated probe. Does not prove a valid API call, playlist or feed.
+- `http_status`: other HTTP statuses, including 403/404 for content endpoints and 5xx for API transport.
 - `content_type_mismatch` / `content_invalid`: 2xx without expected content.
 - `dial_failed`, `timeout`, `tls_failed`, `tls_ca_failed`,
   `request_failed`, `http_failed`, `body_failed`, `empty_body`.
@@ -60,7 +62,7 @@ URL history are written into journal messages. The clipboard report
 contains only this fixed catalog and its numerical test results.
 
 The report groups outcomes by **target and strategy** and includes
-all 48 individual attempts. It displays an exact median among successful
+all 64 individual attempts. It displays an exact median among successful
 content checks (including *.5 ms when needed).
 
 ### Provisional exact-host learning for AUTO
@@ -108,7 +110,10 @@ The early field logs proved only HTTP 301 for `google.com` across
 all strategies. On **2026-11-22 21:46 +03:00**, the expanded MOBILE
 test showed 16/16 verified Google HTML, 15/16 verified thumbnail JPEG,
 but **0/2 AUTO YouTube HTML** versus **2/2 tlsrec-split** and
-**2/2 fake-5**. The new learning is motivated by this contrast,
+**2/2 fake-5**. In the next field test at **22:12 +03**, AUTO succeeded
+**2/2 on YouTube HTML**, but the real YouTube app still loaded neither
+feed nor video. The new API host transport check and IPv4/IPv6 error
+breakdown are designed to investigate that remaining failure. The new learning is motivated by this contrast,
 not by a claim of YouTube app success.
 
 Re-run the expanded test on MOBILE and Wi-Fi, verify that the AUTO
@@ -116,3 +121,30 @@ YouTube HTML row changes appropriately after verified candidates,
 clipboard auto-copy and VPN retention, and report whether YouTube
 feed and video actually load. No YouTube app bypass success is claimed
 before physical validation.
+
+## Address-family evidence in device log
+
+Protected experimental TCP sockets now report `zapret2_stage_window`
+and `zapret2_stage_final` with additional v2 stage counters:
+`tcp_dial_ok_ipv4`, `tcp_dial_ok_ipv6`,
+`tcp_dial_ok_unknown`, `tcp_unreachable_ipv4`,
+`tcp_unreachable_ipv6`, `tcp_unreachable_unknown`.
+These counters have the same 30-second window or session scope as
+the existing 15 stage counters. Classification uses the actual remote
+IP when a connection succeeds; for failed dials it uses a concrete
+remote IP only when the error or destination exposes one. Unknown
+does **not** mean IPv4.
+
+No IP, URL, host name, request body or credentials are retained in
+these counters. The v2 JNI format appends six uint64 values after
+the 15 unchanged original values. The engine decoder continues to
+accept v1 for compatibility. The counters do **not** identify which
+application or domain failed, and cannot by themselves confirm
+DNS/DoH failure or YouTube app success.
+
+The new API transport probe likewise **never trains the AUTO winner**
+for `www.youtube.com`: only verified HTML on that exact host may
+do so. It tests access to the YouTube API host, not a working
+authorized endpoint. Googlevideo video/CDN streams remain unverified
+without a dynamically authorized media URL; no hardcoded static
+media URL is assumed to work.
