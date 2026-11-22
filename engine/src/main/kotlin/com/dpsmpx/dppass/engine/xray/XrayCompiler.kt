@@ -209,13 +209,15 @@ class XrayCompiler(
             // hostlist: forward QUIC directly. Only fake-ttl has UDP decoys.
             splitQuicTag = when {
                 plan.forceQuicTcp -> XrayBackend.TAG_BLOCK
-                plan.desync is DesyncTrick.Fake -> XrayBackend.TAG_PROXY
+                plan.desync is DesyncTrick.Fake || plan.desync == DesyncTrick.Auto -> XrayBackend.TAG_PROXY
                 plan.desync != null -> XrayBackend.TAG_DIRECT
                 else -> XrayBackend.TAG_BLOCK // retain D-73 default for regular serverless
             },
             forceQuicTcp = plan.forceQuicTcp,
             catchAllHttps = plan.catchAllHttps && plan.desync != null && !plan.splitRest,
-            catchAllQuic = plan.catchAllHttps && plan.desync is DesyncTrick.Fake && !plan.forceQuicTcp && !plan.splitRest,
+            catchAllQuic = plan.catchAllHttps &&
+                (plan.desync is DesyncTrick.Fake || plan.desync == DesyncTrick.Auto) &&
+                !plan.forceQuicTcp && !plan.splitRest,
         )
         if (problems.any { it.isError }) return Outcome.Failure(problems)
         val split = if (plan.desync != null) {
