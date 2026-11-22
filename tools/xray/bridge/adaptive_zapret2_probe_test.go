@@ -50,10 +50,8 @@ func TestAutoProbePreferenceSurvivesShortSuccessfulPagesButFallsBack(t *testing.
     a := newProbeAdaptiveSelector()
     const host = "www.youtube.com"
     g := a.generationSnapshot()
-    for i := 0; i < 2; i++ {
-        a.observeHTMLProbe(host, "plain", "timeout", 8000, g)
-        a.observeHTMLProbe(host, "tlsrec-split", "ok", 1000, g)
-    }
+    for i := 0; i < 2; i++ { a.observeHTMLProbe(host, "plain", "timeout", 8000, g) }
+    for i := 0; i < 2; i++ { a.observeHTMLProbe(host, "tlsrec-split", "ok", 1000, g) }
     // The real probe reads at most 8 KiB. It must not erase the preference.
     a.observe(host, "tlsrec-split", 8192)
     a.observe(host, "tlsrec-split", 8192)
