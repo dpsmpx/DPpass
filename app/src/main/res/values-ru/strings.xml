@@ -278,7 +278,7 @@
     <string name="netcheck_title">Проверка сети</string>
     <string name="netcheck_settings_note">Что сеть пропускает сейчас</string>
     <string name="netcheck_intro">DPpass по очереди проверит, что пропускает эта сеть: имена, соединения, защищённое соединение, QUIC и крупную передачу — к ya.ru, speed.cloudflare.com и www.google.com, мимо туннеля. О вас и телефоне ничего не передаётся; эти сайты увидят адрес телефона, как при открытии страницы.</string>
-    <string name="netcheck_note">Только для сведения: на выбор сервера итог пока не влияет. Повторные проверки идут с паузой — пропущенные шаги не значат отказ сети.</string>
+    <string name="netcheck_note">Эти пробы идут напрямую через мобильную сеть или Wi-Fi, не через VPN. Даже «все пробы прошли» не подтверждает доступность YouTube или работу обхода DPI. Проверить маршрут DPpass можно отдельным замером ниже. Повторные проверки ограничены по частоте.</string>
     <string name="netcheck_run">Проверить сеть</string>
     <string name="netcheck_running">Проверяю…</string>
     <string name="netcheck_run_wait">Проверить сеть — через %1$d с</string>
@@ -322,7 +322,7 @@
     <string name="netconf_medium">средняя</string>
     <string name="netconf_high">высокая</string>
     <string name="speed_section">Скорость через туннель</string>
-    <string name="speed_note">Пинг, jitter и скорость загрузки через сервер, к которому подключён DPpass: 10 малых запросов и загрузка до 25 МБ (не дольше 8 с) с speed.cloudflare.com через сервер. На мобильной сети это трафик тарифа. Следующий замер — через минуту.</string>
+    <string name="speed_note">Замер через выбранный маршрут Xray (сервер подписки или локальный Zapret2): 10 малых HTTPS-запросов и загрузка до 25 МБ (не дольше 8 с) с speed.cloudflare.com. Он проверяет этот сайт, а не YouTube. На мобильной сети это трафик тарифа; следующий замер — через минуту.</string>
     <string name="speed_run">Измерить скорость</string>
     <string name="speed_running">Измеряю…</string>
     <string name="speed_run_wait">Измерить скорость — через %1$d с</string>
