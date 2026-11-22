@@ -695,6 +695,7 @@ class DPpassVpnService : VpnService() {
                 if (accepted) {
                     core.log.info("connected", "profile" to Safe(ServerlessPlan.PROFILE_ID.value),
                         "attempts" to 1, "local_desync" to (desync != null),
+                        "content_verified" to false,
                         "zapret2_planner" to Safe(if (desync == null) "off" else if (alpineStrategy != null) "alpine" else "in_process"))
                     progress(TunnelStatus.Connected(ServerlessPlan.PROFILE_ID, name, core.clock.nowMillis(), Clock.MONOTONIC.nowMillis()))
                     watchNetwork()
@@ -732,13 +733,30 @@ class DPpassVpnService : VpnService() {
             val core = AppGraph.core(this@DPpassVpnService)
             // Учёт трафика (D-92) — и с выключенным экраном: приращения сеанса, сеть — та, что под туннелем.
             val usage = UsageMeter()
-            val owners = AppGraph.graph(this@DPpassVpnService).owners
+            val graph = AppGraph.graph(this@DPpassVpnService)
+            val owners = graph.owners
+            var diagUp = 0L
+            var diagDown = 0L
             var ticks = 0L
             while (isActive) {
                 core.usage.record(usage.delta(session.stats()), underlyingType)?.let { UsageAlerts.show(this@DPpassVpnService, core, it) }
                 // Журнал уникальных соединений (D-106) пополняется и с закрытым экраном: закрытые ядро держит
                 // 5 минут, опроса раз в 10 с хватает. Без журнала опрашивать незачем — таблицу опрашивает её экран.
                 if (ticks++ % ANALYZER_EVERY_TICKS == 0L && core.analyzer.settings().let { it.enabled && it.keepUnique }) core.analyzer.poll(owners)
+                // A successful DoH probe cannot prove that YouTube feed/CDN
+                // payloads arrived. Periodic privacy-safe transport counters
+                // make "connected but feed stalls" measurable in device logs.
+                if (ticks % 30L == 0L && AppPrefs(this@DPpassVpnService).zapret2Backend == Zapret2Backend.VPN_SERVICE) {
+                    val stats = session.stats()
+                    val probes = graph.engine.desyncCounters()
+                    core.log.info("zapret2_transfer_window",
+                        "up_bytes" to (stats.uplinkBytes - diagUp).coerceAtLeast(0),
+                        "down_bytes" to (stats.downlinkBytes - diagDown).coerceAtLeast(0),
+                        "applied_total" to (probes?.applied ?: 0L),
+                        "skipped_total" to (probes?.skipped ?: 0L))
+                    diagUp = stats.uplinkBytes
+                    diagDown = stats.downlinkBytes
+                }
                 val interactive = power.isInteractive
                 val notify = pace.tick(interactive)
                 if (interactive) {
