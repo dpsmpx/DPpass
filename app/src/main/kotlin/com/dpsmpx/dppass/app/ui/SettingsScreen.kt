@@ -810,7 +810,8 @@ class SettingsScreen(host: Host) : Screen(host) {
                 }
             }
         }
-        Ui.secure(dialog.show())
+        dialog.show()
+        Ui.secure(dialog)
     }
 
     private fun generateModel(
