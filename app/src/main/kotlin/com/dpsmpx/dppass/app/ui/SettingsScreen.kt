@@ -35,7 +35,7 @@ import kotlinx.coroutines.withContext
  * автопереключение сервера (D-58); проверка сети (D-60); напоминание о
  * конце подписки (D-76);
  * раздача другим устройствам (D-51); тема; журнал (D-26) и «О программе»
- * (D-43); эксперимент с началом соединения и его замер А/Б (D-116).
+ * (D-43); встроенная HTTPS-диагностика Zapret2 (D-119).
  *
  * Смена политики — новая активация действующих серверов (D-07): при
  * отказе остаётся прежнее, и это видно. Туннель поднят — переподключение.
@@ -292,6 +292,11 @@ class SettingsScreen(host: Host) : Screen(host) {
                         host.prefs.zapret2Backend.ordinal,
                     ) { index ->
                         host.prefs.zapret2Backend = Zapret2Backend.entries[index]
+                        if (host.prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE) {
+                            // Old manually chosen strategies are migrated to the
+                            // single user-facing AUTO mode.
+                            host.prefs.zapret2VpnStrategy = Zapret2VpnStrategy.AUTO
+                        }
                         host.reconnectIfBusy()
                         host.changed()
                     },
@@ -324,17 +329,10 @@ class SettingsScreen(host: Host) : Screen(host) {
                 if (host.prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE) {
                     addView(Ui.divider(context))
                     addView(
-                        choiceRow(R.drawable.ic_shield, R.string.zapret2_vpn_strategy_title,
-                            listOf(R.string.zapret2_vpn_fake3, R.string.zapret2_vpn_fake5,
-                                R.string.zapret2_vpn_disorder, R.string.zapret2_vpn_split,
-                                R.string.zapret2_vpn_split_first, R.string.zapret2_vpn_auto,
-                                R.string.zapret2_vpn_tlsrec_split),
-                            host.prefs.zapret2VpnStrategy.ordinal,
-                        ) { index ->
-                            host.prefs.zapret2VpnStrategy = Zapret2VpnStrategy.entries[index]
-                            host.reconnectIfBusy()
-                            host.changed()
-                        }, Ui.matchWidth(),
+                        Ui.ListRow(context, R.drawable.ic_shield,
+                            context.getString(R.string.zapret2_auto_primary_title))
+                            .subtitle(context.getString(R.string.zapret2_auto_primary_note)),
+                        Ui.matchWidth(),
                     )
                     addView(Ui.divider(context))
                     addView(
@@ -510,32 +508,8 @@ class SettingsScreen(host: Host) : Screen(host) {
                         .onClick { host.push(NetworkCheckScreen(host)) },
                     Ui.matchWidth(),
                 )
-                // Эксперимент с началом соединения (D-116): выключен по умолчанию; включён — открывает замер А/Б.
-                addView(Ui.divider(context))
-                addView(
-                    Ui.switchRow(
-                        context,
-                        R.drawable.ic_speed,
-                        context.getString(R.string.desync_switch),
-                        context.getString(R.string.desync_switch_note),
-                        host.prefs.desyncExperiment,
-                    ) {
-                        host.prefs.desyncExperiment = it
-                        host.graph?.core?.log?.info("desync_experiment", "on" to it)
-                        render(status)
-                    },
-                    Ui.matchWidth(),
-                )
-                if (host.prefs.desyncExperiment) {
-                    addView(Ui.divider(context))
-                    addView(
-                        Ui.ListRow(context, R.drawable.ic_speed, context.getString(R.string.desync_title))
-                            .subtitle(context.getString(R.string.desync_settings_note))
-                            .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
-                            .onClick { host.push(DesyncTrialScreen(host)) },
-                        Ui.matchWidth(),
-                    )
-                }
+                // The legacy A/B screen has been superseded by the single
+                // multi-site Zapret2 diagnostic action above.
                 addView(Ui.divider(context))
                 addView(
                     Ui.ListRow(context, R.drawable.ic_file, context.getString(R.string.export_title))
