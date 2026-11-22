@@ -20,8 +20,13 @@ object Zapret2ProbeCatalog {
         "auto",
     )
 
+    /** Dedicated test ingress; routes through the real protected exp dialer. */
     fun tag(strategy: String): String? =
         if (strategy !in strategies) null
         else if (strategy == "plain") PLAIN_TAG
+        else "dppass:test-$strategy"
+
+    fun experimentTag(strategy: String): String? =
+        if (strategy == "plain" || strategy !in strategies) null
         else "dppass:exp-$strategy"
 }
