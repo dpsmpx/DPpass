@@ -1,0 +1,35 @@
+name: Zapret2 AUTO regression tests
+
+on:
+  push:
+    branches:
+      - 'fix/zapret2-*'
+  pull_request:
+    paths:
+      - 'tools/xray/bridge/**'
+      - 'tools/xray/zapret2/**'
+      - 'tools/xray/cmd/zapret2-alpine/**'
+      - 'tools/xray/go.mod'
+      - 'tools/xray/go.sum'
+      - '.github/workflows/zapret2-auto-regression.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zapret2-auto-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/xray/go.mod
+          cache-dependency-path: tools/xray/go.sum
+      - name: Run protected TCP/QUIC AUTO, planner and Alpine tests
+        working-directory: tools/xray
+        run: go test -count=1 ./bridge ./zapret2 ./cmd/zapret2-alpine
