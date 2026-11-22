@@ -223,6 +223,8 @@ internal object XrayJni {
     @JvmStatic external fun nativeSetZapret2NeuralModel(model: ByteArray): ByteArray
 
     /** Coarse physical network class only: MOBILE, WIFI, OTHER. */
+    @JvmStatic external fun nativeSnapshotZapret2NeuralModel(): ByteArray
+
     @JvmStatic external fun nativeSetZapret2NeuralNetwork(network: ByteArray): ByteArray
 
     /**
@@ -415,6 +417,10 @@ class JniXrayRuntime private constructor() : XrayRuntime {
         /** Optional downloaded model is not included in any APK asset. */
         fun configureZapret2NeuralModel(model: ByteArray): XrayResult =
             XrayJni.decode(XrayJni.nativeSetZapret2NeuralModel(model))
+
+        /** Only changed numeric weights, no hostnames/traffic, from the local Go model. */
+        fun snapshotZapret2NeuralModel(): ByteArray? =
+            XrayJni.nativeSnapshotZapret2NeuralModel().takeIf { it.isNotEmpty() }
 
         fun configureZapret2NeuralNetwork(network: String): XrayResult =
             XrayJni.decode(XrayJni.nativeSetZapret2NeuralNetwork(network.encodeToByteArray()))
