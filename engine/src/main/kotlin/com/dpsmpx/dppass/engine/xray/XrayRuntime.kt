@@ -416,6 +416,9 @@ class JniXrayRuntime private constructor() : XrayRuntime {
         fun configureZapret2NeuralModel(model: ByteArray): XrayResult =
             XrayJni.decode(XrayJni.nativeSetZapret2NeuralModel(model))
 
+        fun configureZapret2NeuralNetwork(network: String): XrayResult =
+            XrayJni.decode(XrayJni.nativeSetZapret2NeuralNetwork(network.encodeToByteArray()))
+
         /**
          * Загрузка библиотеки, сверка версии ядра и каталог геоданных.
          * [loadLibrary] — на Android `System.loadLibrary(LIBRARY)`, на хосте
