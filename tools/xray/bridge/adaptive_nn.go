@@ -2,11 +2,11 @@
 
 package bridge
 
-// Optional 6-6-9 tiny MLP for cold-start strategy ordering. The weights are
-// NOT bundled in the APK. Android explicitly downloads a pinned JSON file,
-// validates SHA-256 and installs it into app-private storage. Inference,
-// online gradient updates and all connection observations stay on-device.
-// No domain/IP/packet body is exported or written to the model file.
+// Optional, locally generated 8-H-9 MLP for cold-start strategy ordering.
+// No model weights are bundled or downloaded. Android generates a bounded
+// JSON weights matrix in private storage upon explicit user action.
+// Inference and online learning stay on the device. Raw domains/IP/payloads
+// are never persisted into the model.
 import (
     "bytes"
     "encoding/json"
@@ -16,13 +16,15 @@ import (
     "net"
     "strings"
     "sync"
+    "sync/atomic"
 )
 
 const (
-    adaptiveNNInput = 6
-    adaptiveNNHidden = 6
+    adaptiveNNInput = 8
+    adaptiveNNMinHidden = 8
+    adaptiveNNMaxHidden = 1024
     adaptiveNNOutput = 9 // 6 TCP + 3 QUIC candidate positions
-    adaptiveNNMaxBytes = 4096
+    adaptiveNNMaxBytes = 1 << 20
 )
 
 type adaptiveNNWeights struct {
@@ -39,6 +41,24 @@ type adaptiveNeural struct {
 }
 var zapret2Neural adaptiveNeural
 
+// Categorical underlying transport, not location or carrier identity.
+// 1 = mobile; 2 = Wi-Fi; 0 = other or unknown.
+var zapret2NeuralNetwork atomic.Int32
+
+func ConfigureZapret2NeuralNetwork(kind string) error {
+    switch kind {
+    case "MOBILE":
+        zapret2NeuralNetwork.Store(1)
+    case "WIFI":
+        zapret2NeuralNetwork.Store(2)
+    case "OTHER", "UNKNOWN":
+        zapret2NeuralNetwork.Store(0)
+    default:
+        return errors.New("invalid underlying network class")
+    }
+    return nil
+}
+
 func validNNNumber(x float64) bool { return !math.IsNaN(x) && !math.IsInf(x, 0) && math.Abs(x) <= 4 }
 
 func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
@@ -51,8 +71,10 @@ func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
     if err := decoder.Decode(&extra); err != io.EOF {
         return nil, errors.New("trailing neural model content")
     }
-    if w.Format != "dppass-zapret2-mlp-v1" ||
-        len(w.Hidden) != adaptiveNNHidden || len(w.Bias) != adaptiveNNHidden ||
+    count := len(w.Hidden)
+    if w.Format != "dppass-zapret2-mlp-v2" ||
+        count < adaptiveNNMinHidden || count > adaptiveNNMaxHidden ||
+        len(w.Bias) != count ||
         len(w.Output) != adaptiveNNOutput || len(w.OutputBias) != adaptiveNNOutput {
         return nil, errors.New("unsupported neural model dimensions")
     }
@@ -62,15 +84,15 @@ func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
         if !validNNNumber(w.Bias[i]) { return nil, errors.New("bad hidden bias") }
     }
     for i := range w.Output {
-        if len(w.Output[i]) != adaptiveNNHidden { return nil, errors.New("bad output matrix") }
+        if len(w.Output[i]) != count { return nil, errors.New("bad output matrix") }
         for _, n := range w.Output[i] { if !validNNNumber(n) { return nil, errors.New("bad output weight") } }
         if !validNNNumber(w.OutputBias[i]) { return nil, errors.New("bad output bias") }
     }
     return &w, nil
 }
 
-// Empty bytes explicitly disable the optional model; the deterministic
-// adaptive selector remains available even if the user never downloads it.
+// Empty bytes explicitly disable the optional model; deterministic AUTO
+// remains usable without any generated model.
 func ConfigureZapret2NeuralModel(raw []byte) error {
     if len(raw) == 0 {
         zapret2Neural.mu.Lock()
@@ -115,12 +137,16 @@ func nnFeatures(host string, quic bool) [adaptiveNNInput]float64 {
     if parsed != nil && parsed.To4() == nil { f[3] = 1 }
     if parsed == nil && strings.Contains(raw, ".") { f[4] = 1 }
     if strings.HasSuffix(raw, ".googlevideo.com") { f[5] = 1 }
+    switch zapret2NeuralNetwork.Load() {
+    case 1: f[6] = 1
+    case 2: f[7] = 1
+    }
     return f
 }
 
-func nnForward(w *adaptiveNNWeights, host string, idx int, quic bool) (float64, [adaptiveNNHidden]float64) {
+func nnForward(w *adaptiveNNWeights, host string, idx int, quic bool) (float64, []float64) {
     f := nnFeatures(host, quic)
-    var h [adaptiveNNHidden]float64
+    h := make([]float64, len(w.Bias))
     for i := range h {
         sum := w.Bias[i]
         for j, v := range f { sum += w.Hidden[i][j] * v }
@@ -169,8 +195,7 @@ func (n *adaptiveNeural) learn(host, candidate string, downstream int64) {
     logit, hidden := nnForward(w, host, idx, quic)
     prob := 1 / (1 + math.Exp(-math.Max(-12, math.Min(12, logit))))
     delta := (reward - prob) * 0.03 // small, clamped SGD update
-    var oldOutput [adaptiveNNHidden]float64
-    copy(oldOutput[:], w.Output[idx])
+    oldOutput := append([]float64(nil), w.Output[idx]...)
     for i, v := range hidden {
         w.Output[idx][i] = nnClamp(w.Output[idx][i] + delta*v)
     }
