@@ -60,6 +60,7 @@ const (
 	desyncSplit    desyncKind = 3
 	desyncSplitFirst desyncKind = 4
 	desyncAuto desyncKind = 5
+    desyncTLSRecordSplit desyncKind = 6
 )
 
 type desyncMode struct {
@@ -113,6 +114,7 @@ func parseDesyncTag(tag string) (desyncMode, bool, error) {
     case zapret2.Fake: return desyncMode{kind: desyncFake, ttl: mode.TTL}, true, nil
     case zapret2.Split: return desyncMode{kind: desyncSplit}, true, nil
     case zapret2.SplitFirst: return desyncMode{kind: desyncSplitFirst}, true, nil
+    case zapret2.TLSRecordSplit: return desyncMode{kind: desyncTLSRecordSplit}, true, nil
     case zapret2.Auto: return desyncMode{kind: desyncAuto}, true, nil
     default: return desyncMode{}, true, fmt.Errorf("unknown Zapret2 mode %v", mode.Kind)
     }
@@ -278,7 +280,24 @@ func (c *desyncConn) desyncFirst(b []byte) (int, error) {
     }
     if !plan.Applied {
         desyncSkipped.Add(1)
+        // Explicit TLS-record splitting must not quietly send a partially
+        // captured ClientHello unmodified after planner validation failed.
+        if c.mode.kind == desyncTLSRecordSplit && zapret2.IsTLSClientHelloPrefix(b) {
+            c.plannerErr = errors.New("TLS-record splitting needs a complete ClientHello")
+            return 0, c.plannerErr
+        }
         return c.TCPConn.Write(b)
+    }
+    if c.mode.kind == desyncTLSRecordSplit {
+        if len(plan.Rewrite) != len(b)+5 || plan.Cut < 9 || plan.Cut >= len(plan.Rewrite)-5 {
+            c.plannerErr = errors.New("invalid TLS-record splitting plan")
+            return 0, c.plannerErr
+        }
+        return c.writeTLSRecordSplit(plan.Rewrite, plan.Cut, len(b))
+    }
+    if len(plan.Rewrite) != 0 {
+        c.plannerErr = errors.New("unexpected TLS rewrite in non-TLS strategy")
+        return 0, c.plannerErr
     }
     if plan.Cut == 1 {
         return c.splitFirstTLS(b)
@@ -328,10 +347,38 @@ func modeTag(m desyncMode) string {
     case desyncDisorder: return zapret2.TagPrefix + "disorder"
     case desyncSplit: return zapret2.TagPrefix + "split"
     case desyncSplitFirst: return zapret2.TagPrefix + "split-1"
+    case desyncTLSRecordSplit: return zapret2.TagPrefix + "tlsrec-split"
     case desyncFake: return fmt.Sprintf("%sfake-%d", zapret2.TagPrefix, m.ttl)
     case desyncAuto: return zapret2.TagPrefix + "auto"
     }
     return zapret2.TagPrefix + "unsupported"
+}
+
+
+// writeTLSRecordSplit sends two valid TLS handshake records separately on the
+// protected TCP socket, combining TLS-record and TCP-write fragmentation.
+// If the first/second write fails, keep the failure sticky: retrying the
+// original unsplit ClientHello on this connection could corrupt the stream.
+// A successful write reports consumed *original* bytes, not the five added
+// bytes of the second TLS record header.
+func (c *desyncConn) writeTLSRecordSplit(payload []byte, cut, originalLen int) (int, error) {
+    n, err := c.TCPConn.Write(payload[:cut])
+    if err != nil || n != cut {
+        if err == nil { err = errors.New("short first TLS record") }
+        c.plannerErr = fmt.Errorf("Zapret2 TLS-record first write failed: %w", err)
+        desyncSkipped.Add(1)
+        return 0, c.plannerErr
+    }
+    time.Sleep(2 * time.Millisecond)
+    n, err = c.TCPConn.Write(payload[cut:])
+    if err != nil || n != len(payload)-cut {
+        if err == nil { err = errors.New("short second TLS record") }
+        c.plannerErr = fmt.Errorf("Zapret2 TLS-record second write failed: %w", err)
+        desyncSkipped.Add(1)
+        return 0, c.plannerErr
+    }
+    desyncApplied.Add(1)
+    return originalLen, nil
 }
 
 // splitFirstTLS sends an unchanged ClientHello in two TCP writes. It is
