@@ -68,6 +68,15 @@ func PlanFor(tag, network string, first []byte) (Plan, error) {
     if p.Network != network || p.Strategy != tag || (p.Applied && (network == "tcp" && (p.Cut < 1 || p.Cut >= len(first)))) {
         return Plan{}, errors.New("invalid Alpine strategy decision")
     }
+    if network == "tcp" {
+        if tag == TagPrefix+"tlsrec-split" && p.Applied &&
+            (len(p.Rewrite) != len(first)+5 || p.Cut < 9 || p.Cut >= len(p.Rewrite)-5) {
+            return Plan{}, errors.New("invalid Alpine TLS record rewrite")
+        }
+        if tag != TagPrefix+"tlsrec-split" && len(p.Rewrite) != 0 {
+            return Plan{}, errors.New("unexpected Alpine TLS rewrite")
+        }
+    }
     if network == "udp" && p.Applied && (p.Repeats < 1 || p.Repeats > 16 || len(p.Fake) != len(first)) {
         return Plan{}, errors.New("invalid Alpine QUIC plan")
     }
