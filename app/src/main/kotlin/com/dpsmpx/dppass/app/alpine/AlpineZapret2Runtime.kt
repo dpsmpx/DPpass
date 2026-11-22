@@ -56,13 +56,12 @@ internal class AlpineZapret2Runtime private constructor(
                 environment().clear()
                 environment().putAll(AlpineArgs.environment(layout))
             }.start()
-            // A daemon is normally quiet; always drain its pipe so
-            // diagnostics cannot deadlock it when the buffer fills.
+            // Draining prevents a noisy daemon from blocking on its pipe.
+            // Process.destroy() can interrupt a read from another thread on
+            // Android; this is expected during failed VPN startup/shutdown,
+            // not an uncaught fatal exception.
             Thread({
-                spawned.inputStream.use { input ->
-                    val b = ByteArray(2048)
-                    while (input.read(b) >= 0) { /* no user-data logs */ }
-                }
+                AlpineProcessOutput.drain(spawned.inputStream)
             }, "dppass-zapret2-alpine-io").apply { isDaemon = true }.start()
             try {
                 val deadline = android.os.SystemClock.elapsedRealtime() + MAX_WAIT_MS
