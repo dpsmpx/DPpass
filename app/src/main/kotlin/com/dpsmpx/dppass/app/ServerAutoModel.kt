@@ -112,7 +112,7 @@ object ServerAutoModel {
     private fun sparseKey(model: JSONObject, scenario: Int, profileId: String,
                           feature: Int, bucket: Int, capacity: Long): String {
         val seed = model.getString("seed")
-        val data = "$" + "{seed}|$" + "{scenario}|$" + "{profileId}|$" + "{feature}|$" + "{bucket}"
+        val data = "${seed}|${scenario}|${profileId}|${feature}|${bucket}"
         val hash = MessageDigest.getInstance("SHA-256").digest(data.encodeToByteArray())
         var n = 0L
         for (i in 0 until 7) n = (n shl 8) or (hash[i].toLong() and 255L)
