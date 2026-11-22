@@ -118,3 +118,91 @@ func TestNeuralNetworkClassFeaturesCannotLeakCarrierIdentity(t *testing.T) {
     f=nnFeatures("www.youtube.com",false)
     if math.Abs(f[6])+math.Abs(f[7])!=0 {t.Fatal(f)}
 }
+
+
+func generatedSparseTestModel(t *testing.T, budget int64, deep int) []byte {
+    t.Helper()
+    first := 64
+    w := adaptiveNNWeights{
+        Format: "dppass-zapret2-mlp-v3",
+        Parameters: budget,
+        Seed: "0123456789abcdef",
+        Hidden: make([][]float64, first),
+        Bias: make([]float64, first),
+        DeepHidden: make([][]float64, deep),
+        DeepBias: make([]float64, deep),
+        Output: make([][]float64, adaptiveNNOutput),
+        OutputBias: make([]float64, adaptiveNNOutput),
+        ContextBias: make([][]float64, adaptiveNNContexts),
+        ContextObservations: make([]int, adaptiveNNContexts),
+        Sparse: make(map[string]float64),
+    }
+    for i:=0;i<first;i++ { w.Hidden[i] = make([]float64, adaptiveNNInput); w.Hidden[i][0] = 0.02 }
+    for i:=0;i<deep;i++ {
+        w.DeepHidden[i] = make([]float64, first)
+        w.DeepHidden[i][0] = 0.02
+    }
+    final := first
+    if deep>0 { final = deep }
+    for i:=0;i<adaptiveNNOutput;i++ { w.Output[i]=make([]float64,final) }
+    for i:=0;i<adaptiveNNContexts;i++ { w.ContextBias[i]=make([]float64, adaptiveNNOutput) }
+    if budget < nnDenseCount(&w) { t.Fatalf("budget too small %d", budget) }
+    raw, err := json.Marshal(w)
+    if err!=nil { t.Fatal(err) }
+    return raw
+}
+
+func TestNeuralSparseHundredMillionParametersAndContextPersistence(t *testing.T) {
+    defer func() {
+        _=ConfigureZapret2NeuralModel(nil)
+        _=ConfigureZapret2NeuralNetwork("UNKNOWN")
+    }()
+    raw:=generatedSparseTestModel(t, 100_000_000, 32)
+    if len(raw) >= adaptiveNNMaxBytes { t.Fatal("dense allocation tracks logical budget") }
+    if err:=ConfigureZapret2NeuralModel(raw);err!=nil {t.Fatal(err)}
+    if err:=ConfigureZapret2NeuralNetwork("MOBILE");err!=nil {t.Fatal(err)}
+    for i:=0;i<6;i++ {
+        zapret2Neural.learn("www.example.org","tlsrec-split",adaptivePayloadThreshold)
+    }
+    learned:=ExportZapret2NeuralModel()
+    if len(learned)==0 {t.Fatal("learning not exported")}
+    if next:=ExportZapret2NeuralModel();len(next)!=0 {t.Fatal("unmodified model exported again")}
+    parsed,err:=parseAdaptiveNN(learned)
+    if err!=nil {t.Fatal(err)}
+    if parsed.Parameters!=100_000_000 || parsed.ContextObservations[0] != 6 {
+        t.Fatalf("lost network context: %d %+v",parsed.Parameters,parsed.ContextObservations)
+    }
+    if len(parsed.Sparse)==0 {t.Fatal("large sparse slots never trained")}
+    if err:=ConfigureZapret2NeuralNetwork("WIFI");err!=nil {t.Fatal(err)}
+    for i:=0;i<3;i++ {zapret2Neural.learn("www.example.org","tlsrec-split",0)}
+    learned=ExportZapret2NeuralModel()
+    parsed,err=parseAdaptiveNN(learned)
+    if err!=nil {t.Fatal(err)}
+    if parsed.ContextObservations[0]!=6 || parsed.ContextObservations[3]!=3 {
+        t.Fatalf("WIFI erased mobile learning: %+v",parsed.ContextObservations)
+    }
+    if err:=ConfigureZapret2NeuralModel(learned);err!=nil {t.Fatal(err)}
+    zapret2Neural.mu.Lock()
+    remembered:=zapret2Neural.weights.ContextObservations[0]
+    zapret2Neural.mu.Unlock()
+    if remembered!=6 {t.Fatal("snapshot did not survive reload")}
+    if nnCandidateIndex("pass",false)!=-1 || nnCandidateIndex("pass",true)!=8 {
+        t.Fatal("pass incorrectly indexes neural output")
+    }
+}
+
+func TestNeuralSparseSchemaRejectsUnsafeBudgets(t *testing.T) {
+    raw:=generatedSparseTestModel(t,100000,16)
+    w,err:=parseAdaptiveNN(raw)
+    if err!=nil {t.Fatal(err)}
+    w.Parameters=nnDenseCount(w)-1
+    bad,_:=json.Marshal(w)
+    if _,err:=parseAdaptiveNN(bad);err==nil {t.Fatal("too-small budget accepted")}
+    w.Parameters=1_000_000_001
+    bad,_=json.Marshal(w)
+    if _,err:=parseAdaptiveNN(bad);err==nil {t.Fatal("overflow budget accepted")}
+    w.Parameters=100000
+    w.Sparse=map[string]float64{"100000000": 0.2}
+    bad,_=json.Marshal(w)
+    if _,err:=parseAdaptiveNN(bad);err==nil {t.Fatal("out-of-range slot accepted")}
+}
