@@ -61,15 +61,58 @@ contains only this fixed catalog and its numerical test results.
 
 The report groups outcomes by **target and strategy** and includes
 all 48 individual attempts. It displays an exact median among successful
-content checks (including *.5 ms when needed). Because mobile latency
-varies and two samples are sparse, it must not automatically announce
-a winning DPI strategy or equate Google/thumbnail success with YouTube
-app feed/video availability.
+content checks (including *.5 ms when needed).
+
+### Provisional exact-host learning for AUTO
+
+In the mobile field test, `www.youtube.com` timed out twice under
+`plain` but returned verified HTML twice under `tlsrec-split` and
+`fake-5`. Previously AUTO rotated through `split-1` and `split`
+and timed out before reaching either working candidate.
+
+AUTO now learns a **temporary, exact-host** preference while the
+one-button diagnostic is running. It requires, within one sequential
+test run, (1) two failures under plain (timeout/TCP dial/TLS failure),
+and (2) two verified `outcome=ok` HTML responses for one of the six
+manual TCP candidates. Redirects, partial content, a single success,
+Google results, thumbnails, and results from the AUTO probe itself
+**cannot** teach this preference. If multiple candidates qualify,
+the lower sum of two elapsed times is only a provisional tie breaker;
+two samples are too sparse for a global performance claim.
+
+The preference applies to **new TLS connections** with the exact
+`www.youtube.com` SNI in the current native process, not all of
+`youtube.com`, `youtubei.googleapis.com`, `googlevideo.com`,
+`i.ytimg.com`, arbitrary user domains, or QUIC. It is memory-only,
+discarded on VPN/network reconfiguration, and withdrawn after two
+very weak live responses. For these HTML-verified selections, the
+weak-response threshold is 4 KiB rather than the media-oriented 12 KiB,
+so a successful 8 KiB HTML sample cannot by itself undo the learning.
+A known alternative may then be tried on a new connection; no in-flight
+TLS stream is rewritten.
+
+The AUTO attempts occur **after** the manual probes in the same test
+and should exercise this temporary preference. This needs Android
+field verification: an HTML response still does not establish
+YouTube's mobile feed API or googlevideo media streaming.
+The user-facing report shows the **eligible provisional candidate**,
+not an assertion that live YouTube playback was fixed.
+
+Because mobile latency varies and two samples are sparse, the
+diagnostic must not announce a global winning DPI strategy or equate
+Google/thumbnail success with YouTube app feed/video availability.
 
 ## Field validation still required
 
-The previous field logs proved only HTTP 301 for `google.com` across
-all strategies. Re-run the expanded test on MOBILE and Wi-Fi, verify
-clipboard auto-copy and retention of the live VPN, and report whether
-YouTube's feed and video actually load. No DPI bypass success is claimed
-before that physical validation.
+The early field logs proved only HTTP 301 for `google.com` across
+all strategies. On **2026-11-22 21:46 +03:00**, the expanded MOBILE
+test showed 16/16 verified Google HTML, 15/16 verified thumbnail JPEG,
+but **0/2 AUTO YouTube HTML** versus **2/2 tlsrec-split** and
+**2/2 fake-5**. The new learning is motivated by this contrast,
+not by a claim of YouTube app success.
+
+Re-run the expanded test on MOBILE and Wi-Fi, verify that the AUTO
+YouTube HTML row changes appropriately after verified candidates,
+clipboard auto-copy and VPN retention, and report whether YouTube
+feed and video actually load. No YouTube app bypass success is claimed
+before physical validation.
