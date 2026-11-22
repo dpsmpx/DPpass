@@ -661,9 +661,20 @@ class DPpassVpnService : VpnService() {
                         "Некорректный список адресов автоподбора Zapret2: " + chosen.text.take(160)))
                     return
                 }
-                else -> core.log.info("zapret2_adaptive_enabled",
-                    "all_tcp" to (desync == DesyncTrick.Auto),
-                    "selected" to targets.lines().count { it.isNotBlank() })
+                else -> {
+                    val automaticTcp = desync == DesyncTrick.Auto
+                    core.log.info("zapret2_adaptive_enabled",
+                        "all_tcp" to automaticTcp,
+                        "selected" to targets.lines().count { it.isNotBlank() },
+                        "quic_trials_enabled" to (automaticTcp && !forceQuicTcp))
+                    // AUTO means adaptive *TCP*. A previously saved QUIC→TCP
+                    // preference may still block all QUIC Initials. Do not
+                    // override the user's switch: report the effective scope.
+                    if (automaticTcp && forceQuicTcp) {
+                        core.log.warning("zapret2_auto_quic_blocked",
+                            "reason" to Safe("force_tcp_enabled"))
+                    }
+                }
             }
         }
         core.log.info("tunnel_up", "routes" to tunSpec.routes.size, "apps" to Safe(tunSpec.apps::class.simpleName ?: "?"))
@@ -737,6 +748,10 @@ class DPpassVpnService : VpnService() {
             val owners = graph.owners
             var diagUp = 0L
             var diagDown = 0L
+            // Xray desync counters are process-wide; baselines must start at
+            // this VPN session, unlike per-session traffic counters.
+            var diagApplied = graph.engine.desyncCounters()?.applied ?: 0L
+            var diagSkipped = graph.engine.desyncCounters()?.skipped ?: 0L
             var ticks = 0L
             while (isActive) {
                 core.usage.record(usage.delta(session.stats()), underlyingType)?.let { UsageAlerts.show(this@DPpassVpnService, core, it) }
@@ -752,10 +767,16 @@ class DPpassVpnService : VpnService() {
                     core.log.info("zapret2_transfer_window",
                         "up_bytes" to (stats.uplinkBytes - diagUp).coerceAtLeast(0),
                         "down_bytes" to (stats.downlinkBytes - diagDown).coerceAtLeast(0),
+                        "applied_delta" to ((probes?.applied ?: diagApplied) - diagApplied).coerceAtLeast(0),
+                        "skipped_delta" to ((probes?.skipped ?: diagSkipped) - diagSkipped).coerceAtLeast(0),
                         "applied_total" to (probes?.applied ?: 0L),
                         "skipped_total" to (probes?.skipped ?: 0L))
                     diagUp = stats.uplinkBytes
                     diagDown = stats.downlinkBytes
+                    if (probes != null) {
+                        diagApplied = probes.applied
+                        diagSkipped = probes.skipped
+                    }
                 }
                 val interactive = power.isInteractive
                 val notify = pace.tick(interactive)
