@@ -24,6 +24,6 @@ func (r Zapret2HTTPSResult) Wire() []byte {
         r.AppliedDelta, r.SkippedDelta))
 }
 
-func ProbeZapret2HTTPS(_ string, _ time.Duration) Zapret2HTTPSResult {
+func ProbeZapret2HTTPS(_, _ string, _ time.Duration) Zapret2HTTPSResult {
     return Zapret2HTTPSResult{Outcome:"unsupported"}
 }
