@@ -893,4 +893,13 @@
     <string name="zapret2_autotest_cancelled">Тестирование прервано; неполный отчёт не копировался.</string>
     <string name="zapret2_auto_primary_title">Автоподбор DPI</string>
     <string name="zapret2_auto_primary_note">Основной режим: AUTO. Стратегии подбираются автоматически, ручные TCP-приёмы скрыты и доступны встроенной диагностике.</string>
+    <string name="zapret2_model_download_title">Скачать локальную нейромодель</string>
+    <string name="zapret2_model_download_note">Необязательная небольшая нейросеть. Загрузка только по нажатию; подбор и обучение на устройстве. AUTO работает и без модели.</string>
+    <string name="zapret2_model_installed_note">Модель загружена и проверена. Нажмите, чтобы скачать заново.</string>
+    <string name="zapret2_model_delete_title">Удалить нейромодель</string>
+    <string name="zapret2_model_delete_note">Удалить скачанные веса и вернуться к встроенному обучению AUTO.</string>
+    <string name="zapret2_model_ready">Модель проверена и установлена. Обучение только на устройстве.</string>
+    <string name="zapret2_model_active_on_reconnect">Модель сохранена и включится при следующем подключении VPN.</string>
+    <string name="zapret2_model_failed">Ошибка скачивания или проверки модели. Встроенный AUTO не изменился.</string>
+    <string name="zapret2_model_deleted">Нейромодель удалена. Встроенный AUTO продолжает работать.</string>
 </resources>
