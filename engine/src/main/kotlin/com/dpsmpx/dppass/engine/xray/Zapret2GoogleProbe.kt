@@ -13,13 +13,15 @@ data class Zapret2GoogleProbe(
 ) {
     /** An HTTP 3xx proves reachability, not final content. */
     val success: Boolean get() = outcome == "ok"
+    /** Only proof of a TLS-verified HTTP reply, not authorized API content. */
+    val httpReachable: Boolean get() = success || outcome == "http_reachable"
 
     companion object {
         val outcomes: Set<String> = setOf(
             "ok", "redirect", "engine_off", "invalid_strategy", "invalid_timeout",
             "dial_failed", "timeout", "tls_failed", "tls_ca_failed",
             "request_failed", "http_failed", "http_status", "body_failed",
-            "empty_body", "content_type_mismatch", "content_invalid",
+            "empty_body", "content_type_mismatch", "content_invalid", "http_reachable",
             "invalid_target", "unsupported", "contract_error",
         )
         fun unavailable(): Zapret2GoogleProbe =
@@ -86,9 +88,11 @@ object Zapret2GoogleReport {
         appendLine("Network: $network")
         appendLine("Mode: active experimental VpnService; AUTO primary; QUIC->TCP=$quicForceTcp")
         appendLine("Transport: TLS certificate verified, direct GET / GET JPEG, max 8 KiB")
-        appendLine("Targets: google_final=www.google.com/ (HTML after google.com 301); " +
+        appendLine("Targets: google_final=www.google.com/ (HTML); " +
             "youtube_home=www.youtube.com/ (HTML); " +
+            "youtube_api_transport=youtubei.googleapis.com/youtubei/v1/browse (TLS+HTTP only); " +
             "youtube_thumbnail=i.ytimg.com/vi/jNQXAC9IVRw/hqdefault.jpg (JPEG)")
+        appendLine("API transport: HTTP 2xx/4xx may prove TLS and HTTP reachability, not usable YouTube API or feed.")
         appendLine("Redirects are NOT followed; a redirect is not a verified content success.")
         appendLine("HTTP 200 alone is not success: HTML/JPEG signatures checked.")
         appendLine("Scope: TCP/HTTPS only; QUIC, YouTube app API and video streaming NOT tested.")
@@ -100,11 +104,13 @@ object Zapret2GoogleReport {
             appendLine("TARGET $target — ${Zapret2ProbeCatalog.targetLabel(target)}")
             for (strategy in Zapret2ProbeCatalog.strategies) {
                 val rows = attempts.filter { it.target == target && it.strategy == strategy }
-                val ok = rows.count { it.result.success }
-                val median = medianMillis(rows.filter { it.result.success }
+                val transport = target == "youtube_api_transport"
+                val ok = rows.count { if (transport) it.result.httpReachable else it.result.success }
+                val median = medianMillis(rows.filter { if (transport) it.result.httpReachable else it.result.success }
                     .map { it.result.elapsedMillis })
                 val outcomes = rows.map { it.result.outcome }.joinToString(",").ifEmpty { "not_run" }
-                appendLine("  $strategy: $ok/${rows.size} content; median_ok_ms=$median; outcomes=$outcomes")
+                val unit = if (transport) "HTTP transport (not API content)" else "content"
+                appendLine("  $strategy: $ok/${rows.size} $unit; median_ok_ms=$median; outcomes=$outcomes")
             }
         }
         appendLine()
