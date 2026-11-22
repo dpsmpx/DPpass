@@ -275,11 +275,27 @@ class DPpassCore(
          * и отказ выбранного — отказ подключения, а не тихий переход на другой.
          */
         pinned: Boolean = false,
+        /**
+         * Optional local ordering of ALREADY eligible candidates. The
+         * user-selected/pinned path never consults this extension.
+         * Used by Android's generated server MLP; no server is added,
+         * no excluded/backoff candidate can be revived.
+         */
+        rerank: ((ConnectionPlan) -> ConnectionPlan)? = null,
         pause: suspend (Long) -> Unit,
     ): ConnectionReport? {
         val ir = activation.state.activeConfig ?: return null
         val full = plan(assessment, preferred, regime) ?: return null
-        val plan = if (pinned && preferred != null) pinTo(full, preferred) else full
+        val plan = if (pinned && preferred != null) pinTo(full, preferred) else {
+            val candidate = rerank?.invoke(full) ?: full
+            // Untrusted ordering must preserve the exact eligible sequence
+            // membership, exclusions, verdict and size.
+            if (candidate.attempts.map { it.profile.id }.toSet() ==
+                full.attempts.map { it.profile.id }.toSet() &&
+                candidate.attempts.size == full.attempts.size &&
+                candidate.excluded == full.excluded &&
+                candidate.verdict == full.verdict) candidate else full
+        }
         val orchestrator = ConnectionOrchestrator(compiler, engine, checker, health, clock, log, policy, stability, assessment ?: regime, splitMemory, pause)
         return orchestrator.connect(ir, plan, tun, share, splitClientHello, splitSites, local, systemTun)
     }
