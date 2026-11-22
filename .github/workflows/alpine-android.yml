@@ -5,6 +5,8 @@ on:
       - feature/zapret2-alpine-terminal
       - fix/zapret2-auto-stall-baseline-20261123
       - release/zapret2-v0.7.56-neural-auto
+      - feature/neural-variable-parameters-context-persistence
+      - release/zapret2-v0.7.57-param-auto
   workflow_dispatch:
 
 concurrency:
