@@ -88,6 +88,7 @@ object ServerAutoModel {
         }
         return runCatching {
             val model = JSONObject(snapshot.decodeToString())
+            val observations = model.optInt("observations", 0)
             val scored = plan.attempts.mapIndexed { i, attempt ->
                 val feat = features(core, attempt.profile, i, network, now)
                 Triple(attempt, feat, forward(model, feat).first)
@@ -104,9 +105,13 @@ object ServerAutoModel {
                 val right = scored[i + 1]
                 val leftHealth = core.health.of(left.first.profile.id).state
                 val rightHealth = core.health.of(right.first.profile.id).state
-                if (leftHealth != rightHealth || leftHealth == HealthState.FAILED) continue
+                if (leftHealth != rightHealth || leftHealth == HealthState.FAILED ||
+                    observations < 4) continue
                 val advantage = right.third - left.third
-                if (advantage > 0.12) {
+                // Four real connection outcomes unlock a cautious, adjacent
+                // same-health-class swap. Use a small but nonzero margin:
+                // the generated MLP starts near 0.5 for all candidates.
+                if (advantage > 0.003) {
                     scored[i] = right
                     scored[i + 1] = left
                 }
@@ -144,6 +149,7 @@ object ServerAutoModel {
             val outputRows = model.getJSONArray("output")
             val output = outputRows.getJSONArray(0)
             val outBias = model.getJSONArray("output_bias")
+            var learned = 0
             for (attempt in report.attempts) {
                 val x = feats[attempt.profileId.value] ?: continue
                 // Core-local/backend failures are not server failures.
@@ -152,6 +158,7 @@ object ServerAutoModel {
                     continue
                 val (p, h) = forward(model, x)
                 val delta = LR * ((if (attempt.ok) 1.0 else 0.0) - p)
+                learned++
                 val oldWeights = DoubleArray(h.size) { output.getDouble(it) }
                 for (i in h.indices) {
                     output.put(i, clamped(oldWeights[i] + delta * h[i]))
@@ -165,6 +172,8 @@ object ServerAutoModel {
                     for (j in 0 until INPUTS) row.put(j, clamped(row.getDouble(j) + scale * x[j]))
                 }
             }
+            if (learned == 0) return@runCatching
+            model.put("observations", (model.optInt("observations", 0) + learned).coerceAtMost(100000))
             // Revalidate and atomically persist only the numeric model,
             // not the server IDs or training examples.
             Zapret2NeuralModel.store(context, Zapret2NeuralModel.Kind.SERVER, model.toString().encodeToByteArray())
