@@ -210,7 +210,7 @@ jobs:
           Release signer SHA256: c18792812566ca4a18b518d51313515ff2d62bf8299446e99943eeb5d0630d11
           EOF
           cat > "${RUNNER_TEMP}/alpine-release-notes.md" <<EOF
-          Experimental **Android ARM64 debug + production-certificate signed release** builds of DPpass Zapret2 Alpine/PRoot.
+          Experimental **Android ARM64 debug + signed release (pinned alpha certificate)** builds of DPpass Zapret2 Alpine/PRoot.
           Built from \`${GITHUB_SHA}\` and verified by CI.
 
           - **Signed release APK:** \`DPpass-Neural-*-release-signed.apk\`, package \`com.dpsmpx.dppass\`. Optimized release variant, signed with the **pinned experimental alpha certificate** (not the store production key); can update an installed alpha only if that app has the same signing key and a compatible versionCode.
