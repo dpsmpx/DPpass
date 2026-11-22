@@ -208,6 +208,12 @@ func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSetZapret2AdaptiveHosts(en
     return statusOf(env, bridge.ConfigureZapret2AdaptiveHosts(string(bytesOf(env, hosts))))
 }
 
+//export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSetZapret2NeuralModel
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSetZapret2NeuralModel(env *C.JNIEnv, _ C.jclass, model C.jbyteArray) C.jbyteArray {
+    // Size/dimensions are independently validated by Go. Never execute code.
+    return statusOf(env, bridge.ConfigureZapret2NeuralModel(bytesOf(env, model)))
+}
+
 //export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeValidate
 func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeValidate(env *C.JNIEnv, _ C.jclass, config C.jbyteArray) C.jbyteArray {
 	full, err := bridge.Validate(bytesOf(env, config))
