@@ -210,6 +210,7 @@ type desyncConn struct {
     stageHelloSent atomic.Bool
     stageFirstReply atomic.Bool
     stageReadTimedOut atomic.Bool
+    stageCloseRecorded atomic.Bool
 }
 
 // net.TCPConn promotes io.ReaderFrom and io.WriterTo through embedding.
@@ -261,7 +262,7 @@ func (c *desyncConn) Close() error {
     // The final buffered bytes were already accepted by Write. Attempt to
     // transmit them before closing; a failure remains sticky.
     pendingErr := c.flushFirstBeforeRead()
-    if c.stageHelloSent.Load() && !c.stageFirstReply.Load() {
+    if c.stageHelloSent.Load() && !c.stageFirstReply.Load() && c.stageCloseRecorded.CompareAndSwap(false, true) {
         zapret2Stage.tcpClosedNoReply.Add(1)
     }
     c.observed.Do(func() {
@@ -664,6 +665,7 @@ type desyncUDPConn struct {
     observed sync.Once
     stageInitialSent atomic.Bool
     stageFirstReply atomic.Bool
+    stageCloseRecorded atomic.Bool
 }
 
 func (c *desyncUDPConn) Read(b []byte) (int, error) {
@@ -685,7 +687,7 @@ func (c *desyncUDPConn) Read(b []byte) (int, error) {
 }
 
 func (c *desyncUDPConn) Close() error {
-    if c.stageInitialSent.Load() && !c.stageFirstReply.Load() {
+    if c.stageInitialSent.Load() && !c.stageFirstReply.Load() && c.stageCloseRecorded.CompareAndSwap(false, true) {
         zapret2Stage.udpClosedNoReply.Add(1)
     }
     c.observed.Do(func() {
