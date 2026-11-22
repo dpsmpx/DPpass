@@ -73,7 +73,7 @@ class Zapret2GoogleProbeTest {
         counters[20] = 1
         val wire = ByteBuffer.allocate(1 + 21 * 8).order(ByteOrder.BIG_ENDIAN)
         wire.put(2.toByte())
-        counters.forEach(wire::putLong)
+        counters.forEach { wire.putLong(it) }
         val stages = Zapret2Stages.fromWire(wire.array())!!
         val report = Zapret2GoogleReport.render("test", "MOBILE", false, emptyList(), stages)
         assertTrue(report.contains("tcp_dial_unreachable=4"))
