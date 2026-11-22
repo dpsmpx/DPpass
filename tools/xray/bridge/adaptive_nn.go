@@ -39,13 +39,13 @@ type adaptiveNNWeights struct {
     Seed string `json:"seed,omitempty"`
     Hidden [][]float64 `json:"hidden"`
     Bias []float64 `json:"bias"`
-    DeepHidden [][]float64 `json:"deep_hidden,omitempty"`
-    DeepBias []float64 `json:"deep_bias,omitempty"`
+    DeepHidden [][]float64 `json:"deep_hidden"`
+    DeepBias []float64 `json:"deep_bias"`
     Output [][]float64 `json:"output"`
     OutputBias []float64 `json:"output_bias"`
     ContextBias [][]float64 `json:"context_bias,omitempty"`
     ContextObservations []int `json:"context_observations,omitempty"`
-    Sparse map[string]float64 `json:"sparse,omitempty"`
+    Sparse map[string]float64 `json:"sparse"`
     Observations int `json:"observations,omitempty"`
 }
 
@@ -204,11 +204,13 @@ func ExportZapret2NeuralModel() []byte {
 func nnCandidateIndex(tag string, quic bool) int {
     if quic {
         for i, candidate := range adaptiveQuicCandidates {
-            if tag == candidate { return len(adaptiveCandidates) + i }
+            if tag == candidate { return 6 + i }
         }
         return -1
     }
     for i, candidate := range adaptiveCandidates {
+        // The plain TCP pass candidate is not a neural output class.
+        if i >= 6 { break }
         if tag == candidate { return i }
     }
     return -1
