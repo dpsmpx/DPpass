@@ -154,3 +154,15 @@ func TestCombinedTLSRecordAndTCPSplitPreservesHandshake(t *testing.T) {
         }
     }
 }
+
+func TestQUICAutoPassPlanIsUnmodified(t *testing.T) {
+    b := make([]byte, 1200)
+    b[0], b[4] = 0xc0, 1
+    p, err := BuildPlan(TagPrefix+"pass", "udp", b)
+    if err != nil || p.Applied || len(p.Fake) != 0 || len(p.Rewrite) != 0 || p.TTL != 0 {
+        t.Fatalf("intentional QUIC baseline injected fake traffic: %+v %v", p, err)
+    }
+    if !bytes.Equal(b, func() []byte { original:=make([]byte, 1200); original[0], original[4]=0xc0,1;return original }()) {
+        t.Fatal("plain QUIC planning mutated input")
+    }
+}

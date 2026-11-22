@@ -127,3 +127,18 @@ func TestAdaptiveHTTPNeverUsesTLSRecordOnlyCandidate(t *testing.T) {
         if got == "tlsrec-split" { t.Fatal("TLS-record-only mode selected for HTTP") }
     }
 }
+
+// An adaptive QUIC flow must be able to recover by using unmodified QUIC.
+// This does not alter manually configured fake-3/fake-5 or QUIC-to-TCP.
+func TestAdaptiveQUICIncludesUnmodifiedBaselineAfterExistingCandidates(t *testing.T) {
+    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    host := "198.51.100.23"
+    for _, want := range []string{"fake-3", "fake-5", "pass"} {
+        if got := a.chooseQUIC(host); got != want { t.Fatalf("want %s, got %s", want, got) }
+    }
+    a.observe("udp:"+host, "pass", adaptivePayloadThreshold)
+    for i := 0; i < 3; i++ {
+        if got := a.chooseQUIC(host); got != "pass" { t.Fatalf("QUIC baseline preference lost: %s", got) }
+    }
+    if got := a.choose(host); got != "split-1" { t.Fatalf("QUIC selection changed TCP: %s", got) }
+}

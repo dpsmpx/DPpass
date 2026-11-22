@@ -62,6 +62,7 @@ const (
 	desyncSplitFirst desyncKind = 4
 	desyncAuto desyncKind = 5
     desyncTLSRecordSplit desyncKind = 6
+    desyncPass desyncKind = 7
 )
 
 type desyncMode struct {
@@ -116,6 +117,7 @@ func parseDesyncTag(tag string) (desyncMode, bool, error) {
     case zapret2.Split: return desyncMode{kind: desyncSplit}, true, nil
     case zapret2.SplitFirst: return desyncMode{kind: desyncSplitFirst}, true, nil
     case zapret2.TLSRecordSplit: return desyncMode{kind: desyncTLSRecordSplit}, true, nil
+    case zapret2.Pass: return desyncMode{kind: desyncPass}, true, nil
     case zapret2.Auto: return desyncMode{kind: desyncAuto}, true, nil
     default: return desyncMode{}, true, fmt.Errorf("unknown Zapret2 mode %v", mode.Kind)
     }
@@ -421,6 +423,7 @@ func modeTag(m desyncMode) string {
     case desyncSplit: return zapret2.TagPrefix + "split"
     case desyncSplitFirst: return zapret2.TagPrefix + "split-1"
     case desyncTLSRecordSplit: return zapret2.TagPrefix + "tlsrec-split"
+    case desyncPass: return zapret2.TagPrefix + "pass"
     case desyncFake: return fmt.Sprintf("%sfake-%d", zapret2.TagPrefix, m.ttl)
     case desyncAuto: return zapret2.TagPrefix + "auto"
     }
@@ -667,7 +670,7 @@ func (c *desyncUDPConn) Write(b []byte) (int, error) {
         if c.adaptiveSelection.Load() == nil {
             choice, generation := zapret2Auto.chooseQUICTracked(c.host)
             resolved, ok, err := parseDesyncTag(zapret2.TagPrefix + choice)
-            if !ok || err != nil || resolved.kind != desyncFake {
+            if !ok || err != nil || resolved.kind != desyncFake && resolved.kind != desyncPass {
                 c.plannerErr = fmt.Errorf("adaptive QUIC strategy rejected: %v", err)
                 return 0, c.plannerErr
             }
@@ -680,6 +683,11 @@ func (c *desyncUDPConn) Write(b []byte) (int, error) {
     // Initial multiple times. Checking only the very first Write allowed
     // every later Initial to bypass the selected strategy. This classifier
     // is shared with the Alpine planner; no independent parser lives here.
+    if c.mode.kind == desyncPass && zapret2.IsQUICInitial(b) {
+        // The explicit AUTO baseline sends real QUIC without malformed decoys.
+        desyncSkipped.Add(1)
+        return c.UDPConn.Write(b)
+    }
     if c.mode.kind != desyncFake || !zapret2.IsQUICInitial(b) {
         return c.UDPConn.Write(b)
     }

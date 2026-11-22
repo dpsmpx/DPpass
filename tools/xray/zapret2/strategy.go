@@ -18,6 +18,7 @@ const (
     SplitFirst Kind = "split-1"
     Auto Kind = "auto"
     TLSRecordSplit Kind = "tlsrec-split"
+    Pass Kind = "pass" // intentional untouched QUIC baseline, AUTO only
 )
 type Mode struct {
     Kind Kind `json:"kind"`
@@ -37,6 +38,7 @@ func ParseTag(tag string) (Mode, bool, error) {
     case "split": return Mode{Kind: Split}, true, nil
     case "split-1": return Mode{Kind: SplitFirst}, true, nil
     case "tlsrec-split": return Mode{Kind: TLSRecordSplit}, true, nil
+    case "pass": return Mode{Kind: Pass}, true, nil
     }
     if ttlStr, yes := strings.CutPrefix(v, "fake-"); yes {
         ttl, err := strconv.Atoi(ttlStr)
