@@ -2,6 +2,8 @@
 
 package zapret2
 
+import "fmt"
+
 // Plan is the single cross-platform strategy decision. Android retains only
 // packet/socket IO, while Alpine can run this exact planner as a separate
 // process. It never requires elevated OS privileges.
@@ -20,6 +22,7 @@ func BuildPlan(tag, network string, first []byte) (Plan, error) {
     mode, ok, err := ParseTag(tag)
     if err != nil { return Plan{}, err }
     if !ok { return Plan{}, nil }
+    if mode.Kind == Auto { return Plan{}, fmt.Errorf("adaptive mode must be resolved per connection before Alpine planning") }
     p := Plan{Strategy: tag, Network: network, TTL: mode.TTL}
     switch network {
     case "tcp":
