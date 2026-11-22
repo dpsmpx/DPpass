@@ -138,6 +138,11 @@ sealed interface DesyncTrick {
         override val label: String = "split-1"
     }
 
+    /** Experimental: two TLS handshake records sent in separate TCP writes; no fake data. */
+    data object TLSRecordSplit : DesyncTrick {
+        override val label: String = "tlsrec-split"
+    }
+
     /** Подделка: начало с подложным именем и TTL [ttl], затем те же номера — настоящие байты. */
     data class Fake(val ttl: Int) : DesyncTrick {
         init {
