@@ -18,6 +18,10 @@ var adaptiveQuicCandidates = [...]string{"fake-3", "fake-5"}
 // 128 KiB of actual downstream traffic is stronger evidence than the
 // small JSON/HTML metadata which can load even while media/CDN stalls.
 const adaptivePayloadThreshold = 128 * 1024
+// Feed/API responses can be smaller than a media segment. Repeated
+// nontrivial payloads are weak evidence, not a successful video probe.
+const adaptiveSmallResponseThreshold = 12 * 1024
+const adaptiveSmallResponseCount = 3
 const adaptiveMaxHosts = 1024
 const adaptiveMaxTargets = 512
 
@@ -25,18 +29,21 @@ const adaptiveMaxTargets = 512
 type adaptivePick struct {
     host string
     strategy string
+    generation uint64
 }
 
 type adaptiveEntry struct {
     index int
     preferred string
     weakFailures int
+    smallResponses map[string]int
 }
 
 type adaptiveSelector struct {
     mu sync.Mutex
     entries map[string]*adaptiveEntry
     selected map[string]struct{}
+    generation uint64 // invalidates observations from old network sessions
 }
 
 var zapret2Auto = &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
@@ -87,6 +94,7 @@ func (a *adaptiveSelector) configureHosts(text string) error {
     }
     a.mu.Lock()
     a.selected = list
+    a.generation++
     a.entries = make(map[string]*adaptiveEntry)
     a.mu.Unlock()
     return nil
@@ -98,52 +106,92 @@ func ConfigureZapret2AdaptiveHosts(text string) error { return zapret2Auto.confi
 // remains fixed for the lifetime of a TLS connection; changing its packet
 // manipulation mid-stream would corrupt the TCP protocol.
 func (a *adaptiveSelector) choose(host string) string {
-    return a.chooseFrom(host, adaptiveCandidates[:])
+    choice, _ := a.chooseWithGeneration(host, adaptiveCandidates[:])
+    return choice
+}
+func (a *adaptiveSelector) chooseTracked(host string) (string, uint64) {
+    return a.chooseWithGeneration(host, adaptiveCandidates[:])
 }
 
-// QUIC Initials cannot reveal an SNI without TLS decryption. Trial evidence
-// is kept separately by protected UDP destination IP, never mixed with TCP.
+// QUIC evidence is separate and keyed by the protected UDP destination IP.
 func (a *adaptiveSelector) chooseQUIC(host string) string {
-    return a.chooseFrom("udp:"+host, adaptiveQuicCandidates[:])
+    choice, _ := a.chooseQUICTracked(host)
+    return choice
+}
+func (a *adaptiveSelector) chooseQUICTracked(host string) (string, uint64) {
+    return a.chooseWithGeneration("udp:"+host, adaptiveQuicCandidates[:])
+}
+func (a *adaptiveSelector) chooseFrom(host string, candidates []string) string {
+    choice, _ := a.chooseWithGeneration(host, candidates)
+    return choice
 }
 
-func (a *adaptiveSelector) chooseFrom(host string, candidates []string) string {
+// Previous-network connections may close after a network reset. The captured
+// generation prevents their late evidence changing the new network's winner.
+func (a *adaptiveSelector) chooseWithGeneration(host string, candidates []string) (string, uint64) {
     host = canonicalAdaptiveHost(host)
-    if host == "" { return candidates[0] }
     a.mu.Lock()
     defer a.mu.Unlock()
+    if host == "" { return candidates[0], a.generation }
     if len(a.entries) >= adaptiveMaxHosts {
-        // Bounded memory under churn; never copy visited hostnames to disk.
         a.entries = make(map[string]*adaptiveEntry)
     }
     e := a.entries[host]
     if e == nil { e = &adaptiveEntry{}; a.entries[host] = e }
-    if e.preferred != "" { return e.preferred }
+    if e.preferred != "" { return e.preferred, a.generation }
     tag := candidates[e.index%len(candidates)]
     e.index++
-    return tag
+    return tag, a.generation
 }
 
 func (a *adaptiveSelector) observe(host, strategy string, payloadBytes int64) {
-    host = canonicalAdaptiveHost(host)
-    if host == "" { return }
     a.mu.Lock()
     defer a.mu.Unlock()
+    a.observeLocked(host, strategy, payloadBytes)
+}
+func (a *adaptiveSelector) observeTracked(host, strategy string, payloadBytes int64, generation uint64) {
+    a.mu.Lock()
+    defer a.mu.Unlock()
+    if a.generation != generation { return }
+    a.observeLocked(host, strategy, payloadBytes)
+}
+
+func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int64) {
+    host = canonicalAdaptiveHost(host)
     e := a.entries[host]
     if e == nil { return }
     if payloadBytes >= adaptivePayloadThreshold {
         e.preferred = strategy
         e.weakFailures = 0
+        e.smallResponses = nil
     } else if e.preferred == strategy {
-        // A single short response can be a legitimate small HTTP request;
-        // require two weak endings to leave an otherwise successful mode.
-        e.weakFailures++
-        if e.weakFailures >= 2 { e.preferred = ""; e.weakFailures = 0 }
+        // One legitimate short request is not an automatic strategy failure.
+        if payloadBytes >= adaptiveSmallResponseThreshold {
+            e.weakFailures = 0
+        } else {
+            e.weakFailures++
+            if e.weakFailures >= 2 {
+                e.preferred = ""
+                e.weakFailures = 0
+                e.smallResponses = nil
+            }
+        }
+    } else if e.preferred == "" && payloadBytes >= adaptiveSmallResponseThreshold {
+        // Several small feed/API responses can demonstrate progress without
+        // a 128-KiB media segment. Never pin from only one handshake.
+        if e.smallResponses == nil { e.smallResponses = make(map[string]int) }
+        e.smallResponses[strategy]++
+        if e.smallResponses[strategy] >= adaptiveSmallResponseCount {
+            e.preferred = strategy
+            e.weakFailures = 0
+            e.smallResponses = nil
+        }
     }
 }
 
 func ResetZapret2AdaptiveLearning() {
     zapret2Auto.mu.Lock()
     zapret2Auto.entries = make(map[string]*adaptiveEntry)
+    zapret2Auto.generation++
     zapret2Auto.mu.Unlock()
 }
