@@ -53,7 +53,9 @@ enum class Zapret2VpnStrategy(val wire: String) {
     SPLIT_SNI("split"),
     SPLIT_FIRST("split-1"),
     /** Rotate available strategies independently for each new TCP destination. */
-    AUTO("auto");
+    AUTO("auto"),
+    /** Experimental TLS 1.3 handshake record + TCP split; legacy indices stay unchanged. */
+    TLS_RECORD_SPLIT("tlsrec-split");
 
     companion object {
         // A newly enabled local VPN starts with adaptive selection. An
