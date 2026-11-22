@@ -252,9 +252,11 @@ func TestDesyncDialerWrapsOnlyExperimentOutbounds(t *testing.T) {
 		t.Error("исходящий эксперимента не обёрнут")
 	}
 	_, skipped := DesyncStats()
-	if _, ok := dial("dppass:exp-fake-99").(*desyncConn); ok {
-		t.Error("неверный тег — как есть")
-	}
+    bad := session.ContextWithOutbounds(context.Background(), []*session.Outbound{{Tag: "dppass:exp-fake-99"}})
+    invalid, err := d.Dial(bad, nil, dest, nil)
+    if err == nil || invalid != nil {
+        t.Fatalf("invalid Zapret2 strategy must reject the dial rather than return direct traffic: conn=%v err=%v", invalid, err)
+    }
 	if _, s := DesyncStats(); s != skipped+1 {
 		t.Error("неверный тег не засчитан пропуском")
 	}
@@ -337,6 +339,77 @@ func TestUDPFirstQUICWriteSendsDummyBeforeReal(t *testing.T) {
 	}
 	n, _, e := receiver.ReadFromUDP(buf)
 	if e != nil || n != 1200 || buf[0] != 0xc0 { t.Fatalf("real: size=%d %v",n,e) }
+}
+
+// An oversized first HTTP request used to silently bypass a selected fake
+// strategy: fakeWrite cannot vmsplice a prefix larger than one memory page,
+// and the old code then wrote the original HTTP request directly. Fail closed.
+func TestFakeOversizedFirstChunkDoesNotFallBackToDirect(t *testing.T) {
+    // Keep this valid HTTP/1.x (firstHostRange accepts <=16 KiB).
+    payload := []byte("GET / HTTP/1.1\r\nX-Pad: " +
+        string(bytes.Repeat([]byte{'a'}, 2*unix.Getpagesize())) +
+        "\r\nHost: video.example.org\r\n\r\n")
+    plan, err := zapret2.BuildPlan("dppass:exp-fake-5", "tcp", payload)
+    if err != nil || !plan.Applied || plan.Cut <= unix.Getpagesize() {
+        t.Fatalf("fixture needs a real oversized fake prefix: %+v %v", plan, err)
+    }
+    ln, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+    if err != nil { t.Fatal(err) }
+    defer ln.Close()
+    client, err := net.DialTCP("tcp4", nil, ln.Addr().(*net.TCPAddr))
+    if err != nil { t.Fatal(err) }
+    defer client.Close()
+    server, err := ln.AcceptTCP()
+    if err != nil { t.Fatal(err) }
+    defer server.Close()
+
+    c := &desyncConn{TCPConn: client, mode: desyncMode{kind: desyncFake, ttl: 5}}
+    n, err := c.Write(payload)
+    if err == nil || n != 0 || c.plannerErr == nil {
+        t.Fatalf("failed injection must fail closed: written=%d err=%v sticky=%v", n, err, c.plannerErr)
+    }
+    if n, next := c.Write([]byte("not a valid continuation")); next == nil || n != 0 {
+        t.Fatalf("later writes must not bypass the failed strategy: %d %v", n, next)
+    }
+    _ = server.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+    buf := make([]byte, len(payload))
+    if n, err := server.Read(buf); n != 0 || err == nil {
+        t.Fatalf("DPI payload reached server after failed strategy: %d %v", n, err)
+    }
+}
+
+// Split-first cannot be retried as plain text after an initial failed write.
+func TestFailedFirstByteTLSSplitIsSticky(t *testing.T) {
+    ln, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+    if err != nil { t.Fatal(err) }
+    defer ln.Close()
+    client, err := net.DialTCP("tcp4", nil, ln.Addr().(*net.TCPAddr))
+    if err != nil { t.Fatal(err) }
+    server, err := ln.AcceptTCP()
+    if err != nil { t.Fatal(err) }
+    defer server.Close()
+    _ = client.Close()
+    c := &desyncConn{TCPConn: client, mode: desyncMode{kind: desyncSplitFirst}}
+    hello := []byte{22, 3, 3, 0, 4, 1, 0, 0, 0}
+    if n, err := c.Write(hello); n != 0 || err == nil || c.plannerErr == nil {
+        t.Fatalf("closed TLS split must be sticky: %d %v %v", n, err, c.plannerErr)
+    }
+    if n, err := c.Write([]byte("later")); n != 0 || err == nil {
+        t.Fatalf("cannot continue as raw direct TCP after split failed: %d %v", n, err)
+    }
+}
+
+func TestFailedLowTTLQUICDecoyReturnsError(t *testing.T) {
+    remote, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+    if err != nil { t.Fatal(err) }
+    defer remote.Close()
+    conn, err := net.DialUDP("udp4", nil, remote.LocalAddr().(*net.UDPAddr))
+    if err != nil { t.Fatal(err) }
+    _ = conn.Close()
+    c := &desyncUDPConn{UDPConn: conn, mode: desyncMode{kind: desyncFake, ttl: 5}}
+    if err := c.sendLowTTLDummyQUIC([]byte("fake"), 1); err == nil {
+        t.Fatal("unusable UDP socket must be reported as a failed decoy")
+    }
 }
 
 // ---- Стенд (FAKE_PACKETS.md, §6.1) ----
