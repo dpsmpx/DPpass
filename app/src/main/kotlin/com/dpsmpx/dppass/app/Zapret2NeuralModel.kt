@@ -55,6 +55,7 @@ object Zapret2NeuralModel {
             .put("bias", JSONArray().apply { repeat(hidden) { put(0.0) } })
             .put("output", outputRows)
             .put("output_bias", JSONArray().apply { repeat(kind.outputs) { put(0.0) } })
+        if (kind == Kind.SERVER) obj.put("observations", 0)
         return obj.toString().encodeToByteArray().also {
             check(it.size <= MAX_BYTES) { "Model exceeds 1 MiB memory/disk budget" }
         }
