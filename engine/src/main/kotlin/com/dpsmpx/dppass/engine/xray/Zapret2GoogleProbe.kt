@@ -41,6 +41,17 @@ data class Zapret2GoogleAttempt(
 
 /** Complete plaintext report for clipboard; all attempts, including failures. */
 object Zapret2GoogleReport {
+    /** Exact median in milliseconds, preserving .5 for even sample counts. */
+    fun medianMillis(values: List<Long>): String {
+        if (values.isEmpty()) return "-"
+        val sorted = values.sorted()
+        val left = sorted[(sorted.size - 1) / 2]
+        val right = sorted[sorted.size / 2]
+        // Native attempts are bounded by a few seconds; the sum fits in Long.
+        val sum = left + right
+        return if (sum % 2L == 0L) (sum / 2L).toString() else "${sum / 2L}.5"
+    }
+
     fun render(
         timestamp: String,
         network: String,
@@ -61,8 +72,7 @@ object Zapret2GoogleReport {
         for (name in Zapret2ProbeCatalog.strategies) {
             val rows = attempts.filter { it.strategy == name }
             val ok = rows.count { it.result.success }
-            val median = rows.filter { it.result.success }.map { it.result.elapsedMillis }
-                .sorted().let { t -> if (t.isEmpty()) "-" else t[t.size / 2].toString() }
+            val median = medianMillis(rows.filter { it.result.success }.map { it.result.elapsedMillis })
             val outcomes = rows.map { it.result.outcome }.joinToString(",").ifEmpty { "not_run" }
             appendLine("$name: $ok/${rows.size} HTTP replies; median_ms=$median; outcomes=$outcomes")
         }
