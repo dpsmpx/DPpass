@@ -348,6 +348,7 @@ class DPpassVpnService : VpnService() {
                     Zapret2VpnStrategy.SPLIT_SNI -> DesyncTrick.Split
                     Zapret2VpnStrategy.SPLIT_FIRST -> DesyncTrick.SplitFirst
                     Zapret2VpnStrategy.AUTO -> DesyncTrick.Auto
+                    Zapret2VpnStrategy.TLS_RECORD_SPLIT -> DesyncTrick.TLSRecordSplit
                 }
                 connectServerless(graph, sites, settings, trick, "Zapret2 VPN local",
                     p.zapret2VpnForceTcp, p.zapret2VpnCatchAllHttps)
