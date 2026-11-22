@@ -704,8 +704,8 @@ class DPpassVpnService : VpnService() {
                     }
                 }
             }
-            // The MLP is strictly optional; download is a user action.
-            // A corrupt or absent cache must never prevent serverless VPN.
+            // Locally generated MLP is optional. Reuse learned scenario
+            // weights from private storage rather than a downloaded seed.
             val networkClass = when (NetworkCheck.underlying(this).type) {
                 NetworkType.MOBILE -> "MOBILE"
                 NetworkType.WIFI -> "WIFI"
@@ -860,6 +860,9 @@ class DPpassVpnService : VpnService() {
                         logZapret2Stages("zapret2_stage_window", nowStages.delta(lastStages))
                     }
                     lastStages = nowStages
+                    // Export only modified bounded weights. No network request
+                    // and no domain names are written to this private file.
+                    withContext(Dispatchers.IO) { persistStrategyLearning() }
                 }
                 val interactive = power.isInteractive
                 val notify = pace.tick(interactive)
@@ -1112,21 +1115,18 @@ class DPpassVpnService : VpnService() {
                     } else {
                         DeviceLog.log.info("zapret2_adaptive_reset", "reason" to Safe("network_change"))
                     }
-                    // Restart optional local MLP from the downloaded seed
-                    // on each physical network change. Do not carry learned
-                    // priors between unrelated mobile/Wi-Fi conditions.
+                    // Change the active head only. NEVER reload random weights
+                    // on a handoff: MOBILE/Wi-Fi/OTHER learning is retained.
                     val networkClass = when (u.type) {
                         NetworkType.MOBILE -> "MOBILE"
                         NetworkType.WIFI -> "WIFI"
                         else -> "OTHER"
                     }
-                    runCatching { JniXrayRuntime.configureZapret2NeuralNetwork(networkClass) }
-                    val model = Zapret2NeuralModel.readVerified(this@DPpassVpnService)
-                    val reloaded = runCatching {
-                        JniXrayRuntime.configureZapret2NeuralModel(model ?: ByteArray(0))
+                    val updated = runCatching {
+                        JniXrayRuntime.configureZapret2NeuralNetwork(networkClass)
                     }.getOrNull()
-                    if (reloaded == null || reloaded is XrayResult.Failed) {
-                        DeviceLog.log.warning("zapret2_neural_reset_failed",
+                    if (updated == null || updated is XrayResult.Failed) {
+                        DeviceLog.log.warning("zapret2_neural_context_failed",
                             "reason" to Safe("network_change"))
                     }
                 }
@@ -1347,6 +1347,23 @@ class DPpassVpnService : VpnService() {
      * (до срока пробы), и запущенный им сеанс останавливается, только когда
      * она вернётся. Вызывается под [lifecycle].
      */
+    /** Save real downstream learning, including separate network/protocol heads. */
+    private fun persistStrategyLearning() {
+        val current = Zapret2NeuralModel.readVerified(this, Zapret2NeuralModel.Kind.STRATEGY)
+            ?: return
+        // Snapshot is returned only if native weights changed since last flush.
+        val snapshot = runCatching { JniXrayRuntime.snapshotZapret2NeuralModel() }.getOrNull()
+            ?: return
+        if (!Zapret2NeuralModel.storeLearnedSnapshot(this,
+                Zapret2NeuralModel.Kind.STRATEGY, snapshot)) {
+            DeviceLog.log.warning("zapret2_neural_persist_failed",
+                "reason" to Safe("stale_or_invalid_model"))
+        } else if (current.isNotEmpty()) {
+            DeviceLog.log.info("zapret2_neural_saved",
+                "bytes" to snapshot.size)
+        }
+    }
+
     private fun stopObservers() {
         supervisor?.cancel()
         supervisor = null
@@ -1354,6 +1371,8 @@ class DPpassVpnService : VpnService() {
         shareWatch = null
         ticker?.cancel()
         ticker = null
+        // Save before Xray stops, including fast reconnects under 30 seconds.
+        if (zapret2FinalState != null) runCatching { persistStrategyLearning() }
         // A reconnect may happen before the first 30-second transfer window.
         // Emit the whole-session snapshot while the old engine is still alive,
         // and at most once even when shutdown invokes stopObservers twice.
