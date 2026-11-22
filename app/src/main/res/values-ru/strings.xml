@@ -883,7 +883,7 @@
     <string name="alpine_failed">Ошибка Alpine: %1$s</string>
     <string name="alpine_missing">PRoot ARM64 не включён в APK. Соберите с -Pdppass.alpine=true.</string>
     <string name="zapret2_autotest_title">Zapret2 · диагностика Google и YouTube</string>
-    <string name="zapret2_autotest_subtitle">Одна кнопка: 3 HTTPS-цели × 8 TCP-режимов × 2 попытки; полный отчёт в буфер обмена</string>
+    <string name="zapret2_autotest_subtitle">Одна кнопка: 4 HTTPS-цели × 8 TCP-режимов × 2 попытки; полный отчёт в буфер обмена</string>
     <string name="zapret2_autotest_note">Тест через работающий Zapret2 VPN, без браузера: Google HTML, YouTube HTML, JPEG-миниатюра и HTTPS-доступность youtubei.googleapis.com (без авторизации API). Всего 64 проверки. Проверяются TLS и признаки HTML/JPEG. Ответ HTTP 400/403 от API подтверждает только доступность сервера, НЕ загрузку ленты или видео. Отчёт автоматически копируется по завершении.</string>
     <string name="zapret2_autotest_again">Запустить все тесты заново</string>
     <string name="zapret2_autotest_need_connection">Для теста сначала подключите экспериментальный VPN в режиме Zapret2 VpnService.</string>
