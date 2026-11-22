@@ -906,4 +906,17 @@
     <string name="path_local_auto">Стратегии</string>
     <string name="path_provider_explained">Через VPN-провайдера: выбранный сервер или автоматический подбор.</string>
     <string name="path_local_explained">Прямые соединения через локальный Zapret2 AUTO, без VPN-провайдера.</string>
+    <string name="model_server_section">Локальная модель выбора сервера</string>
+    <string name="model_strategy_title">Создать модель стратегий</string>
+    <string name="model_server_title">Создать модель автовыбора сервера</string>
+    <string name="model_not_generated">Не создана. Работает встроенный автоматический подбор.</string>
+    <string name="model_installed_size">Создана локально: %1$d скрытых нейронов. Нажмите для изменения размера или удаления.</string>
+    <string name="model_size_choice">%1$d скрытых нейронов</string>
+    <string name="model_recommended"> · рекомендуется</string>
+    <string name="model_generate_action">Создать</string>
+    <string name="model_remove_action">Удалить модель</string>
+    <string name="model_created">Модель создана на устройстве, без скачивания.</string>
+    <string name="model_ready_reconnect">Модель сохранена. Она включится после переподключения.</string>
+    <string name="model_removed">Локальная модель удалена. Встроенный подбор доступен.</string>
+    <string name="model_generation_failed">Не удалось создать или включить модель. Текущий режим сохранён.</string>
 </resources>
