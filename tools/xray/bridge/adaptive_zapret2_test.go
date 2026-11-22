@@ -59,3 +59,40 @@ func TestAdaptiveQuicSelectionIsIndependentOfTCP(t *testing.T) {
     if got := a.chooseQUIC("203.0.113.9"); got != "fake-5" { t.Fatal("QUIC preference not retained", got) }
     if got := a.choose("203.0.113.9"); got != "split" { t.Fatal("QUIC must not change TCP selection", got) }
 }
+
+func TestAdaptiveLearnsSmallFeedResponsesOnlyAfterMultipleFlows(t *testing.T) {
+    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    host := "www.youtube.com"
+    for i := 0; i < len(adaptiveCandidates)*3; i++ {
+        choice := a.choose(host)
+        // Other strategies only reach TLS/metadata; this candidate reliably
+        // carries substantial short feed responses.
+        if choice == "split" {
+            a.observe(host, choice, adaptiveSmallResponseThreshold+1024)
+        } else {
+            a.observe(host, choice, 2048)
+        }
+    }
+    for i := 0; i < 3; i++ {
+        if got := a.choose(host); got != "split" { t.Fatalf("weak repeated payload preference: %q", got) }
+    }
+}
+
+func TestAdaptiveIgnoresLateOldNetworkObservations(t *testing.T) {
+    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    host := "r1.googlevideo.com"
+    choice, oldGeneration := a.chooseTracked(host)
+    if err := a.configureHosts("youtube.com"); err != nil { t.Fatal(err) }
+    if got := a.choose(host); got != "split-1" { t.Fatal(got) }
+    a.observeTracked(host, choice, adaptivePayloadThreshold*2, oldGeneration)
+    if got := a.choose(host); got != "split" {
+        t.Fatalf("old carrier response poisoned new network: %q", got)
+    }
+}
+
+func TestAdaptiveManualIPv4TargetCoversQUIC(t *testing.T) {
+    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    if err := a.configureHosts("203.0.113.9"); err != nil { t.Fatal(err) }
+    if !a.wants("203.0.113.9") { t.Fatal("selected IP must apply to protected QUIC destination") }
+    if a.wants("203.0.113.10") { t.Fatal("selection must not cover unrelated IP") }
+}
