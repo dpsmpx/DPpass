@@ -44,10 +44,29 @@ type adaptiveEntry struct {
     smallResponses map[string]int
 }
 
+// Probe evidence is distinct from transport-byte heuristics. It comes from
+// certificate-verified HTTPS HTML in the one-button test, for *one exact*
+// allowlisted host, and expires at network/session reconfiguration.
+type adaptiveProbeSample struct {
+    tried int
+    verified int
+    totalMillis int64
+}
+
+type adaptiveProbeEvidence struct {
+    lastStrategy string
+    plainFailures int
+    plainSuccesses int
+    candidates map[string]adaptiveProbeSample
+    winner string
+    winnerMillis int64
+}
+
 type adaptiveSelector struct {
     mu sync.Mutex
     entries map[string]*adaptiveEntry
     selected map[string]struct{}
+    probe map[string]*adaptiveProbeEvidence
     generation uint64 // invalidates observations from old network sessions
 }
 
@@ -101,6 +120,7 @@ func (a *adaptiveSelector) configureHosts(text string) error {
     a.selected = list
     a.generation++
     a.entries = make(map[string]*adaptiveEntry)
+    a.probe = nil
     a.mu.Unlock()
     return nil
 }
@@ -205,9 +225,90 @@ func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int
     }
 }
 
+// Current generation identifies observations from a single network session.
+func (a *adaptiveSelector) generationSnapshot() uint64 {
+    a.mu.Lock()
+    defer a.mu.Unlock()
+    return a.generation
+}
+
+// A per-host preference can be seeded ONLY by successful HTTPS content
+// probes, never by an HTTP redirect, TLS server bytes, or an unrelated host.
+// This is intentionally conservative: 2/2 baseline failures and 2/2 valid
+// HTML responses for a fixed, non-AUTO candidate. It affects the exact
+// www.youtube.com hostname, not Google, thumbnails, API or googlevideo.
+func (a *adaptiveSelector) observeHTMLProbe(host, strategy, outcome string, elapsedMillis int64, generation uint64) {
+    if host != "www.youtube.com" || strategy == "auto" || elapsedMillis < 0 { return }
+    if strategy != "plain" {
+        recognized := false
+        for _, candidate := range adaptiveCandidates {
+            if strategy == candidate { recognized = true; break }
+        }
+        if !recognized { return }
+    }
+
+    a.mu.Lock()
+    defer a.mu.Unlock()
+    if a.generation != generation { return }
+    if a.probe == nil { a.probe = make(map[string]*adaptiveProbeEvidence) }
+    evidence := a.probe[host]
+    // Start a new trial on the first plain attempt after another strategy.
+    // A test runs one baseline pair, then candidate pairs, serially.
+    if evidence == nil || strategy == "plain" && evidence.lastStrategy != "plain" ||
+        strategy == "plain" && evidence.plainFailures+evidence.plainSuccesses >= 2 {
+        evidence = &adaptiveProbeEvidence{candidates: make(map[string]adaptiveProbeSample)}
+        a.probe[host] = evidence
+    }
+    evidence.lastStrategy = strategy
+    if strategy == "plain" {
+        if outcome == "ok" { evidence.plainSuccesses++ }
+        if outcome == "timeout" || outcome == "dial_failed" || outcome == "tls_failed" {
+            evidence.plainFailures++
+        }
+        return
+    }
+    sample := evidence.candidates[strategy]
+    sample.tried++
+    if outcome == "ok" {
+        sample.verified++
+        sample.totalMillis += elapsedMillis
+    }
+    evidence.candidates[strategy] = sample
+
+    if evidence.plainFailures != 2 || evidence.plainSuccesses != 0 ||
+        sample.tried != 2 || sample.verified != 2 {
+        return
+    }
+    // Prefer a confirmed winner with lower total latency, but do not
+    // mistake a 1/2 success or 301 redirect for a verified result.
+    if evidence.winner != "" && sample.totalMillis >= evidence.winnerMillis { return }
+    evidence.winner, evidence.winnerMillis = strategy, sample.totalMillis
+    e := a.entries[host]
+    if e == nil {
+        if len(a.entries) >= adaptiveMaxHosts {
+            a.entries = make(map[string]*adaptiveEntry)
+        }
+        e = &adaptiveEntry{}
+        a.entries[host] = e
+    }
+    e.preferred = strategy
+    e.weakFailures = 0
+    e.smallResponses = nil
+    // On two weak live connections, fall back to a *different* candidate.
+    // If the other successful method was observed, try it first.
+    backup := "fake-5"
+    if strategy == "fake-5" { backup = "tlsrec-split" }
+    for i, candidate := range adaptiveCandidates {
+        if candidate == backup { e.index = i; break }
+    }
+}
+
+// Reset all temporary knowledge when the network changes. Never persist
+// the target's browsing history or the probe winner to preferences.
 func ResetZapret2AdaptiveLearning() {
     zapret2Auto.mu.Lock()
     zapret2Auto.entries = make(map[string]*adaptiveEntry)
+    zapret2Auto.probe = nil
     zapret2Auto.generation++
     zapret2Auto.mu.Unlock()
 }
