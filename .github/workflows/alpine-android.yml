@@ -164,7 +164,7 @@ jobs:
   publish-release:
     name: Publish tested Alpine APK to Releases
     needs: alpine-android
-    if: github.ref == 'refs/heads/feature/zapret2-alpine-terminal' || github.ref == 'refs/heads/release/zapret2-v0.7.56-neural-auto'
+    if: github.ref == 'refs/heads/feature/zapret2-alpine-terminal' || github.ref == 'refs/heads/release/zapret2-v0.7.56-neural-auto' || github.ref == 'refs/heads/release/zapret2-v0.7.57-param-auto'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
