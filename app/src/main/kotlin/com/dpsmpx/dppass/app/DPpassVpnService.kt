@@ -21,6 +21,7 @@ import android.service.quicksettings.TileService
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.ui.Formats
 import com.dpsmpx.dppass.app.alpine.AlpineFiles
+import com.dpsmpx.dppass.app.alpine.AlpinePlannerSelection
 import com.dpsmpx.dppass.app.alpine.AlpineZapret2Runtime
 import com.dpsmpx.dppass.connection.ConnectionReport
 import com.dpsmpx.dppass.connection.DPpassCore
@@ -602,28 +603,51 @@ class DPpassVpnService : VpnService() {
         // Only create a PRoot process after Android has granted VPN consent
         // and established its TUN. Otherwise a rejected permission request
         // starts a daemon that must immediately be destroyed.
-        // Alpine is the single strategy decision authority in opt-in ARM64
-        // builds. Android still owns TUN, protected sockets and TTL writes:
-        // PRoot cannot acquire CAP_NET_ADMIN or operate NFQUEUE.
-        if (desync != null && AppPrefs(this).zapret2Backend == Zapret2Backend.VPN_SERVICE &&
-            AlpineFiles.supported(this)) {
-            val started = runCatching { AlpineZapret2Runtime.start(this) }
-            val daemon = started.getOrNull()
-            if (daemon == null) {
-                fail(Diagnostic.fromThrowable(DiagCode.BACKEND_NOT_AVAILABLE,
-                    "Zapret2 Alpine: стратегия не запустилась", started.exceptionOrNull()!!))
-                return
-            }
-            alpineStrategy = daemon
-            when (val selection = JniXrayRuntime.configureZapret2Planner(daemon.socketPath)) {
-                is XrayResult.Failed -> {
-                    daemon.close()
-                    alpineStrategy = null
+        // Android retains TUN/protected sockets; the Alpine-enabled APK
+        // must select its bundled planner or fail, never silently switch to
+        // an in-process decision maker when PRoot binaries are unavailable.
+        if (desync != null && AppPrefs(this).zapret2Backend == Zapret2Backend.VPN_SERVICE) {
+            val bundled = AlpineFiles.bundled(this)
+            val selection = AlpinePlannerSelection.choose(
+                bundled = bundled,
+                supported = bundled && AlpineFiles.supported(this),
+            )
+            when (selection) {
+                AlpinePlannerSelection.IN_PROCESS -> {
+                    // Standard APK only. Same shared algorithm, without PRoot.
+                    core.log.info("zapret2_planner", "mode" to Safe("in_process"),
+                        "reason" to Safe("alpine_not_packaged"))
+                }
+                AlpinePlannerSelection.UNAVAILABLE -> {
                     fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
-                        "Не удалось включить Alpine-движок Zapret2: " + selection.text.take(200)))
+                        "Zapret2 Alpine включён в APK, но PRoot или его загрузчик недоступен"))
                     return
                 }
-                else -> Unit
+                AlpinePlannerSelection.ALPINE -> {
+                    core.log.info("zapret2_alpine_start", "status" to Safe("initializing"))
+                    val started = runCatching { AlpineZapret2Runtime.start(this) }
+                    val daemon = started.getOrNull()
+                    if (daemon == null) {
+                        fail(Diagnostic.fromThrowable(DiagCode.BACKEND_NOT_AVAILABLE,
+                            "Zapret2 Alpine: стратегия не запустилась", started.exceptionOrNull()!!))
+                        return
+                    }
+                    alpineStrategy = daemon
+                    core.log.info("zapret2_alpine_ready", "status" to Safe("socket_probed"),
+                        "process_alive" to daemon.isAlive)
+                    when (val selected = JniXrayRuntime.configureZapret2Planner(daemon.socketPath)) {
+                        is XrayResult.Failed -> {
+                            daemon.close()
+                            alpineStrategy = null
+                            fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
+                                "Не удалось включить Alpine-движок Zapret2: " + selected.text.take(200)))
+                            return
+                        }
+                        else -> Unit
+                    }
+                    core.log.info("zapret2_planner", "mode" to Safe("alpine"),
+                        "status" to Safe("selected"))
+                }
             }
         }
         core.log.info("tunnel_up", "routes" to tunSpec.routes.size, "apps" to Safe(tunSpec.apps::class.simpleName ?: "?"))
@@ -653,7 +677,9 @@ class DPpassVpnService : VpnService() {
                     }
                 }
                 if (accepted) {
-                    core.log.info("connected", "profile" to Safe(ServerlessPlan.PROFILE_ID.value), "attempts" to 1, "local_desync" to (desync != null))
+                    core.log.info("connected", "profile" to Safe(ServerlessPlan.PROFILE_ID.value),
+                        "attempts" to 1, "local_desync" to (desync != null),
+                        "zapret2_planner" to Safe(if (desync == null) "off" else if (alpineStrategy != null) "alpine" else "in_process"))
                     progress(TunnelStatus.Connected(ServerlessPlan.PROFILE_ID, name, core.clock.nowMillis(), Clock.MONOTONIC.nowMillis()))
                     watchNetwork()
                     startTicker(session)
