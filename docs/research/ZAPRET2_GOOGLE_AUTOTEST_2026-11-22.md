@@ -142,9 +142,17 @@ accept v1 for compatibility. The counters do **not** identify which
 application or domain failed, and cannot by themselves confirm
 DNS/DoH failure or YouTube app success.
 
-The new API transport probe likewise **never trains the AUTO winner**
-for `www.youtube.com`: only verified HTML on that exact host may
-do so. It tests access to the YouTube API host, not a working
-authorized endpoint. Googlevideo video/CDN streams remain unverified
-without a dynamically authorized media URL; no hardcoded static
-media URL is assumed to work.
+API-host probe evidence is **completely separate** from
+`www.youtube.com` HTML learning: if plain has two TCP/TLS/dial
+failures on `youtubei.googleapis.com` but one alternative has
+two authenticated-TLS HTTP responses (even HTTP 403/404), AUTO may
+temporarily prefer that same strategy **only for this exact API host**.
+This proves an HTTP transport route, not a valid POST/API key, feed
+JSON response or login. It can recover a blocked transport path, but
+cannot substitute for a real client or a signed media URL. The HTML
+winner and API-transport winner can differ. Both expire on a VPN
+network reset and are revoked after repeated weak connections.
+
+The API endpoint cannot seed any other host, and Googlevideo video/CDN
+streams remain unverified without a dynamically authorized media URL;
+no hardcoded static media URL is assumed to work.
