@@ -13,7 +13,10 @@ import (
     "unicode"
 )
 
-var adaptiveCandidates = [...]string{"split-1", "split", "fake-3", "fake-5", "disorder"}
+// Keep the five established candidates in order; the lossless TLS-record
+// plus TCP split is a sixth candidate on new connections, not a forced
+// replacement for the user\u0027s existing selections.
+var adaptiveCandidates = [...]string{"split-1", "split", "fake-3", "fake-5", "disorder", "tlsrec-split"}
 var adaptiveQuicCandidates = [...]string{"fake-3", "fake-5"}
 // 128 KiB of actual downstream traffic is stronger evidence than the
 // small JSON/HTML metadata which can load even while media/CDN stalls.
