@@ -143,7 +143,7 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
             obs := session.OutboundsFromContext(ctx)
             if len(obs) > 0 {
                 if _, ok, _ := parseDesyncTag(obs[len(obs)-1].Tag); ok {
-                    recordZapret2DialFailure(err)
+                    recordZapret2DialFailureWithIP(err, net.ParseIP(dest.Address.String()))
                 }
             }
         }
@@ -178,6 +178,7 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
 		// Use the actual protected socket destination only as fallback when
 		// TLS ECH or a fragmented ClientHello hides the SNI. No names logged.
         zapret2Stage.tcpDialOK.Add(1)
+        recordZapret2DialSuccessFamily(tcp.RemoteAddr().(*net.TCPAddr).IP)
 		return &desyncConn{TCPConn: tcp, mode: mode, host: tcp.RemoteAddr().(*net.TCPAddr).IP.String()}, nil
 	}
 	udp, isUDP := conn.(*net.UDPConn)
