@@ -55,6 +55,9 @@ func TestAutoProbePreferenceSurvivesShortSuccessfulPagesButFallsBack(t *testing.
     // The real probe reads at most 8 KiB. It must not erase the preference.
     a.observe(host, "tlsrec-split", 8192)
     a.observe(host, "tlsrec-split", 8192)
+    a.observe(host, "tlsrec-split", 128*1024)
+    a.observe(host, "tlsrec-split", 8192)
+    a.observe(host, "tlsrec-split", 8192)
     if got := a.choose(host); got != "tlsrec-split" {
         t.Fatalf("8 KiB verified-page traffic must preserve selected method: %s", got)
     }
