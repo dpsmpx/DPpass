@@ -151,3 +151,26 @@ ARM64 Android 15, the Unix-socket planner continues to work after
 screen-off and Wi-Fi/LTE handover, and YouTube's home/comments/preview/video
 flows actually function in the target mobile network. Do not close these
 items based solely on CI.
+
+### Verifying the Alpine runtime on a physical phone (22 November 2026)
+
+A healthy `connected` entry alone means that Xray/TUN started, not that
+the Alpine strategy process is selected or that DPI blocking is bypassed.
+The opt-in APK now makes the planner selection explicit in the app journal:
+
+- `zapret2_alpine_start status=initializing` — PRoot installation/start
+  attempted after Android granted VPN consent and created TUN.
+- `zapret2_alpine_ready status=socket_probed process_alive=true` — the
+  strategy daemon responded to a local Unix-socket readiness request.
+- `zapret2_planner mode=alpine status=selected` — Xray JNI was instructed
+  to use the Alpine socket. The subsequent `connected` event includes
+  `zapret2_planner=alpine` for easier correlation.
+- `zapret2_planner mode=in_process reason=alpine_not_packaged` — expected
+  **only** in a standard APK built without the Alpine opt-in flag.
+
+An opt-in APK with a missing native PRoot executable or loader now emits
+`BACKEND_NOT_AVAILABLE` instead of silently choosing in-process strategy
+planning. The tests cover this selection contract. Readiness/selection
+log entries are not evidence that real-world YouTube requests succeeded;
+the network must still be tested on-device, including media delivery and
+the Alpine daemon's liveness across network handover.
