@@ -2,7 +2,6 @@ package com.dpsmpx.dppass.connection
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class Zapret2HostlistTest {
@@ -41,6 +40,7 @@ class Zapret2HostlistTest {
     @Test fun noRootStrategyFailsToDefaultForUnknownValues() {
         Zapret2VpnStrategy.entries.forEach { assertEquals(it, Zapret2VpnStrategy.of(it.wire)) }
         assertEquals(Zapret2VpnStrategy.FAKE_TTL_3, Zapret2VpnStrategy.of("inject"))
-        assertFalse(Zapret2VpnStrategy.of(null) == Zapret2VpnStrategy.DISORDER)
+        assertEquals(Zapret2VpnStrategy.AUTO, Zapret2VpnStrategy.of(null))
+        assertEquals(Zapret2VpnStrategy.FAKE_TTL_3, Zapret2VpnStrategy.of("fake-3"))
     }
 }
