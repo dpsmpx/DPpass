@@ -128,9 +128,11 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 resultText.text = report
                 resultText.visibility = View.VISIBLE
                 val copied = try {
-                    context.getSystemService(ClipboardManager::class.java)
-                        ?.setPrimaryClip(ClipData.newPlainText("DPpass Zapret2 Google autotest", report))
-                    true
+                    val clipboard = context.getSystemService(ClipboardManager::class.java)
+                    if (clipboard == null) false else {
+                        clipboard.setPrimaryClip(ClipData.newPlainText("DPpass Zapret2 Google autotest", report))
+                        true
+                    }
                 } catch (_: SecurityException) {
                     false
                 } catch (_: IllegalStateException) {
