@@ -279,7 +279,6 @@ func (c *desyncConn) desyncFirst(b []byte) (int, error) {
         return 0, err
     }
     if !plan.Applied {
-        desyncSkipped.Add(1)
         // A TLS client may write an incomplete first record. Never modify
         // an incomplete TLS record or break a legitimate connection merely
         // because of its buffering. Reuse the existing first-byte TCP split
@@ -287,6 +286,7 @@ func (c *desyncConn) desyncFirst(b []byte) (int, error) {
         if c.mode.kind == desyncTLSRecordSplit && zapret2.IsTLSClientHelloPrefix(b) {
             return c.splitFirstTLS(b)
         }
+        desyncSkipped.Add(1)
         return c.TCPConn.Write(b)
     }
     if c.mode.kind == desyncTLSRecordSplit {
