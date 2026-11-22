@@ -169,7 +169,7 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
 		desyncSkipped.Add(1)
 		return conn, nil
 	}
-	return &desyncUDPConn{UDPConn: udp, mode: mode}, nil
+	return &desyncUDPConn{UDPConn: udp, mode: mode, host: udp.RemoteAddr().(*net.UDPAddr).IP.String()}, nil
 }
 
 func (d *desyncDialer) DestIpAddress() net.IP { return d.base.DestIpAddress() }
@@ -475,6 +475,25 @@ type desyncUDPConn struct {
 	mu sync.Mutex
     initialFlights int
 	plannerErr error
+    host string
+    adaptiveSelection atomic.Pointer[adaptivePick]
+    received atomic.Int64
+    observed sync.Once
+}
+
+func (c *desyncUDPConn) Read(b []byte) (int, error) {
+    n, err := c.UDPConn.Read(b)
+    if n > 0 { c.received.Add(int64(n)) }
+    return n, err
+}
+
+func (c *desyncUDPConn) Close() error {
+    c.observed.Do(func() {
+        if pick := c.adaptiveSelection.Load(); pick != nil {
+            zapret2Auto.observe(pick.host, pick.strategy, c.received.Load())
+        }
+    })
+    return c.UDPConn.Close()
 }
 
 const dummyQuicRepeats = 6
@@ -488,6 +507,20 @@ func (c *desyncUDPConn) Write(b []byte) (int, error) {
     c.mu.Lock()
     defer c.mu.Unlock()
     if c.plannerErr != nil { return 0, c.plannerErr }
+    if c.mode.kind == desyncAuto && zapret2.IsQUICInitial(b) {
+        // Apply one chosen TTL for this UDP flow, including retransmitted
+        // Initials; no silent fallback to unmodified QUIC on injection error.
+        if c.adaptiveSelection.Load() == nil {
+            choice := zapret2Auto.chooseQUIC(c.host)
+            resolved, ok, err := parseDesyncTag(zapret2.TagPrefix + choice)
+            if !ok || err != nil || resolved.kind != desyncFake {
+                c.plannerErr = fmt.Errorf("adaptive QUIC strategy rejected: %v", err)
+                return 0, c.plannerErr
+            }
+            c.mode = resolved
+            c.adaptiveSelection.Store(&adaptivePick{host:"udp:"+c.host, strategy:choice})
+        }
+    }
 
     // QUIC clients can send a non-Initial datagram first and then retry
     // Initial multiple times. Checking only the very first Write allowed
