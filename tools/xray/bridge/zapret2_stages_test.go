@@ -39,6 +39,28 @@ func TestZapret2DialErrorClassesAndTLSAlertHeader(t *testing.T) {
     }
 }
 
+func TestZapret2AddressFamilyDiagnosticsDoNotExposeIP(t *testing.T) {
+    before := Zapret2Stages()
+    recordZapret2DialSuccessFamily(net.ParseIP("192.0.2.1"))
+    recordZapret2DialSuccessFamily(net.ParseIP("2001:db8::1"))
+    recordZapret2DialSuccessFamily(nil)
+    recordZapret2DialFailureWithIP(syscall.ENETUNREACH, net.ParseIP("192.0.2.2"))
+    recordZapret2DialFailureWithIP(syscall.EHOSTUNREACH, net.ParseIP("2001:db8::2"))
+    recordZapret2DialFailureWithIP(syscall.ENETUNREACH, nil)
+    after := Zapret2Stages()
+    for _, index := range []int{15,16,17,18,19,20} {
+        if after[index] != before[index]+1 {
+            t.Fatalf("family counter[%d] expected +1, before=%v after=%v", index, before, after)
+        }
+    }
+    if after[3] < before[3]+3 { t.Fatal("unreachable total lost failures") }
+    if zapret2AddressFamily(nil) != 0 ||
+        zapret2AddressFamily(net.ParseIP("2001:db8::1")) != 6 ||
+        zapret2AddressFamily(net.ParseIP("192.0.2.3")) != 4 {
+        t.Fatal("wrong address family interpretation")
+    }
+}
+
 func TestZapret2TCPStageEvidenceWithoutReply(t *testing.T) {
     outgoing, incoming := tcpCopyPair(t)
     hello := clientHello(t, "example.org")
