@@ -62,8 +62,17 @@ func SpeedTest(target string, pings int, maxBytes int64, maxTime, timeout time.D
 	ctx = session.TrackedConnectionError(ctx, tracked)
 	c := &countingConn{}
 	res := SpeedResult{}
-	err = speed(ctx, inst, u, host, port, pings, maxBytes, maxTime, c, &res)
-	res.Outcome = classify(err, ctx.Err() != nil, c.received.Load())
+	phase := "outbound_dial"
+	err = speed(ctx, inst, u, host, port, pings, maxBytes, maxTime, c, &res, &phase)
+	res.Outcome = classifySpeed(err, ctx.Err() != nil, c.received.Load())
+	if err != nil {
+		// Do not claim that the entire network is blocked when this
+		// specific HTTPS measurement failed. Log only the protocol phase,
+		// number of completed small requests and measured body bytes;
+		// neither URLs nor payloads enter the diagnostic.
+		err = fmt.Errorf("speed_stage=%s completed_pings=%d download_bytes=%d: %w",
+			phase, len(res.Pings), res.Received, err)
+	}
 	if oe := tracked.get(); err != nil && oe != nil {
 		err = &outboundFailure{err: err, outbound: oe}
 	}
@@ -71,17 +80,30 @@ func SpeedTest(target string, pings int, maxBytes int64, maxTime, timeout time.D
 	return res
 }
 
-func speed(ctx context.Context, inst *core.Instance, u *url.URL, host string, port, pings int, maxBytes int64, maxTime time.Duration, c *countingConn, res *SpeedResult) error {
+// TLS handshake failures must not be reported as a generic stalled download
+// just because the kernel returned a few TLS bytes before the deadline.
+// Keep other outcomes consistent with ordinary DNS/HTTP probe classification.
+func classifySpeed(err error, expired bool, received int64) ProbeOutcome {
+	var stage *stageError
+	if errors.As(err, &stage) && stage.outcome == ProbeTLS {
+		return ProbeTLS
+	}
+	return classify(err, expired, received)
+}
+
+func speed(ctx context.Context, inst *core.Instance, u *url.URL, host string, port, pings int, maxBytes int64, maxTime time.Duration, c *countingConn, res *SpeedResult, phase *string) error {
 	raw, err := dial(ctx, inst, xnet.Network_TCP, host, port, c)
 	if err != nil {
 		return err
 	}
 	defer raw.Close()
+	*phase = "tls_handshake"
 	tc := tls.Client(raw, &tls.Config{ServerName: host, RootCAs: probeRoots, NextProtos: []string{"http/1.1"}, MinVersion: tls.VersionTLS12})
 	if err := tc.HandshakeContext(ctx); err != nil {
 		return &stageError{outcome: ProbeTLS, err: err}
 	}
 	br := bufio.NewReader(tc)
+	*phase = "latency_http"
 	for i := 0; i < pings; i++ {
 		start := time.Now()
 		resp, err := request(ctx, tc, br, u, 0, false)
@@ -92,11 +114,13 @@ func speed(ctx context.Context, inst *core.Instance, u *url.URL, host string, po
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
 		_ = resp.Body.Close()
 	}
+	*phase = "download_headers"
 	resp, err := request(ctx, tc, br, u, maxBytes, true)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+	*phase = "download_body"
 	// Срок загрузки — по таймеру: чтение соединения ядра о сроках не знает.
 	var expired atomic.Bool
 	timer := time.AfterFunc(maxTime, func() {
