@@ -482,7 +482,7 @@ class DPpassVpnService : VpnService() {
         // План и исходы попыток — для «Почему этот сервер» (D-15), и при отказе тоже.
         report?.let {
             TunnelState.plan(PlanSnapshot(core.clock.nowMillis(), it.attempts, it.plan.excluded, viaRelay = relay != null))
-            if (autoProviderModel) ServerAutoModel.observe(this, it)
+            if (autoProviderModel) ServerAutoModel.observe(this, it, core)
         }
         when (report) {
             is ConnectionReport.Connected -> withContext(NonCancellable) {
@@ -1347,19 +1347,48 @@ class DPpassVpnService : VpnService() {
      * (до срока пробы), и запущенный им сеанс останавливается, только когда
      * она вернётся. Вызывается под [lifecycle].
      */
-    /** Save real downstream learning, including separate network/protocol heads. */
+    /**
+     * Only a successful atomic write may clear native "dirty". New traffic
+     * can train concurrently with disk I/O; the native acknowledgement
+     * compares the exact snapshot and preserves newer learning if it differs.
+     */
     private fun persistStrategyLearning() {
-        val current = Zapret2NeuralModel.readVerified(this, Zapret2NeuralModel.Kind.STRATEGY)
-            ?: return
-        // Snapshot is returned only if native weights changed since last flush.
-        val snapshot = runCatching { JniXrayRuntime.snapshotZapret2NeuralModel() }.getOrNull()
-            ?: return
-        if (!Zapret2NeuralModel.storeLearnedSnapshot(this,
-                Zapret2NeuralModel.Kind.STRATEGY, snapshot)) {
+        val kind = Zapret2NeuralModel.Kind.STRATEGY
+        val current = Zapret2NeuralModel.readVerified(this, kind) ?: return
+        val snapshot = runCatching { JniXrayRuntime.snapshotZapret2NeuralModel() }
+            .getOrElse {
+                DeviceLog.log.warning("zapret2_neural_persist_failed",
+                    "reason" to Safe("native_snapshot_failed"))
+                return
+            }
+        if (snapshot == null) {
+            // No qualifying >=12-KiB per-flow outcome may mean zero updates.
+            // Log durable counters to make the absence of training visible.
+            runCatching {
+                val model = org.json.JSONObject(current.decodeToString())
+                DeviceLog.log.info("zapret2_neural_progress",
+                    "observations" to model.optInt("observations", 0),
+                    "sparse" to (model.optJSONObject("sparse")?.length() ?: 0),
+                    "updated" to false)
+            }
+            return
+        }
+        if (!Zapret2NeuralModel.storeLearnedSnapshot(this, kind, snapshot)) {
             DeviceLog.log.warning("zapret2_neural_persist_failed",
-                "reason" to Safe("stale_or_invalid_model"))
-        } else if (current.isNotEmpty()) {
+                "reason" to Safe("stale_or_disk_write_failed"))
+            return
+        }
+        val ack = runCatching { JniXrayRuntime.acknowledgeZapret2NeuralModel(snapshot) }.getOrNull()
+        if (ack == null || ack is XrayResult.Failed) {
+            // A newer native update may have happened since the snapshot.
+            // It remains dirty for retry at the next window/shutdown.
+            DeviceLog.log.info("zapret2_neural_newer_update_pending")
+        }
+        runCatching {
+            val model = org.json.JSONObject(snapshot.decodeToString())
             DeviceLog.log.info("zapret2_neural_saved",
+                "observations" to model.optInt("observations", 0),
+                "sparse" to (model.optJSONObject("sparse")?.length() ?: 0),
                 "bytes" to snapshot.size)
         }
     }
