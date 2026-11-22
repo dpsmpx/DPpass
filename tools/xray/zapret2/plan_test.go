@@ -145,7 +145,7 @@ func TestCombinedTLSRecordAndTCPSplitPreservesHandshake(t *testing.T) {
         }
     }
     for _, unrecognized := range [][]byte{
-        []byte("GET / HTTP/1.1\\r\\nHost: example.org\\r\\n\\r\\n"),
+        []byte("GET / HTTP/1.1\r\nHost: example.org\r\n\r\n"),
         []byte("SSH-2.0-test"),
     } {
         q, err := BuildPlan(TagPrefix+"tlsrec-split", "tcp", unrecognized)
