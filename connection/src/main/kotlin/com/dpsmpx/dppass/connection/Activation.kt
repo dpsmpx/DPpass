@@ -111,8 +111,19 @@ class ActivationService(
 
     /** Прочитать сохранённое состояние; повреждённое — в карантин, не «по умолчанию». */
     fun restore(): List<Diagnostic> {
-        if (!mutations.tryLock()) return listOf(Diagnostic.error(DiagCode.ACTIVATION_REJECTED, "активация выполняется: восстановление отложено"))
-        return try { restoreLocked() } finally { mutations.unlock() }
+        // Synchronous API retained for desktop callers. A busy lock is not
+        // a failed activation: callers should retry later, not alarm the user.
+        if (!mutations.tryLock()) return listOf(Diagnostic.info(DiagCode.ACTIVATION_REJECTED, "активация выполняется: восстановление отложено"))
+        return try { if (restored && unreadable == null) emptyList() else restoreLocked() } finally { mutations.unlock() }
+    }
+
+    /**
+     * Android service and activity can start concurrently. Await the same
+     * mutation lock used by activate() instead of racing, reading stale
+     * state or emitting a spurious ACTIVATION_REJECTED error.
+     */
+    suspend fun restoreAwaitingActivation(): List<Diagnostic> = mutations.withLock {
+        if (restored && unreadable == null) emptyList() else restoreLocked()
     }
 
     private fun restoreLocked(): List<Diagnostic> {

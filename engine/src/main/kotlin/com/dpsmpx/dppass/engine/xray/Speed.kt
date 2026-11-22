@@ -51,9 +51,9 @@ object XraySpeed {
     fun report(r: SpeedProbeResult, redactor: Redactor = Redactor()): Outcome<SpeedReport> {
         val (code, message) = when (r.outcome) {
             DnsProbeOutcome.OK -> return Outcome.Success(summary(r))
-            DnsProbeOutcome.UNREACHABLE -> DiagCode.ENDPOINT_UNREACHABLE to "через сервер профиля не пришло ни байта: замер не начался"
-            DnsProbeOutcome.TLS -> DiagCode.TLS_HANDSHAKE_FAILED to "TLS с адресом замера через сервер профиля не установлен"
-            DnsProbeOutcome.STALLED -> DiagCode.PAYLOAD_STALLED to "соединение через сервер есть, но данные замера за срок не пришли"
+            DnsProbeOutcome.UNREACHABLE -> DiagCode.ENDPOINT_UNREACHABLE to "через выбранный маршрут Xray не пришло ни байта: замер не начался"
+            DnsProbeOutcome.TLS -> DiagCode.TLS_HANDSHAKE_FAILED to "TLS-рукопожатие с адресом замера через выбранный маршрут Xray не завершилось"
+            DnsProbeOutcome.STALLED -> DiagCode.PAYLOAD_STALLED to "данные HTTPS-замера через выбранный маршрут Xray не пришли за отведённый срок"
             DnsProbeOutcome.BAD_ANSWER -> DiagCode.HEALTH_CHECK_FAILED to "адрес замера ответил не тем, что ждали"
             DnsProbeOutcome.NOT_RUNNING -> DiagCode.HEALTH_CHECK_FAILED to "туннель не поднят — мерить нечего"
             DnsProbeOutcome.CONTRACT -> DiagCode.HEALTH_CHECK_FAILED to "мост не понял замер"

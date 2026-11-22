@@ -6,6 +6,10 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.AppGraph
+import com.dpsmpx.dppass.connection.Zapret2AdaptiveTargets
+import com.dpsmpx.dppass.connection.Zapret2Backend
+import com.dpsmpx.dppass.engine.xray.JniXrayRuntime
+import com.dpsmpx.dppass.engine.xray.XrayResult
 import com.dpsmpx.dppass.app.TunnelStatus
 import com.dpsmpx.dppass.connection.AnalyzerSettings
 import com.dpsmpx.dppass.connection.AnalyzerView
@@ -255,7 +259,46 @@ class ConnectionsScreen(host: Host) : SubScreen(host, R.string.conn_title) {
                 addView(Ui.ListRow(context, null, context.getString(label)).subtitle(value), Ui.matchWidth())
             }
         }
-        Ui.sheet(context, row.host, list).show()
+        val sheet = Ui.sheet(context, row.host, list)
+        // Only explicit choices are persisted. Passive connection history
+        // does not become an unrequested adaptive hostlist. The preference
+        // updates the Go dialer immediately without restarting live TCP.
+        if (host.prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE) {
+            val target = Zapret2AdaptiveTargets.normalize(c.domain.ifBlank { row.host })
+            if (target != null) {
+                val selected = Zapret2AdaptiveTargets.parse(host.prefs.zapret2AdaptiveTargetsText)
+                    .getOrNull()?.contains(target) == true
+                list.addView(Ui.divider(context, 16))
+                list.addView(
+                    Ui.ListRow(context, R.drawable.ic_route,
+                        context.getString(if (selected) R.string.zapret2_auto_target_disable else R.string.zapret2_auto_target_enable))
+                        .onClick {
+                            val updated = Zapret2AdaptiveTargets.update(
+                                host.prefs.zapret2AdaptiveTargetsText, target, !selected,
+                            ).getOrNull()
+                            if (updated == null) {
+                                host.toast(context.getString(R.string.zapret2_auto_target_error))
+                            } else {
+                                val result = runCatching {
+                                    JniXrayRuntime.configureZapret2AdaptiveHosts(updated)
+                                }.getOrNull()
+                                if (result == null || result is XrayResult.Failed) {
+                                    host.toast(context.getString(R.string.zapret2_auto_target_error))
+                                } else {
+                                    host.prefs.zapret2AdaptiveTargetsText = updated
+                                    host.graph?.core?.log?.info("zapret2_adaptive_targets_changed",
+                                        "selected" to updated.lines().count { it.isNotBlank() })
+                                    host.toast(context.getString(if (selected)
+                                        R.string.zapret2_auto_target_removed else R.string.zapret2_auto_target_added))
+                                }
+                            }
+                            sheet.dismiss()
+                        },
+                    Ui.matchWidth(),
+                )
+            }
+        }
+        sheet.show()
     }
 
     private fun confirmClear() {

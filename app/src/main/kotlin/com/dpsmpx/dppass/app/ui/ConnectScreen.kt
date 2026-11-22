@@ -14,6 +14,7 @@ import com.dpsmpx.dppass.app.UsageAlerts
 import com.dpsmpx.dppass.connection.LocalProxyOffer
 import com.dpsmpx.dppass.connection.RoutingMode
 import com.dpsmpx.dppass.connection.ServerlessSettings
+import com.dpsmpx.dppass.connection.Zapret2Backend
 import com.dpsmpx.dppass.core.Clock
 import com.dpsmpx.dppass.diagnostics.Outcome
 import kotlinx.coroutines.Job
@@ -31,6 +32,8 @@ import kotlinx.coroutines.launch
 class ConnectScreen(host: Host) : Screen(host) {
     private val source = Ui.text(context, R.style.Text_DPpass_Secondary).apply { gravity = Gravity.CENTER_HORIZONTAL }
     private val power = PowerButton(context)
+    /** Explicit path choice, directly under the big power button. */
+    private val pathPicker = Ui.column(context, 4)
     private val title = Ui.text(context, R.style.Text_DPpass_Headline).apply { gravity = Gravity.CENTER_HORIZONTAL }
     private val detail = Ui.text(context, R.style.Text_DPpass_Secondary).apply { gravity = Gravity.CENTER_HORIZONTAL }
 
@@ -200,6 +203,11 @@ class ConnectScreen(host: Host) : Screen(host) {
             addView(source, Ui.matchWidth())
             val size = Ui.dp(context, 184)
             addView(power, LinearLayout.LayoutParams(size, size).apply { topMargin = Ui.dp(context, 24) })
+            addView(pathPicker, Ui.matchWidth().apply {
+                topMargin = Ui.dp(context, 12)
+                marginStart = Ui.dp(context, 24)
+                marginEnd = Ui.dp(context, 24)
+            })
             addView(title, Ui.matchWidth().apply { topMargin = Ui.dp(context, 20) })
             addView(detail, Ui.matchWidth().apply { topMargin = Ui.dp(context, 4) })
             addView(stats, Ui.matchWidth().apply { topMargin = Ui.dp(context, 24) })
@@ -236,9 +244,37 @@ class ConnectScreen(host: Host) : Screen(host) {
         val sites = host.prefs.splitSites()
         val serverless = host.prefs.serverless
         val serverlessReady = core?.serverlessReady(sites, serverless, relaySelected = relay != null) == true
-        val canConnect = hasServers || serverlessReady
+        val localMode = host.prefs.zapret2Backend != Zapret2Backend.OFF
+        // This changes the actual activation backend, not a decorative label.
+        // Keep the provider profile and credentials intact when choosing
+        // local AUTO. Switching a connected tunnel uses the normal restart.
+        pathPicker.removeAllViews()
+        pathPicker.addView(
+            Ui.segmented(context, listOf(
+                context.getString(R.string.path_provider),
+                context.getString(R.string.path_local_auto),
+            ), if (localMode) 1 else 0) { choice ->
+                val desired = if (choice == 0) Zapret2Backend.OFF else Zapret2Backend.VPN_SERVICE
+                if (desired != host.prefs.zapret2Backend) {
+                    host.prefs.zapret2Backend = desired
+                    if (desired == Zapret2Backend.VPN_SERVICE) {
+                        host.prefs.zapret2VpnStrategy = com.dpsmpx.dppass.connection.Zapret2VpnStrategy.AUTO
+                    }
+                    host.reconnectIfBusy()
+                    host.changed()
+                }
+            }, Ui.matchWidth(),
+        )
+        pathPicker.addView(
+            Ui.text(context, R.style.Text_DPpass_Caption,
+                context.getString(if (localMode) R.string.path_local_explained
+                    else R.string.path_provider_explained)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+            }, Ui.matchWidth(),
+        )
+        val canConnect = localMode || hasServers || serverlessReady
 
-        source.text = when (val s = ConfigSource.of(core?.activation?.state?.active?.source)) {
+        source.text = if (localMode) context.getString(R.string.zapret2_mode_title) else when (val s = ConfigSource.of(core?.activation?.state?.active?.source)) {
             ConfigSource.None -> context.getString(R.string.source_none)
             ConfigSource.Own -> context.getString(R.string.source_own)
             is ConfigSource.FromSubscription -> {
@@ -290,7 +326,7 @@ class ConnectScreen(host: Host) : Screen(host) {
         autoAvatar.visibility = if (relay == null && shown == null) View.VISIBLE else View.GONE
         serverLatency.removeAllViews()
         shown?.let { p -> Ui.latencyChip(context, LatencyLabel.of(core?.latency?.of(p.id)))?.let(serverLatency::addView) }
-        serverCard.visibility = if (hasServers) View.VISIBLE else View.GONE
+        serverCard.visibility = if (hasServers && !localMode) View.VISIBLE else View.GONE
 
         val policy = core?.userPolicy?.currentOrDefault()
         val own = core?.activation?.state?.active?.source == com.dpsmpx.dppass.connection.PolicyService.OWN_DOCUMENT
@@ -317,7 +353,7 @@ class ConnectScreen(host: Host) : Screen(host) {
             val line = if (status is TunnelStatus.Connected) R.string.local_proxy_row_connected else R.string.local_proxy_row_on
             localProxyRow.subtitle(context.getString(line, port))
         }
-        serverlessCard.visibility = if (serverlessReady) View.VISIBLE else View.GONE
+        serverlessCard.visibility = if (serverlessReady && !localMode) View.VISIBLE else View.GONE
         serverlessRow.subtitle(
             if (serverless.rest == ServerlessSettings.Rest.SPLIT) {
                 context.getString(R.string.serverless_summary_split, sites.size)
@@ -325,7 +361,7 @@ class ConnectScreen(host: Host) : Screen(host) {
                 context.getString(R.string.serverless_summary_direct, sites.size)
             },
         )
-        emptyCard.visibility = if (graph != null && !hasServers) View.VISIBLE else View.GONE
+        emptyCard.visibility = if (graph != null && !hasServers && !localMode) View.VISIBLE else View.GONE
         renderOffer(TunnelState.offer.value)
     }
 

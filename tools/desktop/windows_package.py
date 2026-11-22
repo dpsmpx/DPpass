@@ -372,6 +372,13 @@ def modules(jar_paths):
     return mods.split(",")
 
 
+# Модули, которых jdeps не видит: подключаются как поставщики служб. jdk.localedata —
+# названия месяцев и прочие данные локалей, кроме английской: без него «1 нояб.» в окне
+# выходит как «1 Nov» (снимок 17.11.2026). Локали — только те, на которых говорит окно.
+EXTRA_MODULES = ["jdk.localedata"]
+LOCALES = "en,ru"
+
+
 def runtime(target, mods):
     """Рантайм jlink из jmods закреплённого Temurin для Windows."""
     temurin = windows_deps.versions()["temurin"]
@@ -381,8 +388,9 @@ def runtime(target, mods):
         windows_deps.extract("temurin", "jmods/", jdk)
     # Только отладочные атрибуты классов: --strip-debug на Linux прогнал бы и PE Temurin через objcopy —
     # .exe без подписи Eclipse и с датой сборки (сумма комплекта не воспроизводилась бы).
+    mods = sorted(set(mods) | set(EXTRA_MODULES))
     run([tool("jlink"), "--module-path", jmods, "--add-modules", ",".join(mods), "--strip-java-debug-attributes", "--no-header-files",
-         "--no-man-pages", "--compress=zip-6", "--output", target], "jlink")
+         "--no-man-pages", "--compress=zip-6", f"--include-locales={LOCALES}", "--output", target], "jlink")
     release = {}
     with open(os.path.join(target, "release"), encoding="utf-8") as f:
         for line in f:
@@ -545,7 +553,7 @@ def wine_checks(root, test_exe, wine):
             rep = json.load(f)
         if r.returncode != 0 or rep.get("host") != "windows" or not rep.get("engine") or rep.get("problems") or not rep.get("dpapi") \
                 or not rep.get("probe_socket") or not str(rep.get("share") or "").startswith("ics=") \
-                or not isinstance(rep.get("relay_networks"), int):
+                or not isinstance(rep.get("relay_networks"), int) or rep.get("month_ru") != "нояб.":
             raise RuntimeError(f"самопроверка оболочки: код {r.returncode}, отчёт {json.dumps({k: v for k, v in rep.items() if k != 'log'}, ensure_ascii=False)}")
         return rep["engine"]
     finally:

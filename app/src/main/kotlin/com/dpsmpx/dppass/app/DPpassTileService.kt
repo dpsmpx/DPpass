@@ -8,6 +8,7 @@ import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import com.dpsmpx.dppass.R
+import com.dpsmpx.dppass.connection.Zapret2Backend
 import com.dpsmpx.dppass.app.ui.MainThread
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -82,8 +83,11 @@ class DPpassTileService : TileService() {
         s.launch {
             // Без согласия на VPN подключиться нельзя — его даёт только экран приложения;
             // без VPN (D-95) согласие не нужно.
+            val backend = AppPrefs(this@DPpassTileService).zapret2Backend
             val withoutVpn = withContext(Dispatchers.IO) { AppGraph.core(this@DPpassTileService).localProxy.enabled() }
-            if (!withoutVpn && VpnService.prepare(this@DPpassTileService) != null) {
+            val needsConsent = backend == Zapret2Backend.VPN_SERVICE ||
+                (backend == Zapret2Backend.OFF && !withoutVpn)
+            if (needsConsent && VpnService.prepare(this@DPpassTileService) != null) {
                 openApp()
                 return@launch
             }
@@ -94,7 +98,8 @@ class DPpassTileService : TileService() {
                 // Устройство раздачи (D-55) — подключаться есть к чему и без подписки.
                 val relay = prefs.selectedRelay?.let(core.relays::find) != null
                 // Без сервера (D-73) — туннель для сайтов списка, когда серверов нет.
-                core.activation.state.activeConfig?.profiles?.isNotEmpty() == true || relay ||
+                prefs.zapret2Backend != Zapret2Backend.OFF ||
+                    core.activation.state.activeConfig?.profiles?.isNotEmpty() == true || relay ||
                     core.serverlessReady(prefs.splitSites(), prefs.serverless, relaySelected = relay)
             }
             if (canConnect) DPpassVpnService.start(this@DPpassTileService) else openApp()

@@ -147,13 +147,15 @@ def package_of(tools, apk):
     return (name.group(1) if name else None), (label.group(1) if label else None)
 
 
-def version_name():
+def version_name(allow_prerelease=False):
     with open(GRADLE_APP, encoding="utf-8") as f:
         m = re.search(r'versionName\s*=\s*"([^"]+)"', f.read())
     if not m:
         fail("в app/build.gradle.kts нет versionName")
-    if not m.group(1).endswith("-dev"):
-        fail(f"versionName {m.group(1)}: тестовая сборка — только с суффиксом -dev (D-35)")
+    version = m.group(1)
+    prerelease = bool(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+", version))
+    if not version.endswith("-dev") and not (allow_prerelease and prerelease):
+        fail(f"versionName {version}: непроверенный ключ — только -dev; alpha требует закреплённый сертификат")
     return m.group(1)
 
 
@@ -230,10 +232,22 @@ def main():
     a = argparse.ArgumentParser(description="Тестовые APK по ABI, подписанные ключом разработчика (D-35)")
     a.add_argument("--out", default=os.path.join(PROJ, "build", "release-apk"))
     a.add_argument("--skip-build", action="store_true", help="не собирать: взять готовые APK из app/build/outputs")
+    a.add_argument("--abis", nargs="+", choices=ABIS, default=list(ABIS),
+                   help="опционально подписать выбранные ABI из готовых APK (по умолчанию все три)")
+    a.add_argument("--alpine", action="store_true",
+                   help="opt-in Alpine/PRoot ARM64 release: strict extended APK allowlist")
     a.add_argument("--fingerprint", action="store_true", help="напечатать отпечаток ключа из окружения и выйти")
+    a.add_argument("--allow-unpinned-key", action="store_true",
+                   help="только закрытый черновик: тест нового сертификата без записи в PROVENANCE")
+    a.add_argument("--pinned-fingerprint", metavar="SHA256",
+                   help="подписанный alpha: требовать конкретный SHA-256, уже записанный в PROVENANCE")
     a.add_argument("--unsigned", action="store_true",
                    help="без подписи: сертификат — из записанного отпечатка, подпись — на устройстве автора")
     args = a.parse_args()
+    if args.allow_unpinned_key and args.pinned_fingerprint:
+        a.error("--allow-unpinned-key нельзя сочетать с --pinned-fingerprint")
+    if args.unsigned and args.pinned_fingerprint:
+        a.error("--pinned-fingerprint требует подписи")
     tmp = tempfile.mkdtemp(prefix="dppass-sign-")
     try:
         if args.unsigned:
@@ -247,26 +261,42 @@ def main():
             if args.fingerprint:
                 print(f"| `{alias}` | {actual} |")
                 return 0
-            expected = recorded(alias)
-            if actual != expected:
-                fail(f"ключ из окружения ({actual}) — не тот, что записан в docs/PROVENANCE.md, §7 ({expected})")
-        version = version_name()
+            if args.pinned_fingerprint:
+                expected = args.pinned_fingerprint.lower()
+                with open(PROVENANCE, encoding="utf-8") as provenance_file:
+                    authorized = {digest for _, digest in RECORDED.findall(provenance_file.read())}
+                if not re.fullmatch(r"[0-9a-f]{64}", expected) or expected not in authorized:
+                    fail("зафиксированный сертификат отсутствует в docs/PROVENANCE.md, §7")
+                if actual != expected:
+                    fail(f"ключ GitHub Actions ({actual}) не соответствует закреплённому сертификату ({expected})")
+            elif args.allow_unpinned_key:
+                expected = actual
+                print(f"⚠ Preflight: сертификат SHA-256 {actual}; ключ НЕ закреплён в docs/PROVENANCE.md, официальный выпуск запрещён", flush=True)
+            else:
+                expected = recorded(alias)
+                if actual != expected:
+                    fail(f"ключ из окружения ({actual}) — не тот, что записан в docs/PROVENANCE.md, §7 ({expected})")
+        version = version_name(allow_prerelease=bool(args.pinned_fingerprint))
         want = STABLE_IDENTITY
         sdk = sdk_dir()
         tools = build_tools(sdk) if sdk else None
         if not tools or not all(os.path.isfile(os.path.join(tools, t)) for t in ("apksigner", "zipalign")):
             fail("нет build-tools Android SDK с apksigner и zipalign (ANDROID_HOME)")
 
+        if args.alpine and list(dict.fromkeys(args.abis)) != ["arm64-v8a"]:
+            fail("Alpine-проверка разрешена только для --abis arm64-v8a")
         if not args.skip_build:
             # Без кеша конфигурации: личность считается при конфигурации; пакет сверяется ниже (D-114).
             gradle = [os.path.join(PROJ, "gradlew"), "--quiet", "--no-configuration-cache", "-p", PROJ,
                       ":app:assembleRelease", "-Pdppass.abiSplit=true"]
+            if args.alpine:
+                gradle += ["-Pdppass.alpine=true", "-Pdppass.nativeAbis=arm64-v8a"]
             print("… " + " ".join(gradle[4:]), flush=True)
             subprocess.run(gradle, check=True)
         os.makedirs(args.out, exist_ok=True)
         rev = revision()
         problems, made, packages = [], [], set()
-        for abi in ABIS:
+        for abi in dict.fromkeys(args.abis):
             unsigned = os.path.join(OUTPUTS, f"app-{abi}-release-unsigned.apk")
             if not os.path.isfile(unsigned):
                 problems.append(f"{abi}: нет {os.path.relpath(unsigned, PROJ)}")
@@ -279,8 +309,11 @@ def main():
                 problems.append(f"{abi}: {e}")
                 continue
             problems += [f"{abi}: {p}" for p in bad]
-            check = subprocess.run([sys.executable, os.path.join(PROJ, "tools", "hostcheck", "check_apk.py"), out, "--abi", abi, "--release"],
-                                   capture_output=True, text=True)
+            check_args = [sys.executable, os.path.join(PROJ, "tools", "hostcheck", "check_apk.py"),
+                          out, "--abi", abi, "--release"]
+            if args.alpine:
+                check_args.append("--alpine")
+            check = subprocess.run(check_args, capture_output=True, text=True)
             if check.returncode != 0:
                 problems.append(f"{abi}: check_apk.py\n    " + "\n    ".join((check.stdout + check.stderr).strip().splitlines()))
             made.append(name)
@@ -300,7 +333,10 @@ def main():
                 f.write(f"{sha256(os.path.join(args.out, name))}  {name}\n")
         package, label = next(iter(packages))
         with open(os.path.join(args.out, "CERTIFICATE.txt"), "w", encoding="utf-8") as f:
-            f.write(f"# Ключ {alias}: SHA-256 сертификата — docs/PROVENANCE.md, §7; пакет и ярлык постоянны (D-114).\n")
+            if args.allow_unpinned_key:
+                f.write("# ПРЕДВАРИТЕЛЬНЫЙ APK: сертификат НЕ закреплён в docs/PROVENANCE.md, §7.\n")
+            else:
+                f.write(f"# Ключ {alias}: SHA-256 сертификата — docs/PROVENANCE.md, §7; пакет и ярлык постоянны (D-114).\n")
             if args.unsigned:
                 f.write("# APK не подписаны: подписывает автор (resign-apk.sh).\n")
             f.write(f"alias: {alias}\ncertificate-sha256: {expected}\npackage: {package}\nlabel: {label}\n")
@@ -311,7 +347,7 @@ def main():
                   f"{os.path.basename(TERMUX_SIGNER)}: {os.path.relpath(args.out, PROJ)}")
             return 0
         print(f"✓ {len(made)} APK ({version}, {rev}) подписаны ключом {alias} ({expected[:16]}…), "
-              f"сертификат сверен с docs/PROVENANCE.md, §7, check_apk.py --abi --release пройден; пакет {package} «{label}»: "
+              f"сертификат проверен по ключу подписи" + (" (НЕ закреплён в PROVENANCE)" if args.allow_unpinned_key else " и docs/PROVENANCE.md, §7") + f", check_apk.py --abi --release пройден; пакет {package} «{label}»: "
               f"{os.path.relpath(args.out, PROJ)}")
         return 0
     except Refusal as e:

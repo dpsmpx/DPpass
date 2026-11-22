@@ -15,6 +15,7 @@ import com.dpsmpx.dppass.engine.CompilePlan
 import com.dpsmpx.dppass.engine.CompiledConfig
 import com.dpsmpx.dppass.engine.ConnNetwork
 import com.dpsmpx.dppass.engine.ConnState
+import com.dpsmpx.dppass.engine.DesyncTrick
 import com.dpsmpx.dppass.engine.EngineState
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.SocketProtector
@@ -103,6 +104,16 @@ class XrayJniTest {
     @Test
     fun compiledConfigPassesFullValidation() {
         assertEquals(XrayResult.Ok, runtime.validate(compiled("valid-minimal.json", withTun = true).bytes()))
+    }
+
+    @Test
+    fun experimentConfigPassesFullValidationAndCountersCrossJni() {
+        // D-116: исходящий эксперимента и dialerProxy к нему ядро принимает; счётчики моста — через JNI.
+        for (trick in listOf(DesyncTrick.Disorder, DesyncTrick.Fake(8))) {
+            assertEquals(XrayResult.Ok, runtime.validate(compiled("valid-minimal.json", withTun = false, desync = trick).bytes()))
+        }
+        val c = runtime.desyncStats()
+        assertTrue(c.applied >= 0 && c.skipped >= 0)
     }
 
     @Test
@@ -414,9 +425,9 @@ class XrayJniTest {
         return ConfigLoader().load(text).valueOrNull()?.ir ?: fail("$name не разобран")
     }
 
-    private fun compiled(name: String, withTun: Boolean): CompiledConfig {
+    private fun compiled(name: String, withTun: Boolean, desync: DesyncTrick? = null): CompiledConfig {
         val ir = ir(name)
-        val plan = CompilePlan(ir.profiles.first().id, withTun)
+        val plan = CompilePlan(ir.profiles.first().id, withTun, desync = desync)
         return when (val r = XrayCompiler().compile(ir, plan)) {
             is Outcome.Failure -> fail("$name не скомпилирован: ${r.diagnostics.map { it.render() }}")
             is Outcome.Success -> r.value

@@ -78,7 +78,7 @@ class ServersPanel(
 
     fun refresh() {
         val s = status()
-        val connected = (s as? SessionStatus.Connected)?.profileId
+        val connected = (s as? SessionStatus.Connected)?.profileId ?: (s as? SessionStatus.Blocked)?.profileId
         val profiles = graph.core.activation.state.activeConfig?.profiles.orEmpty()
         val selected = prefs.selectedServer?.takeIf { id -> profiles.any { it.id == id } }
         val keep = list.selectedIndex
@@ -92,10 +92,12 @@ class ServersPanel(
         if (keep in 0 until model.size()) list.selectedIndex = keep
         note.text = when {
             profiles.isEmpty() -> "Серверов нет: добавьте подписку или импортируйте ссылки из буфера обмена."
-            s is SessionStatus.Connected || s is SessionStatus.Connecting -> "Задержка мерится без туннеля: отключитесь, чтобы проверить."
+            s is SessionStatus.Connected || s is SessionStatus.Connecting || s is SessionStatus.Blocked ->
+                "Задержка мерится без туннеля: отключитесь, чтобы проверить."
             else -> "Двойной щелчок или «Подключаться к выбранному» — этот сервер будет первым при подключении."
         }
-        measureButton.isEnabled = profiles.isNotEmpty() && measuring?.isActive != true && s !is SessionStatus.Connected && s !is SessionStatus.Connecting
+        measureButton.isEnabled = profiles.isNotEmpty() && measuring?.isActive != true && s !is SessionStatus.Connected &&
+            s !is SessionStatus.Connecting && s !is SessionStatus.Blocked
     }
 
     /** Выбор сервера — и отказ от устройства раздачи (D-55, D-85): через него подключён — переподключение к серверам. */

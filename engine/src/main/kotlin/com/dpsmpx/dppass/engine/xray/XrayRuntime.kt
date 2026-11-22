@@ -7,6 +7,8 @@ import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Redactor
 import com.dpsmpx.dppass.engine.ConnNetwork
 import com.dpsmpx.dppass.engine.ConnState
+import com.dpsmpx.dppass.engine.DesyncCounters
+import com.dpsmpx.dppass.engine.Zapret2Stages
 import com.dpsmpx.dppass.engine.EngineConnection
 import com.dpsmpx.dppass.engine.EngineConnections
 import com.dpsmpx.dppass.engine.InboundKind
@@ -70,6 +72,12 @@ interface XrayRuntime {
 
     /** Снимок учёта соединений моста (D-106): работает и без запущенного ядра. */
     fun connections(): EngineConnections
+
+    /** Счётчики эксперимента с началом соединения (D-116): с запуска процесса. */
+    fun desyncStats(): DesyncCounters = DesyncCounters(0, 0)
+
+    /** Stages of protected experimental sockets; no URL or HTTP content. */
+    fun zapret2Stages(): Zapret2Stages? = null
 }
 
 /** Вид кода геоданных; [code] — договор с `bridge.GeoKind` (Go). */
@@ -179,6 +187,9 @@ internal object XrayJni {
 
     @JvmStatic external fun nativeSetAssetDir(dir: ByteArray): ByteArray
 
+    /** Empty clears Alpine planning; non-empty selects private Unix socket. */
+    @JvmStatic external fun nativeSetZapret2Planner(path: ByteArray): ByteArray
+
     @JvmStatic external fun nativeValidate(config: ByteArray): ByteArray
 
     @JvmStatic external fun nativeStart(config: ByteArray, tunFd: Int, tunMtu: Int, protector: SocketProtector?): ByteArray
@@ -196,6 +207,23 @@ internal object XrayJni {
     @JvmStatic external fun nativeConnTracking(on: Boolean)
 
     @JvmStatic external fun nativeConnections(): ByteArray
+
+    @JvmStatic external fun nativeDesyncStats(): LongArray?
+
+    /** Versioned aggregate socket-phase counters, no destinations. */
+    @JvmStatic external fun nativeZapret2Stages(): ByteArray
+
+    /** One user-triggered Google HTTPS GET through the requested test outbound. */
+    @JvmStatic external fun nativeProbeZapret2Google(strategy: ByteArray, targetID: ByteArray, timeoutMillis: Int): ByteArray
+
+    /** Per-domain adaptive strategy overrides, held only in the Go process. */
+    @JvmStatic external fun nativeSetZapret2AdaptiveHosts(hosts: ByteArray): ByteArray
+
+    /** Optional local neural weights, strictly JSON numeric data, never executable code. */
+    @JvmStatic external fun nativeSetZapret2NeuralModel(model: ByteArray): ByteArray
+
+    /** Coarse physical network class only: MOBILE, WIFI, OTHER. */
+    @JvmStatic external fun nativeSetZapret2NeuralNetwork(network: ByteArray): ByteArray
 
     /**
      * Снимок учёта соединений (D-106): текст UTF-8, строки через перевод
@@ -356,8 +384,40 @@ class JniXrayRuntime private constructor() : XrayRuntime {
 
     override fun connections(): EngineConnections = XrayJni.decodeConnections(XrayJni.nativeConnections())
 
+    override fun desyncStats(): DesyncCounters = XrayJni.nativeDesyncStats()?.let { DesyncCounters(it[0], it[1]) } ?: DesyncCounters(0, 0)
+
+    override fun zapret2Stages(): Zapret2Stages? = Zapret2Stages.fromWire(XrayJni.nativeZapret2Stages())
+
     companion object {
         const val LIBRARY: String = "dppassxray"
+
+        /**
+         * Select Alpine as one strategy authority after its daemon is ready.
+         * Android still owns VpnService and protected sockets. No raw traffic
+         * leaves the app: the socket is under the app's private data directory.
+         */
+        fun configureZapret2Planner(socketPath: String?): XrayResult =
+            XrayJni.decode(XrayJni.nativeSetZapret2Planner(socketPath.orEmpty().encodeToByteArray()))
+
+        /** Update selected domain overrides without reconnecting active TCP sessions. */
+        /** Fixed google.com destination; never changes the active VPN profile. */
+        fun probeZapret2Google(strategy: String, targetID: String, timeoutMillis: Int): Zapret2GoogleProbe =
+            Zapret2GoogleProbe.fromWire(
+                XrayJni.nativeProbeZapret2Google(strategy.encodeToByteArray(), targetID.encodeToByteArray(), timeoutMillis))
+
+        /** Snapshot for an optional one-button report; no destination metadata. */
+        fun snapshotZapret2Stages(): Zapret2Stages? =
+            Zapret2Stages.fromWire(XrayJni.nativeZapret2Stages())
+
+        fun configureZapret2AdaptiveHosts(hostsText: String): XrayResult =
+            XrayJni.decode(XrayJni.nativeSetZapret2AdaptiveHosts(hostsText.encodeToByteArray()))
+
+        /** Optional downloaded model is not included in any APK asset. */
+        fun configureZapret2NeuralModel(model: ByteArray): XrayResult =
+            XrayJni.decode(XrayJni.nativeSetZapret2NeuralModel(model))
+
+        fun configureZapret2NeuralNetwork(network: String): XrayResult =
+            XrayJni.decode(XrayJni.nativeSetZapret2NeuralNetwork(network.encodeToByteArray()))
 
         /**
          * Загрузка библиотеки, сверка версии ядра и каталог геоданных.

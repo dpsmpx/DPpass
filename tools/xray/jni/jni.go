@@ -130,6 +130,7 @@ import (
 	"unsafe"
 
 	"github.com/dpsmpx/dppass/tools/xray/bridge"
+	"github.com/dpsmpx/dppass/tools/xray/zapret2"
 )
 
 // Статусы ответа: 0 и 5 — успех; остальные — bridge.Kind.
@@ -197,6 +198,27 @@ func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSetAssetDir(env *C.JNIEnv,
 	return statusOf(env, bridge.SetAssetDir(string(bytesOf(env, dir))))
 }
 
+//export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSetZapret2Planner
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSetZapret2Planner(env *C.JNIEnv, _ C.jclass, path C.jbyteArray) C.jbyteArray {
+    return statusOf(env, zapret2.SetPlannerSocket(string(bytesOf(env, path))))
+}
+
+//export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSetZapret2AdaptiveHosts
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSetZapret2AdaptiveHosts(env *C.JNIEnv, _ C.jclass, hosts C.jbyteArray) C.jbyteArray {
+    return statusOf(env, bridge.ConfigureZapret2AdaptiveHosts(string(bytesOf(env, hosts))))
+}
+
+//export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSetZapret2NeuralModel
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSetZapret2NeuralModel(env *C.JNIEnv, _ C.jclass, model C.jbyteArray) C.jbyteArray {
+    // Size/dimensions are independently validated by Go. Never execute code.
+    return statusOf(env, bridge.ConfigureZapret2NeuralModel(bytesOf(env, model)))
+}
+
+//export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSetZapret2NeuralNetwork
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSetZapret2NeuralNetwork(env *C.JNIEnv, _ C.jclass, network C.jbyteArray) C.jbyteArray {
+    return statusOf(env, bridge.ConfigureZapret2NeuralNetwork(string(bytesOf(env, network))))
+}
+
 //export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeValidate
 func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeValidate(env *C.JNIEnv, _ C.jclass, config C.jbyteArray) C.jbyteArray {
 	full, err := bridge.Validate(bytesOf(env, config))
@@ -251,6 +273,37 @@ func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeTraffic(env *C.JNIEnv, _ C
 		return 0
 	}
 	return C.dppass_new_longs(env, C.jlong(up), C.jlong(down))
+}
+
+// Эксперимент с началом соединения (D-116): сколько соединений получили приём
+// и сколько ушли как есть, с запуска процесса.
+//
+//export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeDesyncStats
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeDesyncStats(env *C.JNIEnv, _ C.jclass) C.jlongArray {
+	applied, skipped := bridge.DesyncStats()
+	return C.dppass_new_longs(env, C.jlong(applied), C.jlong(skipped))
+}
+
+//export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeProbeZapret2Google
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeProbeZapret2Google(env *C.JNIEnv, _ C.jclass, strategy C.jbyteArray, targetID C.jbyteArray, timeoutMillis C.jint) C.jbyteArray {
+    // IDs come from two fixed allowlists; arbitrary URLs are rejected.
+    // Only status, bounded count and timings cross JNI.
+    result := bridge.ProbeZapret2HTTPS(string(bytesOf(env, strategy)), string(bytesOf(env, targetID)),
+        time.Duration(timeoutMillis)*time.Millisecond)
+    return newBytes(env, result.Wire())
+}
+
+//export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeZapret2Stages
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeZapret2Stages(env *C.JNIEnv, _ C.jclass) C.jbyteArray {
+    // v2: original fifteen counters followed by six address-family
+    // aggregate counters. No IP addresses or hostnames are serialized.
+    values := bridge.Zapret2Stages()
+    wire := make([]byte, 1, 1+8*len(values))
+    wire[0] = 2
+    for _, count := range values {
+        wire = binary.BigEndian.AppendUint64(wire, uint64(count))
+    }
+    return newBytes(env, wire)
 }
 
 //export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeProbeDns

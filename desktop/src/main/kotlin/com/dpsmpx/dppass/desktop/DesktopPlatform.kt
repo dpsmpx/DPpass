@@ -66,6 +66,14 @@ interface DesktopTunnel {
     val tunInput: TunInput?
     val systemTun: SystemTun?
 
+    /**
+     * Держит ли туннель трафик, пока ядро остановлено (D-115): TUN с fd
+     * платформы — да (ядру отдана копия fd, а устройство, маршруты и правила —
+     * у оболочки); TUN, который создаёт само ядро (Windows), уходит вместе с
+     * ним — нет, и ядро тогда не перезапускается ради восстановления.
+     */
+    val outlivesCore: Boolean get() = tunInput != null
+
     fun close()
 }
 

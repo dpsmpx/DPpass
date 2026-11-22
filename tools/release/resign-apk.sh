@@ -17,11 +17,11 @@
 #   dppass.release.storeFile=/data/data/com.termux/files/home/dppass_keys/dppass-release.jks
 #   dppass.release.keyAlias=<псевдоним ключа>
 #   dppass.release.storePassword=<пароль хранилища>
-#   dppass.release.keyPassword=<пароль ключа>
+#   dppass.release.keyPassword=<пароль ключа; нет — тот же, что у хранилища>
 #   dppass.release.certSha256=<необязательно: SHA-256 сертификата>
 #
-# Хранилище — JKS или PKCS#12 (.p12, .pfx): тип определяет apksigner по файлу,
-# для .p12/.pfx он задаётся явно. Если есть только dppass-release.jks.b64
+# Хранилище — JKS или PKCS#12: тип определяется по содержимому файла, а не по
+# расширению (keytool с Java 9 пишет PKCS#12 и в файл .jks). Если есть только dppass-release.jks.b64
 # (base64 хранилища), скрипт один раз раскодирует его рядом в .jks.
 #
 # Переменные: DPPASS_GRADLE_PROPERTIES — другой файл свойств; APKSIGNER — путь
@@ -46,8 +46,10 @@ ALIAS=$(prop keyAlias)
 EXPECT=$(prop certSha256 | tr -d ': ' | tr 'A-F' 'a-f')
 DPPASS_KS_PASS=$(prop storePassword)
 DPPASS_KEY_PASS=$(prop keyPassword)
-if [ -z "$ALIAS" ] || [ -z "$DPPASS_KS_PASS" ] || [ -z "$DPPASS_KEY_PASS" ]; then
-    echo "✗ в $PROPS нет одного из dppass.release.keyAlias, storePassword, keyPassword" >&2
+# keytool -genkeypair с PKCS#12 даёт ключу пароль хранилища — отдельный пароль не обязателен.
+[ -n "$DPPASS_KEY_PASS" ] || DPPASS_KEY_PASS=$DPPASS_KS_PASS
+if [ -z "$ALIAS" ] || [ -z "$DPPASS_KS_PASS" ]; then
+    echo "✗ в $PROPS нет dppass.release.keyAlias или dppass.release.storePassword" >&2
     exit 2
 fi
 if [ ! -f "$STORE" ] && [ -f "$STORE.b64" ]; then
@@ -76,9 +78,11 @@ SIGNER=$(signer) || {
     exit 2
 }
 
-# PKCS#12 (.p12, .pfx) — явно: apksigner по умолчанию ждёт тип хранилища JVM.
-case "$STORE" in
-    *.p12 | *.pfx | *.P12 | *.PFX) KS_TYPE="--ks-type PKCS12" ;;
+# Тип хранилища — по первым байтам: JKS начинается с FEEDFEED, PKCS#12 — с
+# последовательности DER (30). apksigner по умолчанию ждёт тип хранилища JVM.
+case "$(od -An -tx1 -N4 "$STORE" | tr -d ' \n')" in
+    feedfeed) KS_TYPE="--ks-type JKS" ;;
+    30*) KS_TYPE="--ks-type PKCS12" ;;
     *) KS_TYPE="" ;;
 esac
 

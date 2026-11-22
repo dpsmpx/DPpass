@@ -1,0 +1,246 @@
+name: DPpass optional Alpine PRoot and terminal CI
+on:
+  push:
+    branches:
+      - feature/zapret2-alpine-terminal
+  workflow_dispatch:
+
+concurrency:
+  group: alpine-android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  alpine-android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/xray/go.mod
+      - name: Use pinned direct Gradle distribution
+        run: sed -i 's@services.gradle.org/distributions@downloads.gradle.org/distributions@' gradle/wrapper/gradle-wrapper.properties
+      - name: Install Android SDK, NDK and CMake for PRoot/JNI
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="/usr/local/lib/android/sdk"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0" "ndk;30.0.16248370" "cmake;3.22.1"
+      - name: Verify pinned Zapret2 assets
+        run: python3 tools/zapret2/vendor.py
+      - name: Portable Zapret2 strategy and Xray bridge Go tests
+        working-directory: tools/xray
+        run: go test ./zapret2 ./bridge ./cmd/zapret2-alpine
+      - name: Alpine process-layout and activation/adaptive-selection JVM tests
+        run: ./gradlew --no-daemon --console=plain :engine:test :connection:test :app:testDebugUnitTest
+      - name: Build ARM64 app with actual Alpine minirootfs and PRoot
+        run: ./gradlew --no-daemon --console=plain :app:assembleDebug -Pdppass.alpine=true -Pdppass.nativeAbis=arm64-v8a
+      - name: Verify PRoot executables, PTY JNI and Alpine rootfs packaged
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob, hashlib, zipfile
+          files = glob.glob("app/build/outputs/apk/debug/*.apk")
+          assert len(files) == 1, files
+          with zipfile.ZipFile(files[0]) as z:
+              required = [
+                  "lib/arm64-v8a/libproot.so",
+                  "lib/arm64-v8a/libproot-loader.so",
+                  "lib/arm64-v8a/libdpai-native.so",
+                  "assets/alpine/rootfs.tgz",
+                  "assets/alpine/zapret2-runtime.bin",
+                  "assets/alpine/zapret2-runtime.sha256",
+                  "assets/alpine/NOTICE.txt",
+                  "assets/alpine/GPL-2.0.txt",
+              ]
+              for path in required:
+                  assert path in z.namelist(), path
+              # The opt-in strategy MLP is distributed only as a separate
+              # pinned download. No neural weights/model file may enter APK.
+              forbidden = [
+                  name for name in z.namelist()
+                  if "zapret2-mlp-seed-v1.json" in name
+                  or name.startswith("models/")
+                  or name.startswith("assets/models/")
+              ]
+              assert not forbidden, ("downloadable neural weights bundled in APK", forbidden)
+              data = z.read("assets/alpine/rootfs.tgz")
+              assert hashlib.sha256(data).hexdigest() == "4d3f80afaebd447c5591a63a73bde380a149fe8b2d85488cafabb2ff97551f50"
+              assert z.read("assets/alpine/zapret2-runtime.bin").startswith(b"\x7fELF")
+              exe_digest = hashlib.sha256(z.read("assets/alpine/zapret2-runtime.bin")).hexdigest()
+              assert z.read("assets/alpine/zapret2-runtime.sha256").decode().strip() == exe_digest
+              for path in required[:3]:
+                  assert z.read(path).startswith(b"\x7fELF"), path
+          print("Verified optional Alpine ARM64 APK:", files[0])
+          PY
+      - name: Verify side-by-side experimental APK identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | grep -F "package: name='com.dpsmpx.dppass.alpine'"
+      - name: Refuse Android downgrade against last published signed alpha
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/release/check_upgrade_code.py
+      - name: Build optimized ARM64 release variant with Alpine and Xray
+        run: ./gradlew --no-daemon --console=plain :app:assembleRelease -Pdppass.alpine=true -Pdppass.nativeAbis=arm64-v8a -Pdppass.abiSplit=true
+      - name: Sign official-package ARM64 release with pinned experimental alpha certificate
+        shell: bash
+        env:
+          DPPASS_SIGNING_KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          DPPASS_SIGNING_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          DPPASS_SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          DPPASS_SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in DPPASS_SIGNING_KEYSTORE_BASE64 DPPASS_SIGNING_STORE_PASSWORD DPPASS_SIGNING_KEY_ALIAS DPPASS_SIGNING_KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Release signer is not configured: $name"
+              exit 1
+            fi
+          done
+          python3 tools/release/sign_apks.py --skip-build --alpine --abis arm64-v8a \
+            --out build/alpine-release-signed \
+            --pinned-fingerprint c18792812566ca4a18b518d51313515ff2d62bf8299446e99943eeb5d0630d11
+      - name: Verify signed release APK identity, Alpine and absence of neural weights
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob, hashlib, zipfile
+          apks = glob.glob("build/alpine-release-signed/*.apk")
+          assert len(apks) == 1, apks
+          with zipfile.ZipFile(apks[0]) as z:
+              for path in (
+                  "lib/arm64-v8a/libproot.so",
+                  "lib/arm64-v8a/libproot-loader.so",
+                  "lib/arm64-v8a/libdppassxray.so",
+                  "assets/alpine/rootfs.tgz",
+                  "assets/alpine/zapret2-runtime.bin",
+              ):
+                  assert path in z.namelist(), path
+              forbidden = [n for n in z.namelist()
+                           if n.startswith("models/") or n.startswith("assets/models/")
+                           or "zapret2-mlp-seed" in n or n.endswith("server-v1.json")]
+              assert not forbidden, forbidden
+          print("Verified pinned alpha-certificate ARM64 release APK:", apks[0])
+          PY
+          apk="$(find build/alpine-release-signed -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.dpsmpx.dppass'"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DPpass-Alpine-Zapret2-ARM64-release-signed
+          path: |
+            build/alpine-release-signed/*.apk
+            build/alpine-release-signed/SHA256SUMS
+            build/alpine-release-signed/CERTIFICATE.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 21
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DPpass-Alpine-Zapret2-ARM64-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 21
+
+  publish-release:
+    name: Publish tested Alpine APK to Releases
+    needs: alpine-android
+    if: github.ref == 'refs/heads/feature/zapret2-alpine-terminal'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download APK from the successful build
+        uses: actions/download-artifact@v4
+        with:
+          name: DPpass-Alpine-Zapret2-ARM64-debug
+          path: release-input
+      - name: Download pinned-certificate release-signed APK from the same successful build
+        uses: actions/download-artifact@v4
+        with:
+          name: DPpass-Alpine-Zapret2-ARM64-release-signed
+          path: release-signed-input
+      - name: Prepare versioned APK and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          mapfile -d '' -t apks < <(find release-input -type f -name '*.apk' -print0)
+          if [[ ${#apks[@]} -ne 1 ]]; then
+            echo "::error::Expected exactly one verified ARM64 APK, found ${#apks[@]}"
+            exit 1
+          fi
+          short="${GITHUB_SHA:0:12}"
+          cp -- "${apks[0]}" "release-assets/DPpass-Zapret2-Alpine-${short}-arm64-v8a-debug.apk"
+          mapfile -d '' -t signed < <(find release-signed-input -type f -name '*.apk' -print0)
+          if [[ ${#signed[@]} -ne 1 ]]; then
+            echo "::error::Expected one pinned-certificate release APK"
+            exit 1
+          fi
+          cp -- "${signed[0]}" "release-assets/DPpass-Neural-${short}-arm64-v8a-release-signed.apk"
+          cp -- release-signed-input/CERTIFICATE.txt release-assets/CERTIFICATE.txt
+          (
+            cd release-assets
+            sha256sum ./*.apk > SHA256SUMS.txt
+          )
+          cat > release-assets/BUILD_SOURCE.txt <<EOF
+          Repository: ${GITHUB_REPOSITORY}
+          Branch: ${GITHUB_REF_NAME}
+          Commit: ${GITHUB_SHA}
+          Actions run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          Android package: com.dpsmpx.dppass.alpine
+          Build: experimental Android ARM64 DEBUG + optimized RELEASE signed by pinned alpha key
+          Release applicationId: com.dpsmpx.dppass
+          Release signer SHA256: c18792812566ca4a18b518d51313515ff2d62bf8299446e99943eeb5d0630d11
+          EOF
+          cat > "${RUNNER_TEMP}/alpine-release-notes.md" <<EOF
+          Experimental **Android ARM64 debug + signed release (pinned alpha certificate)** builds of DPpass Zapret2 Alpine/PRoot.
+          Built from \`${GITHUB_SHA}\` and verified by CI.
+
+          - **Signed release APK:** \`DPpass-Neural-*-release-signed.apk\`, package \`com.dpsmpx.dppass\`. Optimized release variant, signed with the **pinned experimental alpha certificate** (not the store production key); can update an installed alpha only if that app has the same signing key and a compatible versionCode.
+          - **Debug APK:** \`DPpass-Zapret2-Alpine-*-debug.apk\`, separate package \`com.dpsmpx.dppass.alpine\`; does not replace regular DPpass.
+          - Includes Alpine minirootfs, PRoot, JNI bridge and the shared Zapret2 planner.
+          - Local strategy/server neural weights are NOT packaged; create them in app settings (32/128/512/1024 neurons).
+          - Video playback and YouTube feed scrolling on real mobile networks are **not verified** by CI.
+          - Includes SHA256SUMS.txt and BUILD_SOURCE.txt for reproducibility.
+
+          Source workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          Development PR: https://github.com/dpsmpx/DPpass/pull/37
+          EOF
+      - name: Create or update commit-specific GitHub prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="zapret2-alpine-${GITHUB_SHA:0:12}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            target="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq '.targetCommitish')"
+            if [[ "$target" != "$GITHUB_SHA" ]]; then
+              echo "::error::Existing release $tag targets a different commit ($target)"
+              exit 1
+            fi
+          else
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --prerelease --latest=false \
+              --title "DPpass Zapret2 Alpine ARM64 (debug ${GITHUB_SHA:0:12})" \
+              --notes-file "$RUNNER_TEMP/alpine-release-notes.md"
+          fi
+          gh release upload "$tag" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url,isDraft,isPrerelease,assets

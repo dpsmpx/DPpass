@@ -22,6 +22,7 @@ import com.dpsmpx.dppass.diagnostics.map
 import com.dpsmpx.dppass.engine.BackendCompiler
 import com.dpsmpx.dppass.engine.CapabilityChecker
 import com.dpsmpx.dppass.engine.EngineCapabilities
+import com.dpsmpx.dppass.engine.DesyncTrick
 import com.dpsmpx.dppass.engine.EngineSession
 import com.dpsmpx.dppass.engine.LocalProxySpec
 import com.dpsmpx.dppass.engine.ProxyEngine
@@ -58,6 +59,7 @@ import com.dpsmpx.dppass.tunnel.TunnelSpecBuilder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import java.security.SecureRandom
 import java.time.ZoneId
 
 /**
@@ -155,6 +157,10 @@ class DPpassCore(
     val analyzer: ConnectionAnalyzer = ConnectionAnalyzer(engine, store, quarantine, clock)
 
     fun restore(): List<Diagnostic> = activation.restore().also { it.forEach(log::diagnostic) }
+
+    /** Android startup awaits ongoing activation, rather than reporting a transient race as fatal. */
+    suspend fun restoreAwaitingActivation(): List<Diagnostic> =
+        activation.restoreAwaitingActivation().also { it.forEach(log::diagnostic) }
 
     /**
      * Сброс хранилища — только действием пользователя (D-19), когда
@@ -269,14 +275,37 @@ class DPpassCore(
          * и отказ выбранного — отказ подключения, а не тихий переход на другой.
          */
         pinned: Boolean = false,
+        /**
+         * Optional local ordering of ALREADY eligible candidates. The
+         * user-selected/pinned path never consults this extension.
+         * Used by Android's generated server MLP; no server is added,
+         * no excluded/backoff candidate can be revived.
+         */
+        rerank: ((ConnectionPlan) -> ConnectionPlan)? = null,
         pause: suspend (Long) -> Unit,
     ): ConnectionReport? {
         val ir = activation.state.activeConfig ?: return null
         val full = plan(assessment, preferred, regime) ?: return null
-        val plan = if (pinned && preferred != null) pinTo(full, preferred) else full
+        val plan = if (pinned && preferred != null) pinTo(full, preferred) else {
+            val candidate = rerank?.invoke(full) ?: full
+            // Untrusted ordering must preserve the exact eligible sequence
+            // membership, exclusions, verdict and size.
+            if (candidate.attempts.map { it.profile.id }.toSet() ==
+                full.attempts.map { it.profile.id }.toSet() &&
+                candidate.attempts.size == full.attempts.size &&
+                candidate.excluded == full.excluded &&
+                candidate.verdict == full.verdict) candidate else full
+        }
         val orchestrator = ConnectionOrchestrator(compiler, engine, checker, health, clock, log, policy, stability, assessment ?: regime, splitMemory, pause)
         return orchestrator.connect(ir, plan, tun, share, splitClientHello, splitSites, local, systemTun)
     }
+
+    /**
+     * Замер А/Б эксперимента с началом соединения (D-116): попытки — ядром
+     * без TUN, поэтому только при выключенном туннеле (ядро одно на процесс).
+     * Порядок попыток — криптографическая случайность (D-21).
+     */
+    fun desyncTrial(): DesyncTrial = DesyncTrial(compiler, engine, clock, log, SecureRandom()::nextInt)
 
     /** Наблюдатель сессии (D-44): Android-слой кормит его пробами (D-32). */
     fun supervisor(profileId: ProfileId, assessment: NetworkAssessment?): SessionSupervisor =
@@ -501,15 +530,21 @@ class DPpassCore(
         settings: ServerlessSettings,
         /** TUN, который создаёт само ядро (Windows, D-97): вместо [tun]. */
         systemTun: SystemTun? = null,
+        desync: DesyncTrick? = null,
+        forceQuicTcp: Boolean = false,
+        catchAllHttps: Boolean = false,
         check: suspend (EngineSession, DnsPolicy) -> Outcome<Unit>,
     ): Outcome<EngineSession> {
-        val plan = ServerlessMode.plan(settings, sites, userPolicy.currentOrDefault())
+        val plan = ServerlessMode.plan(settings, sites, userPolicy.currentOrDefault(), desync, forceQuicTcp, catchAllHttps)
         log.info(
             "serverless",
             "rest" to Safe(settings.rest.wire),
             "dns" to Safe(settings.dns.wire),
             "apps" to Safe(settings.apps.wire),
             "n" to sites.size,
+            "local_desync" to Safe(desync?.label ?: "off"),
+            "quic_force_tcp" to forceQuicTcp,
+            "https_unmatched" to catchAllHttps,
         )
         require(tun == null || systemTun == null) { "TUN платформы и TUN ядра вместе (D-97)" }
         val compiled = when (val c = compiler.compileServerless(plan.copy(withTun = tun != null || systemTun != null, systemTun = systemTun))) {

@@ -20,11 +20,16 @@ import android.os.PowerManager
 import android.service.quicksettings.TileService
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.ui.Formats
+import com.dpsmpx.dppass.app.alpine.AlpineFiles
+import com.dpsmpx.dppass.app.alpine.AlpinePlannerSelection
+import com.dpsmpx.dppass.app.alpine.AlpineZapret2Runtime
 import com.dpsmpx.dppass.connection.ConnectionReport
 import com.dpsmpx.dppass.connection.DPpassCore
 import com.dpsmpx.dppass.connection.Degradation
 import com.dpsmpx.dppass.connection.HealthChecker
 import com.dpsmpx.dppass.connection.ServerlessSettings
+import com.dpsmpx.dppass.connection.Zapret2Backend
+import com.dpsmpx.dppass.connection.Zapret2Hostlist
 import com.dpsmpx.dppass.connection.SessionSupervisor
 import com.dpsmpx.dppass.connection.StabilityObservation
 import com.dpsmpx.dppass.connection.UsageMeter
@@ -37,10 +42,14 @@ import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Safe
 import com.dpsmpx.dppass.engine.EngineSession
+import com.dpsmpx.dppass.engine.DesyncTrick
+import com.dpsmpx.dppass.engine.Zapret2Stages
 import com.dpsmpx.dppass.engine.ServerlessPlan
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.SocketProtector
 import com.dpsmpx.dppass.engine.xray.Ipv6Egress
+import com.dpsmpx.dppass.engine.xray.JniXrayRuntime
+import com.dpsmpx.dppass.engine.xray.XrayResult
 import com.dpsmpx.dppass.network.NetworkAssessment
 import com.dpsmpx.dppass.network.NetworkChangeChecks
 import com.dpsmpx.dppass.network.NetworkType
@@ -132,8 +141,22 @@ class DPpassVpnService : VpnService() {
 
     private var connecting: Job? = null
     private var session: EngineSession? = null
+    private var rootZapret2: RootZapret2? = null
+    private var rootWatch: Job? = null
+    /** Alpine's sole strategy planner for local VpnService mode. */
+    private var alpineStrategy: AlpineZapret2Runtime? = null
+    private var alpineWatch: Job? = null
     private val tunnel = TunnelOwner()
     private var ticker: Job? = null
+    // Keep a short-session diagnostic baseline outside the 30-second ticker.
+    // Shutdown records it before stopping Xray; no destination information.
+    private data class Zapret2FinalState(
+        val session: EngineSession,
+        val counters: Zapret2FinalCounter,
+        val startedMillis: Long,
+        val initialStages: Zapret2Stages?,
+    )
+    @Volatile private var zapret2FinalState: Zapret2FinalState? = null
     private var supervisor: Job? = null
     private var shareWatch: Job? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -193,7 +216,7 @@ class DPpassVpnService : VpnService() {
                 restarts.incrementAndGet()
                 scope.launch {
                     val core = AppGraph.core(this@DPpassVpnService)
-                    if (core.activation.state.activeConfig == null) core.restore()
+                    if (core.activation.state.activeConfig == null) core.restoreAwaitingActivation()
                     // Конфигурация могла смениться, пока вопрос висел: замена — только из действующей,
                     // иначе — переподключение с прежним выбором (пользователь просил рабочее соединение).
                     if (to != null && core.activation.state.activeConfig?.profiles?.any { it.id == to } == true) {
@@ -254,14 +277,16 @@ class DPpassVpnService : VpnService() {
     /** Остановить прежнее и подключиться заново — если за этим запросом не ждёт ещё один. */
     private suspend fun restart() {
         lifecycle.withLock {
-            shutdown(keepTunnel = true)
+            // Switching from VpnService to root must release the old TUN;
+            // otherwise packets stay trapped in an inactive Android VPN.
+            shutdown(keepTunnel = AppPrefs(this@DPpassVpnService).zapret2Backend != Zapret2Backend.ROOT)
             if (restarts.decrementAndGet() == 0) start() else DeviceLog.log.info("service_reconnect_superseded")
         }
     }
 
     private suspend fun start() {
         state.withLock {
-            if (connecting?.isActive == true || session != null) {
+            if (connecting?.isActive == true || session != null || rootZapret2 != null) {
                 DeviceLog.log.info("service_already_running")
                 return
             }
@@ -292,7 +317,49 @@ class DPpassVpnService : VpnService() {
     private suspend fun connect() {
         val graph = AppGraph.graph(this)
         val core = graph.core
-        if (core.activation.state.activeConfig == null) core.restore()
+        if (core.activation.state.activeConfig == null) core.restoreAwaitingActivation()
+        // Zapret2 не использует профили Xray или внешние серверы; никогда не
+        // подменяем обычную подписку без явного выбора в настройках.
+        when (AppPrefs(this).zapret2Backend) {
+            Zapret2Backend.OFF -> Unit
+            Zapret2Backend.ROOT -> {
+                connectRootZapret2(core)
+                return
+            }
+            Zapret2Backend.VPN_SERVICE -> {
+                // Отдельный локальный TUN: Xray выполняет только перенос пакетов,
+                // DPI-приём делает собственный Go dialer, без внешнего сервера.
+                val p = AppPrefs(this)
+                val hosts = Zapret2Hostlist.parse(p.zapret2HostlistText)
+                if (hosts.isFailure) {
+                    fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
+                        "Zapret2: некорректный список доменов: " + hosts.exceptionOrNull()?.message))
+                    return
+                }
+                val list = hosts.getOrThrow()
+                val sites = if (list.isEmpty) SplitSites.NONE else when (val parsed = SplitSites.parse(list.format())) {
+                    is Outcome.Success -> parsed.value
+                    is Outcome.Failure -> {
+                        fail(parsed.errors.first())
+                        return
+                    }
+                }
+                // A nonempty allowlist limits desync to matching sites.
+                // Without a list the local TCP/UDP trick applies to all destinations.
+                val settings = p.serverless.copy(
+                    rest = if (sites.isEmpty) ServerlessSettings.Rest.SPLIT else ServerlessSettings.Rest.DIRECT,
+                    apps = ServerlessSettings.Apps.ALL,
+                )
+                // One user-facing mode. Old manually persisted modes are
+                // ignored to avoid silently retaining an outdated fixed
+                // strategy after updating from an earlier debug build.
+                // Other candidates remain available to private diagnostics.
+                val trick = DesyncTrick.Auto
+                connectServerless(graph, sites, settings, trick, "Zapret2 VPN local",
+                    p.zapret2VpnForceTcp, p.zapret2VpnCatchAllHttps)
+                return
+            }
+        }
         // Устройство раздачи (D-55): выбрано — подключение только через него, по сети, где оно ответило.
         val relay = AppPrefs(this).selectedRelay?.let(core.relays::find)
         viaRelay = relay != null
@@ -368,6 +435,10 @@ class DPpassVpnService : VpnService() {
         // Автопереключение выключено (D-113): сервер, который сессия держит, не меняется сам — только он и пробуется.
         val strictId = if (relay == null) pinTarget(core) else null
         val preferred = strictId ?: AppPrefs(this).selectedServer
+        // Only the actual "Automatically" server selection may use the
+        // optional model; explicit pins/relays are never overridden.
+        val autoProviderModel = relay == null && preferred == null
+        val networkForServerAuto = NetworkCheck.underlying(this).type
         if (strictId != null) core.log.info("server_pinned", "profile" to Safe(strictId.value))
         // Белый список по свежей проверке в этой сети (D-64): порядок плана и опыт попыток — его.
         // Через устройство раздачи (D-55) путь идёт по своей сети — режим оператора ни при чём.
@@ -395,7 +466,12 @@ class DPpassVpnService : VpnService() {
                 core.log.info("client_hello_split", "on" to split)
                 // Сайты напрямую с разбиением (D-72): в журнал — число записей, не сами сайты.
                 core.log.info("split_sites", "n" to sites.size)
-                core.connect(null, checker, tun, preferred, share, regime, split, sites, local, pinned = strictId != null) { delay(it) }
+                core.connect(null, checker, tun, preferred, share, regime, split, sites, local,
+                    pinned = strictId != null,
+                    rerank = if (autoProviderModel) ({ plan ->
+                        ServerAutoModel.rerank(this, plan, core, networkForServerAuto, core.clock.nowMillis())
+                    }) else null
+                ) { delay(it) }
             }
         } catch (e: CancellationException) {
             // Остановка во время подключения: сеанс, запущенный посреди проверки
@@ -404,7 +480,10 @@ class DPpassVpnService : VpnService() {
             throw e
         }
         // План и исходы попыток — для «Почему этот сервер» (D-15), и при отказе тоже.
-        report?.let { TunnelState.plan(PlanSnapshot(core.clock.nowMillis(), it.attempts, it.plan.excluded, viaRelay = relay != null)) }
+        report?.let {
+            TunnelState.plan(PlanSnapshot(core.clock.nowMillis(), it.attempts, it.plan.excluded, viaRelay = relay != null))
+            if (autoProviderModel) ServerAutoModel.observe(this, it)
+        }
         when (report) {
             is ConnectionReport.Connected -> withContext(NonCancellable) {
                 // Вызовы ядра не прерываются отменой: остановка могла прийти, пока
@@ -420,7 +499,17 @@ class DPpassVpnService : VpnService() {
                 if (accepted) {
                     core.log.info("connected", "profile" to Safe(report.profileId.value), "attempts" to report.attempts.size)
                     // Автопереключение выключено: держим именно этот сервер, пока пользователь не выберет другой (D-113).
-                    if (relay == null && !AppPrefs(this@DPpassVpnService).autoSwitch) pinned = report.profileId
+                    // With the separately generated server AUTO model, choosing
+                    // "Automatically" explicitly allows a fresh comparison at
+                    // the next connection. An explicitly selected server is
+                    // still pinned and never replaced by ML.
+                    if (relay == null && !AppPrefs(this@DPpassVpnService).autoSwitch &&
+                        (AppPrefs(this@DPpassVpnService).selectedServer != null ||
+                         !Zapret2NeuralModel.isInstalled(this@DPpassVpnService, Zapret2NeuralModel.Kind.SERVER))) {
+                        pinned = report.profileId
+                    } else {
+                        pinned = null
+                    }
                     // Подключился сервер, который под белым списком только отказывал: список, скорее всего,
                     // выключили — режим снова неизвестен, порядок и опыт — общие (D-64).
                     val contradicted = regime != null && report.profileId in failingUnderRegime
@@ -472,9 +561,58 @@ class DPpassVpnService : VpnService() {
      * вопрос о смене сервера (D-58) и проба IPv6 через сервер (D-66) не
      * запускаются: сервера нет.
      */
-    private suspend fun connectServerless(graph: AppGraph.Graph, sites: SplitSites, settings: ServerlessSettings) {
+    /** Root NFQUEUE, только отдельный экспериментальный режим. */
+    private suspend fun connectRootZapret2(core: DPpassCore) {
+        progress(TunnelStatus.Connecting("Zapret2 root"))
+        val root = RootZapret2(this)
+        // Root-команда завершается или откатывается, даже если пользователь нажал «Стоп».
+        val result = withContext(NonCancellable) { root.start() }
+        if (result.isFailure) {
+            fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
+                "Zapret2 root: " + (result.exceptionOrNull()?.message ?: "nfqws2 недоступен")))
+            return
+        }
+        val job = currentCoroutineContext().job
+        val accepted = state.withLock {
+            if (job.isCancelled) false else {
+                rootZapret2 = root
+                true
+            }
+        }
+        if (!accepted) {
+            root.stop()
+            return
+        }
+        progress(TunnelStatus.Connected(ProfileId("zapret2-root"), "Zapret2 root",
+            core.clock.nowMillis(), Clock.MONOTONIC.nowMillis()))
+        rootWatch = scope.launch {
+            while (isActive) {
+                delay(5_000L)
+                if (!root.alive()) {
+                    root.stop().onFailure { error ->
+                        DeviceLog.log.diagnostic(Diagnostic.fromThrowable(
+                            DiagCode.BACKEND_NOT_AVAILABLE, "не удалось снять правила Zapret2 после сбоя", error,
+                        ))
+                    }
+                    rootZapret2 = null
+                    fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE, "Процесс nfqws2 больше не работает"))
+                    break
+                }
+            }
+        }
+    }
+
+    private suspend fun connectServerless(
+        graph: AppGraph.Graph,
+        sites: SplitSites,
+        settings: ServerlessSettings,
+        desync: DesyncTrick? = null,
+        label: String? = null,
+        forceQuicTcp: Boolean = false,
+        catchAllHttps: Boolean = false,
+    ) {
         val core = graph.core
-        val name = getString(R.string.serverless_name)
+        val name = label ?: getString(R.string.serverless_name)
         val tunSpec = when (val spec = core.tunnelSpecFor(core.serverlessConfig(settings))) {
             is Outcome.Failure -> {
                 fail(spec.errors.first())
@@ -491,12 +629,104 @@ class DPpassVpnService : VpnService() {
             is Outcome.Success -> t.value
         }
         tunnel.replace(handle)
+        // Only create a PRoot process after Android has granted VPN consent
+        // and established its TUN. Otherwise a rejected permission request
+        // starts a daemon that must immediately be destroyed.
+        // Android retains TUN/protected sockets; the Alpine-enabled APK
+        // must select its bundled planner or fail, never silently switch to
+        // an in-process decision maker when PRoot binaries are unavailable.
+        if (desync != null && AppPrefs(this).zapret2Backend == Zapret2Backend.VPN_SERVICE) {
+            val bundled = AlpineFiles.bundled(this)
+            val selection = AlpinePlannerSelection.choose(
+                bundled = bundled,
+                supported = bundled && AlpineFiles.supported(this),
+            )
+            when (selection) {
+                AlpinePlannerSelection.IN_PROCESS -> {
+                    // Standard APK only. Same shared algorithm, without PRoot.
+                    core.log.info("zapret2_planner", "mode" to Safe("in_process"),
+                        "reason" to Safe("alpine_not_packaged"))
+                }
+                AlpinePlannerSelection.UNAVAILABLE -> {
+                    fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
+                        "Zapret2 Alpine включён в APK, но PRoot или его загрузчик недоступен"))
+                    return
+                }
+                AlpinePlannerSelection.ALPINE -> {
+                    core.log.info("zapret2_alpine_start", "status" to Safe("initializing"))
+                    val started = runCatching { AlpineZapret2Runtime.start(this) }
+                    val daemon = started.getOrNull()
+                    if (daemon == null) {
+                        fail(Diagnostic.fromThrowable(DiagCode.BACKEND_NOT_AVAILABLE,
+                            "Zapret2 Alpine: стратегия не запустилась", started.exceptionOrNull()!!))
+                        return
+                    }
+                    alpineStrategy = daemon
+                    core.log.info("zapret2_alpine_ready", "status" to Safe("socket_probed"),
+                        "process_alive" to daemon.isAlive)
+                    when (val selected = JniXrayRuntime.configureZapret2Planner(daemon.socketPath)) {
+                        is XrayResult.Failed -> {
+                            daemon.close()
+                            alpineStrategy = null
+                            fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
+                                "Не удалось включить Alpine-движок Zapret2: " + selected.text.take(200)))
+                            return
+                        }
+                        else -> Unit
+                    }
+                    core.log.info("zapret2_planner", "mode" to Safe("alpine"),
+                        "status" to Safe("selected"))
+                }
+            }
+        }
+        if (desync != null && AppPrefs(this).zapret2Backend == Zapret2Backend.VPN_SERVICE) {
+            // Go stores only user-selected destinations, not traffic logs;
+            // changing the selection never interrupts an existing TLS flow.
+            val targets = AppPrefs(this).zapret2AdaptiveTargetsText
+            when (val chosen = JniXrayRuntime.configureZapret2AdaptiveHosts(targets)) {
+                is XrayResult.Failed -> {
+                    fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
+                        "Некорректный список адресов автоподбора Zapret2: " + chosen.text.take(160)))
+                    return
+                }
+                else -> {
+                    val automaticTcp = desync == DesyncTrick.Auto
+                    core.log.info("zapret2_adaptive_enabled",
+                        "all_tcp" to automaticTcp,
+                        "selected" to targets.lines().count { it.isNotBlank() },
+                        "quic_trials_enabled" to (automaticTcp && !forceQuicTcp))
+                    // AUTO means adaptive *TCP*. A previously saved QUIC→TCP
+                    // preference may still block all QUIC Initials. Do not
+                    // override the user's switch: report the effective scope.
+                    if (automaticTcp && forceQuicTcp) {
+                        core.log.warning("zapret2_auto_quic_blocked",
+                            "reason" to Safe("force_tcp_enabled"))
+                    }
+                }
+            }
+            // The MLP is strictly optional; download is a user action.
+            // A corrupt or absent cache must never prevent serverless VPN.
+            val networkClass = when (NetworkCheck.underlying(this).type) {
+                NetworkType.MOBILE -> "MOBILE"
+                NetworkType.WIFI -> "WIFI"
+                else -> "OTHER"
+            }
+            JniXrayRuntime.configureZapret2NeuralNetwork(networkClass)
+            val modelBytes = Zapret2NeuralModel.readVerified(this)
+            when (val configured = JniXrayRuntime.configureZapret2NeuralModel(modelBytes ?: ByteArray(0))) {
+                is XrayResult.Failed -> core.log.warning("zapret2_neural_model_rejected",
+                    "reason" to Safe("invalid_model"))
+                else -> core.log.info("zapret2_neural_model",
+                    "installed" to (modelBytes != null), "mode" to Safe("local_only"))
+            }
+        }
         core.log.info("tunnel_up", "routes" to tunSpec.routes.size, "apps" to Safe(tunSpec.apps::class.simpleName ?: "?"))
         progress(TunnelStatus.Connecting(name))
         val probeTimeout = (core.policy.healthTimeoutMillis - PROBE_MARGIN_MILLIS).toInt()
         val job = currentCoroutineContext().job
         val result = try {
-            core.connectServerless(handle.toTunInput(), sites, settings) { _, dns ->
+            core.connectServerless(handle.toTunInput(), sites, settings,
+                desync = desync, forceQuicTcp = forceQuicTcp, catchAllHttps = catchAllHttps) { _, dns ->
                 withContext(Dispatchers.IO) { graph.engine.probeServerless(dns, probeTimeout) }
             }
         } catch (e: CancellationException) {
@@ -517,10 +747,26 @@ class DPpassVpnService : VpnService() {
                     }
                 }
                 if (accepted) {
-                    core.log.info("connected", "profile" to Safe(ServerlessPlan.PROFILE_ID.value), "attempts" to 1)
+                    core.log.info("connected", "profile" to Safe(ServerlessPlan.PROFILE_ID.value),
+                        "attempts" to 1, "local_desync" to (desync != null),
+                        "content_verified" to false,
+                        "zapret2_planner" to Safe(if (desync == null) "off" else if (alpineStrategy != null) "alpine" else "in_process"))
                     progress(TunnelStatus.Connected(ServerlessPlan.PROFILE_ID, name, core.clock.nowMillis(), Clock.MONOTONIC.nowMillis()))
                     watchNetwork()
                     startTicker(session)
+                    alpineStrategy?.let { daemon ->
+                        alpineWatch?.cancel()
+                        alpineWatch = scope.launch {
+                            while (isActive) {
+                                delay(5_000L)
+                                if (!daemon.isAlive) {
+                                    fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
+                                        "Запущенный движок Zapret2 в Alpine завершился; трафик не обходится напрямую"))
+                                    break
+                                }
+                            }
+                        }
+                    }
                 } else {
                     session.stop()
                 }
@@ -532,8 +778,42 @@ class DPpassVpnService : VpnService() {
      * Счётчики ядра → скорость и итоги (D-40). Раз в секунду, пока экран
      * включён; уведомление — реже: каждое обновление стоит батареи.
      */
+    // Aggregate counters only. They do not identify an app or certify
+    // DNS, TLS handshake completion, HTTP response, or media playback.
+    private fun logZapret2Stages(event: String, s: Zapret2Stages) {
+        AppGraph.core(this).log.info(event,
+            "scope" to Safe("experimental_outbounds"),
+            "tcp_dial_ok" to s.tcpDialOk,
+            "tcp_dial_timeout" to s.tcpDialTimeout,
+            "tcp_dial_refused" to s.tcpDialRefused,
+            "tcp_dial_unreachable" to s.tcpDialUnreachable,
+            "tcp_dial_other" to s.tcpDialOther,
+            "tcp_dial_ok_ipv4" to s.tcpDialOkV4,
+            "tcp_dial_ok_ipv6" to s.tcpDialOkV6,
+            "tcp_dial_ok_unknown" to s.tcpDialOkUnknown,
+            "tcp_unreachable_ipv4" to s.tcpDialUnreachableV4,
+            "tcp_unreachable_ipv6" to s.tcpDialUnreachableV6,
+            "tcp_unreachable_unknown" to s.tcpDialUnreachableUnknown,
+            "tcp_clienthello_sent" to s.tcpHelloSent,
+            "tcp_clienthello_failed" to s.tcpHelloFailed,
+            "tcp_first_reply" to s.tcpFirstReply,
+            "tcp_closed_no_reply" to s.tcpClosedNoReply,
+            "tcp_tls_alert" to s.tcpFirstTlsAlert,
+            "tcp_read_timeout" to s.tcpReadTimeout,
+            "quic_initial_sent" to s.udpInitialSent,
+            "quic_initial_failed" to s.udpInitialFailed,
+            "udp_first_reply" to s.udpFirstReply,
+            "udp_closed_no_reply" to s.udpClosedNoReply)
+    }
+
     private fun startTicker(session: EngineSession) {
         ticker?.cancel()
+        val diagnosticEnabled = AppPrefs(this).zapret2Backend == Zapret2Backend.VPN_SERVICE
+        val initialCounters = if (diagnosticEnabled) AppGraph.graph(this).engine.desyncCounters() else null
+        val initialStages = if (diagnosticEnabled) AppGraph.graph(this).engine.zapret2Stages() else null
+        val diagnostic = if (diagnosticEnabled) Zapret2FinalCounter(
+            initialCounters?.applied ?: 0L, initialCounters?.skipped ?: 0L) else null
+        zapret2FinalState = diagnostic?.let { Zapret2FinalState(session, it, Clock.MONOTONIC.nowMillis(), initialStages) }
         ticker = scope.launch {
             val meter = TrafficMeter()
             val pace = NotificationPace()
@@ -541,13 +821,46 @@ class DPpassVpnService : VpnService() {
             val core = AppGraph.core(this@DPpassVpnService)
             // Учёт трафика (D-92) — и с выключенным экраном: приращения сеанса, сеть — та, что под туннелем.
             val usage = UsageMeter()
-            val owners = AppGraph.graph(this@DPpassVpnService).owners
+            val graph = AppGraph.graph(this@DPpassVpnService)
+            val owners = graph.owners
+            var diagUp = 0L
+            var diagDown = 0L
+            // Xray desync counters are process-wide; baselines must start at
+            // this VPN session, unlike per-session traffic counters.
+            var diagApplied = initialCounters?.applied ?: 0L
+            var diagSkipped = initialCounters?.skipped ?: 0L
+            var lastStages = initialStages
             var ticks = 0L
             while (isActive) {
                 core.usage.record(usage.delta(session.stats()), underlyingType)?.let { UsageAlerts.show(this@DPpassVpnService, core, it) }
                 // Журнал уникальных соединений (D-106) пополняется и с закрытым экраном: закрытые ядро держит
                 // 5 минут, опроса раз в 10 с хватает. Без журнала опрашивать незачем — таблицу опрашивает её экран.
                 if (ticks++ % ANALYZER_EVERY_TICKS == 0L && core.analyzer.settings().let { it.enabled && it.keepUnique }) core.analyzer.poll(owners)
+                // A successful DoH probe cannot prove that YouTube feed/CDN
+                // payloads arrived. Periodic privacy-safe transport counters
+                // make "connected but feed stalls" measurable in device logs.
+                if (ticks % 30L == 0L && AppPrefs(this@DPpassVpnService).zapret2Backend == Zapret2Backend.VPN_SERVICE) {
+                    val stats = session.stats()
+                    val probes = graph.engine.desyncCounters()
+                    core.log.info("zapret2_transfer_window",
+                        "up_bytes" to (stats.uplinkBytes - diagUp).coerceAtLeast(0),
+                        "down_bytes" to (stats.downlinkBytes - diagDown).coerceAtLeast(0),
+                        "applied_delta" to ((probes?.applied ?: diagApplied) - diagApplied).coerceAtLeast(0),
+                        "skipped_delta" to ((probes?.skipped ?: diagSkipped) - diagSkipped).coerceAtLeast(0),
+                        "applied_total" to (probes?.applied ?: 0L),
+                        "skipped_total" to (probes?.skipped ?: 0L))
+                    diagUp = stats.uplinkBytes
+                    diagDown = stats.downlinkBytes
+                    if (probes != null) {
+                        diagApplied = probes.applied
+                        diagSkipped = probes.skipped
+                    }
+                    val nowStages = graph.engine.zapret2Stages()
+                    if (lastStages != null && nowStages != null) {
+                        logZapret2Stages("zapret2_stage_window", nowStages.delta(lastStages))
+                    }
+                    lastStages = nowStages
+                }
                 val interactive = power.isInteractive
                 val notify = pace.tick(interactive)
                 if (interactive) {
@@ -782,8 +1095,41 @@ class DPpassVpnService : VpnService() {
                 val u = NetworkCheck.underlying(this@DPpassVpnService)
                 val handle = u.network?.networkHandle
                 if (registered && handle == current) return
+                val networkChanged = registered && handle != current
                 val wasLost = registered && current == null
                 registered = true
+                // A strategy learned on LTE must not silently be reused on
+                // another carrier/Wi-Fi or after a network outage. Keep the
+                // explicit selections, but clear ephemeral per-host evidence.
+                if (networkChanged) ServerAutoModel.resetTransient()
+                if (networkChanged && AppPrefs(this@DPpassVpnService).zapret2Backend == Zapret2Backend.VPN_SERVICE) {
+                    val result = runCatching {
+                        JniXrayRuntime.configureZapret2AdaptiveHosts(
+                            AppPrefs(this@DPpassVpnService).zapret2AdaptiveTargetsText)
+                    }.getOrNull()
+                    if (result == null || result is XrayResult.Failed) {
+                        DeviceLog.log.warning("zapret2_adaptive_reset_failed", "reason" to Safe("network_change"))
+                    } else {
+                        DeviceLog.log.info("zapret2_adaptive_reset", "reason" to Safe("network_change"))
+                    }
+                    // Restart optional local MLP from the downloaded seed
+                    // on each physical network change. Do not carry learned
+                    // priors between unrelated mobile/Wi-Fi conditions.
+                    val networkClass = when (u.type) {
+                        NetworkType.MOBILE -> "MOBILE"
+                        NetworkType.WIFI -> "WIFI"
+                        else -> "OTHER"
+                    }
+                    runCatching { JniXrayRuntime.configureZapret2NeuralNetwork(networkClass) }
+                    val model = Zapret2NeuralModel.readVerified(this@DPpassVpnService)
+                    val reloaded = runCatching {
+                        JniXrayRuntime.configureZapret2NeuralModel(model ?: ByteArray(0))
+                    }.getOrNull()
+                    if (reloaded == null || reloaded is XrayResult.Failed) {
+                        DeviceLog.log.warning("zapret2_neural_reset_failed",
+                            "reason" to Safe("network_change"))
+                    }
+                }
                 val from = underlyingType
                 current = handle
                 underlyingType = u.type
@@ -823,6 +1169,10 @@ class DPpassVpnService : VpnService() {
     private fun pinTarget(core: DPpassCore): ProfileId? {
         val prefs = AppPrefs(this)
         if (prefs.autoSwitch) return null
+        // Explicit opt-in server-auto MLP means no silent reuse of the last
+        // connected server as a hard pin during subsequent starts.
+        if (prefs.selectedServer == null &&
+            Zapret2NeuralModel.isInstalled(this, Zapret2NeuralModel.Kind.SERVER)) return null
         val present = core.activation.state.activeConfig?.profiles?.map { it.id }.orEmpty()
         return prefs.selectedServer?.takeIf { it in present } ?: pinned?.takeIf { it in present }
     }
@@ -872,16 +1222,29 @@ class DPpassVpnService : VpnService() {
                 restart()
                 while (isActive && TunnelState.status.value is TunnelStatus.Connecting) delay(Recovery.STATUS_POLL_MILLIS)
                 val status = TunnelState.status.value
-                if (status is TunnelStatus.Connected) {
-                    core.log.info("recovery_done", "attempts" to failedAttempts + 1)
-                    ServerSwitch.clear(this@DPpassVpnService)
-                    return@launch
+                val outcome = Recovery.afterAttempt(
+                    connected = status is TunnelStatus.Connected,
+                    blockedFailure = status is TunnelStatus.Failed && status.trafficBlocked,
+                    networkUp = networkUp(),
+                )
+                when (outcome) {
+                    Recovery.AttemptResult.RESTORED -> {
+                        core.log.info("recovery_done", "attempts" to failedAttempts + 1)
+                        ServerSwitch.clear(this@DPpassVpnService)
+                        return@launch
+                    }
+                    // Успех ядра при уже пропавшей сети ещё не означает восстановление (D-113).
+                    Recovery.AttemptResult.WAIT_FOR_NETWORK -> continue
+                    // Остановлено или сервис ушёл (нет TUN) — восстанавливать нечего.
+                    Recovery.AttemptResult.STOP -> return@launch
+                    Recovery.AttemptResult.RETRY -> {
+                        failure = (status as TunnelStatus.Failed).reason
+                        // Потеря сети во время обработки отказа — не ошибка сервера.
+                        if (!networkUp()) continue
+                        failedAttempts++
+                        if (failedAttempts == Recovery.NOTIFY_AFTER) offerChange(core, failure)
+                    }
                 }
-                // Остановлено или сервис ушёл (нет TUN) — восстанавливать нечего.
-                if (status !is TunnelStatus.Failed || !status.trafficBlocked) return@launch
-                failure = status.reason
-                if (networkUp()) failedAttempts++
-                if (failedAttempts == Recovery.NOTIFY_AFTER) offerChange(core, failure)
             }
         }
     }
@@ -991,11 +1354,45 @@ class DPpassVpnService : VpnService() {
         shareWatch = null
         ticker?.cancel()
         ticker = null
+        // A reconnect may happen before the first 30-second transfer window.
+        // Emit the whole-session snapshot while the old engine is still alive,
+        // and at most once even when shutdown invokes stopObservers twice.
+        val final = zapret2FinalState
+        zapret2FinalState = null
+        if (final != null) {
+            runCatching {
+                val current = final.session.stats()
+                val probes = AppGraph.graph(this).engine.desyncCounters()
+                val summary = final.counters.finish(
+                    current.uplinkBytes, current.downlinkBytes,
+                    probes?.applied ?: 0L, probes?.skipped ?: 0L,
+                )
+                if (summary != null) AppGraph.core(this).log.info("zapret2_transfer_final",
+                    "duration_ms" to (Clock.MONOTONIC.nowMillis() - final.startedMillis).coerceAtLeast(0L),
+                    "up_bytes" to summary.upBytes,
+                    "down_bytes" to summary.downBytes,
+                    "applied_delta" to summary.appliedDelta,
+                    "skipped_delta" to summary.skippedDelta,
+                    "applied_total" to summary.appliedTotal,
+                    "skipped_total" to summary.skippedTotal)
+                val finalStages = AppGraph.graph(this).engine.zapret2Stages()
+                if (final.initialStages != null && finalStages != null) {
+                    logZapret2Stages("zapret2_stage_final", finalStages.delta(final.initialStages))
+                }
+            }.onFailure {
+                DeviceLog.log.warning("zapret2_transfer_final_unavailable",
+                    "reason" to Safe(it.javaClass.simpleName))
+            }
+        }
         unwatchNetwork()
         TunnelState.share(emptyList())
     }
 
     private suspend fun shutdown(keepTunnel: Boolean = false) {
+        alpineWatch?.cancel()
+        alpineWatch = null
+        rootWatch?.cancel()
+        rootWatch = null
         stopObservers()
         state.withLock {
             sessionRegime = null
@@ -1006,6 +1403,20 @@ class DPpassVpnService : VpnService() {
             session = null
             pending
         }?.join()
+        // The protected-socket engine must stop before the Alpine strategy
+        // daemon. Clear the socket to avoid stale state in the next session.
+        if (alpineStrategy != null) {
+            runCatching { JniXrayRuntime.configureZapret2Planner(null) }
+            runCatching { alpineStrategy?.close() }
+            alpineStrategy = null
+        }
+        // У root нет Xray EngineSession, но есть собственный процесс и NFQUEUE.
+        rootZapret2?.stop()?.onFailure { error ->
+            DeviceLog.log.diagnostic(Diagnostic.fromThrowable(
+                DiagCode.BACKEND_NOT_AVAILABLE, "не удалось снять правила Zapret2 при остановке", error,
+            ))
+        }
+        rootZapret2 = null
         // NonCancellable acceptance мог зарегистрировать наблюдателей после первой отмены.
         stopObservers()
         // establish мог завершиться после отмены: fd уже принадлежит владельцу.

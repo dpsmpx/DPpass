@@ -96,6 +96,8 @@ class CompiledConfig(
  * и есть ли локальный прокси для подключения без VPN ([local], D-95:
  * только без TUN). [systemTun] — TUN, который создаёт само ядро (Windows,
  * D-97): только с [withTun]; без него TUN даёт платформа (fd, D-25).
+ * [desync] — приём эксперимента к началу соединения с сервером (D-116):
+ * только попытки замера А/Б, обычное подключение его не задаёт.
  */
 data class CompilePlan(
     val profileId: ProfileId,
@@ -105,7 +107,60 @@ data class CompilePlan(
     val splitSites: SplitSites = SplitSites.NONE,
     val local: LocalProxySpec? = null,
     val systemTun: SystemTun? = null,
+    val desync: DesyncTrick? = null,
 )
+
+/**
+ * Приём эксперимента к первому ClientHello соединения с сервером (D-116,
+ * `docs/research/FAKE_PACKETS.md`, вариант «а»): только для замера А/Б.
+ */
+sealed interface DesyncTrick {
+    /** Для журнала замера: вид и TTL, без адресов. */
+    val label: String
+
+    /** Per-destination adaptive choice on new TCP ClientHello connections. */
+    data object Auto : DesyncTrick {
+        override val label: String = "auto"
+    }
+
+    /** Перестановка: начало до середины имени — с TTL 1, остальное — как обычно; начало повторит ядро ОС. */
+    data object Disorder : DesyncTrick {
+        override val label: String = "disorder"
+    }
+
+    /** Разделить TLS SNI или HTTP Host на два отдельных TCP отправления без поддельных пакетов. */
+    data object Split : DesyncTrick {
+        override val label: String = "split"
+    }
+
+    /** TLS ClientHello: отделить самый первый байт, без требования видимого SNI (ECH/частичная инспекция). */
+    data object SplitFirst : DesyncTrick {
+        override val label: String = "split-1"
+    }
+
+    /** Experimental: two TLS handshake records sent in separate TCP writes; no fake data. */
+    data object TLSRecordSplit : DesyncTrick {
+        override val label: String = "tlsrec-split"
+    }
+
+    /** Подделка: начало с подложным именем и TTL [ttl], затем те же номера — настоящие байты. */
+    data class Fake(val ttl: Int) : DesyncTrick {
+        init {
+            require(ttl in MIN_TTL..MAX_TTL) { "TTL подделки — $MIN_TTL…$MAX_TTL" }
+        }
+
+        override val label: String = "fake-$ttl"
+    }
+
+    companion object {
+        /** Пределы TTL подделки — как у моста (`tools/xray/bridge/desync.go`). */
+        const val MIN_TTL: Int = 1
+        const val MAX_TTL: Int = 64
+    }
+}
+
+/** Сколько соединений эксперимента получили приём (D-116) и сколько ушли как есть — с запуска процесса. */
+data class DesyncCounters(val applied: Long, val skipped: Long)
 
 /**
  * TUN, который создаёт и настраивает само ядро (Windows, D-97): адаптер
@@ -171,6 +226,12 @@ data class ServerlessPlan(
     val withTun: Boolean = true,
     /** TUN, который создаёт ядро (Windows, D-97); как у [CompilePlan.systemTun]. */
     val systemTun: SystemTun? = null,
+    /** Локальные экспериментальные TCP-приёмы, без соединения с внешним сервером. */
+    val desync: DesyncTrick? = null,
+    /** Только локальный Android VPN: блокировать UDP 443, чтобы клиент попробовал TCP/TLS. */
+    val forceQuicTcp: Boolean = false,
+    /** Локальный Android VPN: без распознанного домена направлять TCP 443 через DPI-dialer. */
+    val catchAllHttps: Boolean = false,
 ) {
     companion object {
         /** Сеанс без сервера в `CompiledConfig.profileId`: не профиль документа — в id профиля нет двоеточий. */
@@ -441,6 +502,12 @@ interface ProxyEngine {
      * ничего не делает (так у фиктивного ядра).
      */
     fun setConnectionTracking(on: Boolean) {}
+
+    /** Счётчики эксперимента с началом соединения (D-116); null — ядро их не ведёт. */
+    fun desyncCounters(): DesyncCounters? = null
+
+    /** Обезличенные стадии экспериментальных TCP/QUIC соединений; без DNS/HTTPS. */
+    fun zapret2Stages(): Zapret2Stages? = null
 
     /** Снимок учёта соединений (D-106); null — ядро учёта не умеет или не загружено. */
     fun connections(): EngineConnections? = null

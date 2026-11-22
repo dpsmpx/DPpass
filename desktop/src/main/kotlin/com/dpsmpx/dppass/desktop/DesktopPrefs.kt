@@ -79,6 +79,11 @@ class DesktopPrefs(private val file: File) {
             put(SERVERLESS_DNS, value.dns.wire)
         }
 
+    /** Эксперимент с началом соединения (D-116, на ПК — D-117): открывает «Замер А/Б»; выключен по умолчанию. */
+    var desyncExperiment: Boolean
+        get() = props.getProperty(DESYNC_EXPERIMENT) == "true"
+        set(value) = put(DESYNC_EXPERIMENT, value.toString())
+
     var theme: ThemeChoice
         get() = props.getProperty(THEME)?.let { v -> ThemeChoice.entries.firstOrNull { it.name == v } } ?: ThemeChoice.AUTO
         set(value) = put(THEME, value.name)
@@ -105,5 +110,6 @@ class DesktopPrefs(private val file: File) {
         const val SPLIT_SITES = "split_sites"
         const val SERVERLESS_REST = "serverless_rest"
         const val SERVERLESS_DNS = "serverless_dns"
+        const val DESYNC_EXPERIMENT = "desync_experiment"
     }
 }

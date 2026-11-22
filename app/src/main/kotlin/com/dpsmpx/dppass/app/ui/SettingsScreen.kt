@@ -11,12 +11,19 @@ import android.view.Gravity
 import android.view.View
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.TunnelStatus
+import com.dpsmpx.dppass.app.TunnelState
+import com.dpsmpx.dppass.app.Zapret2NeuralModel
+import com.dpsmpx.dppass.engine.xray.JniXrayRuntime
+import com.dpsmpx.dppass.engine.xray.XrayResult
 import com.dpsmpx.dppass.connection.ActivationResult
 import com.dpsmpx.dppass.connection.AppMode
 import com.dpsmpx.dppass.connection.DnsProvider
 import com.dpsmpx.dppass.connection.PolicyService
 import com.dpsmpx.dppass.connection.RoutingMode
 import com.dpsmpx.dppass.connection.ServerlessSettings
+import com.dpsmpx.dppass.connection.Zapret2Backend
+import com.dpsmpx.dppass.connection.Zapret2Hostlist
+import com.dpsmpx.dppass.connection.Zapret2VpnStrategy
 import com.dpsmpx.dppass.connection.UserPolicy
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Safe
@@ -32,7 +39,7 @@ import kotlinx.coroutines.withContext
  * автопереключение сервера (D-58); проверка сети (D-60); напоминание о
  * конце подписки (D-76);
  * раздача другим устройствам (D-51); тема; журнал (D-26) и «О программе»
- * (D-43).
+ * (D-43); встроенная HTTPS-диагностика Zapret2 (D-119).
  *
  * Смена политики — новая активация действующих серверов (D-07): при
  * отказе остаётся прежнее, и это видно. Туннель поднят — переподключение.
@@ -277,7 +284,124 @@ class SettingsScreen(host: Host) : Screen(host) {
             Ui.matchWidth(),
         )
 
+        // ---- локальный Zapret2: opt-in ----
+        body.addView(Ui.section(context, context.getString(R.string.zapret2_mode_title)))
+        body.addView(
+            Ui.listCard(context).apply {
+                addView(
+                    choiceRow(
+                        R.drawable.ic_shield,
+                        R.string.zapret2_mode_title,
+                        listOf(R.string.zapret2_off, R.string.zapret2_root, R.string.zapret2_vpn),
+                        host.prefs.zapret2Backend.ordinal,
+                    ) { index ->
+                        host.prefs.zapret2Backend = Zapret2Backend.entries[index]
+                        if (host.prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE) {
+                            // Old manually chosen strategies are migrated to the
+                            // single user-facing AUTO mode.
+                            host.prefs.zapret2VpnStrategy = Zapret2VpnStrategy.AUTO
+                        }
+                        host.reconnectIfBusy()
+                        host.changed()
+                    },
+                    Ui.matchWidth(),
+                )
+                if (host.prefs.zapret2Backend != Zapret2Backend.OFF) {
+                    addView(Ui.divider(context))
+                    addView(
+                        Ui.ListRow(context, R.drawable.ic_route, context.getString(R.string.zapret2_hostlist_title))
+                            .subtitle(zapret2HostlistSummary())
+                            .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                            .onClick { editZapret2Hostlist() },
+                        Ui.matchWidth(),
+                    )
+                }
+                if (host.prefs.zapret2Backend == Zapret2Backend.ROOT) {
+                    addView(Ui.divider(context))
+                    addView(
+                        Ui.switchRow(context, R.drawable.ic_shield,
+                            context.getString(R.string.zapret2_root_quic_title),
+                            context.getString(R.string.zapret2_root_quic_note),
+                            host.prefs.zapret2RootQuic,
+                        ) { enabled ->
+                            host.prefs.zapret2RootQuic = enabled
+                            host.reconnectIfBusy()
+                            host.changed()
+                        }, Ui.matchWidth(),
+                    )
+                }
+                if (host.prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE) {
+                    addView(Ui.divider(context))
+                    addView(
+                        Ui.ListRow(context, R.drawable.ic_shield,
+                            context.getString(R.string.zapret2_auto_primary_title))
+                            .subtitle(context.getString(R.string.zapret2_auto_primary_note)),
+                        Ui.matchWidth(),
+                    )
+                    addView(Ui.divider(context))
+                    addView(
+                        Ui.switchRow(context, R.drawable.ic_route,
+                            context.getString(R.string.zapret2_vpn_force_tcp_title),
+                            context.getString(R.string.zapret2_vpn_force_tcp_note),
+                            host.prefs.zapret2VpnForceTcp,
+                        ) { enabled ->
+                            host.prefs.zapret2VpnForceTcp = enabled
+                            host.reconnectIfBusy()
+                            host.changed()
+                        }, Ui.matchWidth(),
+                    )
+                    if (host.prefs.zapret2VpnForceTcp) {
+                        addView(Ui.text(context, R.style.Text_DPpass_Caption,
+                            context.getString(R.string.zapret2_auto_quic_blocked_note)), Ui.matchWidth())
+                    }
+                    addView(Ui.divider(context))
+                    addView(
+                        Ui.switchRow(context, R.drawable.ic_route,
+                            context.getString(R.string.zapret2_vpn_fallback_title),
+                            context.getString(R.string.zapret2_vpn_fallback_note),
+                            host.prefs.zapret2VpnCatchAllHttps,
+                        ) { enabled ->
+                            host.prefs.zapret2VpnCatchAllHttps = enabled
+                            host.reconnectIfBusy()
+                            host.changed()
+                        }, Ui.matchWidth(),
+                    )
+                    addView(Ui.divider(context))
+                    addView(
+                        Ui.ListRow(context, R.drawable.ic_speed,
+                            context.getString(R.string.zapret2_autotest_title))
+                            .subtitle(context.getString(R.string.zapret2_autotest_subtitle))
+                            .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                            .onClick { host.push(Zapret2AutoTestScreen(host)) },
+                        Ui.matchWidth(),
+                    )
+                    addView(Ui.divider(context))
+                    addView(modelRow(Zapret2NeuralModel.Kind.STRATEGY), Ui.matchWidth())
+                }
+            },
+            Ui.matchWidth(),
+        )
+        // The provider model can be generated even when currently using
+        // local strategies; the two models do not share training examples.
+        body.addView(Ui.section(context, context.getString(R.string.model_server_section)))
+        body.addView(Ui.listCard(context).apply {
+            addView(modelRow(Zapret2NeuralModel.Kind.SERVER), Ui.matchWidth())
+        }, Ui.matchWidth())
+        body.addView(Ui.text(context, R.style.Text_DPpass_Caption,
+            context.getString(R.string.zapret2_experimental_note)))
+
         // ---- без сервера (D-73) ----
+        // Separate optional user-space Alpine terminal from the VPN packet path.
+        body.addView(Ui.listCard(context).apply {
+            addView(
+                Ui.ListRow(context, R.drawable.ic_route, context.getString(R.string.alpine_title))
+                    .subtitle(context.getString(R.string.alpine_settings_note))
+                    .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                    .onClick { context.startActivity(Intent(context, com.dpsmpx.dppass.app.alpine.AlpineTerminalActivity::class.java)) },
+                Ui.matchWidth(),
+            )
+        }, Ui.matchWidth())
+
         body.addView(Ui.section(context, context.getString(R.string.settings_serverless)))
         val serverless = host.prefs.serverless
         body.addView(
@@ -395,6 +519,8 @@ class SettingsScreen(host: Host) : Screen(host) {
                         .onClick { host.push(NetworkCheckScreen(host)) },
                     Ui.matchWidth(),
                 )
+                // The legacy A/B screen has been superseded by the single
+                // multi-site Zapret2 diagnostic action above.
                 addView(Ui.divider(context))
                 addView(
                     Ui.ListRow(context, R.drawable.ic_file, context.getString(R.string.export_title))
@@ -542,6 +668,133 @@ class SettingsScreen(host: Host) : Screen(host) {
             dialog.dismiss()
             host.reconnectIfBusy()
         }
+    }
+
+    private fun zapret2HostlistSummary(): String {
+        val count = Zapret2Hostlist.parse(host.prefs.zapret2HostlistText)
+            .getOrNull()?.domains?.size ?: 0
+        return if (count == 0) context.getString(R.string.zapret2_hostlist_all)
+        else context.getString(R.string.zapret2_hostlist_count, count)
+    }
+
+    /** Shared root/VpnService domain filter; no raw shell arguments. */
+    private fun editZapret2Hostlist() {
+        val field = Ui.field(context, R.string.zapret2_hostlist_hint,
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS,
+        ).apply {
+            isSingleLine = false
+            minLines = 4
+            maxLines = 10
+            gravity = Gravity.TOP or Gravity.START
+            val p = Ui.dp(context, 12)
+            setPadding(Ui.dp(context, 16), p, Ui.dp(context, 16), p)
+            setText(host.prefs.zapret2HostlistText)
+        }
+        val form = Ui.column(context, 8).apply {
+            val p = Ui.dp(context, 24)
+            setPadding(p, Ui.dp(context, 8), p, 0)
+            addView(Ui.text(context, R.style.Text_DPpass_Secondary,
+                context.getString(R.string.zapret2_hostlist_note)), Ui.matchWidth())
+            addView(field, Ui.matchWidth())
+        }
+        val dialog = AlertDialog.Builder(context)
+            .setTitle(R.string.zapret2_hostlist_title)
+            .setView(form)
+            .setNeutralButton(R.string.zapret2_youtube_preset, null)
+            .setPositiveButton(R.string.action_save, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+        Ui.secure(dialog)
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+            field.setText(Zapret2Hostlist.YOUTUBE_CDN_PRESET)
+            field.setSelection(field.text.length)
+        }
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val parsed = Zapret2Hostlist.parse(field.text.toString())
+            val hosts = parsed.getOrNull()
+            if (hosts == null) {
+                field.error = parsed.exceptionOrNull()?.message
+                return@setOnClickListener
+            }
+            if (host.prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE &&
+                hosts.domains.size > SplitSites.MAX_ENTRIES) {
+                field.error = context.getString(R.string.zapret2_hostlist_vpn_limit, SplitSites.MAX_ENTRIES)
+                return@setOnClickListener
+            }
+            host.prefs.zapret2HostlistText = hosts.format()
+            host.graph?.core?.log?.info("zapret2_hostlist_set", "n" to hosts.domains.size)
+            dialog.dismiss()
+            host.reconnectIfBusy()
+            host.changed()
+        }
+    }
+
+    private fun modelRow(kind: Zapret2NeuralModel.Kind): View {
+        val size = Zapret2NeuralModel.size(context, kind)
+        val title = if (kind == Zapret2NeuralModel.Kind.STRATEGY)
+            R.string.model_strategy_title else R.string.model_server_title
+        val subtitle = if (size != null) context.getString(R.string.model_installed_size, size)
+            else context.getString(R.string.model_not_generated)
+        return Ui.ListRow(context, R.drawable.ic_speed, context.getString(title))
+            .subtitle(subtitle)
+            .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+            .onClick { chooseModelSize(kind) }
+    }
+
+    private fun chooseModelSize(kind: Zapret2NeuralModel.Kind) {
+        val sizes = Zapret2NeuralModel.SIZES
+        var index = sizes.indexOf(Zapret2NeuralModel.size(context, kind))
+            .takeIf { it >= 0 } ?: sizes.indexOf(Zapret2NeuralModel.DEFAULT_HIDDEN)
+        val names = sizes.map { size ->
+            context.getString(R.string.model_size_choice, size) +
+                if (size == Zapret2NeuralModel.DEFAULT_HIDDEN)
+                    context.getString(R.string.model_recommended) else ""
+        }.toTypedArray()
+        val title = if (kind == Zapret2NeuralModel.Kind.STRATEGY)
+            R.string.model_strategy_title else R.string.model_server_title
+        val dialog = AlertDialog.Builder(context)
+            .setTitle(title)
+            .setSingleChoiceItems(names, index) { _, selected -> index = selected }
+            .setPositiveButton(R.string.model_generate_action) { _, _ ->
+                val hidden = sizes[index]
+                host.scope.launch {
+                    val result = withContext(Dispatchers.Default) {
+                        Zapret2NeuralModel.generate(context.applicationContext, kind, hidden)
+                    }
+                    if (result.isSuccess) {
+                        // Inject updated weights without restarting the tunnel;
+                        // new sockets use the new model. Provider model is
+                        // automatically consulted at the next AUTO connection.
+                        if (kind == Zapret2NeuralModel.Kind.STRATEGY &&
+                            host.prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE &&
+                            TunnelState.status.value is TunnelStatus.Connected) {
+                            val status = runCatching {
+                                JniXrayRuntime.configureZapret2NeuralModel(result.getOrThrow())
+                            }.getOrNull()
+                            host.toast(context.getString(
+                                if (status is XrayResult.Failed || status == null)
+                                    R.string.model_ready_reconnect else R.string.model_created))
+                        } else host.toast(context.getString(R.string.model_created))
+                    } else host.toast(context.getString(R.string.model_generation_failed))
+                    host.changed()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+        if (Zapret2NeuralModel.isInstalled(context, kind)) {
+            dialog.setNeutralButton(R.string.model_remove_action) { _, _ ->
+                if (Zapret2NeuralModel.delete(context, kind)) {
+                    if (kind == Zapret2NeuralModel.Kind.STRATEGY &&
+                        host.prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE &&
+                        TunnelState.status.value is TunnelStatus.Connected) {
+                        runCatching { JniXrayRuntime.configureZapret2NeuralModel(ByteArray(0)) }
+                    }
+                    com.dpsmpx.dppass.app.ServerAutoModel.resetTransient()
+                    host.toast(context.getString(R.string.model_removed))
+                } else host.toast(context.getString(R.string.model_generation_failed))
+                host.changed()
+            }
+        }
+        Ui.secure(dialog.show())
     }
 
     private fun openSystem(intent: Intent) {

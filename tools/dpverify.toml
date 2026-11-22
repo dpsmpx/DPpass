@@ -72,12 +72,11 @@ probe = ["bash", "tools/hostcheck/steps.sh", "wine"]
 [checks."repo.layout"]
 root_allow = [".editorconfig", ".gitignore", "CLAUDE.md", "LICENSE", "README.md", "TODO.md",
               "build.gradle.kts", "gradle.properties", "gradlew", "gradlew.bat", "settings.gradle.kts"]
-required = ["docs/ARCHITECTURE.md", "docs/CONFIG_FORMAT.md", "docs/SECURITY_MODEL.md", "docs/TESTING.md"]
+required = ["docs/ARCHITECTURE.md", "docs/CONFIG_FORMAT.md", "docs/SECURITY_MODEL.md", "docs/TESTING.md", ".github/workflows/zapret2-signed-preflight.yml"]
 # выпуск DB-IP — источник набора геоданных в репозитории (D-31)
 large_allow = ["tools/xray/geodata/sources/*.csv.gz"]
 forbid = [
   { glob = "**/*.pem", reason = "ключи и сертификаты — вне репозитория (D-35)" },
-  { glob = ".github/workflows/**", reason = "CI не используется и не запускается (D-23)" },
 ]
 
 [checks."format.text"]
@@ -178,6 +177,11 @@ case = [
 [[command]]
 id = "project.modules"
 run = ["python3", "tools/hostcheck/check_modules.py"]
+level = "static"
+
+[[command]]
+id = "project.workflows"
+run = ["python3", "tools/hostcheck/check_workflows.py"]
 level = "static"
 
 [[command]]

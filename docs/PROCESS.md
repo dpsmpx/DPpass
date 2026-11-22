@@ -236,9 +236,12 @@ Maven Central через его зеркало у Google (только сбор�
 
 ## 5. Перед слиянием
 
-CI нет: GitHub Actions в DPpass не используется и не запускается
-(D-23), workflow в `.github/workflows/` не добавляются — `repo.layout`
-считает их ошибкой. Ничего не ждёт «зелёного CI».
+Исключение из прежнего D-23: по решению D-118 GitHub Actions
+используется для **экспериментальных сборок Android Zapret2**. Единственный
+разрешённый workflow — `.github/workflows/zapret2-signed-preflight.yml`;
+остальные отвергает `project.workflows`. CI проверяет Android/Go,
+подпись и содержимое APK, но не заменяет полномасштабный `--full`,
+проверки Linux и Windows и испытания на физических устройствах.
 
 Условие слияния в `main`:
 
@@ -250,12 +253,12 @@ CI нет: GitHub Actions в DPpass не используется и не зап
    коммит, на котором он сделан.
 3. Если Android SDK нет, прогон частичный и так и называется; слияние —
    после полного прогона, а не вместо него.
-4. Исключение — правка только Linux-оболочки (`dppass/desktop/`,
-   `dppass/tools/desktop/`, документы): `--full` не нужен. Нужны
+4. Исключение — правка только Linux-оболочки (`desktop/`,
+   `tools/desktop/`, документы): `--full` не нужен. Нужны
    `:ktlintCheck`, `:desktop:test`, `tools/desktop/netns_check.py` от
-   root и `--quick` (`DPmetaApp:D-32`).
+   root и `--quick` (`DPmetaApp:D-32`, D-112).
 
-Правила, которые остаются в силе без CI:
+Правила, которые остаются в силе независимо от CI:
 
 - **Gradle тот же у всех:** через wrapper с проверкой SHA-256
   дистрибутива; `gradle-wrapper.jar` сверяет с PROVENANCE

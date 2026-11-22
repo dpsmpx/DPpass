@@ -22,6 +22,8 @@ import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Secret
 import com.dpsmpx.dppass.engine.CompilePlan
 import com.dpsmpx.dppass.engine.CompiledConfig
+import com.dpsmpx.dppass.engine.DesyncTrick
+import com.dpsmpx.dppass.engine.Zapret2ProbeCatalog
 import com.dpsmpx.dppass.engine.LocalProxySpec
 import com.dpsmpx.dppass.engine.ServerlessPlan
 import com.dpsmpx.dppass.engine.ShareSpec
@@ -838,6 +840,41 @@ class XrayCompilerTest {
     }
 
     @Test
+    fun experimentDialsTheServerThroughATaggedPlainDirectOutboundOnlyWhenAsked() {
+        // D-116: приём эксперимента — только в плане попытки замера; мост узнаёт исходящий по тегу.
+        val multi = corpus("valid-multi.json")
+        for ((i, p) in multi.profiles.withIndex()) {
+            for (trick in listOf(DesyncTrick.Disorder, DesyncTrick.Fake(5))) {
+                val r = XrayCompiler().compile(multi, CompilePlan(p.id, false, desync = trick))
+                val doc = Json.parse(r.valueOrNull()!!.payloadForEngine()) as JsonObject
+                val dialer = outbound(doc, "proxy")["streamSettings"]?.let { (it as JsonObject)["sockopt"] }?.let { it["dialerProxy"].text }
+                val exp = doc["outbounds"].items.filter { it["tag"].text.startsWith(XrayBackend.TAG_EXPERIMENT_PREFIX) }
+                val tcpTls = p.protocol !is ProtocolSpec.Hysteria2 && p.security !is SecuritySpec.None
+                if (tcpTls) {
+                    val tag = "dppass:exp-" + if (trick is DesyncTrick.Fake) "fake-5" else "disorder"
+                    assertEquals(tag, dialer, p.id.value)
+                    assertEquals(tag, exp.single()["tag"].text)
+                    assertEquals("freedom", exp.single()["protocol"].text)
+                    // Разбивки у выхода эксперимента нет: она порезала бы первую запись, и имени в ней мост не нашёл бы.
+                    assertNull((exp.single() as JsonObject)["settings"])
+                } else {
+                    assertNull(dialer, p.id.value)
+                    assertTrue(exp.isEmpty(), p.id.value)
+                    assertEquals("$.profiles[$i]", r.diagnostics.single { it.code == DiagCode.CLIENT_HELLO_SPLIT_NOT_APPLIED }.path)
+                }
+            }
+        }
+        // Обычный план — ни выхода эксперимента, ни dialerProxy (D-116: только замер).
+        val plain = payload(multi)
+        assertTrue(plain["outbounds"].items.none { it["tag"].text.startsWith(XrayBackend.TAG_EXPERIMENT_PREFIX) })
+        // Эксперимент и разбиение D-68 — разные варианты замера: вместе — отказ, а не одно молча.
+        val both = XrayCompiler().compile(multi, CompilePlan(multi.profiles.first().id, false, splitClientHello = true, desync = DesyncTrick.Disorder))
+        assertTrue(both is Outcome.Failure)
+        assertFailsWith<IllegalArgumentException> { DesyncTrick.Fake(0) }
+        assertFailsWith<IllegalArgumentException> { DesyncTrick.Fake(65) }
+    }
+
+    @Test
     fun splitSitesGoDirectThroughFragmentAndQuicIsBlocked() {
         // D-72: список телефона — после служебных правил и раньше правил документа; TCP —
         // на прямой выход с fragment, UDP 443 — закрыт; только вход TUN.
@@ -965,4 +1002,194 @@ class XrayCompilerTest {
         val unknown = XrayCompiler(geodata = GeodataCodes.Installed(set)).compileServerless(ServerlessPlan(doh, sites, splitRest = false))
         assertEquals(DiagCode.GEO_CODE_UNKNOWN, unknown.errors.single().code)
     }
+    @Test
+    fun localVpnDesyncUsesDirectFreedomWithProtectedSocketTagWithoutRemoteServer() {
+        val dns = DnsPolicy(
+            listOf(DnsServer("local", DnsTransport.Https("https://192.0.2.53/dns-query"), DnsRoute.DIRECT)),
+            "local",
+            leakProtection = false,
+        )
+        val normal = XrayCompiler().compileServerless(ServerlessPlan(dns, SplitSites.NONE, splitRest = true))
+        val local = XrayCompiler().compileServerless(
+            ServerlessPlan(dns, SplitSites.NONE, splitRest = true, desync = DesyncTrick.Fake(3)),
+        )
+        assertTrue(local.diagnostics.none { it.isError }, "${local.diagnostics}")
+        val normalDoc = Json.parse(normal.valueOrNull()!!.payloadForEngine()) as JsonObject
+        val doc = Json.parse(local.valueOrNull()!!.payloadForEngine()) as JsonObject
+        val tags = doc["outbounds"].items.map { it["tag"].text }
+        assertEquals(
+            listOf(XrayBackend.TAG_PROXY, XrayBackend.TAG_DIRECT, "dppass:exp-fake-3",
+                XrayBackend.TAG_BLOCK, XrayBackend.TAG_DNS_OUT),
+            tags.take(5),
+            "existing primary routing order must not change",
+        )
+        val probeTags = Zapret2ProbeCatalog.strategies.mapNotNull(Zapret2ProbeCatalog::tag)
+        assertEquals(probeTags.toSet(), tags.toSet().intersect(probeTags.toSet()))
+        assertEquals(tags.size, tags.toSet().size, "duplicate Xray outbound tags")
+        assertEquals(5 + (probeTags.size - 2) + probeTags.size, tags.size,
+            "selected experiment is already registered, other six are added for probes")
+        for (strategy in Zapret2ProbeCatalog.strategies.filter { it != "plain" }) {
+            val testTag = Zapret2ProbeCatalog.tag(strategy)!!
+            val experimentTag = Zapret2ProbeCatalog.experimentTag(strategy)!!
+            assertEquals(experimentTag,
+                outbound(doc, testTag)["streamSettings"]["sockopt"]["dialerProxy"].text,
+                "test must use the real protected strategy dialer")
+            assertEquals(outbound(doc, XrayBackend.TAG_DIRECT)["streamSettings"]["sockopt"]["domainStrategy"],
+                outbound(doc, testTag)["streamSettings"]["sockopt"]["domainStrategy"],
+                "all strategies must use the same DNS policy")
+        }
+        assertTrue(rules(doc).none { it["outboundTag"].text in probeTags },
+            "private test outbounds must never become a routing default")
+        assertEquals("freedom", outbound(doc, XrayBackend.TAG_PROXY)["protocol"].text)
+        assertEquals(
+            "dppass:exp-fake-3",
+            outbound(doc, XrayBackend.TAG_PROXY)["streamSettings"]["sockopt"]["dialerProxy"].text,
+        )
+        assertEquals(
+            outbound(normalDoc, XrayBackend.TAG_DIRECT)["streamSettings"]["sockopt"]["domainStrategy"],
+            outbound(doc, XrayBackend.TAG_PROXY)["streamSettings"]["sockopt"]["domainStrategy"],
+            "DNS protection preserved under the local dialer",
+        )
+        assertTrue(doc["outbounds"].items.none { it["protocol"].text !in setOf("freedom", "blackhole", "dns") })
+    }
+
+
+    @Test
+    fun localZapret2HostlistKeepsQuicOnLocalFakeDialer() {
+        val dns = DnsPolicy(
+            listOf(DnsServer("local", DnsTransport.System, DnsRoute.DIRECT)),
+            "local", leakProtection = false,
+        )
+        val sites = SplitSites.parse("example.org").valueOrNull()!!
+        fun compiled(trick: DesyncTrick): JsonObject {
+            val result = XrayCompiler().compileServerless(
+                ServerlessPlan(dns, sites, splitRest = false, desync = trick),
+            )
+            assertTrue(result.diagnostics.none { it.isError }, "${result.diagnostics}")
+            return Json.parse(result.valueOrNull()!!.payloadForEngine()) as JsonObject
+        }
+        val fake = compiled(DesyncTrick.Fake(3))
+        val fakeQuic = rules(fake).single { it["ruleTag"].text == XrayBackend.RULE_SPLIT_QUIC }
+        assertEquals(XrayBackend.TAG_PROXY, fakeQuic["outboundTag"].text,
+            "Selected QUIC must reach local fake dialer, never a remote proxy")
+        assertEquals("dppass:exp-fake-3",
+            outbound(fake, XrayBackend.TAG_PROXY)["streamSettings"]["sockopt"]["dialerProxy"].text)
+        assertEquals(XrayBackend.TAG_DIRECT, fake["outbounds"].items.first()["tag"].text,
+            "Outside the allowlist, traffic stays direct")
+        val disorder = compiled(DesyncTrick.Disorder)
+        val disorderQuic = rules(disorder).single { it["ruleTag"].text == XrayBackend.RULE_SPLIT_QUIC }
+        assertEquals(XrayBackend.TAG_DIRECT, disorderQuic["outboundTag"].text,
+            "QUIC→TCP is off: a TCP-only strategy must not block HTTP/3")
+        val forced = XrayCompiler().compileServerless(
+            ServerlessPlan(dns, sites, splitRest = false, desync = DesyncTrick.Disorder,
+                forceQuicTcp = true),
+        )
+        assertTrue(forced.diagnostics.none { it.isError }, "${forced.diagnostics}")
+        val forcedDoc = Json.parse(forced.valueOrNull()!!.payloadForEngine()) as JsonObject
+        val forcedQuic = rules(forcedDoc).single { it["ruleTag"].text == XrayBackend.RULE_SPLIT_QUIC }
+        assertEquals(XrayBackend.TAG_BLOCK, forcedQuic["outboundTag"].text,
+            "Explicit QUIC→TCP on still blocks UDP 443")
+    }
+
+    @Test
+    fun localZapret2QuicFallbackBlocksUdp443BeforeHostRulesOnlyWhenEnabled() {
+        val dns = DnsPolicy(
+            listOf(DnsServer("local", DnsTransport.System, DnsRoute.DIRECT)),
+            "local", leakProtection = false,
+        )
+        val sites = SplitSites.parse("googlevideo.com\nyoutube.com").valueOrNull()!!
+        fun doc(plan: ServerlessPlan): JsonObject {
+            val result = XrayCompiler().compileServerless(plan)
+            assertTrue(result.diagnostics.none { it.isError }, "${result.diagnostics}")
+            return Json.parse(result.valueOrNull()!!.payloadForEngine()) as JsonObject
+        }
+        val enabled = doc(ServerlessPlan(dns, sites, splitRest = false,
+            desync = DesyncTrick.Fake(3), forceQuicTcp = true))
+        val ordered = rules(enabled)
+        val quicIndex = ordered.indexOfFirst { it["ruleTag"].text == "dppass:zapret2-quic-tcp" }
+        val domainIndex = ordered.indexOfFirst { it["ruleTag"].text == XrayBackend.RULE_SPLIT_QUIC }
+        assertTrue(quicIndex >= 0 && domainIndex > quicIndex, "force TCP must precede QUIC allowlist")
+        val forced = ordered[quicIndex]
+        assertEquals("443", forced["port"].text)
+        assertEquals("udp", forced["network"].text)
+        assertEquals(XrayBackend.TAG_BLOCK, forced["outboundTag"].text)
+        assertEquals(listOf(XrayBackend.TAG_TUN_IN), forced["inboundTag"].items.map { it.text })
+        assertNull((forced as JsonObject)["domain"], "works even if CDN domain cannot be sniffed")
+        assertTrue(rules(doc(ServerlessPlan(dns, sites, splitRest = false,
+            desync = DesyncTrick.Fake(3)))).none { it["ruleTag"].text == "dppass:zapret2-quic-tcp" })
+        assertTrue(rules(doc(ServerlessPlan(dns, SplitSites.NONE, splitRest = true,
+            desync = DesyncTrick.Split, forceQuicTcp = true))).any {
+            it["ruleTag"].text == "dppass:zapret2-quic-tcp"
+        }, "empty hostlist still forces QUIC TCP fallback")
+        assertTrue(rules(doc(ServerlessPlan(dns, SplitSites.NONE, splitRest = true,
+            withTun = false, forceQuicTcp = true))).none { it["ruleTag"].text == "dppass:zapret2-quic-tcp" },
+            "no TUN, no QUIC interception")
+        val split = doc(ServerlessPlan(dns, SplitSites.NONE, splitRest = true, desync = DesyncTrick.Split))
+        assertEquals("dppass:exp-split",
+            outbound(split, XrayBackend.TAG_PROXY)["streamSettings"]["sockopt"]["dialerProxy"].text)
+    }
+
+
+    @Test
+    fun zapret2IpOnlyQuicDecoyRespectsForceTcpSwitch() {
+        val dns = DnsPolicy(
+            listOf(DnsServer("local", DnsTransport.System, DnsRoute.DIRECT)),
+            "local", leakProtection = false,
+        )
+        val sites = SplitSites.parse("googlevideo.com").valueOrNull()!!
+        fun doc(forceTcp: Boolean, fallback: Boolean): JsonObject {
+            val result = XrayCompiler().compileServerless(
+                ServerlessPlan(dns, sites, splitRest = false, desync = DesyncTrick.Fake(3),
+                    forceQuicTcp = forceTcp, catchAllHttps = fallback),
+            )
+            assertTrue(result.diagnostics.none { it.isError }, "${result.diagnostics}")
+            return Json.parse(result.valueOrNull()!!.payloadForEngine()) as JsonObject
+        }
+        val routed = rules(doc(forceTcp = false, fallback = true))
+        val hostlist = routed.indexOfFirst { it["ruleTag"].text == XrayBackend.RULE_SPLIT_QUIC }
+        val opaque = routed.indexOfFirst { it["ruleTag"].text == "dppass:zapret2-quic-unmatched" }
+        assertTrue(opaque > hostlist, "QUIC IP fallback follows named CDN rule")
+        assertEquals(XrayBackend.TAG_PROXY, routed[opaque]["outboundTag"].text)
+        assertEquals("udp", routed[opaque]["network"].text)
+        assertEquals("443", routed[opaque]["port"].text)
+        assertNull((routed[opaque] as JsonObject)["domain"])
+        assertTrue(rules(doc(forceTcp = true, fallback = true)).none {
+            it["ruleTag"].text == "dppass:zapret2-quic-unmatched"
+        }, "explicit QUIC-to-TCP blocks UDP 443 instead")
+        assertTrue(rules(doc(forceTcp = false, fallback = false)).none {
+            it["ruleTag"].text == "dppass:zapret2-quic-unmatched"
+        }, "strict domain mode must not match unlisted IPs")
+    }
+
+    @Test
+    fun zapret2OpaqueHttpsFallbackRoutesOnlyTcp443ToLocalDialer() {
+        val dns = DnsPolicy(
+            listOf(DnsServer("local", DnsTransport.System, DnsRoute.DIRECT)),
+            "local", leakProtection = false,
+        )
+        val sites = SplitSites.parse("youtube.com\ngooglevideo.com").valueOrNull()!!
+        fun doc(catchAllHttps: Boolean, withTun: Boolean = true): JsonObject {
+            val result = XrayCompiler().compileServerless(
+                ServerlessPlan(dns, sites, splitRest = false, withTun = withTun,
+                    desync = DesyncTrick.SplitFirst, catchAllHttps = catchAllHttps),
+            )
+            assertTrue(result.diagnostics.none { it.isError }, "${result.diagnostics}")
+            return Json.parse(result.valueOrNull()!!.payloadForEngine()) as JsonObject
+        }
+        val active = doc(true)
+        val ordered = rules(active)
+        val known = ordered.indexOfFirst { it["ruleTag"].text == XrayBackend.RULE_SPLIT_SITES }
+        val opaque = ordered.indexOfFirst { it["ruleTag"].text == "dppass:zapret2-https-unmatched" }
+        assertTrue(opaque > known, "known hostlist should be before fallback")
+        assertEquals(XrayBackend.TAG_PROXY, ordered[opaque]["outboundTag"].text)
+        assertEquals("tcp", ordered[opaque]["network"].text)
+        assertEquals("443", ordered[opaque]["port"].text)
+        assertEquals(listOf(XrayBackend.TAG_TUN_IN), ordered[opaque]["inboundTag"].items.map { it.text })
+        assertNull((ordered[opaque] as JsonObject)["domain"], "fallback must include IP-only and ECH")
+        assertEquals("dppass:exp-split-1",
+            outbound(active, XrayBackend.TAG_PROXY)["streamSettings"]["sockopt"]["dialerProxy"].text)
+        assertTrue(rules(doc(false)).none { it["ruleTag"].text == "dppass:zapret2-https-unmatched" })
+        assertTrue(rules(doc(true, withTun = false)).none { it["ruleTag"].text == "dppass:zapret2-https-unmatched" })
+    }
+
 }

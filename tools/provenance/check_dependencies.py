@@ -203,6 +203,17 @@ def check_linkname(provenance, prows, problems):
             f"{recorded.group(1) if recorded else '?'}: перечитать //go:linkname в новой версии и обновить запись (D-18)",
         )
 
+    # При смене Go проверка //go:linkname тоже обязательна: даже при той же версии
+    # anet внутренний символ net.zoneCache или правила компоновщика могли измениться.
+    go_revision = re.search(r"^go\s+(\d+(?:\.\d+)+)\s*$", read(GOMOD), re.M)
+    if not go_revision:
+        problems.append("tools/xray/go.mod: не найдена версия go для обоснования -checklinkname=0 (D-18)")
+    elif f"`go{go_revision.group(1)}`" not in row:
+        problems.append(
+            f"PROVENANCE.md: обоснование {CHECKLINKNAME_FLAG} не подтверждено для "
+            f"go{go_revision.group(1)}: заново проверить //go:linkname и net.zoneCache (D-18)",
+        )
+
 
 def check_go(versions, matrix, mrows, prows, problems):
     """Ядро прокси и модули Go его сборки на хосте (D-24): go.mod ↔ каталог, матрица, PROVENANCE."""

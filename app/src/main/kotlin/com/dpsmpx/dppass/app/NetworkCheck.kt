@@ -50,6 +50,14 @@ object NetworkCheck {
     /** Идёт проверка — своя или после смены сети. */
     fun busy(): Boolean = checking.get()
 
+    /** Идёт замер через путь Xray; экран проверки сети не должен конкурировать с ним. */
+    fun speedBusy(): Boolean = measuring.get()
+
+    // The speed check and the underlying network assessment were independently
+    // clickable. Concurrent 25-MB downloads and multi-socket probes obscure
+    // which path stalled, especially on cellular networks. Serialize them.
+    private val diagnosticSlot = AtomicBoolean(false)
+
     /** Один на процесс: две проверки подряд упираются в предел, а не дают залп (D-14). */
     private val budget = ProbeBudget(Clock.MONOTONIC)
 
@@ -97,11 +105,23 @@ object NetworkCheck {
      * после прошлого ещё не прошла ([speedReadyInMillis]).
      */
     suspend fun speed(engine: XrayProxyEngine, log: Logger, profile: ProfileId?): Outcome<SpeedReport>? {
-        if (speedCooldown.remainingMillis() > 0 || !measuring.compareAndSet(false, true)) return null
+        if (speedCooldown.remainingMillis() > 0 || !diagnosticSlot.compareAndSet(false, true)) return null
+        measuring.set(true)
         quiet.begin()
+        // Counters are process-wide, not per speed-test request. These
+        // deltas still show whether DPI tricks were attempted while the
+        // measurement ran, without exposing destinations or user payloads.
+        val desyncBefore = engine.desyncCounters()
         var r: Outcome<SpeedReport>? = null
         return try {
             r = withContext(Dispatchers.IO) { engine.speedTest() }
+            val desyncAfter = engine.desyncCounters()
+            if (desyncBefore != null && desyncAfter != null) {
+                log.info("speed_desync_counters",
+                    "scope" to Safe("process_delta"),
+                    "applied" to (desyncAfter.applied - desyncBefore.applied).coerceAtLeast(0),
+                    "skipped" to (desyncAfter.skipped - desyncBefore.skipped).coerceAtLeast(0))
+            }
             when (r) {
                 is Outcome.Success -> with(r.value) {
                     log.info(
@@ -124,6 +144,7 @@ object NetworkCheck {
             speedCooldown.restart(if (r is Outcome.Failure) SPEED_RETRY_MILLIS else SPEED_COOLDOWN_MILLIS)
             quiet.end()
             measuring.set(false)
+            diagnosticSlot.set(false)
         }
     }
 
@@ -155,13 +176,15 @@ object NetworkCheck {
         trigger: Trigger = Trigger.BUTTON,
         onResult: (ProbeResult) -> Unit = {},
     ): NetworkAssessment? = withContext(Dispatchers.IO) {
-        if (!checking.compareAndSet(false, true)) return@withContext null
+        if (!diagnosticSlot.compareAndSet(false, true)) return@withContext null
+        checking.set(true)
         quiet.begin()
         try {
             assess(context, log, trigger, onResult)
         } finally {
             quiet.end()
             checking.set(false)
+            diagnosticSlot.set(false)
         }
     }
 

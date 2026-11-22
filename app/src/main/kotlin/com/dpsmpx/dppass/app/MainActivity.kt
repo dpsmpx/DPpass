@@ -36,6 +36,7 @@ import com.dpsmpx.dppass.app.ui.StorageLost
 import com.dpsmpx.dppass.app.ui.SubscriptionsScreen
 import com.dpsmpx.dppass.app.ui.Ui
 import com.dpsmpx.dppass.connection.LocalProxyOffer
+import com.dpsmpx.dppass.connection.Zapret2Backend
 import com.dpsmpx.dppass.diagnostics.DiagCode
 import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
@@ -77,6 +78,7 @@ class MainActivity : Activity(), Host {
     private lateinit var nav: LinearLayout
     private var tab = Host.TAB_CONNECT
     private var askedNotifications = false
+    private var pendingVpnReconnect = false
     private var pendingImport: String? = null
 
     /** Документ экспорта до выбора файла (D-11): только в памяти, после записи — забыт. */
@@ -110,7 +112,7 @@ class MainActivity : Activity(), Host {
         scope.launch {
             val (g, restored) = withContext(Dispatchers.IO) {
                 val g = AppGraph.graph(this@MainActivity)
-                g to if (g.core.activation.state.activeConfig == null) g.core.restore() else emptyList()
+                g to if (g.core.activation.state.activeConfig == null) g.core.restoreAwaitingActivation() else emptyList()
             }
             graph = g
             changed()
@@ -391,8 +393,13 @@ class MainActivity : Activity(), Host {
 
     override fun connect() {
         askNotifications()
+        // Root NFQUEUE не использует Android VpnService.Builder.
+        if (prefs.zapret2Backend == Zapret2Backend.ROOT) {
+            DPpassVpnService.start(this)
+            return
+        }
         // Без VPN (D-95): локальный прокси — согласие на VPN не нужно.
-        if (graph?.core?.localProxy?.enabled() == true) {
+        if (prefs.zapret2Backend == Zapret2Backend.OFF && graph?.core?.localProxy?.enabled() == true) {
             DPpassVpnService.start(this)
             return
         }
@@ -411,6 +418,17 @@ class MainActivity : Activity(), Host {
 
     override fun reconnectIfBusy() {
         if (!TunnelState.status.value.busy) return
+        val needsVpnConsent = prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE ||
+            (prefs.zapret2Backend == Zapret2Backend.OFF && graph?.core?.localProxy?.enabled() != true)
+        if (needsVpnConsent) {
+            val consent = VpnService.prepare(this)
+            if (consent != null) {
+                pendingVpnReconnect = true
+                @Suppress("DEPRECATION")
+                startActivityForResult(consent, REQUEST_VPN)
+                return
+            }
+        }
         DPpassVpnService.reconnect(this, byUser = true)
         toast(getString(R.string.reconnecting))
     }
@@ -547,8 +565,15 @@ class MainActivity : Activity(), Host {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         when {
-            requestCode == REQUEST_VPN && resultCode == RESULT_OK -> DPpassVpnService.start(this)
-            requestCode == REQUEST_VPN -> vpnConsentRefused()
+            requestCode == REQUEST_VPN && resultCode == RESULT_OK -> {
+                val reconnect = pendingVpnReconnect
+                pendingVpnReconnect = false
+                if (reconnect) DPpassVpnService.reconnect(this, byUser = true) else DPpassVpnService.start(this)
+            }
+            requestCode == REQUEST_VPN -> {
+                pendingVpnReconnect = false
+                vpnConsentRefused()
+            }
             requestCode == REQUEST_FILE && resultCode == RESULT_OK -> data?.data?.let(::readFile)
             requestCode == REQUEST_QR && resultCode == RESULT_OK -> data?.data?.let(::readQr)
             requestCode == REQUEST_EXPORT && resultCode == RESULT_OK -> data?.data?.let(::writeExport)

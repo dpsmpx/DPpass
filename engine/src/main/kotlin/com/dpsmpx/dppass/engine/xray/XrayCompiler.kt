@@ -27,6 +27,8 @@ import com.dpsmpx.dppass.engine.BackendCompiler
 import com.dpsmpx.dppass.engine.CapabilityChecker
 import com.dpsmpx.dppass.engine.CompilePlan
 import com.dpsmpx.dppass.engine.CompiledConfig
+import com.dpsmpx.dppass.engine.DesyncTrick
+import com.dpsmpx.dppass.engine.Zapret2ProbeCatalog
 import com.dpsmpx.dppass.engine.EngineCapabilities
 import com.dpsmpx.dppass.engine.LocalProxySpec
 import com.dpsmpx.dppass.engine.ServerlessPlan
@@ -126,6 +128,23 @@ class XrayCompiler(
         val build = Build(problems, geodata, dnsHijackAnyAddress)
 
         // Разбиение ClientHello (D-68): только где он есть и идёт по TCP; иначе — сказать, а не молча (D-05).
+        // Приём эксперимента (D-116) — вместо разбиения: оба сразу мост не сделал бы (разбиение режет
+        // первую запись, и имени в ней уже нет).
+        val desync = plan.desync?.takeIf { splittable(profile) }
+        if (plan.desync != null && desync == null) {
+            problems += Diagnostic.warning(
+                DiagCode.CLIENT_HELLO_SPLIT_NOT_APPLIED,
+                "${XrayBackend.ID} ${XrayBackend.VERSION}: у «${profile.name}» нет TLS поверх TCP — приёму эксперимента не к чему, подключение как есть",
+                "$.profiles[$index]",
+            )
+        }
+        if (plan.desync != null && plan.splitClientHello) {
+            problems += Diagnostic.error(
+                DiagCode.CAPABILITY_FEATURE_UNSUPPORTED,
+                "приём эксперимента (D-116) и разбиение ClientHello (D-68) — разные варианты замера, не вместе",
+                "$.outbounds",
+            )
+        }
         val split = plan.splitClientHello && splittable(profile)
         if (plan.splitClientHello && !split) {
             problems += Diagnostic.warning(
@@ -134,7 +153,13 @@ class XrayCompiler(
                 "$.profiles[$index]",
             )
         }
-        val proxy = build.proxyOutbound(profile, "$.profiles[$index]").let { if (split) viaSplit(it) else it }
+        val proxy = build.proxyOutbound(profile, "$.profiles[$index]").let {
+            when {
+                desync != null -> viaDialer(it, experimentTag(desync))
+                split -> viaSplit(it)
+                else -> it
+            }
+        }
         val dns = build.dns(ir.dns)
         val routing = build.routing(ir, plan.withTun, plan.share, plan.splitSites)
         if (problems.any { it.isError }) return Outcome.Failure(problems)
@@ -150,6 +175,7 @@ class XrayCompiler(
             dnsOutbound().takeIf { plan.withTun },
             build.directShareOutbound(ir.dns.strategy).takeIf { plan.share != null },
             splitOutbound().takeIf { split },
+            desync?.let(::experimentOutbound),
             build.directSplitOutbound(ir.dns.strategy).takeIf { !plan.splitSites.isEmpty },
         )
 
@@ -177,13 +203,78 @@ class XrayCompiler(
         }
         val ir = ConfigIr(name = null, profiles = emptyList(), routing = RoutingPolicy(defaultAction = RouteAction.DIRECT), dns = plan.dns)
         val dns = build.dns(plan.dns)
-        val routing = build.routing(ir, plan.withTun, splitSites = plan.splitSites, splitTag = XrayBackend.TAG_PROXY)
+        val routing = build.routing(
+            ir, plan.withTun, splitSites = plan.splitSites, splitTag = XrayBackend.TAG_PROXY,
+            // Force-TCP is a separate user switch. When it is OFF, a
+            // non-fake TCP strategy must not silently blackhole QUIC for the
+            // hostlist: forward QUIC directly. Only fake-ttl has UDP decoys.
+            splitQuicTag = when {
+                plan.forceQuicTcp -> XrayBackend.TAG_BLOCK
+                plan.desync is DesyncTrick.Fake || plan.desync == DesyncTrick.Auto -> XrayBackend.TAG_PROXY
+                plan.desync != null -> XrayBackend.TAG_DIRECT
+                else -> XrayBackend.TAG_BLOCK // retain D-73 default for regular serverless
+            },
+            forceQuicTcp = plan.forceQuicTcp,
+            catchAllHttps = plan.catchAllHttps && plan.desync != null && !plan.splitRest,
+            catchAllQuic = plan.catchAllHttps &&
+                (plan.desync is DesyncTrick.Fake || plan.desync == DesyncTrick.Auto) &&
+                !plan.forceQuicTcp && !plan.splitRest,
+        )
         if (problems.any { it.isError }) return Outcome.Failure(problems)
-        val split = build.directSplitOutbound(plan.dns.strategy, XrayBackend.TAG_PROXY)
+        val split = if (plan.desync != null) {
+            // Не прокси и не внешний сервер: freedom напрямую, а dialerProxy
+            // выбирает обработчик первого TCP-пакета в защищённом Go-сокете.
+            // DNS-стратегия сохраняется: не позволяем системный DNS fallback.
+            val directBase = build.directOutbound(plan.dns.strategy)
+            val stream = directBase.fields["streamSettings"] as JsonObject
+            val sockopt = stream.fields["sockopt"] as JsonObject
+            JsonObject(
+                directBase.fields + mapOf(
+                    "tag" to JsonString(XrayBackend.TAG_PROXY),
+                    "streamSettings" to JsonObject(
+                        stream.fields + ("sockopt" to JsonObject(
+                            sockopt.fields + ("dialerProxy" to JsonString(experimentTag(plan.desync))),
+                        )),
+                    ),
+                ),
+            )
+        } else {
+            build.directSplitOutbound(plan.dns.strategy, XrayBackend.TAG_PROXY)
+        }
         val direct = build.directOutbound(plan.dns.strategy)
-        // Первый исходящий — для соединений, которых не взяло ни одно правило (см. KDoc класса).
+        // Exactly as for the regular proxy outbound, each private test
+        // ingress uses DNS policy from directOutbound and then dials through
+        // the protected experimental freedom outbound. This tests the
+        // *actual* adapter instead of a different DNS path.
+        val extraExperimentOutbounds = if (plan.withTun && plan.desync != null)
+            Zapret2ProbeCatalog.strategies.mapNotNull { strategy ->
+                val exp = Zapret2ProbeCatalog.experimentTag(strategy) ?: return@mapNotNull null
+                if (exp == experimentTag(plan.desync)) null
+                else Json.obj("tag" to Json.str(exp), "protocol" to Json.str("freedom"))
+            }
+        else emptyList()
+        val testOutbounds = if (plan.withTun && plan.desync != null) {
+            val stream = direct.fields["streamSettings"] as JsonObject
+            val sockopt = stream.fields["sockopt"] as JsonObject
+            Zapret2ProbeCatalog.strategies.map { strategy ->
+                val tag = Zapret2ProbeCatalog.tag(strategy)!!
+                if (strategy == "plain") {
+                    JsonObject(direct.fields + ("tag" to JsonString(tag)))
+                } else {
+                    val experimental = Zapret2ProbeCatalog.experimentTag(strategy)!!
+                    JsonObject(direct.fields + mapOf(
+                        "tag" to JsonString(tag),
+                        "streamSettings" to JsonObject(stream.fields + ("sockopt" to JsonObject(
+                            sockopt.fields + ("dialerProxy" to JsonString(experimental)),
+                        ))),
+                    ))
+                }
+            }
+        } else emptyList()
+        // Existing default proxy/route outbounds stay first and unchanged.
         val outbounds = (if (plan.splitRest) listOf(split, direct) else listOf(direct, split)) +
-            listOfNotNull(blockOutbound(), dnsOutbound().takeIf { plan.withTun })
+            listOfNotNull(plan.desync?.let(::experimentOutbound), blockOutbound(), dnsOutbound().takeIf { plan.withTun }) +
+            extraExperimentOutbounds + testOutbounds
         val inbounds = listOfNotNull(tunInbound(plan.systemTun).takeIf { plan.withTun })
         return Outcome.Success(compiled(ServerlessPlan.PROFILE_ID, document(dns, routing, inbounds, outbounds)), problems)
     }
@@ -504,6 +595,10 @@ class XrayCompiler(
             share: ShareSpec? = null,
             splitSites: SplitSites = SplitSites.NONE,
             splitTag: String = XrayBackend.TAG_DIRECT_SPLIT,
+            splitQuicTag: String = XrayBackend.TAG_BLOCK,
+            forceQuicTcp: Boolean = false,
+            catchAllHttps: Boolean = false,
+            catchAllQuic: Boolean = false,
         ): JsonObject {
             val lowered = AppLowering.lower(ir.routing)
             val rules = mutableListOf<JsonValue>()
@@ -541,7 +636,45 @@ class XrayCompiler(
                     "outboundTag" to Json.str(if (s.route == DnsRoute.TUNNEL) XrayBackend.TAG_PROXY else XrayBackend.TAG_DIRECT),
                 )
             }
-            rules += splitSiteRules(splitSites, withTun, splitTag)
+            // Только локальный Zapret2 VPN: при сбоях QUIC принудить HTTP/2 по TCP.
+            // Срабатывает до domain/QUIC-sniffing: имена CDN и IP могут быть неизвестны.
+            // DNS (53) и весь прочий UDP пропускаем, обычные подписки не затронуты.
+            if (forceQuicTcp && withTun) {
+                rules += Json.obj(
+                    "ruleTag" to Json.str("${XrayBackend.SYSTEM_PREFIX}zapret2-quic-tcp"),
+                    "inboundTag" to Json.strings(listOf(XrayBackend.TAG_TUN_IN)),
+                    "port" to Json.str("443"),
+                    "network" to Json.str("udp"),
+                    "outboundTag" to Json.str(XrayBackend.TAG_BLOCK),
+                )
+            }
+            rules += splitSiteRules(splitSites, withTun, splitTag, splitQuicTag)
+            // Unknown IP/SNI and ECH routes cannot reliably match the domain
+            // allowlist. Opt-in Android Zapret2 fallback: send all TCP/443
+            // through the same local desync dialer (never a remote proxy).
+            // DNS and all other ports remain governed by their usual rules.
+            if (catchAllHttps && withTun) {
+                rules += Json.obj(
+                    "ruleTag" to Json.str("${XrayBackend.SYSTEM_PREFIX}zapret2-https-unmatched"),
+                    "inboundTag" to Json.strings(listOf(XrayBackend.TAG_TUN_IN)),
+                    "port" to Json.str("443"),
+                    "network" to Json.str("tcp"),
+                    "outboundTag" to Json.str(XrayBackend.TAG_PROXY),
+                )
+            }
+            // QUIC Initial may not expose a domain to the sniffer. With
+            // the opt-in IP/ECH fallback, try the same local fake UDP
+            // dialer for unidentified UDP/443 as well. The dialer injects
+            // decoys only for recognized QUIC Initial; other UDP is intact.
+            if (catchAllQuic && withTun) {
+                rules += Json.obj(
+                    "ruleTag" to Json.str("${XrayBackend.SYSTEM_PREFIX}zapret2-quic-unmatched"),
+                    "inboundTag" to Json.strings(listOf(XrayBackend.TAG_TUN_IN)),
+                    "port" to Json.str("443"),
+                    "network" to Json.str("udp"),
+                    "outboundTag" to Json.str(XrayBackend.TAG_PROXY),
+                )
+            }
             val user = mutableListOf<JsonObject>()
             for ((i, rule) in lowered.engineRules.withIndex()) {
                 val at = "$.routing.rules[${ir.routing.rules.indexOf(rule).takeIf { it >= 0 } ?: i}]"
@@ -611,7 +744,11 @@ class XrayCompiler(
          * TCP — на [splitTag]: с сервером — `dppass:direct-split`, без сервера —
          * `proxy` (D-73).
          */
-        fun splitSiteRules(sites: SplitSites, withTun: Boolean, splitTag: String = XrayBackend.TAG_DIRECT_SPLIT): List<JsonObject> {
+        fun splitSiteRules(
+            sites: SplitSites, withTun: Boolean,
+            splitTag: String = XrayBackend.TAG_DIRECT_SPLIT,
+            splitQuicTag: String = XrayBackend.TAG_BLOCK,
+        ): List<JsonObject> {
             if (sites.isEmpty) return emptyList()
             checkGeo(sites.geoSites, emptyList(), SplitSites.PATH)
             val names = sites.domains.map { "domain:$it" } + sites.geoSites.map { "geosite:$it" }
@@ -623,7 +760,7 @@ class XrayCompiler(
                     "domain" to Json.strings(names),
                     "port" to Json.str("443"),
                     "network" to Json.str("udp"),
-                    "outboundTag" to Json.str(XrayBackend.TAG_BLOCK),
+                    "outboundTag" to Json.str(splitQuicTag),
                 ),
                 Json.obj(
                     "ruleTag" to Json.str(XrayBackend.RULE_SPLIT_SITES),
@@ -823,11 +960,27 @@ class XrayCompiler(
         }
 
         /** Исходящий `proxy` открывает соединение с сервером через [splitOutbound] (`sockopt.dialerProxy`). */
-        fun viaSplit(proxy: JsonObject): JsonObject {
+        fun viaSplit(proxy: JsonObject): JsonObject = viaDialer(proxy, XrayBackend.TAG_SPLIT)
+
+        /** Исходящий `proxy` открывает соединение с сервером через исходящий [tag] (`sockopt.dialerProxy`). */
+        fun viaDialer(proxy: JsonObject, tag: String): JsonObject {
             val stream = proxy.fields["streamSettings"] as JsonObject
-            val sockopt = Json.obj("dialerProxy" to Json.str(XrayBackend.TAG_SPLIT))
+            val sockopt = Json.obj("dialerProxy" to Json.str(tag))
             return JsonObject(proxy.fields + ("streamSettings" to JsonObject(stream.fields + ("sockopt" to sockopt))))
         }
+
+        /** Тег исходящего эксперимента (D-116): вид приёма — в теге, его читает мост. */
+        fun experimentTag(t: DesyncTrick): String = XrayBackend.TAG_EXPERIMENT_PREFIX + t.label
+
+        /**
+         * Исходящий эксперимента (D-116): простой `freedom`, как [splitOutbound],
+         * но без разбивки — приём делает мост на первой записи соединения
+         * (`tools/xray/bridge/desync.go`). Имя сервера — как без приёма (D-29).
+         */
+        fun experimentOutbound(t: DesyncTrick): JsonObject = Json.obj(
+            "tag" to Json.str(experimentTag(t)),
+            "protocol" to Json.str("freedom"),
+        )
 
         /**
          * Прямой выход с разбиением ClientHello (D-68, `proxy/freedom`): первая

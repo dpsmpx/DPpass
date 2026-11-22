@@ -3,6 +3,7 @@ package com.dpsmpx.dppass.desktop.ui
 import com.dpsmpx.dppass.connection.LocalProxyOffer
 import com.dpsmpx.dppass.connection.UsageAlert
 import com.dpsmpx.dppass.core.Clock
+import com.dpsmpx.dppass.desktop.BlockReason
 import com.dpsmpx.dppass.desktop.DesktopGraph
 import com.dpsmpx.dppass.desktop.DesktopPrefs
 import com.dpsmpx.dppass.desktop.DesktopSession
@@ -24,6 +25,12 @@ import javax.swing.Timer
  * поднять (нет прав на туннель — `CAP_NET_ADMIN` на Linux, администратора
  * на Windows, D-97; TUN не открылся) — «Подключиться без VPN» (D-95):
  * только по нажатию.
+ *
+ * Туннель стоит без соединения (D-115) — кнопка питания включена, а над ней
+ * «Заблокировано — нет сети» или «нет связи с сервером»: весь трафик
+ * заблокирован, пока DPpass восстанавливает соединение тем же сервером;
+ * нажатие — «Отключить». Не восстановилось — «Перейти на …» (если есть
+ * замена), «Перезапустить подключение» и «Подождать».
  */
 class ConnectPanel(
     private val graph: DesktopGraph,
@@ -120,12 +127,13 @@ class ConnectPanel(
             is SessionStatus.Connected -> Triple(p.successContainer, p.success, "Подключено")
             SessionStatus.Disconnecting -> Triple(p.surfaceVariant, p.primary, "Отключаю…")
             is SessionStatus.Failed -> Triple(p.errorContainer, p.error, "Не подключилось")
+            is SessionStatus.Blocked -> Triple(p.errorContainer, p.error, blockedTitle(s.why))
         }
         power.fill = fill
         power.ring = ring
         power.isEnabled = s !is SessionStatus.Disconnecting
         state.text = title
-        reason.show((s as? SessionStatus.Failed)?.reason?.let(Widgets::describe))
+        reason.show(((s as? SessionStatus.Failed)?.reason ?: (s as? SessionStatus.Blocked)?.reason)?.let(Widgets::describe))
         val settings = graph.core.localProxy.current().valueOrNull()
         val on = settings?.enabled == true
         // Предложить без VPN (D-95): туннель не поднялся — или его заведомо не поднять (нет прав на туннель).
@@ -164,15 +172,24 @@ class ConnectPanel(
             return
         }
         val why = n.reason.message
-        if (n.asked) {
+        if (n.unreachable) {
+            // Соединение не восстановилось (D-115): сервер не меняется сам — только по нажатию.
+            offerText.show(
+                "Нет соединения с сервером «${n.from.name}»: $why\n\n" +
+                    "Весь трафик заблокирован — мимо VPN ничего не уходит. DPpass пробует снова раз в минуту; сервер сам не сменится.",
+            )
+            n.to?.let { to -> offerButtons.add(Widgets.button("Перейти на «${to.name}»") { session.acceptSwitch() }) }
+            offerButtons.add(Widgets.button("Перезапустить подключение") { session.restartConnection() })
+            offerButtons.add(Widgets.button("Подождать") { if (n.asked) session.keepServer() else session.dismissNotice() })
+        } else if (n.asked) {
             offerText.show(
                 "Сервер «${n.from.name}» перестал отвечать: $why\n\n" +
-                    "Перейти на «${n.to.name}»? Пока ответа нет, DPpass переподключается к «${n.from.name}».",
+                    "Перейти на «${n.to?.name}»? Пока ответа нет, DPpass переподключается к «${n.from.name}».",
             )
-            offerButtons.add(Widgets.button("Перейти на «${n.to.name}»") { session.acceptSwitch() })
+            offerButtons.add(Widgets.button("Перейти на «${n.to?.name}»") { session.acceptSwitch() })
             offerButtons.add(Widgets.button("Остаться") { session.keepServer() })
         } else {
-            offerText.show("DPpass перешёл с «${n.from.name}» на «${n.to.name}» (автопереключение): $why")
+            offerText.show("DPpass перешёл с «${n.from.name}» на «${n.to?.name}» (автопереключение): $why")
             offerButtons.add(Widgets.button("Понятно") { session.dismissNotice() })
         }
         offerButtons.isVisible = true
@@ -185,14 +202,17 @@ class ConnectPanel(
         server.text = when (s) {
             is SessionStatus.Connected -> "Сервер: ${s.server}"
             is SessionStatus.Connecting -> s.server?.let { "Пробую: $it" } ?: "Готовлю туннель"
+            is SessionStatus.Blocked -> "Сервер: ${s.server}"
             else -> relayName()?.let { "Через устройство раздачи: $it" } ?: ("Сервер: " + (selectedName() ?: "авто — лучший по плану"))
         }
-        details.text = if (s is SessionStatus.Connected) {
-            val t = session.traffic()
-            val since = Format.duration(Clock.SYSTEM.nowMillis() - s.sinceMillis)
-            if (t == null) since else "$since · ↑ ${Format.bytes(t.uplinkBytes)} · ↓ ${Format.bytes(t.downlinkBytes)}"
-        } else {
-            " "
+        details.text = when (s) {
+            is SessionStatus.Connected -> {
+                val t = session.traffic()
+                val since = Format.duration(Clock.SYSTEM.nowMillis() - s.sinceMillis)
+                if (t == null) since else "$since · ↑ ${Format.bytes(t.uplinkBytes)} · ↓ ${Format.bytes(t.downlinkBytes)}"
+            }
+            is SessionStatus.Blocked -> blockedDetails(s)
+            else -> " "
         }
         usage.text = UsageText.line(graph.core.usage.summary())
     }
@@ -207,7 +227,7 @@ class ConnectPanel(
 
     private fun toggle() {
         when (last) {
-            is SessionStatus.Connected, is SessionStatus.Connecting -> session.disconnect()
+            is SessionStatus.Connected, is SessionStatus.Connecting, is SessionStatus.Blocked -> session.disconnect()
             SessionStatus.Disconnecting -> Unit
             else -> session.connect(prefs.selectedServer)
         }
@@ -215,5 +235,18 @@ class ConnectPanel(
 
     private companion object {
         const val TICK_MILLIS = 1000
+
+        /** Заголовок над кнопкой, пока туннель стоит без соединения (D-115). */
+        fun blockedTitle(why: BlockReason): String = when (why) {
+            BlockReason.NO_NETWORK -> "Заблокировано — нет сети"
+            BlockReason.RECONNECTING -> "Заблокировано — восстанавливаю"
+            BlockReason.UNREACHABLE -> "Заблокировано — нет связи с сервером"
+        }
+
+        fun blockedDetails(s: SessionStatus.Blocked): String = when (s.why) {
+            BlockReason.NO_NETWORK -> "Весь трафик заблокирован, пока сеть не вернётся"
+            BlockReason.RECONNECTING -> if (s.attempts == 0) "Соединяюсь с тем же сервером…" else "Соединяюсь снова (неудачных попыток: ${s.attempts})…"
+            BlockReason.UNREACHABLE -> "Весь трафик заблокирован · неудачных попыток: ${s.attempts}"
+        }
     }
 }

@@ -37,6 +37,11 @@ func installHook() error {
 		}
 		deadFD = fd
 		hookErr = internet.RegisterDialerController(control)
+		// Обёртка набирателя для эксперимента (D-116) — после хука: хук
+		// регистрируется, пока набиратель стандартный, а обёртка зовёт его же.
+		if hookErr == nil {
+			installDesyncDialer()
+		}
 	})
 	return hookErr
 }

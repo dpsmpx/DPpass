@@ -38,3 +38,6 @@ Thumbs.db
 # Python
 __pycache__/
 *.pyc
+
+# Deterministic upstream Zapret2 assets are verified/downloaded by CI; never commit binaries.
+app/src/main/assets/zapret2/
