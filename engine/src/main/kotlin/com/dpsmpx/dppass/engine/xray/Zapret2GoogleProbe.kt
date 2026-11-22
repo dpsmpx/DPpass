@@ -20,7 +20,9 @@ data class Zapret2GoogleProbe(
     companion object {
         val outcomes: Set<String> = setOf(
             "ok", "redirect", "engine_off", "invalid_strategy", "invalid_timeout",
-            "dial_failed", "timeout", "tls_failed", "tls_ca_failed",
+            "dial_failed", "timeout", "timeout_dial", "timeout_tls",
+            "timeout_write", "timeout_headers", "timeout_body",
+            "tls_failed", "tls_ca_failed",
             "request_failed", "http_failed", "http_status", "body_failed",
             "empty_body", "content_type_mismatch", "content_invalid", "http_reachable",
             "invalid_target", "unsupported", "contract_error",
@@ -70,7 +72,8 @@ object Zapret2GoogleReport {
         val rows = attempts.filter { it.target == target }
         val plain = rows.filter { it.strategy == "plain" }
         if (plain.size != 2 || !plain.all {
-                it.result.outcome in setOf("timeout", "dial_failed", "tls_failed")
+                it.result.outcome in setOf("timeout", "dial_failed", "tls_failed") ||
+                    it.result.outcome.startsWith("timeout_")
             }) return null
         return Zapret2ProbeCatalog.strategies.filter { it != "auto" && it != "plain" }
             .mapNotNull { strategy ->
@@ -103,15 +106,20 @@ object Zapret2GoogleReport {
         appendLine("Time: $timestamp")
         appendLine("Network: $network")
         appendLine("Mode: active experimental VpnService; AUTO primary; QUIC->TCP=$quicForceTcp")
-        appendLine("Transport: TLS certificate verified, direct GET / GET JPEG, max 8 KiB")
+        appendLine("Transport: certificate-verified TLS, HTTP/1.1 (not HTTP/2), fixed GET, max 8 KiB")
         appendLine("Targets: google_final=www.google.com/ (HTML); " +
+            "google_search=www.google.com/search?q=site%3Aexample.com (HTML only); " +
             "youtube_home=www.youtube.com/ (HTML); " +
-            "youtube_api_transport=youtubei.googleapis.com/youtubei/v1/browse (TLS+HTTP only); " +
+            "youtube_api_transport=youtubei.googleapis.com/youtubei/v1/browse (configured DNS); " +
+            "youtube_api_ipv4=youtubei.googleapis.com/youtubei/v1/browse (private IPv4-only control); " +
             "youtube_thumbnail=i.ytimg.com/vi/jNQXAC9IVRw/hqdefault.jpg (JPEG)")
         appendLine("API transport: HTTP 2xx/4xx may prove TLS and HTTP reachability, not usable YouTube API or feed.")
         appendLine("Redirects are NOT followed; a redirect is not a verified content success.")
         appendLine("HTTP 200 alone is not success: HTML/JPEG signatures checked.")
-        appendLine("Scope: TCP/HTTPS only; QUIC, YouTube app API and video streaming NOT tested.")
+        appendLine("Scope: TCP/HTTPS HTTP/1.1 only; QUIC, HTTP/2, real YouTube app API and media streaming NOT tested.")
+        appendLine("Google /search checks HTML transport, NOT whether search results render or answer a query.")
+        appendLine("IPv4-only control changes only private test outbound DNS family, NOT ordinary VPN routing.")
+        appendLine("Timeout stages: timeout_dial / timeout_tls / timeout_write / timeout_headers / timeout_body.")
         appendLine("Strategies: ${Zapret2ProbeCatalog.strategies.joinToString(", ")}")
         appendLine("Targets count: ${Zapret2ProbeCatalog.targets.size}; attempts: ${attempts.size}")
         appendLine()
@@ -120,12 +128,16 @@ object Zapret2GoogleReport {
             appendLine("TARGET $target — ${Zapret2ProbeCatalog.targetLabel(target)}")
             for (strategy in Zapret2ProbeCatalog.strategies) {
                 val rows = attempts.filter { it.target == target && it.strategy == strategy }
-                val transport = target == "youtube_api_transport"
+                val transport = target == "youtube_api_transport" || target == "youtube_api_ipv4"
                 val ok = rows.count { if (transport) it.result.httpReachable else it.result.success }
                 val median = medianMillis(rows.filter { if (transport) it.result.httpReachable else it.result.success }
                     .map { it.result.elapsedMillis })
                 val outcomes = rows.map { it.result.outcome }.joinToString(",").ifEmpty { "not_run" }
-                val unit = if (transport) "HTTP transport (not API content)" else "content"
+                val unit = when {
+                    transport -> "HTTP transport (not API content)"
+                    target == "google_search" -> "HTML (not verified search results)"
+                    else -> "content"
+                }
                 appendLine("  $strategy: $ok/${rows.size} $unit; median_ok_ms=$median; outcomes=$outcomes")
             }
         }
@@ -162,6 +174,15 @@ object Zapret2GoogleReport {
         } else {
             appendLine("No verified API-host transport preference inferred from this diagnostic.")
         }
+        val normalAPI = attempts.count { it.target == "youtube_api_transport" && it.result.httpReachable }
+        val ipv4API = attempts.count { it.target == "youtube_api_ipv4" && it.result.httpReachable }
+        appendLine("YouTube API control: configured_DNS_HTTP=$normalAPI; IPv4_only_HTTP=$ipv4API.")
+        if (normalAPI == 0 && ipv4API > 0) {
+            appendLine("IPv4-only test reached HTTP while configured DNS did not; compare address-family policy.")
+        } else if (normalAPI == 0 && ipv4API == 0) {
+            appendLine("IPv4-only test also failed; no evidence that IPv6 preference alone caused the API failure.")
+        }
+        appendLine("Both are unauthenticated HTTP/1.1 probes; neither proves usable YouTube API or feed.")
         appendLine("Do not choose a global best DPI strategy from these 2-sample results.")
         appendLine()
         appendLine("Experimental TCP stages during this diagnostic:")
