@@ -304,7 +304,10 @@ func (a *adaptiveSelector) observeVerifiedProbe(host, requiredHost, validOutcome
     evidence.lastStrategy = strategy
     if strategy == "plain" {
         if outcome == validOutcome { evidence.plainSuccesses++ }
-        if outcome == "timeout" || outcome == "dial_failed" || outcome == "tls_failed" {
+        // A timeout in any transport stage is still a failed baseline.
+        // Keep specific outcome codes for diagnostics, not as proof of DPI.
+        if outcome == "timeout" || strings.HasPrefix(outcome, "timeout_") ||
+            outcome == "dial_failed" || outcome == "tls_failed" {
             evidence.plainFailures++
         }
         return
