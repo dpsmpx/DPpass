@@ -375,6 +375,60 @@ class SettingsScreen(host: Host) : Screen(host) {
                             .onClick { host.push(Zapret2AutoTestScreen(host)) },
                         Ui.matchWidth(),
                     )
+                    addView(Ui.divider(context))
+                    addView(
+                        Ui.ListRow(context, R.drawable.ic_speed,
+                            context.getString(R.string.zapret2_model_download_title))
+                            .subtitle(context.getString(
+                                if (Zapret2NeuralModel.isInstalled(context))
+                                    R.string.zapret2_model_installed_note
+                                else R.string.zapret2_model_download_note))
+                            .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                            .onClick {
+                                host.scope.launch {
+                                    val outcome = withContext(Dispatchers.IO) {
+                                        Zapret2NeuralModel.download(context.applicationContext)
+                                    }
+                                    if (outcome.isSuccess) {
+                                        if (TunnelState.status.value is TunnelStatus.Connected) {
+                                            // No VPN restart: changes affect new flows only.
+                                            val native = runCatching {
+                                                JniXrayRuntime.configureZapret2NeuralModel(outcome.getOrThrow())
+                                            }.getOrNull()
+                                            if (native is XrayResult.Failed || native == null) {
+                                                host.toast(context.getString(R.string.zapret2_model_active_on_reconnect))
+                                            } else {
+                                                host.toast(context.getString(R.string.zapret2_model_ready))
+                                            }
+                                        } else host.toast(context.getString(R.string.zapret2_model_ready))
+                                        host.changed()
+                                    } else {
+                                        host.toast(context.getString(R.string.zapret2_model_failed))
+                                    }
+                                }
+                            },
+                        Ui.matchWidth(),
+                    )
+                    if (Zapret2NeuralModel.isInstalled(context)) {
+                        addView(Ui.divider(context))
+                        addView(
+                            Ui.ListRow(context, R.drawable.ic_file,
+                                context.getString(R.string.zapret2_model_delete_title))
+                                .subtitle(context.getString(R.string.zapret2_model_delete_note))
+                                .onClick {
+                                    if (Zapret2NeuralModel.delete(context)) {
+                                        if (TunnelState.status.value is TunnelStatus.Connected) {
+                                            runCatching {
+                                                JniXrayRuntime.configureZapret2NeuralModel(ByteArray(0))
+                                            }
+                                        }
+                                        host.toast(context.getString(R.string.zapret2_model_deleted))
+                                        host.changed()
+                                    } else host.toast(context.getString(R.string.zapret2_model_failed))
+                                },
+                            Ui.matchWidth(),
+                        )
+                    }
                 }
             },
             Ui.matchWidth(),
