@@ -3,6 +3,7 @@
 package bridge
 
 import (
+    "strconv"
     "testing"
 )
 
@@ -39,7 +40,7 @@ func TestAdaptiveHostSelectionsRespectDNSLabelBoundary(t *testing.T) {
 func TestAdaptiveDoesNotStoreUnboundedHostHistory(t *testing.T) {
     a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
     for i:=0; i<adaptiveMaxHosts*2; i++ {
-        _ = a.choose("prefix"+string(rune('a'+i%26))+".example.com")
+        _ = a.choose("prefix"+strconv.Itoa(i)+".example.com")
     }
     if len(a.entries) > adaptiveMaxHosts { t.Fatal("unbounded host cache") }
 }
@@ -47,4 +48,14 @@ func TestAdaptiveDoesNotStoreUnboundedHostHistory(t *testing.T) {
 func TestAdaptiveParseTag(t *testing.T) {
     mode,ok,err:=parseDesyncTag("dppass:exp-auto")
     if !ok || err!=nil || mode.kind!=desyncAuto { t.Fatalf("auto strategy: %v %v %+v",ok,err,mode) }
+}
+
+func TestAdaptiveQuicSelectionIsIndependentOfTCP(t *testing.T) {
+    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    if got := a.choose("203.0.113.9"); got != "split-1" { t.Fatal(got) }
+    if got := a.chooseQUIC("203.0.113.9"); got != "fake-3" { t.Fatal(got) }
+    if got := a.chooseQUIC("203.0.113.9"); got != "fake-5" { t.Fatal(got) }
+    a.observe("udp:203.0.113.9", "fake-5", 512*1024)
+    if got := a.chooseQUIC("203.0.113.9"); got != "fake-5" { t.Fatal("QUIC preference not retained", got) }
+    if got := a.choose("203.0.113.9"); got != "split" { t.Fatal("QUIC must not change TCP selection", got) }
 }
