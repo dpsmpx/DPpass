@@ -207,7 +207,7 @@ class DPpassVpnService : VpnService() {
                 restarts.incrementAndGet()
                 scope.launch {
                     val core = AppGraph.core(this@DPpassVpnService)
-                    if (core.activation.state.activeConfig == null) core.restore()
+                    if (core.activation.state.activeConfig == null) core.restoreAwaitingActivation()
                     // Конфигурация могла смениться, пока вопрос висел: замена — только из действующей,
                     // иначе — переподключение с прежним выбором (пользователь просил рабочее соединение).
                     if (to != null && core.activation.state.activeConfig?.profiles?.any { it.id == to } == true) {
@@ -308,7 +308,7 @@ class DPpassVpnService : VpnService() {
     private suspend fun connect() {
         val graph = AppGraph.graph(this)
         val core = graph.core
-        if (core.activation.state.activeConfig == null) core.restore()
+        if (core.activation.state.activeConfig == null) core.restoreAwaitingActivation()
         // Zapret2 не использует профили Xray или внешние серверы; никогда не
         // подменяем обычную подписку без явного выбора в настройках.
         when (AppPrefs(this).zapret2Backend) {
