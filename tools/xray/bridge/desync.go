@@ -280,11 +280,12 @@ func (c *desyncConn) desyncFirst(b []byte) (int, error) {
     }
     if !plan.Applied {
         desyncSkipped.Add(1)
-        // Explicit TLS-record splitting must not quietly send a partially
-        // captured ClientHello unmodified after planner validation failed.
+        // A TLS client may write an incomplete first record. Never modify
+        // an incomplete TLS record or break a legitimate connection merely
+        // because of its buffering. Reuse the existing first-byte TCP split
+        // on this flow; it preserves all application bytes.
         if c.mode.kind == desyncTLSRecordSplit && zapret2.IsTLSClientHelloPrefix(b) {
-            c.plannerErr = errors.New("TLS-record splitting needs a complete ClientHello")
-            return 0, c.plannerErr
+            return c.splitFirstTLS(b)
         }
         return c.TCPConn.Write(b)
     }
