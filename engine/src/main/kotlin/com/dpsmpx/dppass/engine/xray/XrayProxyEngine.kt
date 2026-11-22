@@ -5,6 +5,7 @@ import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.engine.CompiledConfig
 import com.dpsmpx.dppass.engine.DesyncCounters
+import com.dpsmpx.dppass.engine.Zapret2Stages
 import com.dpsmpx.dppass.engine.EngineCapabilities
 import com.dpsmpx.dppass.engine.EngineConnections
 import com.dpsmpx.dppass.engine.EngineSession
@@ -173,6 +174,8 @@ class XrayProxyEngine(private val runtime: Outcome<XrayRuntime>) : ProxyEngine {
     override fun connections(): EngineConnections? = (runtime as? Outcome.Success)?.value?.connections()
 
     override fun desyncCounters(): DesyncCounters? = (runtime as? Outcome.Success)?.value?.desyncStats()
+
+    override fun zapret2Stages(): Zapret2Stages? = (runtime as? Outcome.Success)?.value?.zapret2Stages()
 
     private inner class Session(override val compiled: CompiledConfig, private val rt: XrayRuntime) : EngineSession {
         @Volatile
