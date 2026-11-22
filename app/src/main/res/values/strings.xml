@@ -877,6 +877,11 @@
     <string name="model_recommended"> · recommended</string>
     <string name="model_generate_action">Generate</string>
     <string name="model_remove_action">Delete model</string>
+    <string name="model_manual_parameters">Enter parameter count manually…</string>
+    <string name="model_parameters_hint">Parameter budget (e.g. 100000000)</string>
+    <string name="model_parameters_invalid">Enter an integer from %1$d to %2$d parameters.</string>
+    <string name="model_sparse_explanation">Large sizes are a sparse trainable capacity, not dense memory allocation. A compact one- or two-layer neural core is generated automatically; only encountered weights are stored. Maximum 1 billion addressable parameters, with a bounded active cache.</string>
+    <string name="model_installed_parameters">Parameter budget: %1$d; dense first layer: %2$d neurons. Local scenario training is preserved between networks. Tap to replace or remove.</string>
     <string name="model_created">Model generated locally. No download was needed.</string>
     <string name="model_ready_reconnect">Model saved. It will be activated after reconnection.</string>
     <string name="model_removed">Local model deleted. Built-in selection remains available.</string>
