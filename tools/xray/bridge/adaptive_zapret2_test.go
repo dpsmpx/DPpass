@@ -113,3 +113,17 @@ func TestAdaptiveIncludesCombinedTLSRecordSplitWithoutReorderingLegacyCandidates
         t.Fatalf("new mode cannot earn adaptive preference: %q", got)
     }
 }
+
+
+func TestAdaptiveHTTPNeverUsesTLSRecordOnlyCandidate(t *testing.T) {
+    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    host := "video.example.org"
+    // Even when a TLS connection taught this host a successful TLS-record
+    // preference, an HTTP/1 Host request must use a legacy HTTP strategy.
+    a.chooseTracked(host)
+    a.observe(host, "tlsrec-split", adaptivePayloadThreshold)
+    for i := 0; i < 12; i++ {
+        got, _ := a.chooseHTTPTracked(host)
+        if got == "tlsrec-split" { t.Fatal("TLS-record-only mode selected for HTTP") }
+    }
+}
