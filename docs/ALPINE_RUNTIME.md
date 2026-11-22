@@ -109,3 +109,45 @@ on a physical Android device or that YouTube's home, comments and actual
 `googlevideo.com` playback work over a mobile operator. All prior failed
 YouTube trials remain valid; no more of the same diagnostics are needed.
 Keep the PR experimental until live device acceptance.
+
+## Next software milestone: strict transport errors and repeated QUIC Initial
+
+On 22 November 2026 the Android protected-socket adapter was tightened:
+
+- A selected but invalid Zapret2 strategy now rejects the outbound dial
+  instead of connecting without the strategy.
+- TCP fake TTL, disorder or split **transport failures** no longer fall back
+  to sending the original ClientHello/HTTP request directly. Subsequent
+  writes on that connection also fail, so a transient injection problem
+  cannot silently disable the selected profile.
+- On UDP, failure to transmit the dummy QUIC flight or restore TTL prevents
+  sending the unmodified actual Initial as an unintended fallback.
+- QUIC Initial **retransmissions** are now eligible for the same central
+  Alpine strategy planner, rather than only the very first UDP Write. A
+  preceding non-Initial datagram does not consume the retry budget.
+  Up to eight Initial flights are planned per connection; further Initial
+  attempts fail closed instead of consuming unbounded radio bandwidth.
+  Other UDP datagrams retain normal transport behavior.
+
+These measures are transport correctness and reliability improvements, **not
+proof of DPI bypass or YouTube playback**. On-device testing is still required.
+
+### Installable test build from CI
+
+The opt-in Alpine job publishes an **ARM64 debug APK** as the
+`DPpass-Alpine-Zapret2-ARM64-debug` artifact on the workflow run.
+To avoid replacing the user's stable DPpass app with a debug-signed APK, the
+test APK uses a separate application ID, `com.dpsmpx.dppass.alpine`, and
+launcher name **DPpass Alpine (test)**. Stable DPpass data remains separate.
+
+Each CI job may use a different Android debug signing key. If Android rejects
+an update of the *test* app due to a certificate mismatch, uninstall **only**
+`com.dpsmpx.dppass.alpine`, not the stable `com.dpsmpx.dppass` app.
+The artifact has a 21-day retention period. It is not a public signed
+production release.
+
+Unverified physical acceptance items remain: PRoot starts successfully on
+ARM64 Android 15, the Unix-socket planner continues to work after
+screen-off and Wi-Fi/LTE handover, and YouTube's home/comments/preview/video
+flows actually function in the target mobile network. Do not close these
+items based solely on CI.
