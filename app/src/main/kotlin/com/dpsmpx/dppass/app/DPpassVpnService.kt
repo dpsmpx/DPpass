@@ -435,6 +435,10 @@ class DPpassVpnService : VpnService() {
         // Автопереключение выключено (D-113): сервер, который сессия держит, не меняется сам — только он и пробуется.
         val strictId = if (relay == null) pinTarget(core) else null
         val preferred = strictId ?: AppPrefs(this).selectedServer
+        // Only the actual "Automatically" server selection may use the
+        // optional model; explicit pins/relays are never overridden.
+        val autoProviderModel = relay == null && preferred == null
+        val networkForServerAuto = NetworkCheck.underlying(this).type
         if (strictId != null) core.log.info("server_pinned", "profile" to Safe(strictId.value))
         // Белый список по свежей проверке в этой сети (D-64): порядок плана и опыт попыток — его.
         // Через устройство раздачи (D-55) путь идёт по своей сети — режим оператора ни при чём.
@@ -462,7 +466,12 @@ class DPpassVpnService : VpnService() {
                 core.log.info("client_hello_split", "on" to split)
                 // Сайты напрямую с разбиением (D-72): в журнал — число записей, не сами сайты.
                 core.log.info("split_sites", "n" to sites.size)
-                core.connect(null, checker, tun, preferred, share, regime, split, sites, local, pinned = strictId != null) { delay(it) }
+                core.connect(null, checker, tun, preferred, share, regime, split, sites, local,
+                    pinned = strictId != null,
+                    rerank = if (autoProviderModel) ({ plan ->
+                        ServerAutoModel.rerank(this, plan, core, networkForServerAuto, core.clock.nowMillis())
+                    }) else null
+                ) { delay(it) }
             }
         } catch (e: CancellationException) {
             // Остановка во время подключения: сеанс, запущенный посреди проверки
@@ -471,7 +480,10 @@ class DPpassVpnService : VpnService() {
             throw e
         }
         // План и исходы попыток — для «Почему этот сервер» (D-15), и при отказе тоже.
-        report?.let { TunnelState.plan(PlanSnapshot(core.clock.nowMillis(), it.attempts, it.plan.excluded, viaRelay = relay != null)) }
+        report?.let {
+            TunnelState.plan(PlanSnapshot(core.clock.nowMillis(), it.attempts, it.plan.excluded, viaRelay = relay != null))
+            if (autoProviderModel) ServerAutoModel.observe(this, it)
+        }
         when (report) {
             is ConnectionReport.Connected -> withContext(NonCancellable) {
                 // Вызовы ядра не прерываются отменой: остановка могла прийти, пока
@@ -1079,6 +1091,7 @@ class DPpassVpnService : VpnService() {
                 // A strategy learned on LTE must not silently be reused on
                 // another carrier/Wi-Fi or after a network outage. Keep the
                 // explicit selections, but clear ephemeral per-host evidence.
+                if (networkChanged) ServerAutoModel.resetTransient()
                 if (networkChanged && AppPrefs(this@DPpassVpnService).zapret2Backend == Zapret2Backend.VPN_SERVICE) {
                     val result = runCatching {
                         JniXrayRuntime.configureZapret2AdaptiveHosts(
