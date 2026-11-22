@@ -11,6 +11,10 @@ import android.view.Gravity
 import android.view.View
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.TunnelStatus
+import com.dpsmpx.dppass.app.TunnelState
+import com.dpsmpx.dppass.app.Zapret2NeuralModel
+import com.dpsmpx.dppass.engine.xray.JniXrayRuntime
+import com.dpsmpx.dppass.engine.xray.XrayResult
 import com.dpsmpx.dppass.connection.ActivationResult
 import com.dpsmpx.dppass.connection.AppMode
 import com.dpsmpx.dppass.connection.DnsProvider
