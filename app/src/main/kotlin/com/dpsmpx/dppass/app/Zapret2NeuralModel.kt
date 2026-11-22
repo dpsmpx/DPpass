@@ -48,7 +48,7 @@ object Zapret2NeuralModel {
     private fun denseCount(kind: Kind, first: Int, second: Int): Long {
         val last = if (second > 0) second else first
         return first.toLong() * (INPUTS + 1) +
-            if (second > 0) second.toLong() * (first + 1) else 0L +
+            (if (second > 0) second.toLong() * (first + 1) else 0L) +
             kind.outputs.toLong() * (last + 1) +
             kind.contexts.toLong() * kind.outputs
     }
