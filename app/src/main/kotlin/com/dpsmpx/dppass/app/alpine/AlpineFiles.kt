@@ -37,6 +37,15 @@ internal object AlpineFiles {
         )
     }
 
+    /**
+     * Distinguish a normal DPpass APK (shared in-process Zapret2 planner)
+     * from an APK that explicitly bundles Alpine but has missing native
+     * executables. Only the former may use the in-process strategy path.
+     * The checksum asset is generated exclusively by -Pdppass.alpine=true.
+     */
+    fun bundled(context: Context): Boolean =
+        context.assets.list("alpine")?.contains("zapret2-runtime.sha256") == true
+
     fun supported(context: Context): Boolean {
         val l = layout(context)
         return Build.SUPPORTED_ABIS.contains("arm64-v8a") &&
