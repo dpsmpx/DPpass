@@ -399,6 +399,10 @@ class JniXrayRuntime private constructor() : XrayRuntime {
             Zapret2GoogleProbe.fromWire(
                 XrayJni.nativeProbeZapret2Google(strategy.encodeToByteArray(), targetID.encodeToByteArray(), timeoutMillis))
 
+        /** Snapshot for an optional one-button report; no destination metadata. */
+        fun snapshotZapret2Stages(): Zapret2Stages? =
+            Zapret2Stages.fromWire(XrayJni.nativeZapret2Stages())
+
         fun configureZapret2AdaptiveHosts(hostsText: String): XrayResult =
             XrayJni.decode(XrayJni.nativeSetZapret2AdaptiveHosts(hostsText.encodeToByteArray()))
 
