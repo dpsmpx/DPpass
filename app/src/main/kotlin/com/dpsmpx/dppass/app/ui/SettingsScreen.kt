@@ -346,8 +346,7 @@ class SettingsScreen(host: Host) : Screen(host) {
                             host.changed()
                         }, Ui.matchWidth(),
                     )
-                    if (host.prefs.zapret2VpnStrategy == Zapret2VpnStrategy.AUTO &&
-                        host.prefs.zapret2VpnForceTcp) {
+                    if (host.prefs.zapret2VpnForceTcp) {
                         addView(Ui.text(context, R.style.Text_DPpass_Caption,
                             context.getString(R.string.zapret2_auto_quic_blocked_note)), Ui.matchWidth())
                     }
