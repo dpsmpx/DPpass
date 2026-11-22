@@ -222,6 +222,9 @@ internal object XrayJni {
     /** Optional local neural weights, strictly JSON numeric data, never executable code. */
     @JvmStatic external fun nativeSetZapret2NeuralModel(model: ByteArray): ByteArray
 
+    /** Coarse physical network class only: MOBILE, WIFI, OTHER. */
+    @JvmStatic external fun nativeSetZapret2NeuralNetwork(network: ByteArray): ByteArray
+
     /**
      * Снимок учёта соединений (D-106): текст UTF-8, строки через перевод
      * строки. Первая — `v1`, включён ли учёт (`1`/`0`) и сколько не учтено,
