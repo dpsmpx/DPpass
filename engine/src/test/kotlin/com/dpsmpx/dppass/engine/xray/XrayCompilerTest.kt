@@ -23,6 +23,7 @@ import com.dpsmpx.dppass.diagnostics.Secret
 import com.dpsmpx.dppass.engine.CompilePlan
 import com.dpsmpx.dppass.engine.CompiledConfig
 import com.dpsmpx.dppass.engine.DesyncTrick
+import com.dpsmpx.dppass.engine.Zapret2ProbeCatalog
 import com.dpsmpx.dppass.engine.LocalProxySpec
 import com.dpsmpx.dppass.engine.ServerlessPlan
 import com.dpsmpx.dppass.engine.ShareSpec
@@ -1019,8 +1020,15 @@ class XrayCompilerTest {
         assertEquals(
             listOf(XrayBackend.TAG_PROXY, XrayBackend.TAG_DIRECT, "dppass:exp-fake-3",
                 XrayBackend.TAG_BLOCK, XrayBackend.TAG_DNS_OUT),
-            tags,
+            tags.take(5),
+            "existing primary routing order must not change",
         )
+        val probeTags = Zapret2ProbeCatalog.strategies.mapNotNull(Zapret2ProbeCatalog::tag)
+        assertEquals(probeTags.toSet(), tags.toSet().intersect(probeTags.toSet()))
+        assertEquals(tags.size, tags.toSet().size, "duplicate Xray outbound tags")
+        assertEquals(5 + probeTags.size - 1, tags.size, "one selected tag is already registered")
+        assertTrue(rules(doc).none { it["outboundTag"].text in probeTags },
+            "private test outbounds must never become a routing default")
         assertEquals("freedom", outbound(doc, XrayBackend.TAG_PROXY)["protocol"].text)
         assertEquals(
             "dppass:exp-fake-3",
