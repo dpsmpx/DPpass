@@ -242,26 +242,39 @@ class XrayCompiler(
             build.directSplitOutbound(plan.dns.strategy, XrayBackend.TAG_PROXY)
         }
         val direct = build.directOutbound(plan.dns.strategy)
-        // Private probe-only outbounds: the one-click Google HTTPS test
-        // forces one tag per strategy with core.Dial. No routing rule can
-        // select these outbounds, and the user's active strategy is preserved.
-        // Do not duplicate the already configured live desync outbound.
-        val testOutbounds = if (plan.withTun && plan.desync != null) {
-            val live = experimentTag(plan.desync)
+        // Exactly as for the regular proxy outbound, each private test
+        // ingress uses DNS policy from directOutbound and then dials through
+        // the protected experimental freedom outbound. This tests the
+        // *actual* adapter instead of a different DNS path.
+        val extraExperimentOutbounds = if (plan.withTun && plan.desync != null)
             Zapret2ProbeCatalog.strategies.mapNotNull { strategy ->
+                val exp = Zapret2ProbeCatalog.experimentTag(strategy) ?: return@mapNotNull null
+                if (exp == experimentTag(plan.desync)) null
+                else Json.obj("tag" to Json.str(exp), "protocol" to Json.str("freedom"))
+            }
+        else emptyList()
+        val testOutbounds = if (plan.withTun && plan.desync != null) {
+            val stream = direct.fields["streamSettings"] as JsonObject
+            val sockopt = stream.fields["sockopt"] as JsonObject
+            Zapret2ProbeCatalog.strategies.map { strategy ->
                 val tag = Zapret2ProbeCatalog.tag(strategy)!!
-                when (tag) {
-                    live -> null
-                    Zapret2ProbeCatalog.PLAIN_TAG ->
-                        JsonObject(direct.fields + ("tag" to JsonString(tag)))
-                    else -> Json.obj("tag" to Json.str(tag), "protocol" to Json.str("freedom"))
+                if (strategy == "plain") {
+                    JsonObject(direct.fields + ("tag" to JsonString(tag)))
+                } else {
+                    val experimental = Zapret2ProbeCatalog.experimentTag(strategy)!!
+                    JsonObject(direct.fields + mapOf(
+                        "tag" to JsonString(tag),
+                        "streamSettings" to JsonObject(stream.fields + ("sockopt" to JsonObject(
+                            sockopt.fields + ("dialerProxy" to JsonString(experimental)),
+                        ))),
+                    ))
                 }
             }
         } else emptyList()
-        // Первый исходящий — маршрут по умолчанию; по proxy идут счётчики.
+        // Existing default proxy/route outbounds stay first and unchanged.
         val outbounds = (if (plan.splitRest) listOf(split, direct) else listOf(direct, split)) +
             listOfNotNull(plan.desync?.let(::experimentOutbound), blockOutbound(), dnsOutbound().takeIf { plan.withTun }) +
-            testOutbounds
+            extraExperimentOutbounds + testOutbounds
         val inbounds = listOfNotNull(tunInbound(plan.systemTun).takeIf { plan.withTun })
         return Outcome.Success(compiled(ServerlessPlan.PROFILE_ID, document(dns, routing, inbounds, outbounds)), problems)
     }
