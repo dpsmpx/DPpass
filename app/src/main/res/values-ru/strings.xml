@@ -906,6 +906,11 @@
     <string name="model_recommended"> · рекомендуется</string>
     <string name="model_generate_action">Создать</string>
     <string name="model_remove_action">Удалить модель</string>
+    <string name="model_manual_parameters">Ввести число параметров вручную…</string>
+    <string name="model_parameters_hint">Количество параметров, например 100000000</string>
+    <string name="model_parameters_invalid">Введите целое число от %1$d до %2$d параметров.</string>
+    <string name="model_sparse_explanation">Большое число задаёт ёмкость разреженного обучения, а не выделяемый объём оперативной памяти. Компактное ядро из одного или двух скрытых слоёв создаётся автоматически; сохраняются только использованные веса. Максимум — 1 млрд адресуемых параметров при ограниченном размере файла.</string>
+    <string name="model_installed_parameters">Бюджет: %1$d параметров; первый слой: %2$d нейронов. Опыт по сценариям сохраняется при смене сети. Нажмите для замены или удаления.</string>
     <string name="model_created">Модель создана на устройстве, без скачивания.</string>
     <string name="model_ready_reconnect">Модель сохранена. Она включится после переподключения.</string>
     <string name="model_removed">Локальная модель удалена. Встроенный подбор доступен.</string>
