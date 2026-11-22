@@ -787,7 +787,7 @@ class SettingsScreen(host: Host) : Screen(host) {
      */
     private fun chooseParameterBudget(kind: Zapret2NeuralModel.Kind) {
         val input = Ui.field(context, R.string.model_parameters_hint,
-            InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
+            InputType.TYPE_CLASS_NUMBER)
         input.setText(Zapret2NeuralModel.parameters(context, kind)?.toString() ?: "100000")
         val dialog = AlertDialog.Builder(context)
             .setTitle(R.string.model_manual_parameters)
