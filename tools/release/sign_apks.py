@@ -234,6 +234,8 @@ def main():
     a.add_argument("--skip-build", action="store_true", help="не собирать: взять готовые APK из app/build/outputs")
     a.add_argument("--abis", nargs="+", choices=ABIS, default=list(ABIS),
                    help="опционально подписать выбранные ABI из готовых APK (по умолчанию все три)")
+    a.add_argument("--alpine", action="store_true",
+                   help="opt-in Alpine/PRoot ARM64 release: strict extended APK allowlist")
     a.add_argument("--fingerprint", action="store_true", help="напечатать отпечаток ключа из окружения и выйти")
     a.add_argument("--allow-unpinned-key", action="store_true",
                    help="только закрытый черновик: тест нового сертификата без записи в PROVENANCE")
@@ -281,10 +283,14 @@ def main():
         if not tools or not all(os.path.isfile(os.path.join(tools, t)) for t in ("apksigner", "zipalign")):
             fail("нет build-tools Android SDK с apksigner и zipalign (ANDROID_HOME)")
 
+        if args.alpine and list(dict.fromkeys(args.abis)) != ["arm64-v8a"]:
+            fail("Alpine-проверка разрешена только для --abis arm64-v8a")
         if not args.skip_build:
             # Без кеша конфигурации: личность считается при конфигурации; пакет сверяется ниже (D-114).
             gradle = [os.path.join(PROJ, "gradlew"), "--quiet", "--no-configuration-cache", "-p", PROJ,
                       ":app:assembleRelease", "-Pdppass.abiSplit=true"]
+            if args.alpine:
+                gradle += ["-Pdppass.alpine=true", "-Pdppass.nativeAbis=arm64-v8a"]
             print("… " + " ".join(gradle[4:]), flush=True)
             subprocess.run(gradle, check=True)
         os.makedirs(args.out, exist_ok=True)
@@ -303,8 +309,11 @@ def main():
                 problems.append(f"{abi}: {e}")
                 continue
             problems += [f"{abi}: {p}" for p in bad]
-            check = subprocess.run([sys.executable, os.path.join(PROJ, "tools", "hostcheck", "check_apk.py"), out, "--abi", abi, "--release"],
-                                   capture_output=True, text=True)
+            check_args = [sys.executable, os.path.join(PROJ, "tools", "hostcheck", "check_apk.py"),
+                          out, "--abi", abi, "--release"]
+            if args.alpine:
+                check_args.append("--alpine")
+            check = subprocess.run(check_args, capture_output=True, text=True)
             if check.returncode != 0:
                 problems.append(f"{abi}: check_apk.py\n    " + "\n    ".join((check.stdout + check.stderr).strip().splitlines()))
             made.append(name)
