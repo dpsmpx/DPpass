@@ -47,6 +47,15 @@ class AppPrefs(context: Context) {
         get() = Zapret2VpnStrategy.of(prefs.getString(ZAPRET2_VPN_STRATEGY, null))
         set(value) { prefs.edit().putString(ZAPRET2_VPN_STRATEGY, value.wire).apply() }
 
+    /**
+     * Domains explicitly selected in the live Connections screen for
+     * per-destination auto-strategy. These do not enable monitoring or
+     * collect visited sites. A stored selection affects only new TCP flows.
+     */
+    var zapret2AdaptiveTargetsText: String
+        get() = prefs.getString(ZAPRET2_ADAPTIVE_TARGETS, "").orEmpty()
+        set(value) { prefs.edit().putString(ZAPRET2_ADAPTIVE_TARGETS, value).apply() }
+
     /** Локальный VpnService: UDP 443 закрыт в TUN, чтобы приложения попробовали TCP. */
     var zapret2VpnForceTcp: Boolean
         get() = prefs.getBoolean(ZAPRET2_VPN_FORCE_TCP, true)
@@ -192,6 +201,7 @@ class AppPrefs(context: Context) {
         const val ZAPRET2_HOSTLIST = "zapret2_hostlist"
         const val ZAPRET2_ROOT_QUIC = "zapret2_root_quic"
         const val ZAPRET2_VPN_STRATEGY = "zapret2_vpn_strategy"
+        const val ZAPRET2_ADAPTIVE_TARGETS = "zapret2_adaptive_targets"
         const val ZAPRET2_VPN_FORCE_TCP = "zapret2_vpn_force_tcp"
         const val ZAPRET2_VPN_CATCH_ALL_HTTPS = "zapret2_vpn_catch_all_https"
         const val TAB = "tab"
