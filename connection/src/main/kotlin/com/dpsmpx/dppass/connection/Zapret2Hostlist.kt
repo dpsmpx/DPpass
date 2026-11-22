@@ -51,7 +51,9 @@ enum class Zapret2VpnStrategy(val wire: String) {
     FAKE_TTL_5("fake-5"),
     DISORDER("disorder"),
     SPLIT_SNI("split"),
-    SPLIT_FIRST("split-1");
+    SPLIT_FIRST("split-1"),
+    /** Rotate available strategies independently for each new TCP destination. */
+    AUTO("auto");
 
     companion object {
         fun of(value: String?): Zapret2VpnStrategy =
