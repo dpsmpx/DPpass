@@ -882,4 +882,13 @@
     <string name="alpine_exited">Оболочка завершилась (код %1$d)</string>
     <string name="alpine_failed">Ошибка Alpine: %1$s</string>
     <string name="alpine_missing">PRoot ARM64 не включён в APK. Соберите с -Pdppass.alpine=true.</string>
+    <string name="zapret2_autotest_title">Zapret2 · автотест всех стратегий на Google</string>
+    <string name="zapret2_autotest_subtitle">Одна кнопка: 8 TCP-вариантов × 2 HTTPS-попытки, прогресс и автоматическое копирование отчёта</string>
+    <string name="zapret2_autotest_note">Проверка выполняется внутри DPpass, без браузера, через активное подключение Zapret2 VpnService. Отправляется HTTPS-запрос к google.com с проверкой сертификата. Выбранная стратегия VPN не меняется. QUIC и воспроизведение YouTube не проверяются. Полный отчёт автоматически копируется после всех попыток.</string>
+    <string name="zapret2_autotest_again">Запустить все тесты заново</string>
+    <string name="zapret2_autotest_need_connection">Для теста сначала подключите экспериментальный VPN в режиме Zapret2 VpnService.</string>
+    <string name="zapret2_autotest_progress">Готово %1$d/%2$d · %3$s, попытка %4$d/%5$d</string>
+    <string name="zapret2_autotest_done">Тестирование завершено. Полный отчёт скопирован в буфер обмена.</string>
+    <string name="zapret2_autotest_copy_failed">Тестирование завершено, но буфер обмена недоступен. Отчёт ниже можно выделить и скопировать вручную.</string>
+    <string name="zapret2_autotest_cancelled">Тестирование прервано; неполный отчёт не копировался.</string>
 </resources>
