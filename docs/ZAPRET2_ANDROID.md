@@ -224,3 +224,43 @@ ClientHello без SNI. Безrootовый путь по-прежнему **не
 полного ядра оригинального `nfqws2`, а доступность YouTube на
 мобильном операторе остаётся **неподтверждённой** до нового полевого
 испытания конкретных запросов, а не только общей доступности TCP.
+
+## Полевой отчёт Alpine: сеть NORMAL, YouTube не работает, скорость PAYLOAD_STALLED (22.11.2026)
+
+С Android 15 по мобильной сети получено **подтверждение запуска Alpine**:
+`zapret2_alpine_ready status=socket_probed process_alive=true`,
+`zapret2_planner mode=alpine status=selected`; Xray сообщил
+`connected ... zapret2_planner=alpine`. Настройки испытания:
+`local_desync=fake-3`, `quic_force_tcp=true`, пустой hostlist.
+YouTube не загрузился; HTTPS-замер скорости завершился
+`PAYLOAD_STALLED` / `context deadline exceeded`.
+
+Важное различие: кнопка **«Проверка сети»** вызывает
+`NetworkCheck.run` и `SocketProber` на физической underlying-сети.
+Её успехи `CAPTIVE/DNS/TCP/TLS/UDP/BULK` показывают доступность
+тестовых ориентиров **через мобильную сеть, не через путь Zapret2**.
+`NORMAL/HIGH` не означает, что CDN YouTube доступны через VPN.
+Кнопка **«Замер скорости»** использует другой механизм:
+`bridge.SpeedTest` → исходящий `proxy` Xray → локальная стратегия
+Zapret2 → HTTPS `speed.cloudflare.com/__down`. Данные этого
+конкретного маршрута не пришли в срок; ошибка не определяет сама по
+себе, заблокирован ли весь IP, TLS или только HTTP-поток.
+
+Для следующего теста добавлены **поэтапные безопасные причины** в
+диагностику: `speed_stage=outbound_dial|tls_handshake|latency_http|download_headers|download_body`,
+`completed_pings=N`, `download_bytes=N`. Если TLS ClientHello не
+получил полноценного ответа, результат теперь `TLS_HANDSHAKE_FAILED`,
+а не ошибочное `PAYLOAD_STALLED` только потому, что пришли отдельные
+TLS-байты. Сообщение больше не утверждает, что существует удалённый
+«сервер профиля»: для локального Zapret2 это прямой Xray-маршрут.
+Счётчики `speed_desync_counters scope=process_delta applied=… skipped=…`
+показывают изменения **общих счётчиков процесса** на время замера;
+одновременно работающие приложения тоже могут влиять на разницу.
+В журнал не добавляются имена посещаемых пользователем сайтов или
+содержимое пакетов.
+
+Ни один из этих диагностических шагов **не доказывает или не обещает**
+исправление YouTube, скорость и прохождение DPI: требуется отдельная
+проверка содержимого YouTube, `googlevideo.com` и `ytimg.com` на
+реальном устройстве. Основные алгоритмы desync не подменяются
+невидимым обходом или прямой сетью при ошибках.
