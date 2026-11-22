@@ -10,6 +10,7 @@ import (
 	"strings"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 )
@@ -143,6 +144,56 @@ func TestSpeedHTTPHeadersDeadlineReportsLatencyStage(t *testing.T) {
         !strings.Contains(r.Err.Error(), "speed_stage=latency_http") ||
         !strings.Contains(r.Err.Error(), "completed_pings=0") {
         t.Fatalf("HTTP header stall needs a distinct phase: %+v", r)
+    }
+}
+
+// The field report had two successful latency requests, then the
+// third HTTP response never arrived on the persistent TLS flow. A
+// middlebox or CDN can stall reused connections while accepting fresh
+// handshakes. Every request must therefore use its own protected Xray
+// outbound socket; silently retrying direct would be a security bug.
+func TestSpeedAvoidsKeepAliveThirdRequestStall(t *testing.T) {
+    var mu sync.Mutex
+    hits := make(map[string]int)
+    server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        mu.Lock()
+        hits[r.RemoteAddr]++
+        countOnConnection := hits[r.RemoteAddr]
+        mu.Unlock()
+        if countOnConnection > 2 {
+            <-r.Context().Done()
+            return
+        }
+        n, err := strconv.Atoi(r.URL.Query().Get("bytes"))
+        if err != nil || r.URL.Path != "/__down" {
+            w.WriteHeader(http.StatusBadRequest)
+            return
+        }
+        w.Header().Set("Content-Length", strconv.Itoa(n))
+        w.WriteHeader(http.StatusOK)
+        if n > 0 {
+            _, _ = w.Write(make([]byte, n))
+        }
+    }))
+    defer server.Close()
+    roots := x509.NewCertPool()
+    roots.AddCert(server.Certificate())
+    withRoots(t, roots)
+    p := startProxy(t)
+    result := SpeedTest(server.URL+"/__down", 4, 128<<10, time.Second, 5*time.Second)
+    if result.Outcome != ProbeOK || len(result.Pings) != 4 || result.Received != 128<<10 {
+        t.Fatalf("fresh protected TLS requests must work even if HTTP keep-alive stalls: %+v", result)
+    }
+    mu.Lock()
+    connected := len(hits)
+    mu.Unlock()
+    if connected != 5 { // four small GETs plus a separate download
+        t.Fatalf("expected independent TLS connections, got %d", connected)
+    }
+    select {
+    case <-p.fds:
+    default:
+        t.Fatal("measurement bypassed protected Xray transport")
     }
 }
 
