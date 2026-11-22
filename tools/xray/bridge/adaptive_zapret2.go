@@ -42,6 +42,7 @@ type adaptiveEntry struct {
     preferred string
     weakFailures int
     smallResponses map[string]int
+    probeSeeded bool // eligible for smaller verified-HTML responses
 }
 
 // Probe evidence is distinct from transport-byte heuristics. It comes from
@@ -201,13 +202,18 @@ func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int
         e.weakFailures = 0
         e.smallResponses = nil
     } else if e.preferred == strategy {
-        // One legitimate short request is not an automatic strategy failure.
-        if payloadBytes >= adaptiveSmallResponseThreshold {
+        // A verified HTML probe earns a *temporary* preference. Its
+        // successful 8 KiB page sample must not be misclassified as a
+        // failure merely because the media-oriented default is 12 KiB.
+        threshold := int64(adaptiveSmallResponseThreshold)
+        if e.probeSeeded { threshold = 4 * 1024 }
+        if payloadBytes >= threshold {
             e.weakFailures = 0
         } else {
             e.weakFailures++
             if e.weakFailures >= 2 {
                 e.preferred = ""
+                e.probeSeeded = false
                 e.weakFailures = 0
                 e.smallResponses = nil
             }
@@ -292,6 +298,7 @@ func (a *adaptiveSelector) observeHTMLProbe(host, strategy, outcome string, elap
         a.entries[host] = e
     }
     e.preferred = strategy
+    e.probeSeeded = true
     e.weakFailures = 0
     e.smallResponses = nil
     // On two weak live connections, fall back to a *different* candidate.
