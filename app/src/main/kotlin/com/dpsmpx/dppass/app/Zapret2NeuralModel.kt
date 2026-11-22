@@ -162,25 +162,55 @@ object Zapret2NeuralModel {
             if (context.length() != kind.contexts || counts.length() != kind.contexts ||
                 !(0 until kind.contexts).all { i ->
                     valid(context.getJSONArray(i), kind.outputs) &&
-                        counts.getLong(i) in 0..1_000_000_000L
+                        counts.getLong(i) in 0L..1_000_000_000L
                 }) return@runCatching false
             val sparse = obj.getJSONObject("sparse")
             if (sparse.length() > MAX_SPARSE_ENTRIES) return@runCatching false
             val capacity = budget - used
             for (key in sparse.keys()) {
                 val index = key.toLongOrNull() ?: return@runCatching false
-                if (index !in 0 until capacity || !validNumber(sparse.getDouble(key)))
+                if (index !in 0L until capacity || !validNumber(sparse.getDouble(key)))
                     return@runCatching false
             }
-            obj.optLong("observations", 0) in 0..1_000_000_000L
+            obj.optLong("observations", 0) in 0L..1_000_000_000L
         }.getOrDefault(false)
+    }
+
+    private fun migrateLegacy(kind: Kind, raw: ByteArray): ByteArray {
+        val model = JSONObject(raw.decodeToString())
+        if (model.getString("format") == kind.format) return raw
+        val hidden = model.getJSONArray("hidden").length()
+        model.put("format", kind.format)
+        model.put("parameters", denseCount(kind, hidden, 0))
+        model.put("seed", java.lang.Long.toHexString(random.nextLong()).padStart(16, '0'))
+        model.put("deep_hidden", JSONArray())
+        model.put("deep_bias", JSONArray())
+        model.put("context_bias", JSONArray().apply {
+            repeat(kind.contexts) {
+                put(JSONArray().apply { repeat(kind.outputs) { put(0.0) } })
+            }
+        })
+        model.put("context_observations", JSONArray().apply { repeat(kind.contexts) { put(0) } })
+        model.put("sparse", JSONObject())
+        // Original numeric weights and global observation count survive.
+        // Unknown past network conditions are not misattributed to any head.
+        if (!model.has("observations")) model.put("observations", 0)
+        return model.toString().encodeToByteArray().also { check(verify(it, kind)) }
     }
 
     fun readVerified(context: Context, kind: Kind = Kind.STRATEGY): ByteArray? =
         synchronized(storageGuard) {
             val source = file(context, kind)
             if (!source.isFile || source.length() !in 1L..MAX_BYTES.toLong()) return@synchronized null
-            runCatching { source.readBytes().takeIf { verify(it, kind) } }.getOrNull()
+            runCatching {
+                val raw = source.readBytes().takeIf { verify(it, kind) }
+                    ?: return@runCatching null
+                val modern = migrateLegacy(kind, raw)
+                if (!modern.contentEquals(raw)) {
+                    if (!write(context, kind, modern)) return@runCatching raw
+                }
+                modern
+            }.getOrNull()
         }
 
     fun size(context: Context, kind: Kind = Kind.STRATEGY): Int? =
