@@ -184,7 +184,9 @@ func (a *adaptiveSelector) chooseWithGeneration(host string, candidates []string
     tag := candidates[e.index%len(candidates)]
     // The optional downloaded MLP influences cold-start ordering only;
     // every fifth connection still explores the deterministic rotation.
-    if e.index%5 != 4 {
+    // A local neural prior must not suppress the plain TCP baseline.
+    // Always try "pass" when its deterministic turn arrives, even with MLP.
+    if tag != "pass" && e.index%5 != 4 {
         if ranked, ok := zapret2Neural.rank(host, candidates, e.usage); ok {
             tag = ranked
         }

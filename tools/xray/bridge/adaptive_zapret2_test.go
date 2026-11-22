@@ -197,3 +197,22 @@ func TestAdaptiveTCPFirstReplyTimeoutNotDoubleCountedOnClose(t *testing.T) {
         }
     }
 }
+
+func TestAdaptivePlainTCPTriedWithLocalNeuralModel(t *testing.T) {
+    if err := ConfigureZapret2NeuralModel(generatedTestModel(t, 32)); err != nil { t.Fatal(err) }
+    defer func() { _ = ConfigureZapret2NeuralModel(nil) }()
+    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    host := "new.example.org"
+    for i := 0; i < len(adaptiveCandidates); i++ {
+        got := a.choose(host)
+        if i == len(adaptiveCandidates)-1 && got != "pass" {
+            t.Fatalf("local MLP suppressed the TCP baseline: %q", got)
+        }
+    }
+    for i := 0; i < len(adaptiveHTTPCandidates); i++ {
+        got, _ := a.chooseHTTPTracked(host)
+        if i == len(adaptiveHTTPCandidates)-1 && got != "pass" {
+            t.Fatalf("local MLP suppressed the HTTP baseline: %q", got)
+        }
+    }
+}
