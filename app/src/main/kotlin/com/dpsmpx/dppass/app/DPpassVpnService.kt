@@ -590,6 +590,18 @@ class DPpassVpnService : VpnService() {
             }
             is Outcome.Success -> spec.value
         }
+        val handle = when (val t = AndroidTunnelProvider(this).establish(tunSpec)) {
+            is Outcome.Failure -> {
+                t.errors.drop(1).forEach(core.log::diagnostic)
+                fail(t.errors.first())
+                return
+            }
+            is Outcome.Success -> t.value
+        }
+        tunnel.replace(handle)
+        // Only create a PRoot process after Android has granted VPN consent
+        // and established its TUN. Otherwise a rejected permission request
+        // starts a daemon that must immediately be destroyed.
         // Alpine is the single strategy decision authority in opt-in ARM64
         // builds. Android still owns TUN, protected sockets and TTL writes:
         // PRoot cannot acquire CAP_NET_ADMIN or operate NFQUEUE.
@@ -614,15 +626,6 @@ class DPpassVpnService : VpnService() {
                 else -> Unit
             }
         }
-        val handle = when (val t = AndroidTunnelProvider(this).establish(tunSpec)) {
-            is Outcome.Failure -> {
-                t.errors.drop(1).forEach(core.log::diagnostic)
-                fail(t.errors.first())
-                return
-            }
-            is Outcome.Success -> t.value
-        }
-        tunnel.replace(handle)
         core.log.info("tunnel_up", "routes" to tunSpec.routes.size, "apps" to Safe(tunSpec.apps::class.simpleName ?: "?"))
         progress(TunnelStatus.Connecting(name))
         val probeTimeout = (core.policy.healthTimeoutMillis - PROBE_MARGIN_MILLIS).toInt()
