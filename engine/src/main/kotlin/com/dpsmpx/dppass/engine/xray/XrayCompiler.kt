@@ -271,10 +271,30 @@ class XrayCompiler(
                 }
             }
         } else emptyList()
+        // IPv4-only CONTROL for the fixed youtubei.googleapis.com probe.
+        // The primary production and regular probe outbounds are untouched.
+        // Each private outbound differs solely in the DNS address family.
+        val ipv4TestOutbounds = if (plan.withTun && plan.desync != null) {
+            val stream = direct.fields["streamSettings"] as JsonObject
+            val sockopt = stream.fields["sockopt"] as JsonObject
+            val ipv4Sockopt = JsonObject(
+                sockopt.fields + ("domainStrategy" to JsonString("ForceIPv4")))
+            Zapret2ProbeCatalog.strategies.map { strategy ->
+                val tag = Zapret2ProbeCatalog.tag(strategy)!! + "-ipv4"
+                val finalSockopt = if (strategy == "plain") ipv4Sockopt else JsonObject(
+                    ipv4Sockopt.fields + ("dialerProxy" to JsonString(
+                        Zapret2ProbeCatalog.experimentTag(strategy)!!)))
+                JsonObject(direct.fields + mapOf(
+                    "tag" to JsonString(tag),
+                    "streamSettings" to JsonObject(
+                        stream.fields + ("sockopt" to finalSockopt)),
+                ))
+            }
+        } else emptyList()
         // Existing default proxy/route outbounds stay first and unchanged.
         val outbounds = (if (plan.splitRest) listOf(split, direct) else listOf(direct, split)) +
             listOfNotNull(plan.desync?.let(::experimentOutbound), blockOutbound(), dnsOutbound().takeIf { plan.withTun }) +
-            extraExperimentOutbounds + testOutbounds
+            extraExperimentOutbounds + testOutbounds + ipv4TestOutbounds
         val inbounds = listOfNotNull(tunInbound(plan.systemTun).takeIf { plan.withTun })
         return Outcome.Success(compiled(ServerlessPlan.PROFILE_ID, document(dns, routing, inbounds, outbounds)), problems)
     }
