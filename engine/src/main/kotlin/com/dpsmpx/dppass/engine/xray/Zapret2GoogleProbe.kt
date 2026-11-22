@@ -44,6 +44,26 @@ data class Zapret2GoogleAttempt(
 
 /** Complete plaintext report for clipboard; all attempts, including failures. */
 object Zapret2GoogleReport {
+    /**
+     * A provisional exact-host hint, never a global or permanent ranking.
+     * Require two baseline failures and two verified 200+HTML bodies for
+     * the same manual TCP strategy. Do not infer from 301, Google or JPEG.
+     */
+    fun provisionalYouTubeHint(attempts: List<Zapret2GoogleAttempt>): String? {
+        val home = attempts.filter { it.target == "youtube_home" }
+        val plain = home.filter { it.strategy == "plain" }
+        if (plain.size != 2 || !plain.all {
+                it.result.outcome in setOf("timeout", "dial_failed", "tls_failed")
+            }) return null
+        return Zapret2ProbeCatalog.strategies.filter { it != "auto" && it != "plain" }
+            .mapNotNull { strategy ->
+                val rows = home.filter { it.strategy == strategy }
+                if (rows.size == 2 && rows.all { it.result.success }) {
+                    strategy to rows.sumOf { it.result.elapsedMillis }
+                } else null
+            }.minByOrNull { it.second }?.first
+    }
+
     /** Exact median in milliseconds, preserving .5 for even sample counts. */
     fun medianMillis(values: List<Long>): String {
         if (values.isEmpty()) return "-"
@@ -101,6 +121,16 @@ object Zapret2GoogleReport {
         appendLine("A Google reply does NOT prove YouTube works; a YouTube HTML/thumbnail " +
             "reply does NOT prove the app API or video streams work.")
         appendLine("i.ytimg.com is thumbnail CDN, NOT the googlevideo.com media stream.")
-        appendLine("No winning DPI strategy is auto-selected from this test.")
+        val hint = provisionalYouTubeHint(attempts)
+        if (hint != null) {
+            appendLine("Provisional exact-host AUTO candidate: $hint for www.youtube.com")
+            appendLine("Native AUTO may temporarily prefer this tested method for new TLS connections.")
+            appendLine("Evidence: plain failed 2/2, $hint verified YouTube HTML 2/2.")
+            appendLine("The candidate expires on VPN/network reset or repeated weak live flows.")
+            appendLine("This does NOT make YouTube app feeds, API, thumbnails or video verified.")
+        } else {
+            appendLine("No verified per-host AUTO preference inferred from this diagnostic.")
+        }
+        appendLine("Do not choose a global best DPI strategy from these 2-sample results.")
     }
 }
