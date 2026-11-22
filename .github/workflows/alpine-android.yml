@@ -75,3 +75,16 @@ jobs:
                   assert z.read(path).startswith(b"\x7fELF"), path
           print("Verified optional Alpine ARM64 APK:", files[0])
           PY
+      - name: Verify side-by-side experimental APK identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | grep -F "package: name='com.dpsmpx.dppass.alpine'"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DPpass-Alpine-Zapret2-ARM64-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 21
