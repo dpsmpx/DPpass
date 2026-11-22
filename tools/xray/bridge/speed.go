@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -22,8 +23,8 @@ import (
 
 // Замер через туннель по кнопке (D-61): пинг, jitter и скорость загрузки
 // через исходящий proxy работающего ядра — то, что получает приложение в
-// туннеле. Одно TLS-соединение: сначала [SpeedTest.pings] малых запросов
-// по очереди, затем одна загрузка не больше maxBytes и не дольше maxTime.
+// туннеле. Отдельное защищённое TLS-соединение для каждого из
+// [SpeedTest.pings] малых запросов, затем новая загрузка до maxBytes/maxTime.
 // Адрес — https://хост[:порт]/путь; малый запрос — путь?bytes=0, загрузка —
 // путь?bytes=N (адрес с заданным объёмом ответа, D-60).
 
@@ -91,57 +92,74 @@ func classifySpeed(err error, expired bool, received int64) ProbeOutcome {
 	return classify(err, expired, received)
 }
 
+// Each latency request opens a fresh protected Xray->Zapret2 TCP/TLS
+// connection. Some middleboxes/CDNs accept the first two HTTP/1.1
+// keep-alive requests but silently drop subsequent responses on the same
+// flow. Reusing one TLS socket made the entire 25-second measurement fail
+// before the download even began, despite two successful pings. There is
+// no direct-network fallback: every connection uses the Xray outbound.
 func speed(ctx context.Context, inst *core.Instance, u *url.URL, host string, port, pings int, maxBytes int64, maxTime time.Duration, c *countingConn, res *SpeedResult, phase *string) error {
-	raw, err := dial(ctx, inst, xnet.Network_TCP, host, port, c)
-	if err != nil {
-		return err
-	}
-	defer raw.Close()
-	*phase = "tls_handshake"
-	tc := tls.Client(raw, &tls.Config{ServerName: host, RootCAs: probeRoots, NextProtos: []string{"http/1.1"}, MinVersion: tls.VersionTLS12})
-	if err := tc.HandshakeContext(ctx); err != nil {
-		return &stageError{outcome: ProbeTLS, err: err}
-	}
-	br := bufio.NewReader(tc)
-	*phase = "latency_http"
-	for i := 0; i < pings; i++ {
-		start := time.Now()
-		resp, err := request(ctx, tc, br, u, 0, false)
-		if err != nil {
-			return err
-		}
-		res.Pings = append(res.Pings, time.Since(start))
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
-		_ = resp.Body.Close()
-	}
-	*phase = "download_headers"
-	resp, err := request(ctx, tc, br, u, maxBytes, true)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	*phase = "download_body"
-	// Срок загрузки — по таймеру: чтение соединения ядра о сроках не знает.
-	var expired atomic.Bool
-	timer := time.AfterFunc(maxTime, func() {
-		expired.Store(true)
-		_ = raw.Close()
-	})
-	defer timer.Stop()
-	start := time.Now()
-	w := &lastByteWriter{start: start}
-	n, err := io.Copy(w, io.LimitReader(resp.Body, maxBytes))
-	res.Received = n
-	res.Transfer = time.Since(start)
-	res.LastByte = w.last
-	switch {
-	case err == nil, expired.Load() && n > 0:
-		// Срок загрузки вышел посреди тела — замер состоялся: столько пришло за maxTime.
-		return nil
-	case expired.Load():
-		return &stageError{outcome: ProbeStalled, err: fmt.Errorf("за %v не пришло ни байта тела загрузки", maxTime)}
-	}
-	return err
+    for i := 0; i < pings; i++ {
+        raw, tc, br, err := openSpeedTLS(ctx, inst, host, port, c, phase)
+        if err != nil { return err }
+        *phase = "latency_http"
+        start := time.Now()
+        resp, err := request(ctx, tc, br, u, 0, true)
+        if err == nil {
+            // Only append a successful HTTP timing. A broken body or a
+            // truncated response must not be silently counted as a ping.
+            _, err = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
+            _ = resp.Body.Close()
+        }
+        _ = raw.Close()
+        if err != nil { return err }
+        res.Pings = append(res.Pings, time.Since(start))
+    }
+
+    // The bulk transfer gets its own fresh TLS flow, protected and
+    // desynchronized just like each latency request.
+    raw, tc, br, err := openSpeedTLS(ctx, inst, host, port, c, phase)
+    if err != nil { return err }
+    defer raw.Close()
+    *phase = "download_headers"
+    resp, err := request(ctx, tc, br, u, maxBytes, true)
+    if err != nil { return err }
+    defer resp.Body.Close()
+
+    *phase = "download_body"
+    // Bound download duration independently of overall ping/setup timeout.
+    var expired atomic.Bool
+    timer := time.AfterFunc(maxTime, func() {
+        expired.Store(true)
+        _ = raw.Close()
+    })
+    defer timer.Stop()
+    start := time.Now()
+    w := &lastByteWriter{start: start}
+    n, err := io.Copy(w, io.LimitReader(resp.Body, maxBytes))
+    res.Received = n
+    res.Transfer = time.Since(start)
+    res.LastByte = w.last
+    switch {
+    case err == nil, expired.Load() && n > 0:
+        return nil
+    case expired.Load():
+        return &stageError{outcome: ProbeStalled, err: fmt.Errorf("за %v не пришло ни байта тела загрузки", maxTime)}
+    }
+    return err
+}
+
+func openSpeedTLS(ctx context.Context, inst *core.Instance, host string, port int, c *countingConn, phase *string) (net.Conn, *tls.Conn, *bufio.Reader, error) {
+    *phase = "outbound_dial"
+    raw, err := dial(ctx, inst, xnet.Network_TCP, host, port, c)
+    if err != nil { return nil, nil, nil, err }
+    *phase = "tls_handshake"
+    tc := tls.Client(raw, &tls.Config{ServerName: host, RootCAs: probeRoots, NextProtos: []string{"http/1.1"}, MinVersion: tls.VersionTLS12})
+    if err := tc.HandshakeContext(ctx); err != nil {
+        _ = raw.Close()
+        return nil, nil, nil, &stageError{outcome: ProbeTLS, err: err}
+    }
+    return raw, tc, bufio.NewReader(tc), nil
 }
 
 // lastByteWriter — приёмник тела загрузки: запоминает, когда пришли последние байты.
@@ -157,8 +175,8 @@ func (w *lastByteWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// request — GET путь?bytes=n по уже открытому соединению; last — последний
-// запрос, сервер может закрыть соединение. Код ответа — только 200.
+// request — GET путь?bytes=n по открытому TLS-соединению;
+// соединение закрывается после ответа. Код ответа — только 200.
 func request(ctx context.Context, tc *tls.Conn, br *bufio.Reader, u *url.URL, n int64, last bool) (*http.Response, error) {
 	q := *u
 	values := q.Query()
