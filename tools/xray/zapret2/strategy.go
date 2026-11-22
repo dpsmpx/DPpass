@@ -16,6 +16,7 @@ const (
     Disorder Kind = "disorder"
     Split Kind = "split"
     SplitFirst Kind = "split-1"
+    Auto Kind = "auto"
 )
 type Mode struct {
     Kind Kind `json:"kind"`
@@ -30,6 +31,7 @@ func ParseTag(tag string) (Mode, bool, error) {
     v, ok := strings.CutPrefix(tag, TagPrefix)
     if !ok { return Mode{}, false, nil }
     switch v {
+    case "auto": return Mode{Kind: Auto}, true, nil
     case "disorder": return Mode{Kind: Disorder, TTL: 1}, true, nil
     case "split": return Mode{Kind: Split}, true, nil
     case "split-1": return Mode{Kind: SplitFirst}, true, nil
