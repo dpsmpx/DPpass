@@ -40,6 +40,7 @@ import com.dpsmpx.dppass.storage.BlobStore
 import com.dpsmpx.dppass.storage.InMemoryBlobStore
 import com.dpsmpx.dppass.storage.Quarantine
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
@@ -64,6 +65,30 @@ internal class FlakyBlobStore(private val inner: BlobStore) : BlobStore by inner
 }
 
 class ActivationServiceTest {
+    @Test
+    fun restoreAwaitingActivationDoesNotReportTransientStartupError() = runBlocking {
+        val s = service()
+        val inside = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val activation = launch {
+            s.activate(ir("valid-minimal.json"), "test", "completed", preCheck = { _, _ ->
+                inside.complete(Unit)
+                release.await()
+                Outcome.Success(Unit)
+            })
+        }
+        inside.await()
+        val transient = s.restore()
+        assertEquals(DiagCode.ACTIVATION_REJECTED, transient.single().code)
+        assertTrue(transient.none { it.isError }, "active transaction must not be logged as a fatal restore failure")
+        val waiting = async { s.restoreAwaitingActivation() }
+        assertTrue(!waiting.isCompleted, "restore should wait for the in-flight activation")
+        release.complete(Unit)
+        activation.join()
+        assertTrue(waiting.await().none { it.isError })
+        assertEquals("completed", s.state.active?.sourceChecksum)
+    }
+
     private val clock = ManualClock(100)
     private val blobs = InMemoryBlobStore()
     private val engine = MockProxyEngine()
