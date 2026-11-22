@@ -287,10 +287,23 @@ def check_release(dexdump, apk, root, problems):
     return f"release — R8 ({len(markers)} dex), имена и строки свои ({own} своих классов), JNI: XrayJni {len(want)} native, защитник — {len(impls)} реализ."
 
 
-def check_natives(apk, problems, only_abi=None):
-    """Нативный код APK — ровно NATIVE_OK (или его библиотека [only_abi]), несжатый и выровненный по 16 КБ (D-25)."""
+def check_natives(apk, problems, only_abi=None, alpine=False):
+    """Default: strict 16K in-APK Xray. Alpine: explicit extracted ARM64 ELF allowlist.
+
+    Alpine's legacy native packaging extracts libraries, so compression and
+    zip-entry alignment differ. ELF ABI and Xray's JNI/ELF contract are still
+    checked. The Alpine allowlist never applies to an ordinary DPpass APK.
+    """
     sizes = []
     expected = {n: a for n, a in NATIVE_OK.items() if only_abi is None or a == only_abi}
+    if alpine:
+        if only_abi != "arm64-v8a":
+            problems.append("Alpine/PRoot release допускается только для ARM64 одно-ABI APK")
+        expected.update({
+            "lib/arm64-v8a/libdpai-native.so": "arm64-v8a",
+            "lib/arm64-v8a/libproot.so": "arm64-v8a",
+            "lib/arm64-v8a/libproot-loader.so": "arm64-v8a",
+        })
     which = f"ABI {only_abi}" if only_abi else "трёх ABI"
     with zipfile.ZipFile(apk) as z, tempfile.TemporaryDirectory() as tmp:
         infos = {i.filename: i for i in z.infolist()}
@@ -302,19 +315,28 @@ def check_natives(apk, problems, only_abi=None):
             if info is None:
                 problems.append(f"нет {n}: APK без ядра для {abi} бесполезен (D-25)")
                 continue
-            if info.compress_type != zipfile.ZIP_STORED:
+            if not alpine and info.compress_type != zipfile.ZIP_STORED:
                 problems.append(f"{n}: сжата — библиотека должна лежать в APK несжатой (загрузка прямо из APK)")
             # Данные записи начинаются после локального заголовка: 30 байт + имя + поле extra.
             with open(apk, "rb") as f:
                 f.seek(info.header_offset + 26)
                 name_len, extra_len = struct.unpack("<HH", f.read(4))
             data_offset = info.header_offset + 30 + name_len + extra_len
-            if data_offset % PAGE_16K:
+            if not alpine and data_offset % PAGE_16K:
                 problems.append(f"{n}: данные в zip со смещения {data_offset}, не кратного 16 КБ")
             path = z.extract(n, tmp)
             machine, is64 = native.ABIS[abi][3], native.ABIS[abi][4]
             try:
-                native.check_library(path, machine, is64, PAGE_16K)
+                if n in NATIVE_OK:
+                    native.check_library(path, machine, is64, PAGE_16K)
+                else:
+                    # Alpine PRoot and its loader are native tools, not
+                    # libdppassxray.so; they do not export Xray JNI symbols.
+                    with open(path, "rb") as native_file:
+                        elf = native_file.read(20)
+                    if (len(elf) < 20 or elf[:4] != b"\\x7fELF"
+                        or elf[4] != 2 or int.from_bytes(elf[18:20], "little") != 183):
+                        problems.append(f"{n}: неверный ELF/ARM64 ABI у Alpine-компонента")
             except RuntimeError as e:
                 problems.append(f"{n}: {str(e).split(': ', 1)[-1]}")
             sizes.append(f"{abi} {info.file_size / 1024 / 1024:.1f} МиБ")
@@ -447,6 +469,8 @@ def main():
     a.add_argument("apk", nargs="?")
     a.add_argument("--abi", choices=sorted(native.ABIS), help="APK одного ABI (D-28, D-35)")
     a.add_argument("--release", action="store_true", help="сборка release: R8 и договор JNI (D-91)")
+    a.add_argument("--alpine", action="store_true",
+                   help="только experimental Alpine/PRoot ARM64: разрешённые ELF и извлекаемые native libs")
     args = a.parse_args()
     apk = args.apk or (RELEASE_APK if args.release else APK)
     if not os.path.isfile(apk):
@@ -472,6 +496,8 @@ def main():
     if app is None:
         problems.append("манифест APK: нет <application>")
     else:
+        if args.alpine and app.get(A + "extractNativeLibs") != "true":
+            problems.append("Alpine: native библиотеки извлекаются при установке; требуется android:extractNativeLibs=true")
         for attr, want in (("allowBackup", "false"), ("fullBackupContent", "false"), ("usesCleartextTraffic", "false")):
             if app.get(A + attr) != want:
                 problems.append(f"манифест APK: android:{attr} = {app.get(A + attr)}, нужно {want}")
@@ -520,6 +546,8 @@ def main():
             problems.append(f"dex: класс {desc.replace('/', '.')} — {test_only}, тестовая фикстура; в APK ей не место")
             continue
         root_ok = next((r for r in CODE_ROOTS if desc.startswith(r)), None)
+        if args.alpine and desc.startswith("com/dpsmpx/dpai/android/linux/"):
+            root_ok = "com/dpsmpx/dpai/android/linux/"
         if root_ok:
             by_root[root_ok] = by_root.get(root_ok, 0) + 1
         elif desc.startswith(SYNTHETIC_ONLY_ROOTS) and synthetic:
@@ -533,7 +561,7 @@ def main():
     release = check_release(os.path.join(tools, "dexdump"), apk, root, problems) if args.release else None
 
     # ---- нативные библиотеки и размер ----
-    native_sizes = check_natives(apk, problems, args.abi)
+    native_sizes = check_natives(apk, problems, args.abi, alpine=args.alpine)
     geodata = check_geodata(apk, problems)
     legal = check_notices(apk, problems)
     size = os.path.getsize(apk)
@@ -554,7 +582,9 @@ def main():
     roots = ", ".join(f"{r.rstrip('/').replace('/', '.')} {n}" for r, n in sorted(by_root.items(), key=lambda kv: -kv[1]))
     print(f"✓ APK {os.path.relpath(apk, PROJ)}: {size / 1024 / 1024:.1f} МиБ; манифест — утверждённые разрешения и компоненты; "
           f"{len(classes)} классов только из утверждённых корней ({roots}); "
-          f"нативный код — только {native.LIBRARY} ({native_sizes}), несжатая, выровнена по 16 КБ в zip и ELF, экспорт JNI = XrayJni; "
+          f"нативный код — " +
+          (f"ARM64 Alpine allowlist, извлечение при установке, ELF/JNI ({native_sizes}); " if args.alpine
+           else f"только {native.LIBRARY} ({native_sizes}), несжатая, выровнена по 16 КБ в zip и ELF, экспорт JNI = XrayJni; ") +
           f"{geodata}; {legal}; " + (f"{release}; " if release else "") +
           f"APK одного ABI (D-28) — {abi_sizes} МиБ, предел {ABI_APK_BUDGET_MIB}"
           + (f"; пустоты пошаговой упаковки AGP — {holes / 1024 / 1024:.1f} МиБ, в оценку не входят" if holes > 1024 * 1024 else ""))
