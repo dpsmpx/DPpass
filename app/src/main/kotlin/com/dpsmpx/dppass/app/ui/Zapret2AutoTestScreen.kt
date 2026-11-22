@@ -27,8 +27,8 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * One-tap, in-app Google HTTPS strategy matrix. On first display, tests
- * every VpnService TCP candidate twice through the existing Xray engine,
+ * One-tap, in-app Google/YouTube HTTPS diagnostics. On first display, tests
+ * every VpnService TCP candidate twice against each fixed target,
  * without changing the VPN profile or opening a browser.
  *
  * The user can leave to cancel between attempts; a cancelled/partial test
@@ -98,30 +98,35 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         progress.progress = 0
         progress.visibility = View.VISIBLE
         resultText.visibility = View.GONE
-        statusText.text = context.getString(R.string.zapret2_autotest_progress, 0, TOTAL, "plain", 0, REPEATS)
+        statusText.text = context.getString(R.string.zapret2_autotest_progress,
+            0, TOTAL, Zapret2ProbeCatalog.targets.first(), "plain", 0, REPEATS)
         job = host.scope.launch {
             try {
                 var done = 0
-                for (strategy in Zapret2ProbeCatalog.strategies) {
-                    for (attempt in 1..REPEATS) {
-                        ensureActive()
-                        // The UX remains responsive while the native, cert-
-                        // verified HTTP probe is running on a worker thread.
-                        statusText.text = context.getString(
-                            R.string.zapret2_autotest_progress, done, TOTAL, strategy, attempt, REPEATS)
-                        val response = try {
-                            withContext(Dispatchers.IO) {
-                                JniXrayRuntime.probeZapret2Google(strategy, TIMEOUT_MILLIS)
+                for (target in Zapret2ProbeCatalog.targets) {
+                    for (strategy in Zapret2ProbeCatalog.strategies) {
+                        for (attempt in 1..REPEATS) {
+                            ensureActive()
+                            // Real TLS/HTTP content checks run in the worker.
+                            // No browser, manual strategy switch, or VPN restart.
+                            statusText.text = context.getString(
+                                R.string.zapret2_autotest_progress,
+                                done, TOTAL, target, strategy, attempt, REPEATS)
+                            val response = try {
+                                withContext(Dispatchers.IO) {
+                                    JniXrayRuntime.probeZapret2Google(strategy, target, TIMEOUT_MILLIS)
+                                }
+                            } catch (_: LinkageError) {
+                                Zapret2GoogleProbe.unavailable()
                             }
-                        } catch (e: LinkageError) {
-                            Zapret2GoogleProbe.unavailable()
+                            ensureActive()
+                            rows += Zapret2GoogleAttempt(strategy, attempt, response, target)
+                            done++
+                            progress.progress = done
+                            statusText.text = context.getString(
+                                R.string.zapret2_autotest_progress,
+                                done, TOTAL, target, strategy, attempt, REPEATS)
                         }
-                        ensureActive()
-                        rows += Zapret2GoogleAttempt(strategy, attempt, response)
-                        done++
-                        progress.progress = done
-                        statusText.text = context.getString(
-                            R.string.zapret2_autotest_progress, done, TOTAL, strategy, attempt, REPEATS)
                     }
                 }
                 val report = Zapret2GoogleReport.render(stamp, network, quic, rows)
@@ -130,7 +135,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 val copied = try {
                     val clipboard = context.getSystemService(ClipboardManager::class.java)
                     if (clipboard == null) false else {
-                        clipboard.setPrimaryClip(ClipData.newPlainText("DPpass Zapret2 Google autotest", report))
+                        clipboard.setPrimaryClip(ClipData.newPlainText("DPpass Zapret2 HTTPS diagnostics", report))
                         true
                     }
                 } catch (_: SecurityException) {
@@ -154,6 +159,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     private companion object {
         const val REPEATS = 2
         const val TIMEOUT_MILLIS = 8_000
-        val TOTAL: Int = Zapret2ProbeCatalog.strategies.size * REPEATS
+        val TOTAL: Int = Zapret2ProbeCatalog.targets.size *
+            Zapret2ProbeCatalog.strategies.size * REPEATS
     }
 }
