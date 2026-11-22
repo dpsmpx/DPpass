@@ -18,6 +18,15 @@ var zapret2Stage struct {
     tcpDialRefused atomic.Int64
     tcpDialUnreachable atomic.Int64
     tcpDialOther atomic.Int64
+    // Address-family observations: classify the actual remote socket when
+    // connected, and the failed dial address when available. Unknown means
+    // Xray/dialer did not expose an IP family (not assumed IPv4 or IPv6).
+    tcpDialOKV4 atomic.Int64
+    tcpDialOKV6 atomic.Int64
+    tcpDialOKUnknown atomic.Int64
+    tcpDialUnreachableV4 atomic.Int64
+    tcpDialUnreachableV6 atomic.Int64
+    tcpDialUnreachableUnknown atomic.Int64
     tcpHelloSent atomic.Int64
     tcpHelloFailed atomic.Int64
     tcpFirstReply atomic.Int64
@@ -30,11 +39,12 @@ var zapret2Stage struct {
     udpClosedNoReply atomic.Int64
 }
 
-// Zapret2Stages: fifteen monotonically increasing process-wide counters
-// in the order documented in engine.Zapret2Stages. DNS, DoH and HTTP
-// application outcomes cannot be observed at this socket boundary.
-func Zapret2Stages() [15]int64 {
-    return [15]int64{
+// Zapret2Stages v2: first fifteen values keep their original indexes,
+// then six address-family counters. DNS/DoH and app outcomes remain unknown.
+// Per-family OK and unreachable totals must match corresponding aggregate
+// totals except traffic from older libraries (the entire process shares one).
+func Zapret2Stages() [21]int64 {
+    return [21]int64{
         zapret2Stage.tcpDialOK.Load(),
         zapret2Stage.tcpDialTimeout.Load(),
         zapret2Stage.tcpDialRefused.Load(),
@@ -50,6 +60,12 @@ func Zapret2Stages() [15]int64 {
         zapret2Stage.udpInitialFailed.Load(),
         zapret2Stage.udpFirstReply.Load(),
         zapret2Stage.udpClosedNoReply.Load(),
+        zapret2Stage.tcpDialOKV4.Load(),
+        zapret2Stage.tcpDialOKV6.Load(),
+        zapret2Stage.tcpDialOKUnknown.Load(),
+        zapret2Stage.tcpDialUnreachableV4.Load(),
+        zapret2Stage.tcpDialUnreachableV6.Load(),
+        zapret2Stage.tcpDialUnreachableUnknown.Load(),
     }
 }
 
@@ -60,7 +76,26 @@ func isZapret2Timeout(err error) bool {
     return errors.As(err, &e) && e.Timeout()
 }
 
-func recordZapret2DialFailure(err error) {
+// Family 4/6 can only be determined from a known destination IP;
+// nil is deliberately tracked as unknown instead of guessing.
+func zapret2AddressFamily(ip net.IP) int {
+    if ip == nil { return 0 }
+    if ip.To4() != nil { return 4 }
+    if ip.To16() != nil { return 6 }
+    return 0
+}
+
+func recordZapret2DialSuccessFamily(ip net.IP) {
+    switch zapret2AddressFamily(ip) {
+    case 4: zapret2Stage.tcpDialOKV4.Add(1)
+    case 6: zapret2Stage.tcpDialOKV6.Add(1)
+    default: zapret2Stage.tcpDialOKUnknown.Add(1)
+    }
+}
+
+func recordZapret2DialFailure(err error) { recordZapret2DialFailureWithIP(err, nil) }
+
+func recordZapret2DialFailureWithIP(err error, ip net.IP) {
     switch {
     case isZapret2Timeout(err):
         zapret2Stage.tcpDialTimeout.Add(1)
@@ -68,6 +103,19 @@ func recordZapret2DialFailure(err error) {
         zapret2Stage.tcpDialRefused.Add(1)
     case errors.Is(err, syscall.ENETUNREACH), errors.Is(err, syscall.EHOSTUNREACH):
         zapret2Stage.tcpDialUnreachable.Add(1)
+        // If the error carries a concrete remote address, trust it instead
+        // of the (possibly unresolved) Xray destination. Do not log the IP.
+        var opErr *net.OpError
+        if errors.As(err, &opErr) && opErr.Addr != nil {
+            if tcp, ok := opErr.Addr.(*net.TCPAddr); ok && tcp.IP != nil {
+                ip = tcp.IP
+            }
+        }
+        switch zapret2AddressFamily(ip) {
+        case 4: zapret2Stage.tcpDialUnreachableV4.Add(1)
+        case 6: zapret2Stage.tcpDialUnreachableV6.Add(1)
+        default: zapret2Stage.tcpDialUnreachableUnknown.Add(1)
+        }
     default:
         zapret2Stage.tcpDialOther.Add(1)
     }
