@@ -43,19 +43,25 @@ type zapret2TestTarget struct {
     host string
     path string
     contentKind string
+    ipv4Only bool
 }
 
 // google_final is the known google.com 301 destination, requested directly.
 // YouTube HTML and one stable public thumbnail test different service hosts.
 // A thumbnail on i.ytimg.com is not a googlevideo media-streaming proof.
 var zapret2TestTargets = map[string]zapret2TestTarget{
-    "google_final": {"www.google.com", "/", "html"},
-    "youtube_home": {"www.youtube.com", "/", "html"},
+    "google_final": {"www.google.com", "/", "html", false},
+    // A fixed non-personal query exercises /search rather than only /.
+    // HTML from this endpoint does NOT prove useful search results.
+    "google_search": {"www.google.com", "/search?q=site%3Aexample.com", "html", false},
+    "youtube_home": {"www.youtube.com", "/", "html", false},
     // A credentials-free request cannot validate the real mobile API.
-    // HTTP 4xx from this allowlisted route still proves authenticated TLS
-    // and an HTTP reply from youtubei.googleapis.com, not feed access.
-    "youtube_api_transport": {"youtubei.googleapis.com", "/youtubei/v1/browse", "http_transport"},
-    "youtube_thumbnail": {"i.ytimg.com", "/vi/jNQXAC9IVRw/hqdefault.jpg", "jpeg"},
+    // HTTP 4xx still proves TLS+HTTP reachability, not app feed content.
+    "youtube_api_transport": {"youtubei.googleapis.com", "/youtubei/v1/browse", "http_transport", false},
+    // Control arm: the SAME host/path/strategy, with ForceIPv4 exclusively
+    // on the PRIVATE test freedom outbound, not production VPN traffic.
+    "youtube_api_ipv4": {"youtubei.googleapis.com", "/youtubei/v1/browse", "http_transport", true},
+    "youtube_thumbnail": {"i.ytimg.com", "/vi/jNQXAC9IVRw/hqdefault.jpg", "jpeg", false},
 }
 
 // All reported fields are numbers and fixed outcome codes; no page bodies,
@@ -116,7 +122,10 @@ func probeHTTPSWithConn(ctx context.Context, c net.Conn, target zapret2TestTarge
     defer tc.Close()
     if err := tc.HandshakeContext(ctx); err != nil {
         var unknownAuthority x509.UnknownAuthorityError
-        if errors.As(err, &unknownAuthority) { result.Outcome = "tls_ca_failed" }
+        switch {
+        case errors.As(err, &unknownAuthority): result.Outcome = "tls_ca_failed"
+        case ctx.Err() != nil: result.Outcome = "timeout_tls"
+        }
         return result
     }
     req, err := http.NewRequestWithContext(ctx, http.MethodGet,
@@ -127,11 +136,13 @@ func probeHTTPSWithConn(ctx context.Context, c net.Conn, target zapret2TestTarge
     req.Close = true
     if err = req.Write(tc); err != nil {
         result.Outcome = "request_failed"
+        if ctx.Err() != nil { result.Outcome = "timeout_write" }
         return result
     }
     resp, err := http.ReadResponse(bufio.NewReader(tc), req)
     if err != nil {
         result.Outcome = "http_failed"
+        if ctx.Err() != nil { result.Outcome = "timeout_headers" }
         return result
     }
     defer resp.Body.Close()
@@ -144,6 +155,9 @@ func probeHTTPSWithConn(ctx context.Context, c net.Conn, target zapret2TestTarge
     result.BodyBytes = int64(n)
     result.Outcome = classifyProbeHTTP(resp.StatusCode, resp.Header.Get("Content-Type"),
         bounded[:n], readErr, target)
+    if ctx.Err() != nil && result.Outcome == "body_failed" {
+        result.Outcome = "timeout_body"
+    }
     return result
 }
 
@@ -157,6 +171,7 @@ func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2
     if !valid { return out }
     target, valid := zapret2TestTargets[targetID]
     if !valid { out.Outcome = "invalid_target"; return out }
+    if target.ipv4Only { tag += "-ipv4" }
     if timeout < time.Second || timeout > 15*time.Second {
         out.Outcome = "invalid_timeout"
         return out
@@ -198,7 +213,7 @@ func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2
     raw, err := core.Dial(forced, inst, dest)
     if err != nil {
         out.Outcome = "dial_failed"
-        if ctx.Err() != nil { out.Outcome = "timeout" }
+        if ctx.Err() != nil { out.Outcome = "timeout_dial" }
         return finish(out)
     }
     defer raw.Close()
@@ -211,8 +226,7 @@ func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2
         }
     }()
     result := probeHTTPSWithConn(ctx, raw, target)
-    if ctx.Err() != nil && result.Outcome != "ok" && result.Outcome != "redirect" {
-        result.Outcome = "timeout"
-    }
+    // Preserve the phase where the timeout occurred. A generic timeout
+    // used to hide failures after ClientHello or after the HTTP request.
     return finish(result)
 }
