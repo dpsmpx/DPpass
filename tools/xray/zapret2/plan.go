@@ -13,6 +13,9 @@ type Plan struct {
     Applied bool `json:"applied"`
     Cut int `json:"cut,omitempty"`
     Fake []byte `json:"fake,omitempty"`
+    // Rewrite is an optional intact-handshake TLS record encoding. Only the
+    // explicit TLS-record+TCP strategy may return one; input bytes stay intact.
+    Rewrite []byte `json:"rewrite,omitempty"`
     TTL int `json:"ttl,omitempty"`
     Repeats int `json:"repeats,omitempty"`
     Reason string `json:"reason,omitempty"`
@@ -26,6 +29,16 @@ func BuildPlan(tag, network string, first []byte) (Plan, error) {
     p := Plan{Strategy: tag, Network: network, TTL: mode.TTL}
     switch network {
     case "tcp":
+        if mode.Kind == TLSRecordSplit {
+            if payload, cut, ok := SplitTLSRecordClientHello(first); ok {
+                p.Applied = true
+                p.Rewrite = payload
+                p.Cut = cut
+            } else {
+                p.Reason = "complete single-record TLS ClientHello required"
+            }
+            return p, nil
+        }
         if mode.Kind == SplitFirst {
             if !IsTLSClientHelloPrefix(first) { p.Reason = "not TLS ClientHello"; return p, nil }
             p.Applied = true
