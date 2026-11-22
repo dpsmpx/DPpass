@@ -274,10 +274,10 @@ func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeDesyncStats(env *C.JNIEnv,
 }
 
 //export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeProbeZapret2Google
-func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeProbeZapret2Google(env *C.JNIEnv, _ C.jclass, strategy C.jbyteArray, timeoutMillis C.jint) C.jbyteArray {
-    // No URL from Java: the native probe always contacts google.com:443.
-    // Return only a stage, HTTP status, bounded byte count and timing.
-    result := bridge.ProbeZapret2HTTPS(string(bytesOf(env, strategy)),
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeProbeZapret2Google(env *C.JNIEnv, _ C.jclass, strategy C.jbyteArray, targetID C.jbyteArray, timeoutMillis C.jint) C.jbyteArray {
+    // IDs come from two fixed allowlists; arbitrary URLs are rejected.
+    // Only status, bounded count and timings cross JNI.
+    result := bridge.ProbeZapret2HTTPS(string(bytesOf(env, strategy)), string(bytesOf(env, targetID)),
         time.Duration(timeoutMillis)*time.Millisecond)
     return newBytes(env, result.Wire())
 }
