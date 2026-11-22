@@ -111,7 +111,7 @@ jobs:
               exit 1
             fi
           done
-          python3 tools/release/sign_apks.py --skip-build --abis arm64-v8a \
+          python3 tools/release/sign_apks.py --skip-build --alpine --abis arm64-v8a \
             --out build/alpine-release-signed \
             --pinned-fingerprint c18792812566ca4a18b518d51313515ff2d62bf8299446e99943eeb5d0630d11
       - name: Verify signed release APK identity, Alpine and absence of neural weights
