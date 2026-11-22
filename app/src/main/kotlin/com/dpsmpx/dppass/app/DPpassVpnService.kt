@@ -44,6 +44,7 @@ import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Safe
 import com.dpsmpx.dppass.engine.EngineSession
 import com.dpsmpx.dppass.engine.DesyncTrick
+import com.dpsmpx.dppass.engine.Zapret2Stages
 import com.dpsmpx.dppass.engine.ServerlessPlan
 import com.dpsmpx.dppass.engine.ShareSpec
 import com.dpsmpx.dppass.engine.SocketProtector
@@ -154,6 +155,7 @@ class DPpassVpnService : VpnService() {
         val session: EngineSession,
         val counters: Zapret2FinalCounter,
         val startedMillis: Long,
+        val initialStages: Zapret2Stages?,
     )
     @Volatile private var zapret2FinalState: Zapret2FinalState? = null
     private var supervisor: Job? = null
@@ -744,13 +746,36 @@ class DPpassVpnService : VpnService() {
      * Счётчики ядра → скорость и итоги (D-40). Раз в секунду, пока экран
      * включён; уведомление — реже: каждое обновление стоит батареи.
      */
+    // Aggregate counters only. They do not identify an app or certify
+    // DNS, TLS handshake completion, HTTP response, or media playback.
+    private fun logZapret2Stages(event: String, s: Zapret2Stages) {
+        AppGraph.core(this).log.info(event,
+            "scope" to Safe("experimental_outbounds"),
+            "tcp_dial_ok" to s.tcpDialOk,
+            "tcp_dial_timeout" to s.tcpDialTimeout,
+            "tcp_dial_refused" to s.tcpDialRefused,
+            "tcp_dial_unreachable" to s.tcpDialUnreachable,
+            "tcp_dial_other" to s.tcpDialOther,
+            "tcp_clienthello_sent" to s.tcpHelloSent,
+            "tcp_clienthello_failed" to s.tcpHelloFailed,
+            "tcp_first_reply" to s.tcpFirstReply,
+            "tcp_closed_no_reply" to s.tcpClosedNoReply,
+            "tcp_tls_alert" to s.tcpFirstTlsAlert,
+            "tcp_read_timeout" to s.tcpReadTimeout,
+            "quic_initial_sent" to s.udpInitialSent,
+            "quic_initial_failed" to s.udpInitialFailed,
+            "udp_first_reply" to s.udpFirstReply,
+            "udp_closed_no_reply" to s.udpClosedNoReply)
+    }
+
     private fun startTicker(session: EngineSession) {
         ticker?.cancel()
         val diagnosticEnabled = AppPrefs(this).zapret2Backend == Zapret2Backend.VPN_SERVICE
         val initialCounters = if (diagnosticEnabled) AppGraph.graph(this).engine.desyncCounters() else null
+        val initialStages = if (diagnosticEnabled) AppGraph.graph(this).engine.zapret2Stages() else null
         val diagnostic = if (diagnosticEnabled) Zapret2FinalCounter(
             initialCounters?.applied ?: 0L, initialCounters?.skipped ?: 0L) else null
-        zapret2FinalState = diagnostic?.let { Zapret2FinalState(session, it, Clock.MONOTONIC.nowMillis()) }
+        zapret2FinalState = diagnostic?.let { Zapret2FinalState(session, it, Clock.MONOTONIC.nowMillis(), initialStages) }
         ticker = scope.launch {
             val meter = TrafficMeter()
             val pace = NotificationPace()
@@ -766,6 +791,7 @@ class DPpassVpnService : VpnService() {
             // this VPN session, unlike per-session traffic counters.
             var diagApplied = initialCounters?.applied ?: 0L
             var diagSkipped = initialCounters?.skipped ?: 0L
+            var lastStages = initialStages
             var ticks = 0L
             while (isActive) {
                 core.usage.record(usage.delta(session.stats()), underlyingType)?.let { UsageAlerts.show(this@DPpassVpnService, core, it) }
@@ -791,6 +817,11 @@ class DPpassVpnService : VpnService() {
                         diagApplied = probes.applied
                         diagSkipped = probes.skipped
                     }
+                    val nowStages = graph.engine.zapret2Stages()
+                    if (lastStages != null && nowStages != null) {
+                        logZapret2Stages("zapret2_stage_window", nowStages.delta(lastStages))
+                    }
+                    lastStages = nowStages
                 }
                 val interactive = power.isInteractive
                 val notify = pace.tick(interactive)
@@ -1284,6 +1315,10 @@ class DPpassVpnService : VpnService() {
                     "skipped_delta" to summary.skippedDelta,
                     "applied_total" to summary.appliedTotal,
                     "skipped_total" to summary.skippedTotal)
+                val finalStages = AppGraph.graph(this).engine.zapret2Stages()
+                if (final.initialStages != null && finalStages != null) {
+                    logZapret2Stages("zapret2_stage_final", finalStages.delta(final.initialStages))
+                }
             }.onFailure {
                 DeviceLog.log.warning("zapret2_transfer_final_unavailable",
                     "reason" to Safe(it.javaClass.simpleName))
