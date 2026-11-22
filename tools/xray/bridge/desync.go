@@ -58,6 +58,7 @@ const (
 	desyncFake     desyncKind = 2
 	desyncSplit    desyncKind = 3
 	desyncSplitFirst desyncKind = 4
+	desyncAuto desyncKind = 5
 )
 
 type desyncMode struct {
@@ -111,6 +112,7 @@ func parseDesyncTag(tag string) (desyncMode, bool, error) {
     case zapret2.Fake: return desyncMode{kind: desyncFake, ttl: mode.TTL}, true, nil
     case zapret2.Split: return desyncMode{kind: desyncSplit}, true, nil
     case zapret2.SplitFirst: return desyncMode{kind: desyncSplitFirst}, true, nil
+    case zapret2.Auto: return desyncMode{kind: desyncAuto}, true, nil
     default: return desyncMode{}, true, fmt.Errorf("unknown Zapret2 mode %v", mode.Kind)
     }
 }
@@ -158,7 +160,9 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
 			desyncSkipped.Add(1)
 			return conn, nil
 		}
-		return &desyncConn{TCPConn: tcp, mode: mode}, nil
+		// Use the actual protected socket destination only as fallback when
+		// TLS ECH or a fragmented ClientHello hides the SNI. No names logged.
+		return &desyncConn{TCPConn: tcp, mode: mode, host: tcp.RemoteAddr().(*net.TCPAddr).IP.String()}, nil
 	}
 	udp, isUDP := conn.(*net.UDPConn)
 	if !isUDP {
@@ -176,6 +180,25 @@ type desyncConn struct {
 	mode  desyncMode
 	first sync.Once
 	plannerErr error
+    host string
+    adaptiveTag string
+    received atomic.Int64
+    observed sync.Once
+}
+
+// Read observes actual downstream bytes, not mere TCP dial/TLS readiness.
+// It does not consume data; Xray receives every byte normally.
+func (c *desyncConn) Read(b []byte) (int, error) {
+    n, err := c.TCPConn.Read(b)
+    if n > 0 { c.received.Add(int64(n)) }
+    return n, err
+}
+
+func (c *desyncConn) Close() error {
+    c.observed.Do(func() {
+        if c.adaptiveTag != "" { zapret2Auto.observe(c.host, c.adaptiveTag, c.received.Load()) }
+    })
+    return c.TCPConn.Close()
 }
 
 func (c *desyncConn) Write(b []byte) (int, error) {
@@ -196,9 +219,30 @@ func (c *desyncConn) Write(b []byte) (int, error) {
 // desyncFirst — первая запись с приёмом; не вышло до отправки хоть байта —
 // запись как есть.
 func (c *desyncConn) desyncFirst(b []byte) (int, error) {
-    // Strategy logic is owned by the shared Zapret2 planner. With Alpine
-    // selected it runs over an app-private Unix socket; Android only keeps
-    // protected TCP packet transmission and TTL syscalls.
+    // Adaptive mode is strictly per *new* protected TCP connection; live
+    // streams must not change their packet strategy after ClientHello.
+    // Only recognized TLS/HTTP headers can safely enter auto-selection.
+    s, e, hostnameFound := zapret2.FirstHostRange(b)
+    if hostnameFound {
+        c.host = canonicalAdaptiveHost(string(b[s:e]))
+    }
+    eligible := hostnameFound || zapret2.IsTLSClientHelloPrefix(b)
+    if c.mode.kind == desyncAuto && !eligible {
+        desyncSkipped.Add(1)
+        return c.TCPConn.Write(b)
+    }
+    if eligible && (c.mode.kind == desyncAuto || zapret2Auto.wants(c.host)) {
+        choice := zapret2Auto.choose(c.host)
+        resolved, ok, err := parseDesyncTag(zapret2.TagPrefix + choice)
+        if !ok || err != nil || resolved.kind == desyncAuto {
+            c.plannerErr = fmt.Errorf("adaptive strategy selection rejected: %v", err)
+            return 0, c.plannerErr
+        }
+        c.mode = resolved
+        c.adaptiveTag = choice
+    }
+    // Strategy decisions and offsets still come from the shared Go planner,
+    // including Alpine over its app-private Unix socket.
     plan, err := zapret2.PlanFor(modeTag(c.mode), "tcp", b)
     if err != nil {
         // Do not silently pass original TLS if the chosen Alpine daemon dies.
@@ -258,6 +302,7 @@ func modeTag(m desyncMode) string {
     case desyncSplit: return zapret2.TagPrefix + "split"
     case desyncSplitFirst: return zapret2.TagPrefix + "split-1"
     case desyncFake: return fmt.Sprintf("%sfake-%d", zapret2.TagPrefix, m.ttl)
+    case desyncAuto: return zapret2.TagPrefix + "auto"
     }
     return zapret2.TagPrefix + "unsupported"
 }
