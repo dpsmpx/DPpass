@@ -44,6 +44,36 @@ class Zapret2GoogleProbeTest {
         assertEquals("400", Zapret2GoogleReport.medianMillis(listOf(100, 300, 500, 700)))
     }
 
+    @Test fun provisionalAutoCandidateRequiresTwoVerifiedYouTubeHTMLResponses() {
+        fun row(target: String, strategy: String, attempt: Int, outcome: String, ms: Long) =
+            Zapret2GoogleAttempt(strategy, attempt,
+                Zapret2GoogleProbe.fromWire(
+                    "v1\\t$outcome\\t${if (outcome == "ok") 200 else 0}\\t${if (outcome == "ok") 8192 else 0}\\t$ms\\t1\\t0"
+                        .replace("\\t", "\t").encodeToByteArray()), target)
+        val youtube = listOf(
+            row("youtube_home", "plain", 1, "timeout", 8000),
+            row("youtube_home", "plain", 2, "timeout", 8000),
+            row("youtube_home", "tlsrec-split", 1, "ok", 934),
+            row("youtube_home", "tlsrec-split", 2, "ok", 1118),
+            row("youtube_home", "fake-5", 1, "ok", 1202),
+            row("youtube_home", "fake-5", 2, "ok", 1474),
+            row("youtube_home", "auto", 1, "timeout", 8000),
+            row("youtube_home", "auto", 2, "timeout", 8000),
+        )
+        assertEquals("tlsrec-split", Zapret2GoogleReport.provisionalYouTubeHint(youtube))
+        assertTrue(Zapret2GoogleReport.render("test", "MOBILE", false, youtube)
+            .contains("Provisional exact-host AUTO candidate: tlsrec-split"))
+        assertEquals(null, Zapret2GoogleReport.provisionalYouTubeHint(
+            youtube.filterNot { it.strategy == "plain" } +
+                row("youtube_home", "plain", 1, "ok", 500) +
+                row("youtube_home", "plain", 2, "ok", 500)))
+        assertEquals(null, Zapret2GoogleReport.provisionalYouTubeHint(
+            youtube.filterNot { it.strategy == "tlsrec-split" || it.strategy == "fake-5" }))
+        assertEquals(null, Zapret2GoogleReport.provisionalYouTubeHint(
+            youtube.map { if (it.strategy == "tlsrec-split") it.copy(target = "google_final") else it }
+                .filterNot { it.strategy == "fake-5" }))
+    }
+
     @Test fun reportIsGroupedByTargetAndKeepsAllFailures() {
         val attempts = listOf(
             Zapret2GoogleAttempt("plain", 1, Zapret2GoogleProbe.fromWire(
