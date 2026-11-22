@@ -138,6 +138,15 @@ type desyncDialer struct {
 func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Destination, sockopt *internet.SocketConfig) (net.Conn, error) {
 	conn, err := d.base.Dial(ctx, src, dest, sockopt)
 	if err != nil {
+        // Count failed experimental dials, never ordinary Xray or DoH sockets.
+        if dest.Network == xnet.Network_TCP {
+            obs := session.OutboundsFromContext(ctx)
+            if len(obs) > 0 {
+                if _, ok, _ := parseDesyncTag(obs[len(obs)-1].Tag); ok {
+                    recordZapret2DialFailure(err)
+                }
+            }
+        }
 		return conn, err
 	}
 	// Experimental tag is only consulted on TCP/UDP outbound sockets.
@@ -168,6 +177,7 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
 		}
 		// Use the actual protected socket destination only as fallback when
 		// TLS ECH or a fragmented ClientHello hides the SNI. No names logged.
+        zapret2Stage.tcpDialOK.Add(1)
 		return &desyncConn{TCPConn: tcp, mode: mode, host: tcp.RemoteAddr().(*net.TCPAddr).IP.String()}, nil
 	}
 	udp, isUDP := conn.(*net.UDPConn)
@@ -197,6 +207,9 @@ type desyncConn struct {
     adaptiveSelection atomic.Pointer[adaptivePick]
     received atomic.Int64
     observed sync.Once
+    stageHelloSent atomic.Bool
+    stageFirstReply atomic.Bool
+    stageReadTimedOut atomic.Bool
 }
 
 // net.TCPConn promotes io.ReaderFrom and io.WriterTo through embedding.
@@ -221,6 +234,12 @@ func (c *desyncConn) Read(b []byte) (int, error) {
     if err := c.flushFirstBeforeRead(); err != nil { return 0, err }
     n, err := c.TCPConn.Read(b)
     if n > 0 {
+        if c.stageFirstReply.CompareAndSwap(false, true) {
+            zapret2Stage.tcpFirstReply.Add(1)
+            if isTLSAlertRecordHeader(b[:n]) {
+                zapret2Stage.tcpFirstTLSAlert.Add(1)
+            }
+        }
         total := c.received.Add(int64(n))
         if total >= adaptivePayloadThreshold {
             if selected := c.adaptiveSelection.Load(); selected != nil {
@@ -231,6 +250,10 @@ func (c *desyncConn) Read(b []byte) (int, error) {
             }
         }
     }
+    if err != nil && c.stageHelloSent.Load() && !c.stageFirstReply.Load() &&
+        isZapret2Timeout(err) && c.stageReadTimedOut.CompareAndSwap(false, true) {
+        zapret2Stage.tcpReadTimeout.Add(1)
+    }
     return n, err
 }
 
@@ -238,6 +261,9 @@ func (c *desyncConn) Close() error {
     // The final buffered bytes were already accepted by Write. Attempt to
     // transmit them before closing; a failure remains sticky.
     pendingErr := c.flushFirstBeforeRead()
+    if c.stageHelloSent.Load() && !c.stageFirstReply.Load() {
+        zapret2Stage.tcpClosedNoReply.Add(1)
+    }
     c.observed.Do(func() {
         if selected := c.adaptiveSelection.Load(); selected != nil {
             zapret2Auto.observeTracked(selected.host, selected.strategy, c.received.Load(), selected.generation)
@@ -275,8 +301,17 @@ func (c *desyncConn) flushFirstLocked() error {
     if c.pendingTimer != nil { c.pendingTimer.Stop(); c.pendingTimer = nil }
     payload := c.pending
     c.pending = nil
+    isHello := zapret2.IsTLSClientHelloPrefix(payload)
     n, err := c.desyncFirst(payload)
     if err == nil && n != len(payload) { err = io.ErrShortWrite }
+    if isHello {
+        if err == nil {
+            c.stageHelloSent.Store(true)
+            zapret2Stage.tcpHelloSent.Add(1)
+        } else {
+            zapret2Stage.tcpHelloFailed.Add(1)
+        }
+    }
     if err != nil {
         c.plannerErr = fmt.Errorf("Zapret2 first TCP record failed: %w", err)
     }
@@ -627,11 +662,16 @@ type desyncUDPConn struct {
     adaptiveSelection atomic.Pointer[adaptivePick]
     received atomic.Int64
     observed sync.Once
+    stageInitialSent atomic.Bool
+    stageFirstReply atomic.Bool
 }
 
 func (c *desyncUDPConn) Read(b []byte) (int, error) {
     n, err := c.UDPConn.Read(b)
     if n > 0 {
+        if c.stageInitialSent.Load() && c.stageFirstReply.CompareAndSwap(false, true) {
+            zapret2Stage.udpFirstReply.Add(1)
+        }
         total := c.received.Add(int64(n))
         if total >= adaptivePayloadThreshold {
             if selected := c.adaptiveSelection.Load(); selected != nil {
@@ -645,6 +685,9 @@ func (c *desyncUDPConn) Read(b []byte) (int, error) {
 }
 
 func (c *desyncUDPConn) Close() error {
+    if c.stageInitialSent.Load() && !c.stageFirstReply.Load() {
+        zapret2Stage.udpClosedNoReply.Add(1)
+    }
     c.observed.Do(func() {
         if pick := c.adaptiveSelection.Load(); pick != nil {
             zapret2Auto.observeTracked(pick.host, pick.strategy, c.received.Load(), pick.generation)
@@ -660,9 +703,20 @@ const dummyQuicRepeats = 6
 // the initial handshake without its selected DPI strategy.
 const maxQuicInitialFlights = 8
 
-func (c *desyncUDPConn) Write(b []byte) (int, error) {
+func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
     c.mu.Lock()
     defer c.mu.Unlock()
+    initial := zapret2.IsQUICInitial(b)
+    // A successful fake alone does not count. Require the genuine Initial.
+    defer func() {
+        if !initial { return }
+        if writeErr != nil || written != len(b) {
+            zapret2Stage.udpInitialFailed.Add(1)
+        } else {
+            c.stageInitialSent.Store(true)
+            zapret2Stage.udpInitialSent.Add(1)
+        }
+    }()
     if c.plannerErr != nil { return 0, c.plannerErr }
     if (c.mode.kind == desyncAuto || zapret2Auto.wants(c.host)) && zapret2.IsQUICInitial(b) {
         // Apply one chosen TTL for this UDP flow, including retransmitted
