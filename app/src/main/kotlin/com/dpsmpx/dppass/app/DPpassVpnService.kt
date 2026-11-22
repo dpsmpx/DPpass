@@ -682,6 +682,15 @@ class DPpassVpnService : VpnService() {
                     }
                 }
             }
+            // The MLP is strictly optional; download is a user action.
+            // A corrupt or absent cache must never prevent serverless VPN.
+            val modelBytes = Zapret2NeuralModel.readVerified(this)
+            when (val configured = JniXrayRuntime.configureZapret2NeuralModel(modelBytes ?: ByteArray(0))) {
+                is XrayResult.Failed -> core.log.warning("zapret2_neural_model_rejected",
+                    "reason" to Safe("invalid_model"))
+                else -> core.log.info("zapret2_neural_model",
+                    "installed" to (modelBytes != null), "mode" to Safe("local_only"))
+            }
         }
         core.log.info("tunnel_up", "routes" to tunSpec.routes.size, "apps" to Safe(tunSpec.apps::class.simpleName ?: "?"))
         progress(TunnelStatus.Connecting(name))
