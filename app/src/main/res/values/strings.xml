@@ -853,13 +853,15 @@
     <string name="alpine_exited">Shell exited (code %1$d)</string>
     <string name="alpine_failed">Alpine error: %1$s</string>
     <string name="alpine_missing">No ARM64 PRoot bundled. Build with -Pdppass.alpine=true.</string>
-    <string name="zapret2_autotest_title">Zapret2 · Test all strategies on Google</string>
-    <string name="zapret2_autotest_subtitle">One tap: 8 TCP modes × 2 HTTPS attempts, progress and automatic report copy</string>
-    <string name="zapret2_autotest_note">Runs inside DPpass without a browser, on the current Zapret2 VpnService connection. Requires active VPN. Tests verified HTTPS to google.com without changing your selected strategy. QUIC and YouTube playback are not tested. The complete report is automatically copied at the end.</string>
+    <string name="zapret2_autotest_title">Zapret2 · Check Google and YouTube</string>
+    <string name="zapret2_autotest_subtitle">One tap: 3 HTTPS targets × 8 TCP modes × 2 attempts; copy the full result</string>
+    <string name="zapret2_autotest_note">Uses the active Zapret2 VPN without a browser: checks final Google HTML, YouTube homepage HTML and a public thumbnail on i.ytimg.com, under all TCP modes. 48 requests total. TLS certificates and HTML/JPEG content signatures are verified. Does not test video streaming or YouTube app API. Copies the complete report at the end.</string>
     <string name="zapret2_autotest_again">Run all tests again</string>
     <string name="zapret2_autotest_need_connection">Connect the experimental Zapret2 VpnService VPN before running the test.</string>
-    <string name="zapret2_autotest_progress">%1$d/%2$d completed · %3$s attempt %4$d/%5$d</string>
+    <string name="zapret2_autotest_progress">%1$d/%2$d completed · %3$s · %4$s attempt %5$d/%6$d</string>
     <string name="zapret2_autotest_done">Test complete. Full report copied to clipboard.</string>
     <string name="zapret2_autotest_copy_failed">Test complete; clipboard unavailable. Select and copy the report below.</string>
     <string name="zapret2_autotest_cancelled">Test cancelled before completion; no partial report copied.</string>
+    <string name="zapret2_auto_primary_title">Automatic DPI strategy</string>
+    <string name="zapret2_auto_primary_note">Primary mode: AUTO. Manual TCP techniques are tested only inside the built-in diagnostics.</string>
 </resources>
