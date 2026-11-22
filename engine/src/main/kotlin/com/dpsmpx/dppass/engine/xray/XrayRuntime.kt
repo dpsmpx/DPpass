@@ -219,6 +219,9 @@ internal object XrayJni {
     /** Per-domain adaptive strategy overrides, held only in the Go process. */
     @JvmStatic external fun nativeSetZapret2AdaptiveHosts(hosts: ByteArray): ByteArray
 
+    /** Optional local neural weights, strictly JSON numeric data, never executable code. */
+    @JvmStatic external fun nativeSetZapret2NeuralModel(model: ByteArray): ByteArray
+
     /**
      * Снимок учёта соединений (D-106): текст UTF-8, строки через перевод
      * строки. Первая — `v1`, включён ли учёт (`1`/`0`) и сколько не учтено,
