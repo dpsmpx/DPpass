@@ -198,10 +198,11 @@ func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int
     e := a.entries[host]
     if e == nil { return }
     if payloadBytes >= adaptivePayloadThreshold {
+        // A different candidate with a full-sized downstream flow may
+        // supersede the HTML hint. The SAME verified candidate should not
+        // lose its small-success threshold after one large response.
+        if e.preferred != strategy { e.probeSeeded = false }
         e.preferred = strategy
-        // A full-sized downstream flow replaces the provisional HTML
-        // hint with ordinary transport evidence; retain stock thresholds.
-        e.probeSeeded = false
         e.weakFailures = 0
         e.smallResponses = nil
     } else if e.preferred == strategy {
