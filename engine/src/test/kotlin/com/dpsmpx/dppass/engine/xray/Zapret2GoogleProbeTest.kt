@@ -12,7 +12,8 @@ import kotlin.test.assertTrue
 class Zapret2GoogleProbeTest {
     @Test fun completeStrategyAndDestinationCatalogs() {
         assertEquals(8, Zapret2ProbeCatalog.strategies.size)
-        assertEquals(listOf("google_final", "youtube_home", "youtube_api_transport", "youtube_thumbnail"),
+        assertEquals(listOf("google_final", "google_search", "youtube_home",
+            "youtube_api_transport", "youtube_api_ipv4", "youtube_thumbnail"),
             Zapret2ProbeCatalog.targets)
         assertEquals("dppass:test-plain", Zapret2ProbeCatalog.tag("plain"))
         assertEquals("dppass:test-tlsrec-split", Zapret2ProbeCatalog.tag("tlsrec-split"))
@@ -166,3 +167,34 @@ class Zapret2GoogleProbeTest {
         assertTrue(report.contains("Scope: TCP/HTTPS"))
     }
 }
+
+    @Test fun stageTimeoutsAreValidAndNotMisclassifiedAsContent() {
+        for (stage in listOf("timeout_dial", "timeout_tls", "timeout_write",
+                "timeout_headers", "timeout_body")) {
+            val r = Zapret2GoogleProbe.fromWire(
+                "v1\t$stage\t0\t0\t8000\t0\t0".replace("\\t", "\t").encodeToByteArray())
+            assertEquals(stage, r.outcome)
+            assertFalse(r.success)
+            assertFalse(r.httpReachable)
+        }
+    }
+
+    @Test fun ipv4ControlIsAComparisonNotAutomaticNormalVpnStrategy() {
+        fun attempt(target: String, outcome: String, status: Int) =
+            Zapret2GoogleAttempt("tlsrec-split", 1,
+                Zapret2GoogleProbe.fromWire(
+                    "v1\t$outcome\t$status\t128\t1700\t1\t0"
+                        .replace("\\t", "\t").encodeToByteArray()), target)
+        val report = Zapret2GoogleReport.render(
+            "test", "MOBILE", false, listOf(
+                attempt("youtube_api_transport", "timeout_tls", 0),
+                attempt("youtube_api_ipv4", "http_reachable", 403),
+                attempt("google_search", "ok", 200),
+            ))
+        assertTrue(report.contains("YouTube API control: configured_DNS_HTTP=0; IPv4_only_HTTP=1"))
+        assertTrue(report.contains("timeout_tls"))
+        assertTrue(report.contains("HTML (not verified search results)"))
+        assertTrue(report.contains("NOT ordinary VPN routing"))
+        assertEquals(null, Zapret2GoogleReport.provisionalAPITransportHint(listOf(
+            attempt("youtube_api_ipv4", "http_reachable", 403))))
+    }
