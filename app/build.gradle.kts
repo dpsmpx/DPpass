@@ -90,6 +90,15 @@ android {
     }
 
     buildTypes {
+        debug {
+            // The experimental Alpine / Zapret2 test APK installs alongside
+            // the stable DPpass app rather than requiring an uninstall (and
+            // loss of app-private user data) due to the debug certificate.
+            if (alpineEnabled) {
+                applicationIdSuffix = ".alpine"
+                manifestPlaceholders["appLabel"] = "DPpass Alpine (test)"
+            }
+        }
         release {
             // Не выпуск (CLAUDE.md, «Чего не делать»: выпуск — этап 5): личная
             // сборка для устройств автора (D-35). Подписи в Gradle нет — APK
