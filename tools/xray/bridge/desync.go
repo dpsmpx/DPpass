@@ -31,6 +31,7 @@ package bridge
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -181,7 +182,14 @@ func (d *desyncDialer) DestIpAddress() net.IP { return d.base.DestIpAddress() }
 type desyncConn struct {
 	*net.TCPConn
 	mode  desyncMode
-	first sync.Once
+	// Only the first complete ClientHello is eligible for a strategy. TLS
+	// writers may split that record across several Write calls; accumulate
+	// it briefly instead of consuming the one-shot hook on an incomplete
+	// fragment. writeMu also serializes the pending timer and actual writes.
+	writeMu sync.Mutex
+	firstDone bool
+	pending []byte
+	pendingTimer *time.Timer
 	plannerErr error
     host string
     adaptiveSelection atomic.Pointer[adaptivePick]
@@ -206,6 +214,9 @@ func (c *desyncConn) WriteTo(w io.Writer) (int64, error) {
 // Read observes actual downstream bytes, not mere TCP dial/TLS readiness.
 // It does not consume data; Xray receives every byte normally.
 func (c *desyncConn) Read(b []byte) (int, error) {
+    // Avoid deadlocking a peer that waits for our first partial record before
+    // replying: a Read is a request to send any pending handshake fragments.
+    if err := c.flushFirstBeforeRead(); err != nil { return 0, err }
     n, err := c.TCPConn.Read(b)
     if n > 0 {
         total := c.received.Add(int64(n))
@@ -222,27 +233,79 @@ func (c *desyncConn) Read(b []byte) (int, error) {
 }
 
 func (c *desyncConn) Close() error {
+    // The final buffered bytes were already accepted by Write. Attempt to
+    // transmit them before closing; a failure remains sticky.
+    pendingErr := c.flushFirstBeforeRead()
     c.observed.Do(func() {
         if selected := c.adaptiveSelection.Load(); selected != nil {
             zapret2Auto.observeTracked(selected.host, selected.strategy, c.received.Load(), selected.generation)
         }
     })
-    return c.TCPConn.Close()
+    closeErr := c.TCPConn.Close()
+    if pendingErr != nil { return pendingErr }
+    return closeErr
+}
+
+// An incomplete ClientHello can be spread over many TCP Write calls.
+// Buffer only a bounded TLS record, and only for a short time. Raw TCP and
+// HTTP follow the previous immediate path. No host or payload is logged.
+const (
+    maxFirstTLSRecord = 5 + 16*1024
+    firstTLSBufferTimeout = 50 * time.Millisecond
+)
+
+func needsMoreFirstTLS(b []byte) bool {
+    if len(b) == 0 || len(b) > maxFirstTLSRecord || b[0] != 22 { return false }
+    if len(b) >= 2 && b[1] != 3 { return false }
+    if len(b) >= 3 && b[2] > 4 { return false }
+    if len(b) >= 6 && b[5] != 1 { return false }
+    if len(b) < 5 { return true }
+    size := int(binary.BigEndian.Uint16(b[3:5]))
+    if size < 4 || size > 16*1024 { return false }
+    return len(b) < 5+size
+}
+
+// flushFirstLocked sends the entire buffered record at most once and never
+// retries a failed DPI write as plain TCP. The caller holds writeMu.
+func (c *desyncConn) flushFirstLocked() error {
+    if c.firstDone || len(c.pending) == 0 { return c.plannerErr }
+    c.firstDone = true
+    if c.pendingTimer != nil { c.pendingTimer.Stop(); c.pendingTimer = nil }
+    payload := c.pending
+    c.pending = nil
+    n, err := c.desyncFirst(payload)
+    if err == nil && n != len(payload) { err = io.ErrShortWrite }
+    if err != nil {
+        c.plannerErr = fmt.Errorf("Zapret2 first TCP record failed: %w", err)
+    }
+    return c.plannerErr
+}
+
+func (c *desyncConn) flushFirstBeforeRead() error {
+    c.writeMu.Lock()
+    defer c.writeMu.Unlock()
+    return c.flushFirstLocked()
 }
 
 func (c *desyncConn) Write(b []byte) (int, error) {
-	n := 0
-	var err error
-	done := false
-	c.first.Do(func() {
-		done = true
-		n, err = c.desyncFirst(b)
-	})
-	if done {
-		return n, err
-	}
-	if c.plannerErr != nil { return 0, c.plannerErr }
-	return c.TCPConn.Write(b)
+    c.writeMu.Lock()
+    defer c.writeMu.Unlock()
+    if c.plannerErr != nil { return 0, c.plannerErr }
+    if len(b) == 0 { return 0, nil }
+    if c.firstDone { return c.TCPConn.Write(b) }
+    c.pending = append(c.pending, b...)
+    if needsMoreFirstTLS(c.pending) {
+        if c.pendingTimer == nil {
+            c.pendingTimer = time.AfterFunc(firstTLSBufferTimeout, func() {
+                c.writeMu.Lock()
+                defer c.writeMu.Unlock()
+                _ = c.flushFirstLocked()
+            })
+        }
+        return len(b), nil
+    }
+    if err := c.flushFirstLocked(); err != nil { return 0, err }
+    return len(b), nil
 }
 
 // desyncFirst — первая запись с приёмом; не вышло до отправки хоть байта —
