@@ -96,3 +96,20 @@ func TestAdaptiveManualIPv4TargetCoversQUIC(t *testing.T) {
     if !a.wants("203.0.113.9") { t.Fatal("selected IP must apply to protected QUIC destination") }
     if a.wants("203.0.113.10") { t.Fatal("selection must not cover unrelated IP") }
 }
+
+
+// The new lossless TLS-record/TCP method is tried only after the existing
+// five candidates; users' explicit manual choices are not rewritten.
+func TestAdaptiveIncludesCombinedTLSRecordSplitWithoutReorderingLegacyCandidates(t *testing.T) {
+    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    want := []string{"split-1", "split", "fake-3", "fake-5", "disorder", "tlsrec-split"}
+    for i, expected := range want {
+        if got := a.choose("video.example.org"); got != expected {
+            t.Fatalf("rotation %d got %q want %q", i, got, expected)
+        }
+    }
+    a.observe("video.example.org", "tlsrec-split", adaptivePayloadThreshold)
+    if got := a.choose("video.example.org"); got != "tlsrec-split" {
+        t.Fatalf("new mode cannot earn adaptive preference: %q", got)
+    }
+}
