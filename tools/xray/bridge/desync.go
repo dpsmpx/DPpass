@@ -261,7 +261,16 @@ func (c *desyncConn) desyncFirst(b []byte) (int, error) {
         return c.TCPConn.Write(b)
     }
     if eligible && (c.mode.kind == desyncAuto || zapret2Auto.wants(c.host)) {
-        choice, generation := zapret2Auto.chooseTracked(c.host)
+        // HTTP/1 Host can use the five original TCP strategies. A new TLS
+        // record split candidate is meaningful only for TLS ClientHello.
+        // Avoid selecting an HTTP no-op when both protocols share a host.
+        var choice string
+        var generation uint64
+        if zapret2.IsTLSClientHelloPrefix(b) {
+            choice, generation = zapret2Auto.chooseTracked(c.host)
+        } else {
+            choice, generation = zapret2Auto.chooseHTTPTracked(c.host)
+        }
         resolved, ok, err := parseDesyncTag(zapret2.TagPrefix + choice)
         if !ok || err != nil || resolved.kind == desyncAuto {
             c.plannerErr = fmt.Errorf("adaptive strategy selection rejected: %v", err)
