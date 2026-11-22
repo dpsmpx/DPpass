@@ -58,7 +58,9 @@ class AppPrefs(context: Context) {
 
     /** Локальный VpnService: UDP 443 закрыт в TUN, чтобы приложения попробовали TCP. */
     var zapret2VpnForceTcp: Boolean
-        get() = prefs.getBoolean(ZAPRET2_VPN_FORCE_TCP, true)
+        // In AUTO, allow UDP/QUIC candidates to be measured by default.
+        // Explicitly saved QUIC→TCP settings always take precedence.
+        get() = prefs.getBoolean(ZAPRET2_VPN_FORCE_TCP, zapret2VpnStrategy != Zapret2VpnStrategy.AUTO)
         set(value) { prefs.edit().putBoolean(ZAPRET2_VPN_FORCE_TCP, value).apply() }
 
     /** Локальный VPN: включать TCP/443 без распознанного домена (ECH/IP-only CDN). */
