@@ -188,7 +188,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     private companion object {
         const val REPEATS = 2
         const val TIMEOUT_MILLIS = 8_000
-        const val DNS_TIMEOUT_MILLIS = 12_000
+        const val DNS_TIMEOUT_MILLIS = 22_000
         val TOTAL: Int = Zapret2ProbeCatalog.targets.size *
             Zapret2ProbeCatalog.strategies.size * REPEATS
     }
