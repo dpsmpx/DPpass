@@ -76,9 +76,22 @@ type Zapret2HTTPSResult struct {
     // Only nonempty for fixed-DoH experimental controls. No raw IPs.
     DnsFingerprint string
     DnsAnswers int
+    DoHHTTPStatus int
+    DoHProtocol int // TLS-negotiated HTTP/1.1 or HTTP/2
+    DnsChecked int
+    DnsTLSReady int
+    DnsHTTPReady int
+    TLSVerified bool // internal only: do not serialize directly
 }
 
 func (r Zapret2HTTPSResult) Wire() []byte {
+    if r.DnsFingerprint!="" && (r.DoHHTTPStatus!=0 || r.DoHProtocol!=0 ||
+        r.DnsChecked!=0 || r.DnsTLSReady!=0 || r.DnsHTTPReady!=0) {
+        return []byte(fmt.Sprintf("v3\t%s\t%d\t%d\t%d\t%d\t%d\t%s\t%d\t%d\t%d\t%d\t%d\t%d",
+            r.Outcome,r.HTTPStatus,r.BodyBytes,r.Elapsed.Milliseconds(),
+            r.AppliedDelta,r.SkippedDelta,r.DnsFingerprint,r.DnsAnswers,
+            r.DoHHTTPStatus,r.DoHProtocol,r.DnsChecked,r.DnsTLSReady,r.DnsHTTPReady))
+    }
     if r.DnsFingerprint!="" {
         return []byte(fmt.Sprintf("v2\t%s\t%d\t%d\t%d\t%d\t%d\t%s\t%d",
             r.Outcome,r.HTTPStatus,r.BodyBytes,r.Elapsed.Milliseconds(),
@@ -136,6 +149,7 @@ func probeHTTPSWithConn(ctx context.Context, c net.Conn, target zapret2TestTarge
         }
         return result
     }
+    result.TLSVerified = true
     req, err := http.NewRequestWithContext(ctx, http.MethodGet,
         "https://"+target.host+target.path, nil)
     if err != nil { result.Outcome = "request_failed"; return result }
