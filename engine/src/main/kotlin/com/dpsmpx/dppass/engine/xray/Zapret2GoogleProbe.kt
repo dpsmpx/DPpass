@@ -72,7 +72,7 @@ data class Zapret2GoogleProbe(
                 val protocol = fields[10].takeIf { it in setOf("dns", "h1", "h2", "quic") }
                     ?: return unavailable()
                 val stage = fields[11].takeIf { it in setOf(
-                    "none", "tcp_connected", "clienthello_sent", "server_reply_seen",
+                    "none", "tcp_connected", "clienthello_sent", "server_reply_seen", "serverhello_seen",
                     "tls_verified", "udp_connected", "quic_initial_sent",
                     "quic_peer_reply", "quic_tls_verified") } ?: return unavailable()
                 val alpn = fields[12].takeIf { it in setOf("-", "http/1.1", "h2", "h3") }
