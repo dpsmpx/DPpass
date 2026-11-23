@@ -191,7 +191,7 @@ func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2
     target, valid := zapret2TestTargets[targetID]
     dohProvider := ""
     matrix := false
-    if !valid && (strings.HasPrefix(targetID,"youtube_api_matrix_") || strings.HasPrefix(targetID,"google_control_")) {
+    if !valid && (strings.HasPrefix(targetID,"youtube_api_matrix_") || strings.HasPrefix(targetID,"google_control_") || strings.HasPrefix(targetID,"youtube_api_h3_")) {
         if _,ok:=parseMatrixTarget(targetID);ok {
             matrix=true
             target=zapret2TestTargets["youtube_api_ipv4"]
