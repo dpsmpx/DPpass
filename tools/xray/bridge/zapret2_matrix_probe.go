@@ -290,8 +290,7 @@ func matrixQUIC(ctx context.Context,raw net.Conn,ip string) Zapret2HTTPSResult {
         MinVersion:tls.VersionTLS13,NextProtos:[]string{"h3"}}
     conn,err:=quic.Dial(ctx,packets,remote,cfg,&quic.Config{})
     if err!=nil {
-        if packets.reply.Load() {out.TLSStage="quic_peer_reply"}
-        else if packets.sent.Load() {out.TLSStage="quic_initial_sent"}
+        if packets.reply.Load() {out.TLSStage="quic_peer_reply"} else if packets.sent.Load() {out.TLSStage="quic_initial_sent"}
         switch {
         case ctx.Err()!=nil && packets.reply.Load():out.Outcome="quic_timeout_after_reply"
         case ctx.Err()!=nil:out.Outcome="quic_timeout_no_reply"
