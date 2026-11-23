@@ -20,7 +20,7 @@ diagnostic screen, then press **Test all IPv4, TLS / HTTP2 / QUIC**.
    hostnames; HTTPS POST, `application/dns-message`, DNS ID = 0 as RFC 8484
    requires. Report numeric HTTP errors from the resolver.
 2. Store each verified A RRset temporarily inside the native process,
-   tied to the running Xray instance and a ten-minute expiration.
+   tied to the running Xray instance and a 45-minute expiration.
    After fresh resolver checks, use only the existing protected private
    Xray test outbounds. No ordinary app DNS, routes or AUTO preferences change.
 3. Sort the maximum 16 public unicast IPv4 addresses and test **every
