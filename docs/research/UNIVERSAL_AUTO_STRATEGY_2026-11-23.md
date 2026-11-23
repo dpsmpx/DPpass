@@ -58,7 +58,7 @@ Never promote a strategy on DNS alone, server reply bytes, TLS handshake alone, 
 - Measure both success probability and latency, but optimize success **first**; a fast 139 ms transient handshake loses to a slower but stable path.
 - Use a sliding window or decayed, bounded per-context score. Prefer an established winner and use hysteresis to avoid route flapping; if no candidate clears the confidence threshold, report inconclusive instead of selecting a random "winner". Neural scores are merely priors, never substitutes for verified transport/content evidence.
 - Cap concurrent probes, total bytes, per-host attempts and time, with exponential backoff and jitter. Skip background scanning on metered networks/battery saver; keep periodic checks idle by default. Respect service rate limits and do not replay app cookies or private URLs.
-- On 2 explicit **first-reply TLS read timeouts** for one host+protocol+candidate, temporarily deprioritize **that candidate only**, not every site nor the whole network. A benign application close must not count. Use a short cooldown; re-enable automatically afterward or after a meaningful successful response. Never terminate established streams to force a new strategy.
+- On 2 explicit **first-reply TLS ClientHello or QUIC Initial read timeouts** for one host+protocol+candidate, temporarily deprioritize **that candidate only**, not every site nor the whole network. A benign application close must not count. Use a short cooldown; re-enable automatically afterward or after a meaningful successful response. Never terminate established streams to force a new strategy.
 
 ### Stage E — host-aware live fallback
 
@@ -72,12 +72,12 @@ One bounded local report: current network category, kind of connection, attempt 
 
 The existing Go `adaptiveSelector` already chooses candidates for new TCP SNI/HTTP Host and QUIC IP flows and uses a local neural prior. This first patch adds a strictly memory-only **circuit breaker**:
 
-- **Trigger:** 2 distinct `desyncConn.Read` first-reply timeouts with a sent TLS ClientHello for the same exact host, protocol namespace and technique. The existing per-connection atomic guard ensures a timeout is not counted twice during Close.
+- **Trigger:** 2 separate protected TCP `desyncConn.Read` first-reply timeouts after a sent TLS ClientHello, **or** UDP `desyncUDPConn.Read` timeouts after a sent QUIC Initial without a first reply, for the same exact host/IP key, transport namespace and technique. Ordinary UDP closures or socket writes alone do not qualify. The per-connection atomic guards on TCP and QUIC ensure a timeout is not counted twice during Close.
 - **Action:** suspend only that technique for **90 seconds** for that host; a candidate of the same name on another host or another transport is unaffected.
 - **Recovery:** after expiration, or after `>=12 KiB` observed downstream on that same technique, the candidate becomes eligible again. Only explicit read-timeouts set the breaker; short HTTP responses, a benign zero-byte Close or a TCP dial failure do not falsely trigger it.
 - **ML safety:** the existing neural prior cannot pick a temporarily suspended candidate; no neural architecture, weight persistence schema, server subscription, manual route, DNS, Xray outbounds or live VPN selection controls are modified.
 - **Memory safety:** limited by existing 1024-host in-memory cache, bounded current candidate names, and reset on network/session reconfiguration. No visited domains, packet data, credentials, IP addresses or health results are written to a file.
-- **Tests:** independent host; TCP/UDP isolation; 2-timeout threshold; cooldown expiration; no stale old-network observation; no cooldown from ordinary Close; matching downstream success restores only its own method.
+- **Tests:** independent host; TCP/UDP isolation; 2-timeout threshold; cooldown expiration; no stale old-network observation; no cooldown from ordinary Close; matching downstream success restores only its own method; localhost protected-adapter-equivalent QUIC Read timeout is not double counted on Close.
 
 This is a conservative **first phase**, not full automatic arbitrary-site HTTP verification or universal website bypass. Further active tests, server failover and cross-network learning must be gated by design review, explicit user controls and on-device measurements.
 
