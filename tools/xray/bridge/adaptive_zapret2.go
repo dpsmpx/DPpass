@@ -283,11 +283,21 @@ func (a *adaptiveSelector) observeStallTracked(host, strategy string, generation
         e.cooldown[strategy] = time.Now().Add(adaptiveStallCooldown)
         e.stalls[strategy] = 0
         if e.preferred == strategy {
-            // Keep independently verified backup only for a timeout-based
-            // circuit-breaker transition; the selector will consume it.
+            // Promote only a second profile that independently passed 3/3
+            // HTTPS on every same-run pinned IP. Never use it for QUIC.
+            backup := e.verifiedFallback
+            e.verifiedFallback = ""
+            e.preferred = ""
             e.probeSeeded = false
             e.weakFailures = 0
             e.smallResponses = nil
+            if backup != "" {
+                until := e.cooldown[backup]
+                if !time.Now().Before(until) {
+                    e.preferred = backup
+                    e.probeSeeded = true
+                }
+            }
         }
     }
     a.observeLocked(host, strategy, 0)
