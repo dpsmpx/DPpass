@@ -102,6 +102,8 @@ func newFixedDoHQuestionFor(question string) *dns.Msg {
     return msg
 }
 
+func fixedDoHUsesHTTP2(providerName string) bool {return providerName=="quad9"}
+
 func fixedDoHReplyStatus(err error, ctx context.Context, phase string) string {
     if ctx.Err()!=nil {return "doh_timeout_"+phase}
     if err!=nil {return "doh_"+phase+"_failed"}
@@ -135,7 +137,7 @@ func resolveFixedDoHForQuestion(ctx context.Context, inst *core.Instance, provid
     // Quad9 responds HTTP 505 to HTTP/1.1 since the service requires H2.
     // Other providers retain the previous HTTP/1.1 baseline so only the
     // necessary protocol changes; no global Android/VPN DNS is modified.
-    useH2:=providerName=="quad9"
+    useH2:=fixedDoHUsesHTTP2(providerName)
     alpns:=[]string{"http/1.1"}
     if useH2 {alpns=[]string{"h2"}}
     tlsConn:=tls.Client(raw,&tls.Config{ServerName:provider.host,
@@ -154,22 +156,8 @@ func resolveFixedDoHForQuestion(ctx context.Context, inst *core.Instance, provid
     req.Header.Set("Accept","application/dns-message")
     req.Header.Set("Accept-Encoding","identity")
     req.Close=true
-    var resp *http.Response
-    if useH2 {
-        // Use an H2 client on the already protected, pinned, verified TLS
-        // socket. The default http.Client dialer must never be used here.
-        client,connErr:=(&http2.Transport{}).NewClientConn(tlsConn)
-        if connErr!=nil {return fixedDoHAnswer{status:"doh_h2_failed"}}
-        defer client.Close()
-        resp,err=client.RoundTrip(req)
-        if err!=nil {return fixedDoHAnswer{status:fixedDoHReplyStatus(err,ctx,"headers")}}
-    } else {
-        if err=req.Write(tlsConn);err!=nil {
-            return fixedDoHAnswer{status:fixedDoHReplyStatus(err,ctx,"write")}
-        }
-        resp,err=http.ReadResponse(bufio.NewReader(tlsConn),req)
-        if err!=nil {return fixedDoHAnswer{status:fixedDoHReplyStatus(err,ctx,"headers")}}
-    }
+    resp,status:=fixedDoHExchange(req,tlsConn,useH2)
+    if status!="" {return fixedDoHAnswer{status:status}}
     defer resp.Body.Close()
     if resp.StatusCode != http.StatusOK {return fixedDoHAnswer{status:"doh_http_status",httpStatus:resp.StatusCode}}
     if !strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")),
@@ -186,6 +174,29 @@ func resolveFixedDoHForQuestion(ctx context.Context, inst *core.Instance, provid
     if len(ips)==0 {return fixedDoHAnswer{status:"doh_no_ipv4"}}
     sum:=sha256.Sum256([]byte(strings.Join(ips,",")))
     return fixedDoHAnswer{ips:ips,fingerprint:hex.EncodeToString(sum[:4]),status:"ok",httpStatus:200}
+}
+
+// The same single protected TLS connection is used for both HTTP versions.
+// This helper has no Dial call: it cannot fall back to unprotected Android
+// sockets or system DNS if an HTTP/2 attempt fails.
+func fixedDoHExchange(req *http.Request, tlsConn *tls.Conn, useH2 bool) (*http.Response,string) {
+    if useH2 {
+        client,err:=(&http2.Transport{}).NewClientConn(tlsConn)
+        if err!=nil {return nil,"doh_h2_failed"}
+        defer client.Close()
+        resp,err:=client.RoundTrip(req)
+        if err!=nil {return nil,fixedDoHReplyStatus(err,req.Context(),"headers")}
+        // Closing the HTTP2 transport after RoundTrip would close the
+        // response body too early; instead hand the response back with the
+        // underlying TLS socket lifetime owned by resolveFixedDoH.
+        return resp,""
+    }
+    if err:=req.Write(tlsConn);err!=nil {
+        return nil,fixedDoHReplyStatus(err,req.Context(),"write")
+    }
+    resp,err:=http.ReadResponse(bufio.NewReader(tlsConn),req)
+    if err!=nil {return nil,fixedDoHReplyStatus(err,req.Context(),"headers")}
+    return resp,""
 }
 
 func validateFixedDoHProvider(name string) bool {
