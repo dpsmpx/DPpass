@@ -296,4 +296,55 @@ class Zapret2GoogleProbeTest {
         assertEquals(3, Zapret2ProbeCatalog.matrixStrategies.size)
         assertEquals(3, Zapret2ProbeCatalog.matrixProviders.size)
     }
+
+    @Test fun googleControlReportSeparatesWorkingProtectedTransportsFromYouTubeFailures() {
+        fun row(target: String, protocol: String, outcome: String, stage: String,
+                http: Int = 0, index: Int = 0, alpn: String = "-") =
+            Zapret2GoogleAttempt("plain", 1,
+                Zapret2GoogleProbe.fromWire(listOf("v3", outcome, http.toString(),
+                    "0", "250", "0", "0", "ab12ef34", "2", index.toString(),
+                    protocol, stage, alpn).joinToString("\t").encodeToByteArray()), target)
+        val attempts = listOf(
+            row("google_control_prepare","dns","dns_ready","none",200),
+            row("youtube_api_matrix_google_prepare","dns","dns_ready","none",200),
+            row("google_control_ip00_h1","h1","http_reachable","tls_verified",200,0,"http/1.1"),
+            row("google_control_ip00_quic","quic","quic_verified","quic_tls_verified",0,0,"h3"),
+            row("youtube_api_matrix_google_ip00_h1","h1","tls_eof_no_reply","clienthello_sent"),
+            row("youtube_api_matrix_google_ip00_quic","quic","quic_timeout_no_reply","quic_initial_sent"),
+        )
+        val report = Zapret2MatrixReport.render("2026-11-23", "MOBILE", attempts)
+        assertTrue(report.contains("Google control totals: ipv4_trials=2 http_reachable=1 quic_verified=1"))
+        assertTrue(report.contains("YouTube API totals: prepared=1 ipv4_trials=2 http_reachable=0 quic_verified=0"))
+        assertTrue(report.contains("CONTROL: Google HTTPS works on the same protected TCP probe"))
+        assertTrue(report.contains("CONTROL: Google QUIC handshake works on this protected UDP adapter"))
+        assertTrue(report.contains("tls_eof_no_reply"))
+        assertFalse(report.contains("8.8.8.8"))
+        assertFalse(report.contains("1.1.1.1"))
+        assertFalse(report.contains("www.google.com/"))
+    }
+
+    @Test fun failedGoogleControlDoesNotSuggestYouTubeSelectiveFiltering() {
+        fun row(target: String, outcome: String) =
+            Zapret2GoogleAttempt("plain",1,Zapret2GoogleProbe.fromWire(
+                listOf("v3",outcome,"0","0","5000","0","0","ab12ef34","2",
+                    "0","h1","clienthello_sent","-").joinToString("\t").encodeToByteArray()),target)
+        val report=Zapret2MatrixReport.render("test","MOBILE",listOf(
+            row("google_control_ip00_h1","timeout_tls_no_reply"),
+            row("youtube_api_matrix_google_ip00_h1","tls_reset_no_reply")))
+        assertTrue(report.contains("YouTube-specific filtering is NOT established"))
+        assertTrue(report.contains("tls_reset_no_reply"))
+    }
+
+    @Test fun doHHTTP2AndSocketCloseCodesRoundTripAcrossJNI() {
+        for (outcome in listOf("doh_h2_failed","doh_h2_not_negotiated",
+                "tls_eof_no_reply","tls_eof_after_reply",
+                "tls_reset_no_reply","tls_reset_after_reply",
+                "tls_closed_no_reply","tls_closed_after_reply")) {
+            val r = Zapret2GoogleProbe.fromWire(
+                listOf("v3",outcome,"0","0","100","0","0","-","0",
+                    "0","h1","clienthello_sent","-").joinToString("\t").encodeToByteArray())
+            assertEquals(outcome,r.outcome)
+            assertFalse(r.httpReachable)
+        }
+    }
 }
