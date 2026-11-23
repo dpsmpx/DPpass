@@ -19,6 +19,7 @@ on:
       - release/zapret2-v0.7.63-http3-api
       - release/zapret2-v0.7.64-h3-google-controls
       - release/zapret2-v0.7.65-quic-reply-headers
+      - release/zapret2-v0.7.66-quic-v1-v2-compare
   workflow_dispatch:
 
 concurrency:
@@ -176,7 +177,7 @@ jobs:
   publish-release:
     name: Publish tested Alpine APK to Releases
     needs: alpine-android
-    if: github.ref == 'refs/heads/feature/zapret2-alpine-terminal' || github.ref == 'refs/heads/release/zapret2-v0.7.56-neural-auto' || github.ref == 'refs/heads/release/zapret2-v0.7.57-param-auto' || github.ref == 'refs/heads/release/zapret2-v0.7.58-learning' || github.ref == 'refs/heads/release/zapret2-v0.7.59-api-diagnostics' || github.ref == 'refs/heads/release/zapret2-v0.7.60-doh-comparison' || github.ref == 'refs/heads/release/zapret2-v0.7.61-ip-tls-quic' || github.ref == 'refs/heads/release/zapret2-v0.7.62-controls-h2' || github.ref == 'refs/heads/release/zapret2-v0.7.63-http3-api' || github.ref == 'refs/heads/release/zapret2-v0.7.64-h3-google-controls' || github.ref == 'refs/heads/release/zapret2-v0.7.65-quic-reply-headers'
+    if: github.ref == 'refs/heads/feature/zapret2-alpine-terminal' || github.ref == 'refs/heads/release/zapret2-v0.7.56-neural-auto' || github.ref == 'refs/heads/release/zapret2-v0.7.57-param-auto' || github.ref == 'refs/heads/release/zapret2-v0.7.58-learning' || github.ref == 'refs/heads/release/zapret2-v0.7.59-api-diagnostics' || github.ref == 'refs/heads/release/zapret2-v0.7.60-doh-comparison' || github.ref == 'refs/heads/release/zapret2-v0.7.61-ip-tls-quic' || github.ref == 'refs/heads/release/zapret2-v0.7.62-controls-h2' || github.ref == 'refs/heads/release/zapret2-v0.7.63-http3-api' || github.ref == 'refs/heads/release/zapret2-v0.7.64-h3-google-controls' || github.ref == 'refs/heads/release/zapret2-v0.7.65-quic-reply-headers' || github.ref == 'refs/heads/release/zapret2-v0.7.66-quic-v1-v2-compare'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -234,7 +235,8 @@ jobs:
           - Includes Alpine minirootfs, PRoot, JNI bridge and the shared Zapret2 planner.
           - Models are generated locally: use 32/128/512/1024-neuron presets OR enter a manual parameter budget (100,000; 100,000,000; up to 1 billion). The large number is SPARSE ADDRESSABLE CAPACITY, not allocated/trained dense weights. At most 4096 sparse positions are stored, with a compact 1- or 2-layer core.
           - Provider server selection: choose VPN server on the main screen and Automatically in the server list. Existing subscriptions and their keys remain in app-private storage.
-          - Signed release has versionCode 143, versionName 0.7.65-dev, package com.dpsmpx.dppass; uses the same pinned experimental alpha signing certificate as DPpass 0.7.62-dev (not the original author or production store key).
+          - Signed release has versionCode 144, versionName 0.7.66-dev, package com.dpsmpx.dppass; uses the same pinned experimental alpha signing certificate as DPpass 0.7.62-dev (not the original author or production store key).
+          - 0.7.66: when no v1 YouTube QUIC endpoint achieves 3/3 verified handshakes, independently probe QUIC v2 on the same protected fixed IPv4 set, bracketed by Google QUIC v2 checks. Experimental v2 success does not enable HTTP/3 or train AUTO.
           - 0.7.65 field diagnostic: first UDP reply is classified only by public QUIC v1/v2 header shape (not authentication), with at most two evidence-only retries for failed first attempts. Neither retry confers the 3/3 verified-h3 admission required for HTTP/3.
           - Dedicated YouTube QUIC/HTTP3 experiment now brackets YouTube IPv4 probes with Google QUIC handshakes over the exact same protected Xray UDP adapter. This distinguishes general UDP failures from site- or path-specific failures without treating any handshake as an API/video success.
           - Video playback and YouTube feed scrolling on real mobile networks are **not verified** by CI.
