@@ -458,4 +458,51 @@ class Zapret2GoogleProbeTest {
         val omitted = Zapret2H3Report.render("test", "MOBILE", listOf(youtubeTimeout))
         assertTrue(omitted.contains("Google QUIC control: doh=not_run before=not_run after=not_run"))
     }
+
+    @Test fun quicPeerHeaderStagesRoundTripWithoutTreatingUDPAsVerifiedTLS() {
+        val headerStages = listOf(
+            "quic_peer_short_header", "quic_peer_vn_header", "quic_peer_retry_header",
+            "quic_peer_initial_header", "quic_peer_handshake_header",
+            "quic_peer_long_other", "quic_peer_unrecognized")
+        for (stage in headerStages) {
+            val probe = Zapret2GoogleProbe.fromWire(
+                listOf("v3", "quic_timeout_after_reply", "0", "0", "5001",
+                    "0", "0", "6f706c12", "8", "1", "quic", stage, "-")
+                    .joinToString("\t").encodeToByteArray())
+            assertEquals("quic_timeout_after_reply", probe.outcome)
+            assertEquals(stage, probe.tlsStage)
+            assertFalse(probe.httpReachable)
+            val h3 = Zapret2GoogleProbe.fromWire(
+                listOf("v3", "quic_timeout_after_reply", "0", "0", "5001",
+                    "0", "0", "6f706c12", "8", "1", "h3", stage, "-")
+                    .joinToString("\t").encodeToByteArray())
+            assertEquals(stage, h3.tlsStage)
+        }
+        val invalid = Zapret2GoogleProbe.fromWire(
+            listOf("v3", "quic_timeout_after_reply", "0", "0", "5001",
+                "0", "0", "6f706c12", "8", "1", "quic", "quic_peer_raw_8.8.8.8", "-")
+                .joinToString("\t").encodeToByteArray())
+        assertEquals("contract_error", invalid.outcome)
+    }
+
+    @Test fun h3RechecksOnlyTwoFailedFirstAttemptsWithPeerReplies() {
+        fun row(index: Int, number: Int, outcome: String, stage: String) =
+            Zapret2GoogleAttempt("plain", number,
+                Zapret2GoogleProbe(outcome, 0, 0, 5001, 0, 0,
+                    "6f706c12", 8, index, "quic", stage, "-"),
+                Zapret2H3Policy.target(index, "quic"))
+        val failedWithReply = row(1, 1, "quic_timeout_after_reply", "quic_peer_initial_header")
+        val secondWithReply = row(4, 1, "quic_timeout_after_reply", "quic_peer_retry_header")
+        val thirdWithReply = row(6, 1, "quic_timeout_after_reply", "quic_peer_vn_header")
+        val result = Zapret2H3Policy.peerReplyRechecks(listOf(
+            row(0, 1, "quic_timeout_no_reply", "quic_initial_sent"),
+            failedWithReply, row(2, 1, "quic_verified", "quic_tls_verified"),
+            secondWithReply, row(4, 2, "quic_timeout_after_reply", "quic_peer_retry_header"),
+            thirdWithReply))
+        assertEquals(listOf(1, 4), result)
+        assertFalse(Zapret2H3Policy.stable(listOf(
+            failedWithReply,
+            row(1, 2, "quic_verified", "quic_tls_verified"),
+            row(1, 3, "quic_verified", "quic_tls_verified"))))
+    }
 }
