@@ -8,7 +8,6 @@ package bridge
 // video URLs, cookies, redirect following, OS DNS or global VPN changes.
 import (
     "context"
-    "net"
     "strings"
     "sync"
     "time"
@@ -137,6 +136,5 @@ func probeYoutubePath(strategy,id string,timeout time.Duration) Zapret2HTTPSResu
     return done(matrixWithMetadata(matrixHTTP(ctx,conn,target,protocol),out))
 }
 
-// The report never receives an IP, a credential, a raw URL with user input,
-// a server response body, a QUIC CID or a TLS certificate.
-var _ net.Conn
+// No raw IPs, personal URLs, response bodies or certificate materials
+// are returned to Android or stored by the diagnostic.
