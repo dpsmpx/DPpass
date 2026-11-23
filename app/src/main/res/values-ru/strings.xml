@@ -920,6 +920,6 @@
     <string name="model_removed">Локальная модель удалена. Встроенный подбор доступен.</string>
     <string name="model_generation_failed">Не удалось создать или включить модель. Текущий режим сохранён.</string>
 
-    <string name="zapret2_matrix_button">Проверить все IPv4, TLS / HTTP/2 / QUIC</string>
-    <string name="zapret2_matrix_note">Расширенная сетевая диагностика: до 16 IP на каждый уникальный DNS-набор, HTTP/1.1, HTTP/2 и QUIC. Может занять несколько минут; трафик мобильной сети расходуется, обычный VPN не меняется.</string>
+    <string name="zapret2_matrix_button">Сравнить Google / YouTube: TLS, QUIC и IPv4</string>
+    <string name="zapret2_matrix_note">Сначала до 2 IPv4 Google для контрольных TLS/QUIC-проверок, затем все IPv4 YouTube. Quad9 через DoH HTTP/2; отдельные статусы EOF/reset/тайм-аут. Может занимать несколько минут и расходовать трафик, настройки VPN не меняются.</string>
 </resources>
