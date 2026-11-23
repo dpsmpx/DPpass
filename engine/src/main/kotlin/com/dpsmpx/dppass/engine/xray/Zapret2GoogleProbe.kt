@@ -48,6 +48,10 @@ data class Zapret2GoogleProbe(
             "h2_not_negotiated", "h2_failed",
             "quic_verified", "quic_timeout_no_reply", "quic_timeout_after_reply",
             "quic_failed", "quic_alpn_mismatch",
+            "h3_failed", "h3_request_failed", "h3_timeout_headers",
+            "h3_api_http_rejected", "h3_api_content_type", "h3_api_body_failed",
+            "h3_api_empty", "h3_api_body_limit", "h3_api_json_invalid",
+            "h3_api_json_valid",
         )
         fun unavailable(): Zapret2GoogleProbe =
             Zapret2GoogleProbe("contract_error", 0, 0, 0, 0, 0)
@@ -72,7 +76,7 @@ data class Zapret2GoogleProbe(
             if (matrix) {
                 val index = fields[9].toIntOrNull()?.takeIf { it in 0..15 }
                     ?: return unavailable()
-                val protocol = fields[10].takeIf { it in setOf("dns", "h1", "h2", "quic") }
+                val protocol = fields[10].takeIf { it in setOf("dns", "h1", "h2", "quic", "h3", "h3api") }
                     ?: return unavailable()
                 val stage = fields[11].takeIf { it in setOf(
                     "none", "tcp_connected", "clienthello_sent", "server_reply_seen", "serverhello_seen",
