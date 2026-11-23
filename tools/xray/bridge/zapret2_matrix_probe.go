@@ -96,6 +96,7 @@ func matrixPrepared(inst *core.Instance, provider string) (fixedDoHAnswer,bool) 
 // independent of TCP splitting and uses the plain private UDP outbound.
 func matrixStrategyAllowed(strategy, protocol string) bool {
     if protocol=="quic" {return strategy=="plain"}
+    if protocol!="h1" && protocol!="h2" {return false}
     return strategy=="plain" || strategy=="fake-5" || strategy=="tlsrec-split"
 }
 
