@@ -922,4 +922,6 @@
 
     <string name="zapret2_matrix_button">Сравнить Google / YouTube: TLS, QUIC и IPv4</string>
     <string name="zapret2_matrix_note">Сначала до 2 IPv4 Google для контрольных TLS/QUIC-проверок, затем все IPv4 YouTube. Quad9 через DoH HTTP/2; отдельные статусы EOF/reset/тайм-аут. Может занимать несколько минут и расходовать трафик, настройки VPN не меняются.</string>
+    <string name="zapret2_h3_button">Проверить QUIC и настоящий HTTP/3 API YouTube</string>
+    <string name="zapret2_h3_note">Отдельная диагностика: все IPv4 проверяются через QUIC; после трёх успешных рукопожатий выполняются настоящий HTTP/3 GET и анонимный POST запроса browse. Выбор IP действует не дольше 5 минут только для теста. Маршруты VPN и AUTO не меняются.</string>
 </resources>
