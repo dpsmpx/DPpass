@@ -51,7 +51,7 @@ func parseMatrixTarget(id string) (matrixSpec, bool) {
     }
     if strings.HasPrefix(id,"youtube_api_h3_") {
         index,proto,ok:=parseMatrixIndexProtocol(strings.TrimPrefix(id,"youtube_api_h3_"),16)
-        if !ok || (proto!="quic" && proto!="h3" && proto!="h3api") {return matrixSpec{},false}
+        if !ok || (proto!="quic" && proto!="quicv2" && proto!="h3" && proto!="h3api") {return matrixSpec{},false}
         return matrixSpec{provider:"google",index:index,protocol:proto,h3test:true},true
     }
     if id=="google_control_prepare" {
@@ -70,7 +70,7 @@ func parseMatrixTarget(id string) (matrixSpec, bool) {
         rest:=strings.TrimPrefix(suffix,provider+"_")
         if rest=="prepare" {return matrixSpec{provider:provider,prepare:true},true}
         index,proto,ok:=parseMatrixIndexProtocol(rest,16)
-        if !ok || proto=="h3" || proto=="h3api" {return matrixSpec{},false}
+        if !ok || proto=="h3" || proto=="h3api" || proto=="quicv2" {return matrixSpec{},false}
         return matrixSpec{provider:provider,index:index,protocol:proto},true
     }
     return matrixSpec{},false
@@ -83,7 +83,7 @@ func parseMatrixIndexProtocol(rest string,limit int) (int,string,bool) {
     n,err:=strconv.Atoi(parts[0][2:])
     if err!=nil || n<0 || n>=limit {return 0,"",false}
     proto:=parts[1]
-    if proto!="h1" && proto!="h2" && proto!="quic" && proto!="h3" && proto!="h3api" {return 0,"",false}
+    if proto!="h1" && proto!="h2" && proto!="quic" && proto!="quicv2" && proto!="h3" && proto!="h3api" {return 0,"",false}
     return n,proto,true
 }
 
@@ -129,7 +129,7 @@ func matrixPrepared(inst *core.Instance, provider string) (fixedDoHAnswer,bool) 
 // Only these validated strategy IDs are meaningful for TCP. QUIC is
 // independent of TCP splitting and uses the plain private UDP outbound.
 func matrixStrategyAllowed(strategy, protocol string) bool {
-    if protocol=="quic" || protocol=="h3" || protocol=="h3api" {return strategy=="plain"}
+    if protocol=="quic" || protocol=="quicv2" || protocol=="h3" || protocol=="h3api" {return strategy=="plain"}
     if protocol!="h1" && protocol!="h2" {return false}
     return strategy=="plain" || strategy=="fake-5" || strategy=="tlsrec-split"
 }
@@ -175,7 +175,7 @@ func matrixProbe(ctx context.Context, inst *core.Instance, strategy, targetID st
     ip:=answer.ips[spec.index] // never serialized
     network:=xnet.Network_TCP
     tag:=zapret2TestStrategies[strategy]+"-ipv4"
-    if spec.protocol=="quic" || spec.protocol=="h3" || spec.protocol=="h3api" {
+    if spec.protocol=="quic" || spec.protocol=="quicv2" || spec.protocol=="h3" || spec.protocol=="h3api" {
         network=xnet.Network_UDP
         tag=zapret2PlainTag+"-ipv4"
     }
@@ -190,8 +190,10 @@ func matrixProbe(ctx context.Context, inst *core.Instance, strategy, targetID st
     done:=make(chan struct{})
     defer close(done)
     go func() {select {case <-ctx.Done():_=raw.Close();case <-done:}}()
-    if spec.protocol=="quic" {
-        return matrixWithMetadata(matrixQUIC(ctx,raw,ip,target.host),out)
+    if spec.protocol=="quic" || spec.protocol=="quicv2" {
+        version:=quic.Version1
+        if spec.protocol=="quicv2" {version=quic.Version2}
+        return matrixWithMetadata(matrixQUIC(ctx,raw,ip,target.host,version),out)
     }
     if spec.protocol=="h3" || spec.protocol=="h3api" {
         return matrixWithMetadata(matrixHTTP3(ctx,raw,ip,target.host,spec.protocol),out)
@@ -440,13 +442,13 @@ func (p *matrixPacketConn) LocalAddr() net.Addr {
 func (p *matrixPacketConn) SetReadDeadline(t time.Time) error {return p.Conn.SetReadDeadline(t)}
 func (p *matrixPacketConn) SetWriteDeadline(t time.Time) error {return p.Conn.SetWriteDeadline(t)}
 
-func matrixQUIC(ctx context.Context,raw net.Conn,ip,host string) Zapret2HTTPSResult {
+func matrixQUIC(ctx context.Context,raw net.Conn,ip,host string,version quic.Version) Zapret2HTTPSResult {
     out:=Zapret2HTTPSResult{Outcome:"quic_failed",TLSStage:"udp_connected",ALPN:"-"}
     remote:=&net.UDPAddr{IP:net.ParseIP(ip).To4(),Port:443}
     packets:=&matrixPacketConn{Conn:raw,remote:remote}
     cfg:=&tls.Config{ServerName:host,RootCAs:probeRoots,
         MinVersion:tls.VersionTLS13,NextProtos:[]string{"h3"}}
-    conn,err:=quic.Dial(ctx,packets,remote,cfg,&quic.Config{})
+    conn,err:=quic.Dial(ctx,packets,remote,cfg,&quic.Config{Versions:[]quic.Version{version}})
     if err!=nil {
         out.TLSStage=packets.failureStage()
         switch {
