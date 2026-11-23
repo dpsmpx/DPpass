@@ -62,6 +62,12 @@ var zapret2TestTargets = map[string]zapret2TestTarget{
     // on the PRIVATE test freedom outbound, not production VPN traffic.
     "youtube_api_ipv4": {"youtubei.googleapis.com", "/youtubei/v1/browse", "http_transport", true},
     "youtube_thumbnail": {"i.ytimg.com", "/vi/jNQXAC9IVRw/hqdefault.jpg", "jpeg", false},
+    // Opt-in, read-only cross-component service controls. They cannot
+    // trigger the legacy automatic probe-feedback path keyed on the
+    // "youtube_home" or "youtube_api_transport" target IDs.
+    "service_youtube_home": {"www.youtube.com", "/", "html", false},
+    "service_youtube_api": {"youtubei.googleapis.com", "/youtubei/v1/browse", "http_transport", false},
+    "service_youtube_thumbnail": {"i.ytimg.com", "/vi/jNQXAC9IVRw/hqdefault.jpg", "jpeg", false},
 }
 
 // All reported fields are numbers and fixed outcome codes; no page bodies,
