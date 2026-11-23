@@ -505,4 +505,37 @@ class Zapret2GoogleProbeTest {
             row(1, 2, "quic_verified", "quic_tls_verified"),
             row(1, 3, "quic_verified", "quic_tls_verified"))))
     }
+
+    @Test fun quicV2ExperimentalWireAndReportRemainDiagnosticOnly() {
+        fun row(target: String, number: Int, index: Int, protocol: String,
+                outcome: String, stage: String, alpn: String) =
+            Zapret2GoogleAttempt("plain", number, Zapret2GoogleProbe.fromWire(
+                listOf("v3", outcome, "0", "0", "250", "0", "0",
+                    "6f706c12", "8", index.toString(), protocol, stage, alpn)
+                    .joinToString("\t").encodeToByteArray()), target)
+        val index = 3
+        val v2 = row(Zapret2H3Policy.target(index, "quicv2"), 1, index,
+            "quicv2", "quic_verified", "quic_tls_verified", "h3")
+        assertEquals("quic_verified", v2.result.outcome)
+        assertEquals("quicv2", v2.result.protocol)
+        assertFalse(Zapret2H3Policy.stable(List(3) { v2 }))
+        assertEquals("youtube_api_h3_ip03_quicv2", v2.target)
+        val controls = listOf(
+            row("google_control_ip00_quicv2", 1, 0, "quicv2",
+                "quic_verified", "quic_tls_verified", "h3"),
+            row("google_control_ip00_quicv2", 2, 0, "quicv2",
+                "quic_verified", "quic_tls_verified", "h3"))
+        val report = Zapret2H3Report.render("test", "MOBILE", controls + v2)
+        assertTrue(report.contains("Google QUIC v2 control: before=quic_verified"))
+        assertTrue(report.contains("CONTROL: Google QUIC v2 verified twice"))
+        assertTrue(report.contains("Experimental QUIC v2: tested_ipv4=1 tls_verified=1; HTTP/3 v2 NOT attempted."))
+        assertTrue(report.contains("stable_quic_indices=0"))
+        assertFalse(report.contains("8.8.8.8"))
+        val denied = Zapret2GoogleProbe.fromWire(
+            listOf("v3", "quic_verified", "0", "0", "250", "0", "0",
+                "6f706c12", "8", "3", "quicv2", "tls_verified", "h3")
+                .joinToString("\t").encodeToByteArray())
+        assertEquals("contract_error", denied.outcome)
+        assertFailsWith<IllegalArgumentException> { Zapret2H3Policy.target(3, "quicv3") }
+    }
 }
