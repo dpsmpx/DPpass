@@ -7,7 +7,20 @@ package com.dpsmpx.dppass.engine.xray
  */
 object Zapret2H3Policy {
     const val REQUIRED_QUIC_SUCCESSES = 3
+    const val MAX_PEER_REPLY_RECHECKS = 2
     const val TTL_MILLIS = 5 * 60 * 1000L
+
+    // Diagnostic-only second samples after an inconclusive UDP peer reply.
+    // An initial failed handshake is NEVER promoted to a stable 3/3 candidate.
+    fun peerReplyRechecks(attempts: List<Zapret2GoogleAttempt>): List<Int> =
+        attempts.asSequence().filter {
+            it.attempt == 1 &&
+                it.result.protocol == "quic" &&
+                it.result.outcome == "quic_timeout_after_reply" &&
+                it.result.tlsStage.startsWith("quic_peer_") &&
+                it.result.ipIndex in 0..15 &&
+                it.target == target(it.result.ipIndex, "quic")
+        }.map { it.result.ipIndex }.distinct().take(MAX_PEER_REPLY_RECHECKS).toList()
 
     fun target(index: Int, protocol: String): String {
         require(index in 0..15)
@@ -41,6 +54,8 @@ object Zapret2H3Report {
         appendLine("Same-run www.google.com QUIC control before/after the scan (fixed verified Google DoH).")
         appendLine("All QUIC trials use original protected Xray UDP/443; no unprotected socket or system DNS.")
         appendLine("QUIC requires three successful independent TLS 1.3 / ALPN h3 handshakes.")
+        appendLine("First peer UDP reply is classified by public QUIC header shape only; it is NOT TLS verification.")
+        appendLine("Up to two peer-reply timeouts are rechecked once for evidence; failed first attempts never qualify for H3.")
         appendLine("A validated IP index expires in five minutes and is discarded with this diagnostic run.")
         appendLine("An actual HTTP/3 GET / and a fixed anonymous JSON HTTP/3 POST /youtubei/v1/browse follow.")
         appendLine("The POST uses fixed public client context only; no personal identity, cookies, keys or credentials.")
