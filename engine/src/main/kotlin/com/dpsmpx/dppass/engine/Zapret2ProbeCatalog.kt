@@ -46,6 +46,18 @@ object Zapret2ProbeCatalog {
     val matrixStrategies: List<String> = listOf("plain", "fake-5", "tlsrec-split")
     val matrixProviders: List<String> = listOf("cloudflare", "google", "quad9")
 
+    /**
+     * Three independently tested YouTube service components and the two
+     * methods proven by the 2026-11-23 MOBILE website-only experiment.
+     * Do not attach probe feedback to these read-only controls. This is not
+     * a Googlevideo playback/authorized feed test.
+     */
+    val serviceTargets: List<String> = listOf(
+        "service_youtube_home", "service_youtube_api", "service_youtube_thumbnail"
+    )
+    val serviceStrategies: List<String> = listOf("plain", "tlsrec-split", "fake-5")
+    const val SERVICE_REPEATS: Int = 3
+
     /** User-visible diagnostic meaning for each allowlisted probe ID. */
     fun targetLabel(id: String): String = when (id) {
         "google_final" -> "www.google.com/ (HTML)"
@@ -57,6 +69,9 @@ object Zapret2ProbeCatalog {
         "youtube_api_dns_google" -> "youtubei.googleapis.com via Google DoH (pinned 8.8.8.8)"
         "youtube_api_dns_quad9" -> "youtubei.googleapis.com via Quad9 DoH (pinned 9.9.9.9)"
         "youtube_thumbnail" -> "i.ytimg.com/ (JPEG)"
+        "service_youtube_home" -> "www.youtube.com/ (HTML component)"
+        "service_youtube_api" -> "youtubei.googleapis.com/youtubei/v1/browse (TLS+HTTP only)"
+        "service_youtube_thumbnail" -> "i.ytimg.com/vi/jNQXAC9IVRw/hqdefault.jpg (JPEG component)"
         else -> "unknown"
     }
 
