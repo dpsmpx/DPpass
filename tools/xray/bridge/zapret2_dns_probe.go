@@ -20,6 +20,8 @@ import (
     "encoding/hex"
     "io"
     "net/http"
+
+    "golang.org/x/net/http2"
     "sort"
     "strings"
 
@@ -43,6 +45,7 @@ var zapret2DoHProviders = map[string]fixedDoHProvider{
 }
 
 const zapret2DoHQuestion = "youtubei.googleapis.com."
+const zapret2ControlDoHQuestion = "www.google.com."
 
 type fixedDoHAnswer struct {
     ips []string
@@ -85,8 +88,16 @@ func publicIPv4Answers(reply *dns.Msg, question string) []string {
 // RFC 8484 requires zero DNS message IDs in DoH requests. Some
 // resolvers (including Quad9) reject otherwise-valid queries with HTTP 400.
 func newFixedDoHQuestion() *dns.Msg {
+    return newFixedDoHQuestionFor(zapret2DoHQuestion)
+}
+// An allowlist is enforced before a DNS question can reach a resolver.
+// Only two public, nonpersonal domain names are used in these tests.
+func newFixedDoHQuestionFor(question string) *dns.Msg {
+    if question!=zapret2DoHQuestion && question!=zapret2ControlDoHQuestion {
+        return nil
+    }
     msg:=new(dns.Msg)
-    msg.SetQuestion(zapret2DoHQuestion,dns.TypeA)
+    msg.SetQuestion(question,dns.TypeA)
     msg.Id=0
     return msg
 }
@@ -100,9 +111,13 @@ func fixedDoHReplyStatus(err error, ctx context.Context, phase string) string {
 // Return a bound, anonymized address-set fingerprint, never raw IPs to Java.
 // Each HTTPS request and the downstream TLS probe share the same deadline.
 func resolveFixedDoH(ctx context.Context, inst *core.Instance, providerName string) fixedDoHAnswer {
+    return resolveFixedDoHForQuestion(ctx,inst,providerName,zapret2DoHQuestion)
+}
+func resolveFixedDoHForQuestion(ctx context.Context, inst *core.Instance, providerName, question string) fixedDoHAnswer {
     provider,ok:=zapret2DoHProviders[providerName]
     if !ok {return fixedDoHAnswer{status:"invalid_target"}}
-    msg:=newFixedDoHQuestion()
+    msg:=newFixedDoHQuestionFor(question)
+    if msg==nil {return fixedDoHAnswer{status:"invalid_target"}}
     wire,err:=msg.Pack()
     if err!=nil {return fixedDoHAnswer{status:"doh_invalid"}}
 
@@ -117,11 +132,20 @@ func resolveFixedDoH(ctx context.Context, inst *core.Instance, providerName stri
     defer close(done)
     go func() {select {case <-ctx.Done(): _=raw.Close();case <-done:}}()
 
+    // Quad9 responds HTTP 505 to HTTP/1.1 since the service requires H2.
+    // Other providers retain the previous HTTP/1.1 baseline so only the
+    // necessary protocol changes; no global Android/VPN DNS is modified.
+    useH2:=providerName=="quad9"
+    alpns:=[]string{"http/1.1"}
+    if useH2 {alpns=[]string{"h2"}}
     tlsConn:=tls.Client(raw,&tls.Config{ServerName:provider.host,
-        RootCAs:probeRoots,MinVersion:tls.VersionTLS12,NextProtos:[]string{"http/1.1"}})
+        RootCAs:probeRoots,MinVersion:tls.VersionTLS12,NextProtos:alpns})
     defer tlsConn.Close()
     if err=tlsConn.HandshakeContext(ctx);err!=nil {
         return fixedDoHAnswer{status:fixedDoHReplyStatus(err,ctx,"tls")}
+    }
+    if useH2 && tlsConn.ConnectionState().NegotiatedProtocol!="h2" {
+        return fixedDoHAnswer{status:"doh_h2_not_negotiated"}
     }
     req,err:=http.NewRequestWithContext(ctx,http.MethodPost,
         "https://"+provider.host+"/dns-query",bytes.NewReader(wire))
@@ -130,11 +154,22 @@ func resolveFixedDoH(ctx context.Context, inst *core.Instance, providerName stri
     req.Header.Set("Accept","application/dns-message")
     req.Header.Set("Accept-Encoding","identity")
     req.Close=true
-    if err=req.Write(tlsConn);err!=nil {
-        return fixedDoHAnswer{status:fixedDoHReplyStatus(err,ctx,"write")}
+    var resp *http.Response
+    if useH2 {
+        // Use an H2 client on the already protected, pinned, verified TLS
+        // socket. The default http.Client dialer must never be used here.
+        client,connErr:=(&http2.Transport{}).NewClientConn(tlsConn)
+        if connErr!=nil {return fixedDoHAnswer{status:"doh_h2_failed"}}
+        defer client.Close()
+        resp,err=client.RoundTrip(req)
+        if err!=nil {return fixedDoHAnswer{status:fixedDoHReplyStatus(err,ctx,"headers")}}
+    } else {
+        if err=req.Write(tlsConn);err!=nil {
+            return fixedDoHAnswer{status:fixedDoHReplyStatus(err,ctx,"write")}
+        }
+        resp,err=http.ReadResponse(bufio.NewReader(tlsConn),req)
+        if err!=nil {return fixedDoHAnswer{status:fixedDoHReplyStatus(err,ctx,"headers")}}
     }
-    resp,err:=http.ReadResponse(bufio.NewReader(tlsConn),req)
-    if err!=nil {return fixedDoHAnswer{status:fixedDoHReplyStatus(err,ctx,"headers")}}
     defer resp.Body.Close()
     if resp.StatusCode != http.StatusOK {return fixedDoHAnswer{status:"doh_http_status",httpStatus:resp.StatusCode}}
     if !strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")),
@@ -147,7 +182,7 @@ func resolveFixedDoH(ctx context.Context, inst *core.Instance, providerName stri
     if parsed.Id!=msg.Id || parsed.Truncated || parsed.Rcode!=dns.RcodeSuccess {
         return fixedDoHAnswer{status:"doh_invalid"}
     }
-    ips:=publicIPv4Answers(parsed,zapret2DoHQuestion)
+    ips:=publicIPv4Answers(parsed,question)
     if len(ips)==0 {return fixedDoHAnswer{status:"doh_no_ipv4"}}
     sum:=sha256.Sum256([]byte(strings.Join(ips,",")))
     return fixedDoHAnswer{ips:ips,fingerprint:hex.EncodeToString(sum[:4]),status:"ok",httpStatus:200}
