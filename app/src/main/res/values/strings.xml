@@ -893,4 +893,6 @@
 
     <string name="zapret2_matrix_button">Compare Google / YouTube TLS, QUIC and IPv4</string>
     <string name="zapret2_matrix_note">Google controls (up to 2 IPv4 addresses) run before the YouTube address matrix. Includes Quad9 HTTP/2 DoH, TLS close/reset/timeout and protected QUIC. Can take several minutes and use mobile data; the active VPN remains unchanged.</string>
+    <string name="zapret2_h3_button">Retest YouTube QUIC + real HTTP/3 API</string>
+    <string name="zapret2_h3_note">Short opt-in network experiment. Rechecks every YouTube A address, requires 3 successful independent QUIC h3 handshakes, then performs a real bounded HTTP/3 GET and an anonymous fixed JSON browse POST. Only temporary candidates are used; VPN routing and AUTO stay unchanged.</string>
 </resources>
