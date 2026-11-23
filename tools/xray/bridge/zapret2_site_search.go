@@ -168,8 +168,8 @@ func siteSearchTrialGood(r *siteSearchRun,index int,proto,strategy string) (int,
     return success,true,duration
 }
 func siteSearchCommit(inst *core.Instance,host,method string,gen uint64) bool {
-    if method=="plain"||method=="auto" {return false}
-    recognized:=false
+    if method=="auto" {return false}
+    recognized:=method=="plain"
     for _,m:=range siteSearchMethods {if method==m {recognized=true}}
     if !recognized {return false}
 
@@ -185,7 +185,10 @@ func siteSearchCommit(inst *core.Instance,host,method string,gen uint64) bool {
     for i:=0;i<count;i++ {
         baseline,baseComplete,_:=siteSearchTrialGood(r,i,"h1","plain")
         winner,complete,_:=siteSearchTrialGood(r,i,"h1",method)
-        if !baseComplete||!complete||baseline>1||winner!=3 {
+        goodBaseline:=method=="plain" && baseComplete && baseline==3
+        goodBetterMethod:=method!="plain" && baseComplete && complete &&
+            baseline<=1 && winner==3
+        if !goodBaseline && !goodBetterMethod {
             siteSearchState.Unlock()
             return false
         }
@@ -198,14 +201,16 @@ func siteSearchCommit(inst *core.Instance,host,method string,gen uint64) bool {
     if len(zapret2Auto.entries)>=adaptiveMaxHosts {zapret2Auto.entries=make(map[string]*adaptiveEntry)}
     entry:=zapret2Auto.entries[host]
     if entry==nil {entry=&adaptiveEntry{};zapret2Auto.entries[host]=entry}
-    entry.preferred=method
-    entry.probeSeeded=true
+    selected:=method
+    if selected=="plain" {selected="pass"}
+    entry.preferred=selected
+    entry.probeSeeded=method!="plain"
     entry.weakFailures=0
     entry.smallResponses=nil
     // Any existing timeout suspension for this exact, freshly proven
     // candidate is cleared; unrelated host/method health is untouched.
-    if entry.cooldown!=nil {delete(entry.cooldown,method)}
-    if entry.stalls!=nil {delete(entry.stalls,method)}
+    if entry.cooldown!=nil {delete(entry.cooldown,selected)}
+    if entry.stalls!=nil {delete(entry.stalls,selected)}
     return true
 }
 
