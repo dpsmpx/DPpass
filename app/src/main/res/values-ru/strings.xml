@@ -924,4 +924,11 @@
     <string name="zapret2_matrix_note">Сначала до 2 IPv4 Google для контрольных TLS/QUIC-проверок, затем все IPv4 YouTube. Quad9 через DoH HTTP/2; отдельные статусы EOF/reset/тайм-аут. Может занимать несколько минут и расходовать трафик, настройки VPN не меняются.</string>
     <string name="zapret2_h3_button">Проверить QUIC и настоящий HTTP/3 API YouTube</string>
     <string name="zapret2_h3_note">Отдельная диагностика: все IPv4 проверяются через QUIC; после трёх успешных рукопожатий выполняются настоящий HTTP/3 GET и анонимный POST запроса browse. Выбор IP действует не дольше 5 минут только для теста. Маршруты VPN и AUTO не меняются.</string>
+    <string name="zapret2_site_search_host_hint">Домен, например example.org (без URL и пути)</string>
+    <string name="zapret2_site_search_button">Найти лучшую HTTPS-стратегию и применить к AUTO</string>
+    <string name="zapret2_site_quic_button">Сравнить QUIC-методы для сайта (диагностика)</string>
+    <string name="zapret2_site_search_note">Ручной запуск: публичные IPv4 через проверенный защищённый Google DoH, до двух IP, по три независимых подключения на метод. Без изменений, TCP split, TLS-record + TCP split, fake TTL + split, disorder. Только устойчивые 3/3 HTTPS и худший исходный маршрут дают право обучить AUTO для точного домена на новых соединениях. QUIC проверяет лишь рукопожатия и не обучает другие сайты. Маршруты VPN не меняются. Возможен расход мобильного трафика.</string>
+    <string name="zapret2_site_search_invalid">Введите публичный домен без https://, порта, пути, локального адреса или IP.</string>
+    <string name="zapret2_site_search_dns_fail">Проверенный DoH не дал подходящего публичного IPv4. AUTO не изменён.</string>
+    <string name="zapret2_site_search_expired">Сеть изменилась, поиск прерван или истёк срок DNS (5 минут). Выбор AUTO не применён.</string>
 </resources>
