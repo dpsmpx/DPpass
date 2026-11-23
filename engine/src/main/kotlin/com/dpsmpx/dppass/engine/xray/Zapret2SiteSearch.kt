@@ -169,6 +169,15 @@ object Zapret2SiteSearch {
                 appendLine("  ${candidate.method}: ${candidate.verified}/${candidate.attempted}" +
                     " successful; stable=${candidate.stable}; mean_success_ms=${candidate.meanLatency ?: "-"}")
             }
+            appendLine("Точные результаты (без адресов, доменных токенов и содержимого):")
+            for (entry in rows) {
+                val r = entry.result
+                appendLine("  ip_index=${r.ipIndex} method=${entry.strategy}" +
+                    " attempt=${entry.attempt} outcome=${r.outcome}" +
+                    " stage=${r.tlsStage} alpn=${r.alpn}" +
+                    " http=${r.httpStatus} body_bytes_bounded=${r.bodyBytes}" +
+                    " elapsed_ms=${r.elapsedMillis}")
+            }
             appendLine("Выбор: ${recommendation.method ?: "-"} — ${recommendation.label}")
             appendLine("AUTO: ${commit?.outcome ?: "not_applied"}")
             appendLine("QUIC TLS — не доказательство HTTP/3 GET, работы API или воспроизведения.")
