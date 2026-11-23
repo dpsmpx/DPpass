@@ -64,6 +64,12 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         context, R.string.zapret2_site_search_button, Ui.Style.PRIMARY, R.drawable.ic_speed)
     private val siteQuicButton: Button = Ui.button(
         context, R.string.zapret2_site_quic_button, Ui.Style.OUTLINE, R.drawable.ic_speed)
+    private val youtubeHomeButton: Button = Ui.button(
+        context, R.string.zapret2_youtube_home_button, Ui.Style.OUTLINE, R.drawable.ic_speed)
+    private val youtubeApiButton: Button = Ui.button(
+        context, R.string.zapret2_youtube_api_button, Ui.Style.OUTLINE, R.drawable.ic_speed)
+    private val youtubeThumbnailButton: Button = Ui.button(
+        context, R.string.zapret2_youtube_thumbnail_button, Ui.Style.OUTLINE, R.drawable.ic_speed)
     private val progress = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
         max = TOTAL
         visibility = View.GONE
@@ -92,6 +98,20 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         addView(Ui.section(context, context.getString(R.string.zapret2_site_search_button)),
             Ui.matchWidth())
         addView(siteInput, Ui.matchWidth())
+        addView(Ui.text(context, R.style.Text_DPpass_Caption,
+            context.getString(R.string.zapret2_youtube_hosts_note)), Ui.matchWidth())
+        addView(youtubeHomeButton.apply { setOnClickListener {
+            siteInput.setText("www.youtube.com")
+            startSiteSearch(quic = false)
+        } }, Ui.matchWidth())
+        addView(youtubeApiButton.apply { setOnClickListener {
+            siteInput.setText("youtubei.googleapis.com")
+            startSiteSearch(quic = false)
+        } }, Ui.matchWidth())
+        addView(youtubeThumbnailButton.apply { setOnClickListener {
+            siteInput.setText("i.ytimg.com")
+            startSiteSearch(quic = false)
+        } }, Ui.matchWidth())
         addView(siteButton.apply { setOnClickListener { startSiteSearch(quic = false) } },
             Ui.matchWidth())
         addView(siteQuicButton.apply { setOnClickListener { startSiteSearch(quic = true) } },
@@ -119,6 +139,9 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         h3Button.isEnabled = ready(status)
         siteButton.isEnabled = ready(status)
         siteQuicButton.isEnabled = ready(status)
+        youtubeHomeButton.isEnabled = ready(status)
+        youtubeApiButton.isEnabled = ready(status)
+        youtubeThumbnailButton.isEnabled = ready(status)
         if (!ready(status)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
         }
@@ -154,6 +177,9 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         h3Button.isEnabled = false
         siteButton.isEnabled = false
         siteQuicButton.isEnabled = false
+        youtubeHomeButton.isEnabled = false
+        youtubeApiButton.isEnabled = false
+        youtubeThumbnailButton.isEnabled = false
         progress.max = total
         progress.progress = 0
         progress.visibility = View.VISIBLE
@@ -231,6 +257,9 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 h3Button.isEnabled = ready(TunnelState.status.value)
                 siteButton.isEnabled = ready(TunnelState.status.value)
                 siteQuicButton.isEnabled = ready(TunnelState.status.value)
+                youtubeHomeButton.isEnabled = ready(TunnelState.status.value)
+                youtubeApiButton.isEnabled = ready(TunnelState.status.value)
+                youtubeThumbnailButton.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
@@ -254,6 +283,9 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         h3Button.isEnabled = false
         siteButton.isEnabled = false
         siteQuicButton.isEnabled = false
+        youtubeHomeButton.isEnabled = false
+        youtubeApiButton.isEnabled = false
+        youtubeThumbnailButton.isEnabled = false
         progress.visibility = View.VISIBLE
         progress.max = Zapret2ProbeCatalog.matrixProviders.size
         progress.progress = 0
@@ -351,6 +383,9 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 h3Button.isEnabled = ready(TunnelState.status.value)
                 siteButton.isEnabled = ready(TunnelState.status.value)
                 siteQuicButton.isEnabled = ready(TunnelState.status.value)
+                youtubeHomeButton.isEnabled = ready(TunnelState.status.value)
+                youtubeApiButton.isEnabled = ready(TunnelState.status.value)
+                youtubeThumbnailButton.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
@@ -379,6 +414,9 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         h3Button.isEnabled = false
         siteButton.isEnabled = false
         siteQuicButton.isEnabled = false
+        youtubeHomeButton.isEnabled = false
+        youtubeApiButton.isEnabled = false
+        youtubeThumbnailButton.isEnabled = false
         progress.max = 1
         progress.progress = 0
         progress.visibility = View.VISIBLE
@@ -570,6 +608,9 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 h3Button.isEnabled = ready(TunnelState.status.value)
                 siteButton.isEnabled = ready(TunnelState.status.value)
                 siteQuicButton.isEnabled = ready(TunnelState.status.value)
+                youtubeHomeButton.isEnabled = ready(TunnelState.status.value)
+                youtubeApiButton.isEnabled = ready(TunnelState.status.value)
+                youtubeThumbnailButton.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
@@ -604,6 +645,9 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         h3Button.isEnabled = false
         siteButton.isEnabled = false
         siteQuicButton.isEnabled = false
+        youtubeHomeButton.isEnabled = false
+        youtubeApiButton.isEnabled = false
+        youtubeThumbnailButton.isEnabled = false
         siteInput.isEnabled = false
         progress.visibility = View.VISIBLE
         progress.progress = 0
@@ -722,6 +766,9 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 h3Button.isEnabled = ready(TunnelState.status.value)
                 siteButton.isEnabled = ready(TunnelState.status.value)
                 siteQuicButton.isEnabled = ready(TunnelState.status.value)
+                youtubeHomeButton.isEnabled = ready(TunnelState.status.value)
+                youtubeApiButton.isEnabled = ready(TunnelState.status.value)
+                youtubeThumbnailButton.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
