@@ -50,6 +50,7 @@ type adaptiveEntry struct {
     weakFailures int
     smallResponses map[string]int
     probeSeeded bool // eligible for smaller verified-HTML responses
+    siteVerifiedPin bool // 3/3 independent HTTPS evidence; benign short closes do not demote
     usage map[string]int // bounded per-destination cold-start exploration
     stalls map[string]int // per-method consecutive verified ClientHello read timeouts
     cooldown map[string]time.Time // short-lived per-method circuit breaker
@@ -204,6 +205,7 @@ func (a *adaptiveSelector) chooseWithGeneration(host string, candidates []string
         if blocked(e.preferred) {
             e.preferred = ""
             e.probeSeeded = false
+            e.siteVerifiedPin = false
         }
     }
     // Preserve established candidate ordering and the plain baseline
@@ -267,6 +269,7 @@ func (a *adaptiveSelector) observeStallTracked(host, strategy string, generation
         if e.preferred == strategy {
             e.preferred = ""
             e.probeSeeded = false
+            e.siteVerifiedPin = false
             e.weakFailures = 0
             e.smallResponses = nil
         }
@@ -293,11 +296,19 @@ func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int
         // A different candidate with a full-sized downstream flow may
         // supersede the HTML hint. The SAME verified candidate should not
         // lose its small-success threshold after one large response.
-        if e.preferred != strategy { e.probeSeeded = false }
+        if e.preferred != strategy {
+            e.probeSeeded = false
+            e.siteVerifiedPin = false
+        }
         e.preferred = strategy
         e.weakFailures = 0
         e.smallResponses = nil
     } else if e.preferred == strategy {
+        // Site-verified 3/3 HTTPS evidence is stronger than an ordinary
+        // connection Close with a tiny response (HTTP 204, 304, HEAD or
+        // a harmless client cancellation). Only explicit no-reply read
+        // timeouts, captured by observeStallTracked, should cool it down.
+        if e.siteVerifiedPin { return }
         // A verified HTML probe earns a *temporary* preference. Its
         // successful 8 KiB page sample must not be misclassified as a
         // failure merely because the media-oriented default is 12 KiB.
@@ -310,6 +321,7 @@ func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int
             if e.weakFailures >= 2 {
                 e.preferred = ""
                 e.probeSeeded = false
+                e.siteVerifiedPin = false
                 e.weakFailures = 0
                 e.smallResponses = nil
             }
