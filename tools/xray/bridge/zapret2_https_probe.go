@@ -108,6 +108,17 @@ func classifyProbeHTTP(code int, contentType string, body []byte, readErr error,
         if code >= 200 && code < 500 { return "http_reachable" }
         return "http_status"
     }
+    if target.contentKind == "site_http" {
+        // A user-chosen site's root may serve HTML, JSON or other content.
+        // A genuine 2xx with at least 128 bytes on the verified TLS socket
+        // is a *bounded HTTP success*, not proof of an app/login/video.
+        // HTTP 204, 4xx and short replies establish transport only.
+        if code >= 200 && code < 300 && len(body) >= 128 &&
+            (readErr==nil || errors.Is(readErr,io.EOF) ||
+                errors.Is(readErr,io.ErrUnexpectedEOF)) {return "ok"}
+        if code >= 200 && code < 500 {return "http_reachable"}
+        return "http_status"
+    }
     if code < 200 || code >= 300 { return "http_status" }
     if readErr != nil && !errors.Is(readErr, io.EOF) && !errors.Is(readErr, io.ErrUnexpectedEOF) {
         return "body_failed"
@@ -184,6 +195,12 @@ func probeHTTPSWithConn(ctx context.Context, c net.Conn, target zapret2TestTarge
 // private outbound, without changing the active VPN routing or strategy.
 // The UI calls this serially on a background thread, per-attempt timeout.
 func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2HTTPSResult {
+    // An explicit, validated public-host search is a separate protocol
+    // from the legacy hardcoded YouTube/Google targets. It is never
+    // reachable by ordinary routing, redirects or Android system DNS.
+    if strings.HasPrefix(targetID,"site_") {
+        return probeSiteSearchHTTPS(strategy,targetID,timeout)
+    }
     started := time.Now()
     out := Zapret2HTTPSResult{Outcome:"invalid_strategy"}
     tag, valid := zapret2TestStrategies[strategy]
