@@ -424,9 +424,10 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                             2, 2, MATRIX_TIMEOUT_MILLIS)
                     }
 
-                    // Two more independent QUIC handshakes for each positive
-                    // first-pass IP. Zero- or one-success guesses never become
-                    // eligible for application-level traffic.
+                    // Complete all three independent samples for every
+                    // first-pass verified IP, even if the second one fails.
+                    // This measures intermittent 1/3 and 2/3 reachability
+                    // without relaxing the strict 3/3 HTTP/3 admission rule.
                     val stable = mutableListOf<Int>()
                     progress.max = done + viable.size * 2
                     for (index in viable) {
@@ -442,35 +443,43 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                             val row = attempt(Zapret2H3Policy.target(index, "quic"),
                                 number, 3, MATRIX_TIMEOUT_MILLIS)
                             quicRows += row
-                            if (row.result.outcome != "quic_verified") break
+                            // Keep the third attempt even after a timeout:
+                            // a later recovered handshake is diagnostic evidence.
+                            // stable(quicRows) still requires all 3 verified.
                         }
                         if (Zapret2H3Policy.stable(quicRows)) stable += index
                     }
 
-                    // Negative QUIC v1 results alone cannot distinguish
-                    // transport-version intolerance from endpoint/path behavior.
-                    // Keep a second, independent QUIC v2 pass opt-in and
-                    // diagnostic only. v2 success never admits HTTP/3 here.
-                    if (stable.isEmpty() && !expired) {
-                        if (googleReady) {
-                            progress.max = done + 1
-                            attempt("google_control_ip00_quicv2", 1, 2,
-                                MATRIX_TIMEOUT_MILLIS)
-                        }
-                        progress.max = done + count
-                        for (index in 0 until count) {
-                            if (!Zapret2H3Policy.fresh(preparedAt,
-                                    SystemClock.elapsedRealtime())) {
-                                expired = true
-                                break
+                    // QUIC v2 is an optional diagnostic comparison, never
+                    // a replacement for the 3/3 QUIC v1 HTTP/3 admission rule.
+                    // If the Google v2 baseline cannot verify TLS+ALPN, probing
+                    // all YouTube IPs under v2 would produce uninterpretable
+                    // negative results (including legitimate Version Negotiation).
+                    if (stable.isEmpty() && !expired && googleReady) {
+                        progress.max = done + 1
+                        val v2Before = attempt("google_control_ip00_quicv2", 1, 2,
+                            MATRIX_TIMEOUT_MILLIS)
+                        if (Zapret2H3Policy.verifiedV2Control(v2Before)) {
+                            progress.max = done + count
+                            for (index in 0 until count) {
+                                if (!Zapret2H3Policy.fresh(preparedAt,
+                                        SystemClock.elapsedRealtime())) {
+                                    expired = true
+                                    break
+                                }
+                                attempt(Zapret2H3Policy.target(index, "quicv2"),
+                                    1, 1, MATRIX_TIMEOUT_MILLIS)
                             }
-                            attempt(Zapret2H3Policy.target(index, "quicv2"),
-                                1, 1, MATRIX_TIMEOUT_MILLIS)
                         }
-                        if (googleReady) {
+                        // Repeat the independent control regardless of the
+                        // first outcome, provided the RRset has not expired.
+                        if (Zapret2H3Policy.fresh(preparedAt,
+                                SystemClock.elapsedRealtime())) {
                             progress.max = done + 1
                             attempt("google_control_ip00_quicv2", 2, 2,
                                 MATRIX_TIMEOUT_MILLIS)
+                        } else {
+                            expired = true
                         }
                     }
 
