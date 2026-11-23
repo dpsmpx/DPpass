@@ -135,7 +135,14 @@ object Zapret2H3Report {
                     " outcome=" + r.outcome + " stage=" + r.tlsStage +
                     " alpn=" + r.alpn + " http=" + r.httpStatus +
                     " body_bytes_bounded=" + r.bodyBytes +
-                    " elapsed_ms=" + r.elapsedMillis)
+                    " elapsed_ms=" + r.elapsedMillis +
+                    (if (r.protocol in setOf("quic","quicv2") &&
+                        (r.quicInitialTx > 0 || r.quicPeerRx > 0))
+                        " initial_tx=" + r.quicInitialTx +
+                        " peer_rx=" + r.quicPeerRx +
+                        " first_reply_ms=" + r.quicFirstReplyMillis +
+                        " max_initial_bytes=" + r.quicMaxInitialBytes
+                    else ""))
             }
         }
         val stable = perIndex.filter { (_, group) ->
