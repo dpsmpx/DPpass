@@ -422,6 +422,7 @@ func (a *adaptiveSelector) observeVerifiedProbe(host, requiredHost, validOutcome
     }
     e.preferred = strategy
     e.probeSeeded = true
+    e.siteVerifiedPin = false
     e.weakFailures = 0
     e.smallResponses = nil
     // On two weak live connections, fall back to a *different* candidate.
