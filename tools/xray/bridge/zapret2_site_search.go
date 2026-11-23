@@ -9,6 +9,8 @@ package bridge
 // Only the authenticated host name is used for TLS SNI and HTTP Host.
 import (
     "context"
+    "crypto/sha256"
+    "encoding/hex"
     "net"
     "strconv"
     "strings"
@@ -260,6 +262,11 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
         }
         if len(public)==0 {result.Outcome="doh_no_ipv4";return finish(result)}
         answer.ips=public
+        // Fingerprint exactly the filtered, sorted A set that will be
+        // dialed. Never reveal or hash private/special-use answer records
+        // into a misleading address-set identifier.
+        digest:=sha256.Sum256([]byte(strings.Join(public,",")))
+        answer.fingerprint=hex.EncodeToString(digest[:4])
         // This is not an arbitrary Android-resolver fallback.
         result.Outcome="dns_ready"
         result.DnsFingerprint=answer.fingerprint
