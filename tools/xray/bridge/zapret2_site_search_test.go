@@ -161,3 +161,70 @@ func TestSiteSearchRestoresPlainBaselineWhenStable(t *testing.T) {
         t.Fatalf("AUTO failed to restore original unmodified TCP, got %s",got)
     }
 }
+
+func TestSiteSearchVettedFallbackOnlyAfterRepeatedPrimaryReadTimeouts(t *testing.T) {
+    host:="www.youtube.com"
+    inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1","8.8.8.8"})
+    for ip:=0;ip<2;ip++ {
+        for attempt:=1;attempt<=3;attempt++ {
+            siteSearchRecord(inst,host,gen,ip,attempt,"h1","plain","timeout_tls_no_reply",6000)
+            siteSearchRecord(inst,host,gen,ip,attempt,"h1","tlsrec-split","ok",1000)
+            siteSearchRecord(inst,host,gen,ip,attempt,"h1","fake-5","ok",1300)
+            siteSearchRecord(inst,host,gen,ip,attempt,"h1","fake-3","timeout_tls_no_reply",6000)
+        }
+    }
+    if !siteSearchCommit(inst,host,"tlsrec-split",gen) {t.Fatal("verified winner refused")}
+    zapret2Auto.mu.Lock()
+    e:=zapret2Auto.entries[host]
+    fallback:=e.fallback
+    expires:=e.fallbackUntil
+    zapret2Auto.mu.Unlock()
+    if fallback!="fake-5" || !expires.After(time.Now()) {
+        t.Fatalf("unverified runner-up selected: %q %v",fallback,expires)
+    }
+    if got:=zapret2Auto.choose(host);got!="tlsrec-split" {t.Fatal(got)}
+    zapret2Auto.observeStallTracked(host,"tlsrec-split",gen)
+    if got:=zapret2Auto.choose(host);got!="tlsrec-split" {
+        t.Fatalf("single timeout improperly switched to backup: %s",got)
+    }
+    zapret2Auto.observeStallTracked(host,"tlsrec-split",gen)
+    if got:=zapret2Auto.choose(host);got!="fake-5" {
+        t.Fatalf("two read timeouts did not activate verified backup: %s",got)
+    }
+    if got:=zapret2Auto.choose("i.ytimg.com");got!="split-1" {
+        t.Fatalf("backup leaked to separate CDN/hostname: %s",got)
+    }
+    // Once the primary cooldown expires, previous site-specific winner
+    // automatically returns; the fallback never mutates existing streams.
+    zapret2Auto.mu.Lock()
+    e.cooldown["tlsrec-split"]=time.Now().Add(-time.Millisecond)
+    zapret2Auto.mu.Unlock()
+    if got:=zapret2Auto.choose(host);got!="tlsrec-split" {
+        t.Fatalf("primary did not recover after cooldown: %s",got)
+    }
+}
+func TestSiteSearchRejectsUnmeasuredOrExpiredFallback(t *testing.T) {
+    host:="video.example.org"
+    inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1"})
+    for attempt:=1;attempt<=3;attempt++ {
+        siteSearchRecord(inst,host,gen,0,attempt,"h1","plain","timeout_tls",6000)
+        siteSearchRecord(inst,host,gen,0,attempt,"h1","tlsrec-split","ok",1000)
+        siteSearchRecord(inst,host,gen,0,attempt,"h1","fake-5",
+            map[bool]string{true:"ok",false:"timeout_tls"}[attempt!=2],1200)
+    }
+    if !siteSearchCommit(inst,host,"tlsrec-split",gen) {t.Fatal("primary refused")}
+    zapret2Auto.mu.Lock()
+    fallback:=zapret2Auto.entries[host].fallback
+    zapret2Auto.mu.Unlock()
+    if fallback!="" {t.Fatalf("2/3 false fallback: %s",fallback)}
+    // A stale runner-up cannot override a still-failing preferred method.
+    zapret2Auto.mu.Lock()
+    zapret2Auto.entries[host].fallback="fake-5"
+    zapret2Auto.entries[host].fallbackUntil=time.Now().Add(-time.Second)
+    zapret2Auto.mu.Unlock()
+    zapret2Auto.observeStallTracked(host,"tlsrec-split",gen)
+    zapret2Auto.observeStallTracked(host,"tlsrec-split",gen)
+    if got:=zapret2Auto.choose(host);got=="fake-5" {
+        t.Fatal("expired runner-up promoted without fresh proof")
+    }
+}
