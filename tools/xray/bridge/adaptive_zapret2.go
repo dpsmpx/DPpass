@@ -47,6 +47,10 @@ type adaptivePick struct {
 type adaptiveEntry struct {
     index int
     preferred string
+    // Second independently validated HTTPS profile for this exact hostname.
+    // Used only when the preferred profile enters its timeout circuit breaker.
+    // Never inferred from QUIC handshakes or shared-IP observations.
+    verifiedFallback string
     weakFailures int
     smallResponses map[string]int
     probeSeeded bool // eligible for smaller verified-HTML responses
@@ -202,8 +206,22 @@ func (a *adaptiveSelector) chooseWithGeneration(host string, candidates []string
             }
         }
         if blocked(e.preferred) {
+            // The alternate was verified 3/3 on the same pinned addresses
+            // during the same explicit scan. It remains scoped to this
+            // host and generation; no retry within an existing TCP flow.
+            fallback := e.verifiedFallback
             e.preferred = ""
             e.probeSeeded = false
+            e.verifiedFallback = ""
+            if fallback != "" && !blocked(fallback) {
+                for _, candidate := range candidates {
+                    if candidate == fallback {
+                        e.preferred = fallback
+                        e.probeSeeded = true
+                        return fallback, a.generation
+                    }
+                }
+            }
         }
     }
     // Preserve established candidate ordering and the plain baseline
@@ -265,7 +283,8 @@ func (a *adaptiveSelector) observeStallTracked(host, strategy string, generation
         e.cooldown[strategy] = time.Now().Add(adaptiveStallCooldown)
         e.stalls[strategy] = 0
         if e.preferred == strategy {
-            e.preferred = ""
+            // Keep independently verified backup only for a timeout-based
+            // circuit-breaker transition; the selector will consume it.
             e.probeSeeded = false
             e.weakFailures = 0
             e.smallResponses = nil
