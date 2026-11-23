@@ -176,7 +176,13 @@ object Zapret2SiteSearch {
                     " attempt=${entry.attempt} outcome=${r.outcome}" +
                     " stage=${r.tlsStage} alpn=${r.alpn}" +
                     " http=${r.httpStatus} body_bytes_bounded=${r.bodyBytes}" +
-                    " elapsed_ms=${r.elapsedMillis}")
+                    " elapsed_ms=${r.elapsedMillis}" +
+                    (if (r.protocol == "quic" || r.protocol == "quicv2")
+                        " quic_initial_tx=${r.quicInitialTx}" +
+                        " udp_peer_rx=${r.quicPeerRx}" +
+                        " first_reply_ms=${r.quicFirstReplyMillis}" +
+                        " max_initial_bytes=${r.quicMaxInitialBytes}"
+                    else ""))
             }
             appendLine("Выбор: ${recommendation.method ?: "-"} — ${recommendation.label}")
             appendLine("AUTO: ${commit?.outcome ?: "not_applied"}")
