@@ -82,6 +82,15 @@ func publicIPv4Answers(reply *dns.Msg, question string) []string {
     return ips
 }
 
+// RFC 8484 requires zero DNS message IDs in DoH requests. Some
+// resolvers (including Quad9) reject otherwise-valid queries with HTTP 400.
+func newFixedDoHQuestion() *dns.Msg {
+    msg:=new(dns.Msg)
+    msg.SetQuestion(zapret2DoHQuestion,dns.TypeA)
+    msg.Id=0
+    return msg
+}
+
 func fixedDoHReplyStatus(err error, ctx context.Context, phase string) string {
     if ctx.Err()!=nil {return "doh_timeout_"+phase}
     if err!=nil {return "doh_"+phase+"_failed"}
@@ -93,11 +102,7 @@ func fixedDoHReplyStatus(err error, ctx context.Context, phase string) string {
 func resolveFixedDoH(ctx context.Context, inst *core.Instance, providerName string) fixedDoHAnswer {
     provider,ok:=zapret2DoHProviders[providerName]
     if !ok {return fixedDoHAnswer{status:"invalid_target"}}
-    msg:=new(dns.Msg)
-    msg.SetQuestion(zapret2DoHQuestion,dns.TypeA)
-    // RFC 8484: DNS message ID MUST be zero for DNS-over-HTTPS.
-    // Quad9 may reject a nonzero ID with HTTP 400.
-    msg.Id=0
+    msg:=newFixedDoHQuestion()
     wire,err:=msg.Pack()
     if err!=nil {return fixedDoHAnswer{status:"doh_invalid"}}
 
