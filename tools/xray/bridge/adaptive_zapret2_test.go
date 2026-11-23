@@ -216,3 +216,82 @@ func TestAdaptivePlainTCPTriedWithLocalNeuralModel(t *testing.T) {
         }
     }
 }
+
+func TestUniversalAUTOStallsOnlySuspendAffectedHostTechnique(t *testing.T) {
+    a:=&adaptiveSelector{entries:make(map[string]*adaptiveEntry),selected:make(map[string]struct{})}
+    host:="media.example.net"
+    selected,generation:=a.chooseTracked(host)
+    if selected!="split-1" {t.Fatalf("unexpected initial choice %s",selected)}
+    a.observeStallTracked(host,selected,generation)
+    if len(a.entries[host].cooldown)!=0 {
+        t.Fatal("one stalled TLS handshake must not cause a circuit breaker")
+    }
+    a.observeStallTracked(host,selected,generation)
+    if !time.Now().Before(a.entries[host].cooldown[selected]) {
+        t.Fatal("second first-reply timeout did not suspend the method")
+    }
+    if got:=a.choose(host);got!="split" {
+        t.Fatalf("cooldown blocked other methods for same host: %s",got)
+    }
+    if got:=a.choose("another.example.net");got!="split-1" {
+        t.Fatalf("cooldown leaked to unrelated host: %s",got)
+    }
+    for i:=0;i<15;i++ {
+        if got:=a.choose(host);got==selected {
+            t.Fatalf("cooled method returned early on iteration %d",i)
+        }
+    }
+    a.entries[host].cooldown[selected]=time.Now().Add(-time.Millisecond)
+    a.entries[host].index=0
+    if got:=a.choose(host);got!=selected {
+        t.Fatalf("expired cooldown failed to restore candidate: %s",got)
+    }
+}
+
+func TestUniversalAUTONetworkTransportAndCloseAreIsolated(t *testing.T) {
+    a:=&adaptiveSelector{entries:make(map[string]*adaptiveEntry),selected:make(map[string]struct{})}
+    host:="203.0.113.10"
+    picked,generation:=a.chooseQUICTracked(host)
+    if picked!="fake-3" {t.Fatal(picked)}
+    a.observeStallTracked("udp:"+host,picked,generation)
+    a.observeStallTracked("udp:"+host,picked,generation)
+    if got:=a.chooseQUIC(host);got!="fake-5" {
+        t.Fatalf("QUIC timeout did not skip only the affected UDP method: %s",got)
+    }
+    if got:=a.choose(host);got!="split-1" {
+        t.Fatalf("QUIC cooldown leaked into TCP: %s",got)
+    }
+    other:="close.example.net"
+    choice,g:=a.chooseTracked(other)
+    a.observeTracked(other,choice,0,g) // normal early Close isn't necessarily a timeout
+    a.observeTracked(other,choice,0,g)
+    if a.entries[other].cooldown!=nil {
+        t.Fatal("normal Close poisoned AUTO even without a timed-out ClientHello")
+    }
+    old:=a.generationSnapshot()
+    if err:=a.configureHosts("youtube.com");err!=nil {t.Fatal(err)}
+    fresh:="fresh.example.net"
+    first,_:=a.chooseTracked(fresh)
+    a.observeStallTracked(fresh,first,old)
+    a.observeStallTracked(fresh,first,old)
+    if len(a.entries[fresh].cooldown)!=0 {
+        t.Fatal("old-network failures contaminated the current network")
+    }
+}
+
+func TestUniversalAUTORealPayloadClearsOnlyMatchingCircuitBreaker(t *testing.T) {
+    a:=&adaptiveSelector{entries:make(map[string]*adaptiveEntry),selected:make(map[string]struct{})}
+    host:="example.org"
+    first,g:=a.chooseTracked(host)
+    a.observeStallTracked(host,first,g)
+    a.observeStallTracked(host,first,g)
+    if len(a.entries[host].cooldown)!=1 {t.Fatal("missing stall cooldown")}
+    a.observeTracked(host,"split",adaptiveSmallResponseThreshold,g)
+    if len(a.entries[host].cooldown)!=1 {
+        t.Fatal("unrelated strategy success cleared another method cooldown")
+    }
+    a.observeTracked(host,first,adaptiveSmallResponseThreshold,g)
+    if len(a.entries[host].cooldown)!=0 || a.entries[host].stalls[first]!=0 {
+        t.Fatal("meaningful response should restore just the matching strategy")
+    }
+}
