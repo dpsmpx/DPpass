@@ -447,6 +447,33 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                         if (Zapret2H3Policy.stable(quicRows)) stable += index
                     }
 
+                    // Negative QUIC v1 results alone cannot distinguish
+                    // transport-version intolerance from endpoint/path behavior.
+                    // Keep a second, independent QUIC v2 pass opt-in and
+                    // diagnostic only. v2 success never admits HTTP/3 here.
+                    if (stable.isEmpty() && !expired) {
+                        if (googleReady) {
+                            progress.max = done + 1
+                            attempt("google_control_ip00_quicv2", 1, 2,
+                                MATRIX_TIMEOUT_MILLIS)
+                        }
+                        progress.max = done + count
+                        for (index in 0 until count) {
+                            if (!Zapret2H3Policy.fresh(preparedAt,
+                                    SystemClock.elapsedRealtime())) {
+                                expired = true
+                                break
+                            }
+                            attempt(Zapret2H3Policy.target(index, "quicv2"),
+                                1, 1, MATRIX_TIMEOUT_MILLIS)
+                        }
+                        if (googleReady) {
+                            progress.max = done + 1
+                            attempt("google_control_ip00_quicv2", 2, 2,
+                                MATRIX_TIMEOUT_MILLIS)
+                        }
+                    }
+
                     progress.max = done + stable.size * 2
                     for (index in stable) {
                         if (!Zapret2H3Policy.fresh(preparedAt,
