@@ -183,9 +183,11 @@ func fixedDoHExchange(req *http.Request, tlsConn *tls.Conn, useH2 bool) (*http.R
     if useH2 {
         client,err:=(&http2.Transport{}).NewClientConn(tlsConn)
         if err!=nil {return nil,"doh_h2_failed"}
-        defer client.Close()
         resp,err:=client.RoundTrip(req)
-        if err!=nil {return nil,fixedDoHReplyStatus(err,req.Context(),"headers")}
+        if err!=nil {
+            _=client.Close()
+            return nil,fixedDoHReplyStatus(err,req.Context(),"headers")
+        }
         // Closing the HTTP2 transport after RoundTrip would close the
         // response body too early; instead hand the response back with the
         // underlying TLS socket lifetime owned by resolveFixedDoH.
