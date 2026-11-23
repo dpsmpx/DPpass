@@ -360,3 +360,46 @@ func TestH3RealGETAndAnonymousBrowsePOSTOnLocalQUIC(t *testing.T) {
         t.Fatalf("H3 server did not receive expected HTTP requests: %s / %s",seen1,seen2)
     }
 }
+
+
+func TestMatrixQUICHeaderClassificationDoesNotAssumeTLSCompletion(t *testing.T) {
+    // Public QUIC header shapes only; neither CID, token nor encrypted
+    // payload is interpreted or exported to Android.
+    cases:=[]struct{
+        name string
+        packet []byte
+        want int32
+        stage string
+    }{
+        {"v1_initial",[]byte{0xc0,0,0,0,1,0,0},matrixPeerInitialHeader,"quic_peer_initial_header"},
+        {"v1_handshake",[]byte{0xe0,0,0,0,1,0,0},matrixPeerHandshakeHeader,"quic_peer_handshake_header"},
+        {"v1_retry",[]byte{0xf0,0,0,0,1,0,0},matrixPeerRetryHeader,"quic_peer_retry_header"},
+        {"version_negotiation",[]byte{0x80,0,0,0,0},matrixPeerVersionNegotiation,"quic_peer_vn_header"},
+        {"v2_initial",[]byte{0xd0,0x6b,0x33,0x43,0xcf,0,0},matrixPeerInitialHeader,"quic_peer_initial_header"},
+        {"v2_retry",[]byte{0xc0,0x6b,0x33,0x43,0xcf,0,0},matrixPeerRetryHeader,"quic_peer_retry_header"},
+        {"v2_handshake",[]byte{0xf0,0x6b,0x33,0x43,0xcf,0,0},matrixPeerHandshakeHeader,"quic_peer_handshake_header"},
+        {"other_version",[]byte{0xc0,1,2,3,4,0,0},matrixPeerLongOther,"quic_peer_long_other"},
+        {"short_header",[]byte{0x40,1,2,3},matrixPeerShortHeader,"quic_peer_short_header"},
+        {"malformed_long",[]byte{0x80,0,0},matrixPeerUnrecognized,"quic_peer_unrecognized"},
+        {"invalid_fixed_bit",[]byte{0x80,0,0,0,1,0,0},matrixPeerUnrecognized,"quic_peer_unrecognized"},
+    }
+    for _,tc:=range cases {
+        t.Run(tc.name,func(t *testing.T){
+            if got:=matrixPeerHeaderClass(tc.packet);got!=tc.want {
+                t.Fatalf("packet class got=%d want=%d",got,tc.want)
+            }
+            client,server:=net.Pipe()
+            defer client.Close()
+            defer server.Close()
+            p:=&matrixPacketConn{Conn:client,remote:&net.UDPAddr{IP:net.IPv4(8,8,8,8),Port:443}}
+            go func(){_,_=server.Write(tc.packet)}()
+            buf:=make([]byte,100)
+            n,_,err:=p.ReadFrom(buf)
+            if err!=nil || n!=len(tc.packet) {t.Fatalf("read n=%d err=%v",n,err)}
+            if !p.reply.Load() || p.failureStage()!=tc.stage {
+                t.Fatalf("stage=%q reply=%v",p.failureStage(),p.reply.Load())
+            }
+            if p.sent.Load() {t.Fatal("response must not imply outbound write")}
+        })
+    }
+}
