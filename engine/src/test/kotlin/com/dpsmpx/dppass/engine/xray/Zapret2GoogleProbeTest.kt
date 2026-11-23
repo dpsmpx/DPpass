@@ -429,4 +429,33 @@ class Zapret2GoogleProbeTest {
         assertFalse(report.contains("1.1.1.1"))
         assertFalse(report.contains("198.51.100.1"))
     }
+
+    @Test fun h3SameRunGoogleQUICControlsQualifyYouTubeFailures() {
+        fun control(number: Int, outcome: String, stage: String, alpn: String) =
+            Zapret2GoogleAttempt("plain", number,
+                Zapret2GoogleProbe(outcome, 0, 0, 120, 0, 0,
+                    "aabbccdd", 2, 0, "quic", stage, alpn),
+                "google_control_ip00_quic")
+        val prepare = Zapret2GoogleAttempt("plain", 1,
+            Zapret2GoogleProbe("dns_ready", 200, 0, 90, 0, 0,
+                "aabbccdd", 2, 0, "dns", "none", "-"),
+            "google_control_prepare")
+        val youtubeTimeout = Zapret2GoogleAttempt("plain", 1,
+            Zapret2GoogleProbe("quic_timeout_no_reply", 0, 0, 5001, 0, 0,
+                "6f706c12", 8, 3, "quic", "quic_initial_sent", "-"),
+            "youtube_api_h3_ip03_quic")
+        val passed = Zapret2H3Report.render("test", "MOBILE", listOf(
+            prepare, control(1, "quic_verified", "quic_tls_verified", "h3"),
+            youtubeTimeout, control(2, "quic_verified", "quic_tls_verified", "h3")))
+        assertTrue(passed.contains("Google QUIC control: doh=dns_ready"))
+        assertTrue(passed.contains("CONTROL: Google protected QUIC worked before and after"))
+        assertTrue(passed.contains("ipv4_index=3 quic_successes=0/1 stable=false"))
+        assertFalse(passed.contains("8.8.8.8"))
+        val failed = Zapret2H3Report.render("test", "MOBILE", listOf(
+            prepare, control(1, "quic_verified", "quic_tls_verified", "h3"),
+            youtubeTimeout, control(2, "quic_timeout_no_reply", "quic_initial_sent", "-")))
+        assertTrue(failed.contains("YouTube-specific filtering is NOT established"))
+        val omitted = Zapret2H3Report.render("test", "MOBILE", listOf(youtubeTimeout))
+        assertTrue(omitted.contains("Google QUIC control: doh=not_run before=not_run after=not_run"))
+    }
 }
