@@ -86,6 +86,17 @@ data class Zapret2GoogleProbe(
                     ?: return unavailable()
                 if (answers > 0 && protocol != "dns" && index >= answers) return unavailable()
                 if (protocol == "dns" && index != 0) return unavailable()
+                // An HTTP/3 request must traverse QUIC states, never a TCP
+                // tls_verified/clienthello_sent stage. Preserve the original
+                // strict v3 contract while recognizing the two new H3 modes.
+                if (protocol in setOf("h3", "h3api") &&
+                    stage !in setOf("none", "udp_connected", "quic_initial_sent",
+                        "quic_peer_reply", "quic_tls_verified")) return unavailable()
+                if (protocol in setOf("h3", "h3api") &&
+                    alpn !in setOf("-", "h3")) return unavailable()
+                if (protocol in setOf("h3", "h3api") &&
+                    stage == "quic_tls_verified" && alpn != "h3" &&
+                    fields[1] != "quic_alpn_mismatch") return unavailable()
                 return Zapret2GoogleProbe(fields[1], http, numbers[0], numbers[1],
                     numbers[2], numbers[3], fingerprint, answers, index, protocol, stage, alpn)
             }
