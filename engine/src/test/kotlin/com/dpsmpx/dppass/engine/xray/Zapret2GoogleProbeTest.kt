@@ -198,4 +198,45 @@ class Zapret2GoogleProbeTest {
             attempt("youtube_api_ipv4", "http_reachable", 403))))
     }
 
+
+    @Test fun verifiedDoHFingerprintV2AndLegacyV1RemainCompatible() {
+        val passed = Zapret2GoogleProbe.fromWire(
+            "v2\\ttimeout_tls\\t0\\t0\\t12000\\t0\\t0\\tab12ef34\\t4"
+                .replace("\\\\t", "\\t").encodeToByteArray())
+        assertEquals("timeout_tls", passed.outcome)
+        assertEquals(4, passed.dnsAnswers)
+        assertEquals("ab12ef34", passed.dnsFingerprint)
+        assertFalse(passed.httpReachable)
+        val blocked = Zapret2GoogleProbe.fromWire(
+            "v2\\tdoh_timeout_tls\\t0\\t0\\t12000\\t0\\t0\\t-\\t0"
+                .replace("\\\\t", "\\t").encodeToByteArray())
+        assertEquals("doh_timeout_tls", blocked.outcome)
+        assertEquals(0, blocked.dnsAnswers)
+        assertEquals("contract_error", Zapret2GoogleProbe.fromWire(
+            "v2\\ttimeout_tls\\t0\\t0\\t0\\t0\\t0\\t1.2.3.4\\t1"
+                .replace("\\\\t", "\\t").encodeToByteArray()).outcome)
+        val legacy = Zapret2GoogleProbe.fromWire("v1\\tok\\t200\\t8192\\t250\\t1\\t0"
+            .replace("\\\\t", "\\t").encodeToByteArray())
+        assertTrue(legacy.success)
+        assertEquals("", legacy.dnsFingerprint)
+    }
+
+    @Test fun dnsReportSeparatesResolverFailureFromTargetTLSFailure() {
+        fun row(target: String, outcome: String, digest: String, count: Int) =
+            Zapret2GoogleAttempt("fake-5", 1,
+                Zapret2GoogleProbe.fromWire(
+                    "v2\\t$outcome\\t0\\t0\\t8000\\t0\\t0\\t$digest\\t$count"
+                        .replace("\\\\t", "\\t").encodeToByteArray()), target)
+        val report = Zapret2DNSComparisonReport.render("2026-11-23", "MOBILE",
+            listOf(row("youtube_api_dns_cloudflare", "timeout_tls", "abcdef01", 2),
+                row("youtube_api_dns_google", "doh_timeout_tls", "-", 0),
+                row("youtube_api_dns_quad9", "timeout_tls", "0123abcd", 1)))
+        assertTrue(report.contains("doh_timeout_tls"))
+        assertTrue(report.contains("DoH providers returned different A sets"))
+        assertTrue(report.contains("ordinary VPN DNS and routing are unchanged"))
+        assertFalse(report.contains("1.2.3.4"))
+        assertEquals(4, Zapret2ProbeCatalog.dnsTargets.size)
+        assertEquals(listOf("fake-5","tlsrec-split"), Zapret2ProbeCatalog.dnsStrategies)
+    }
+
 }
