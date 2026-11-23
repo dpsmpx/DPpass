@@ -278,8 +278,16 @@ func (a *adaptiveSelector) observeStallTracked(host, strategy string, generation
         e.cooldown[strategy] = time.Now().Add(adaptiveStallCooldown)
         e.stalls[strategy] = 0
         if e.preferred == strategy {
-            e.preferred = ""
-            e.probeSeeded = false
+            // A vetted, unexpired runner-up preserves the original
+            // preference for automatic recovery after this cooldown.
+            // If no runner-up exists, keep legacy conservative reset.
+            if e.fallback == "" || !time.Now().Before(e.fallbackUntil) ||
+                e.cooldown[e.fallback].After(time.Now()) {
+                e.preferred = ""
+                e.probeSeeded = false
+                e.fallback = ""
+                e.fallbackUntil = time.Time{}
+            }
             e.weakFailures = 0
             e.smallResponses = nil
         }
