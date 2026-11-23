@@ -14,6 +14,13 @@ data class Zapret2GoogleProbe(
     /** Short irreversible fingerprint of sorted, fixed-target DoH IPv4 RRset. */
     val dnsFingerprint: String = "",
     val dnsAnswers: Int = 0,
+    /** Status and negotiated HTTP version of the DoH resolver, not of YouTube. */
+    val dohHttpStatus: Int = 0,
+    val dohProtocol: Int = 0,
+    /** Tested A addresses, valid TLS handshakes, and HTTP replies across all A records. */
+    val dnsChecked: Int = 0,
+    val dnsTlsReady: Int = 0,
+    val dnsHttpReady: Int = 0,
 ) {
     /** An HTTP 3xx proves reachability, not final content. */
     val success: Boolean get() = outcome == "ok"
@@ -40,22 +47,31 @@ data class Zapret2GoogleProbe(
 
         fun fromWire(bytes: ByteArray): Zapret2GoogleProbe {
             val fields = bytes.decodeToString().split('\t')
-            val enhanced = fields[0] == "v2" && fields.size == 9
-            if (!(enhanced || fields[0] == "v1" && fields.size == 7) ||
+            val v2 = fields[0] == "v2" && fields.size == 9
+            val v3 = fields[0] == "v3" && fields.size == 14
+            if (!(v2 || v3 || fields[0] == "v1" && fields.size == 7) ||
                 fields[1] !in outcomes) return unavailable()
             val http = fields[2].toIntOrNull()?.takeIf { it in 0..599 } ?: return unavailable()
             val numbers = fields.subList(3, 7).map {
                 it.toLongOrNull()?.takeIf { value -> value >= 0 } ?: return unavailable()
             }
-            if (!enhanced) return Zapret2GoogleProbe(fields[1], http,
+            if (!v2 && !v3) return Zapret2GoogleProbe(fields[1], http,
                 numbers[0], numbers[1], numbers[2], numbers[3])
             val fingerprint = fields[7]
             if (fingerprint != "-" && !Regex("[0-9a-f]{8}").matches(fingerprint))
                 return unavailable()
             val answers = fields[8].toIntOrNull()?.takeIf { it in 0..16 } ?: return unavailable()
             if ((fingerprint == "-") != (answers == 0)) return unavailable()
-            return Zapret2GoogleProbe(fields[1], http,
+            if (v2) return Zapret2GoogleProbe(fields[1], http,
                 numbers[0], numbers[1], numbers[2], numbers[3], fingerprint, answers)
+            val dohStatus = fields[9].toIntOrNull()?.takeIf { it in 0..599 } ?: return unavailable()
+            val dohProtocol = fields[10].toIntOrNull()?.takeIf { it in 0..2 } ?: return unavailable()
+            val checked = fields[11].toIntOrNull()?.takeIf { it in 0..answers } ?: return unavailable()
+            val tls = fields[12].toIntOrNull()?.takeIf { it in 0..checked } ?: return unavailable()
+            val reachable = fields[13].toIntOrNull()?.takeIf { it in 0..tls } ?: return unavailable()
+            return Zapret2GoogleProbe(fields[1], http,
+                numbers[0], numbers[1], numbers[2], numbers[3], fingerprint, answers,
+                dohStatus, dohProtocol, checked, tls, reachable)
         }
     }
 }
@@ -246,7 +262,9 @@ object Zapret2DNSComparisonReport {
         appendLine("Query: fixed A youtubei.googleapis.com; same SNI/Host and HTTP/1.1 GET for every test")
         appendLine("Configured-DNS IPv4 control is separate; ordinary VPN DNS and routing are unchanged.")
         appendLine("Each comparison verifies HTTPS certificates; no raw resolved IPs or content are logged.")
-        appendLine("Address-set fingerprint is an 8-character digest, NOT the IP; equal means matching A sets.")
+        appendLine("Address-set fingerprint is a short SHA-256 digest, not a raw IPv4 address.")
+        appendLine("The test now checks every returned IPv4 with a bounded per-address TLS deadline.")
+        appendLine("DoH attempts negotiate HTTP/2 when supported; DoH HTTP status is separate from YouTube HTTP.")
         appendLine("Timeout stages prefixed doh_ happened reaching the resolver, not YouTube.")
         appendLine("HTTP 2xx/4xx proves only HTTP transport, NOT usable YouTube feeds or videos.")
         appendLine("Strategies: ${Zapret2ProbeCatalog.dnsStrategies.joinToString(", ")}")
@@ -264,6 +282,13 @@ object Zapret2DNSComparisonReport {
             val digests = rows.map { it.result.dnsFingerprint }
                 .filter { it.matches(Regex("[0-9a-f]{8}")) }.distinct()
             appendLine("  verified_DNS_address_sets=${digests.ifEmpty { listOf("none") }.joinToString(",")}")
+            if (rows.isNotEmpty()) {
+                appendLine("  doh_http_codes=${rows.map { it.result.dohHttpStatus }.distinct().joinToString(",")}; " +
+                    "doh_protocols=${rows.map { it.result.dohProtocol }.distinct().joinToString(",")}")
+                appendLine("  ipv4_checked=${rows.sumOf { it.result.dnsChecked }}; " +
+                    "tls_verified=${rows.sumOf { it.result.dnsTlsReady }}; " +
+                    "http_replies=${rows.sumOf { it.result.dnsHttpReady }}")
+            }
         }
         appendLine()
         appendLine("Every attempt:")
@@ -271,7 +296,9 @@ object Zapret2DNSComparisonReport {
             val r = a.result
             appendLine("${index + 1}. target=${a.target} strategy=${a.strategy} #${a.attempt}: " +
                 "outcome=${r.outcome} http=${r.httpStatus} elapsed_ms=${r.elapsedMillis} " +
-                "dns_answers=${r.dnsAnswers} dns_fingerprint=${r.dnsFingerprint.ifBlank { "-" }}")
+                "dns_answers=${r.dnsAnswers} dns_fingerprint=${r.dnsFingerprint.ifBlank { "-" }} " +
+                "doh_http=${r.dohHttpStatus} doh_proto=${r.dohProtocol} " +
+                "ip_checked=${r.dnsChecked} ip_tls_ok=${r.dnsTlsReady} ip_http_ok=${r.dnsHttpReady}")
         }
         val verified = attempts.filter { it.result.dnsAnswers > 0 }
         val uniqueSets = verified.map { it.result.dnsFingerprint }.distinct()
@@ -286,7 +313,8 @@ object Zapret2DNSComparisonReport {
             appendLine("All resolved-IP HTTPS controls still failed: DNS alone did not restore HTTP reachability.")
         appendLine("A successful DoH reply can coexist with SNI/TLS blocking on the requested site.")
         appendLine("Different DNS fingerprints do not prove interception: legitimate CDN geo steering is possible.")
-        appendLine("Only one resolved IPv4 per DoH trial is tested; other A addresses may behave differently.")
+        appendLine("Each returned public IPv4 is attempted with an individual timeout, bounded by the test budget.")
+        appendLine("A DoH HTTP error may indicate protocol incompatibility or server policy, not necessarily censorship.")
         appendLine("No global DNS/server/strategy preference is changed by this diagnostic.")
     }
 }
