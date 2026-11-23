@@ -55,7 +55,13 @@ func validOptInSiteHost(host string) bool {
         }
     }
     if len(suffix)<2 {return false}
-    for _,c:=range suffix {if c<'a'||c>'z' {return false}}
+    // IDN.toASCII outputs a valid punycode TLD containing hyphens and
+    // digits. Permit only its xn-- form, never a numeric-looking TLD.
+    if strings.HasPrefix(suffix,"xn--") {
+        if len(suffix)<6 {return false}
+    } else {
+        for _,c:=range suffix {if c<'a'||c>'z' {return false}}
+    }
     switch suffix {
     case "local","localhost","internal","lan","home","test","invalid","example","onion","arpa":
         return false
