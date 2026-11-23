@@ -60,6 +60,29 @@ The experiment does not send unprotected packets, set a custom Android DNS,
 record raw network addresses, or change global split/QUIC policy. It is
 opt-in and will not run when normal VPN is in server mode.
 
+## 0.7.64 follow-up: same-run protected Google QUIC control
+
+The 23 November 2026 10:10 (+03) MOBILE field retest returned 0/8
+YouTube QUIC TLS/ALPN successes. One indexed IPv4 delivered a UDP packet but
+did not complete TLS; all other indices had no registered reply. No HTTP/3
+GET or anonymous browse POST ran, and the previous single success at index 3
+did not reproduce. This is **not proof** of either an application defect
+or YouTube-specific filtering.
+
+The dedicated H3 action now resolves a separate fixed `www.google.com`
+A-record set through the same certificate-verified private Google DoH and
+probes one indexed Google QUIC IP **before and after** the YouTube matrix.
+All QUIC packets still use the existing protected Xray UDP/443 connection
+adapter; no direct UDP socket, unprotected DNS or live VPN strategy changes
+are introduced. The report marks missing/failed controls as insufficient
+to infer YouTube-specific filtering.
+
+The three independent successfully verified YouTube QUIC/ALPN h3
+handshakes remain mandatory before HTTP/3 GET and the anonymous fixed API
+POST. Neither the control nor a one-off QUIC handshake is positive AUTO
+training evidence. The signed ARM64 development build version is
+`0.7.64-dev` (`versionCode 142`); field validation remains open.
+
 ## Verification
 
 - Go strict allowlist, 5-minute address expiry and malformed target tests;
