@@ -292,6 +292,12 @@ func (a *adaptiveSelector) observeStallTracked(host, strategy string, generation
             e.smallResponses = nil
         }
     }
+    // A first-reply timeout is already handled by the circuit breaker.
+    // Do not also count it as a generic weak response: that would clear
+    // the primary pin before its independently verified runner-up could
+    // be tried on the next connection.
+    if e.preferred==strategy && e.fallback!="" &&
+        time.Now().Before(e.fallbackUntil) {return}
     a.observeLocked(host, strategy, 0)
 }
 
