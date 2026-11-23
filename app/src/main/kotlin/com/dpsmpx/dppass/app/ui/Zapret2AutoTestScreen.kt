@@ -679,12 +679,15 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     return@launch
                 }
                 val selection = Zapret2SiteSearch.recommend(domain, ipCount, rows, quic)
-                val commit = if (!quic && selection.method != null &&
+                // Cross-module data-class getters are not eligible for a
+                // Kotlin smart cast inside withContext's coroutine lambda.
+                val selectedMethod = selection.method
+                val commit = if (!quic && selectedMethod != null &&
                     (selection.readyToApply || selection.baselineStable)) {
                     try {
                         withContext(Dispatchers.IO) {
                             JniXrayRuntime.probeZapret2Google(
-                                selection.method, Zapret2SiteSearch.apply(domain), 1_500)
+                                selectedMethod, Zapret2SiteSearch.apply(domain), 1_500)
                         }
                     } catch (_: LinkageError) {
                         Zapret2GoogleProbe.unavailable()
