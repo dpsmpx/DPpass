@@ -855,7 +855,7 @@
     <string name="alpine_missing">No ARM64 PRoot bundled. Build with -Pdppass.alpine=true.</string>
     <string name="zapret2_autotest_full_button">Run full 96-request Google/YouTube HTTPS test</string>
     <string name="zapret2_autotest_choose">Choose the full HTTPS test or the shorter 16-request encrypted-DNS comparison.</string>
-    <string name="zapret2_dns_compare_note">Optional 16-probe check: compare encrypted DNS A answers from Cloudflare, Google and Quad9 by their pinned IPv4 DoH endpoints. Tests the YouTube API host with verified TLS using two previously promising TCP modes. No DNS settings, app routing, or subscriptions change; no actual video/feed success is implied.</string>
+    <string name="zapret2_dns_compare_note">Optional 16-probe check: compare Cloudflare, Google and Quad9 over encrypted DNS with HTTP/2 negotiation. Each received IPv4 is tested with a bounded TLS timeout (up to 22 seconds per comparison). Resolver HTTP codes and per-IP TLS results are reported. No DNS settings, app routing or subscriptions change; no actual feed or video success is implied.</string>
     <string name="zapret2_dns_compare_button">Compare DNS: Cloudflare / Google / Quad9 (YouTube API TLS, 16 probes)</string>
     <string name="zapret2_autotest_title">Zapret2 · Check Google and YouTube</string>
     <string name="zapret2_autotest_subtitle">One tap: 6 HTTPS targets × 8 TCP modes × 2 attempts; copy the full result</string>
