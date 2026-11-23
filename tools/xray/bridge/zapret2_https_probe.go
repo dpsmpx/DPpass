@@ -92,7 +92,7 @@ type Zapret2HTTPSResult struct {
 func (r Zapret2HTTPSResult) Wire() []byte {
     if r.QuicMetrics {
         return []byte(fmt.Sprintf(
-            "v4\\t%s\\t%d\\t%d\\t%d\\t%d\\t%d\\t%s\\t%d\\t%d\\t%s\\t%s\\t%s\\t%d\\t%d\\t%d\\t%d",
+            "v4\t%s\t%d\t%d\t%d\t%d\t%d\t%s\t%d\t%d\t%s\t%s\t%s\t%d\t%d\t%d\t%d",
             r.Outcome,r.HTTPStatus,r.BodyBytes,r.Elapsed.Milliseconds(),
             r.AppliedDelta,r.SkippedDelta,r.DnsFingerprint,r.DnsAnswers,
             r.IPIndex,r.Protocol,r.TLSStage,r.ALPN,
