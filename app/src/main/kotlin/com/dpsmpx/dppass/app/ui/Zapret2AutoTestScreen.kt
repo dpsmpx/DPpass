@@ -373,6 +373,21 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     return row
                 }
 
+                // Same-run Google QUIC control: the exact same protected Xray
+                // UDP adapter is sampled before and after YouTube. Do not
+                // interpret a YouTube timeout as selective filtering when this
+                // control also fails. No live routes or AUTO are modified.
+                progress.max = done + 1
+                val googlePreparation = attempt("google_control_prepare", 1, 1,
+                    DNS_TIMEOUT_MILLIS).result
+                val googleReady = googlePreparation.outcome == "dns_ready" &&
+                    googlePreparation.dnsAnswers > 0
+                if (googleReady) {
+                    progress.max = done + 1
+                    attempt("google_control_ip00_quic", 1, 2, MATRIX_TIMEOUT_MILLIS)
+                }
+
+                progress.max = done + 1
                 val preparation = attempt("youtube_api_h3_prepare", 1, 1,
                     DNS_TIMEOUT_MILLIS).result
                 if (preparation.outcome == "dns_ready" && preparation.dnsAnswers > 0) {
@@ -432,6 +447,13 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                             1, 1, H3_TIMEOUT_MILLIS)
                         if (api.result.outcome == "h3_api_json_valid") break
                     }
+                }
+                // The post-control is independent of all YouTube candidates.
+                // A passed pre-control alone cannot prove UDP stayed healthy
+                // during the YouTube scan.
+                if (googleReady) {
+                    progress.max = done + 1
+                    attempt("google_control_ip00_quic", 2, 2, MATRIX_TIMEOUT_MILLIS)
                 }
                 val report = Zapret2H3Report.render(stamp, network, rows) +
                     if (expired) "Experiment expired after five minutes; rerun for fresh DoH addresses.\n" else ""
