@@ -75,7 +75,9 @@ class Zapret2ServiceReportTest {
         val item = Zapret2ServiceReport.summarize(rows).first { it.target == target &&
             it.method == method }
         assertFalse(item.stable)
-        assertEquals(2, item.attempted)
-        assertEquals(2, item.successful)
+        // Attempt 2 appears twice and is deliberately excluded; only
+        // uniquely numbered attempt 1 is counted. Attempt 3 is missing.
+        assertEquals(1, item.attempted)
+        assertEquals(1, item.successful)
     }
 }
