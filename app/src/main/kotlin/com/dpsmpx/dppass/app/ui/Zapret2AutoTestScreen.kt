@@ -633,9 +633,13 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 progress.progress = 0
                 val rows = mutableListOf<Zapret2GoogleAttempt>()
                 var expired = false
-                scan@ for (method in methods) {
+                // Interleave methods across repetitions so a brief
+                // network change does not make all later profiles appear
+                // faster than the earlier baseline. Each numbered sample
+                // is still one independent protected Xray connection.
+                scan@ for (number in 1..Zapret2SiteSearch.ATTEMPTS) {
                     for (ip in 0 until ipCount) {
-                        for (number in 1..Zapret2SiteSearch.ATTEMPTS) {
+                        for (method in methods) {
                             ensureActive()
                             if (!ready(TunnelState.status.value) ||
                                 NetworkCheck.underlying(context).type.toString() != network ||
