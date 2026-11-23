@@ -47,6 +47,10 @@ type adaptivePick struct {
 type adaptiveEntry struct {
     index int
     preferred string
+    // A second independently measured 3/3 candidate is available only
+    // for the same exact hostname and current network generation.
+    fallback string
+    fallbackUntil time.Time
     weakFailures int
     smallResponses map[string]int
     probeSeeded bool // eligible for smaller verified-HTML responses
@@ -196,12 +200,21 @@ func (a *adaptiveSelector) chooseWithGeneration(host string, candidates []string
         return true
     }
     if e.preferred != "" {
-        for _, candidate := range candidates {
-            if candidate == e.preferred && !blocked(e.preferred) {
-                return e.preferred, a.generation
+        if !blocked(e.preferred) {
+            for _, candidate := range candidates {
+                if candidate == e.preferred { return e.preferred, a.generation }
             }
         }
-        if blocked(e.preferred) {
+        // Do not promote a fallback based merely on a timeout. Only a
+        // second independently certified 3/3 winner stored by the native
+        // site search can be used, and only while its evidence is fresh.
+        if blocked(e.preferred) && now.Before(e.fallbackUntil) &&
+            e.fallback != "" && !blocked(e.fallback) {
+            for _, candidate := range candidates {
+                if candidate == e.fallback { return e.fallback, a.generation }
+            }
+        }
+        if blocked(e.preferred) && (e.fallback == "" || !now.Before(e.fallbackUntil)) {
             e.preferred = ""
             e.probeSeeded = false
         }
