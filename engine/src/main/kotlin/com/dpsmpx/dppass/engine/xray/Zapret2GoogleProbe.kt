@@ -14,6 +14,12 @@ data class Zapret2GoogleProbe(
     /** Short irreversible fingerprint of sorted, fixed-target DoH IPv4 RRset. */
     val dnsFingerprint: String = "",
     val dnsAnswers: Int = 0,
+    /** One 0-based IPv4 position in the verified, sorted A-answer set. */
+    val ipIndex: Int = 0,
+    val protocol: String = "",
+    /** Per-socket TLS stage, not process-wide Xray counters. */
+    val tlsStage: String = "",
+    val alpn: String = "",
 ) {
     /** An HTTP 3xx proves reachability, not final content. */
     val success: Boolean get() = outcome == "ok"
@@ -34,13 +40,19 @@ data class Zapret2GoogleProbe(
             "doh_headers_failed", "doh_body_failed", "doh_timeout_dial",
             "doh_timeout_tls", "doh_timeout_write", "doh_timeout_headers",
             "doh_timeout_body",
+            "dns_ready", "dns_not_prepared", "invalid_index",
+            "timeout_tls_no_reply", "timeout_tls_after_reply", "tls_alert",
+            "h2_not_negotiated", "h2_failed",
+            "quic_verified", "quic_timeout_no_reply", "quic_timeout_after_reply",
+            "quic_failed", "quic_alpn_mismatch",
         )
         fun unavailable(): Zapret2GoogleProbe =
             Zapret2GoogleProbe("contract_error", 0, 0, 0, 0, 0)
 
         fun fromWire(bytes: ByteArray): Zapret2GoogleProbe {
             val fields = bytes.decodeToString().split('\t')
-            val enhanced = fields[0] == "v2" && fields.size == 9
+            val matrix = fields[0] == "v3" && fields.size == 13
+            val enhanced = fields[0] == "v2" && fields.size == 9 || matrix
             if (!(enhanced || fields[0] == "v1" && fields.size == 7) ||
                 fields[1] !in outcomes) return unavailable()
             val http = fields[2].toIntOrNull()?.takeIf { it in 0..599 } ?: return unavailable()
@@ -54,6 +66,22 @@ data class Zapret2GoogleProbe(
                 return unavailable()
             val answers = fields[8].toIntOrNull()?.takeIf { it in 0..16 } ?: return unavailable()
             if ((fingerprint == "-") != (answers == 0)) return unavailable()
+            if (matrix) {
+                val index = fields[9].toIntOrNull()?.takeIf { it in 0..15 }
+                    ?: return unavailable()
+                val protocol = fields[10].takeIf { it in setOf("dns", "h1", "h2", "quic") }
+                    ?: return unavailable()
+                val stage = fields[11].takeIf { it in setOf(
+                    "none", "tcp_connected", "clienthello_sent", "server_reply_seen",
+                    "tls_verified", "udp_connected", "quic_initial_sent",
+                    "quic_peer_reply", "quic_tls_verified") } ?: return unavailable()
+                val alpn = fields[12].takeIf { it in setOf("-", "http/1.1", "h2", "h3") }
+                    ?: return unavailable()
+                if (answers > 0 && protocol != "dns" && index >= answers) return unavailable()
+                if (protocol == "dns" && index != 0) return unavailable()
+                return Zapret2GoogleProbe(fields[1], http, numbers[0], numbers[1],
+                    numbers[2], numbers[3], fingerprint, answers, index, protocol, stage, alpn)
+            }
             return Zapret2GoogleProbe(fields[1], http,
                 numbers[0], numbers[1], numbers[2], numbers[3], fingerprint, answers)
         }
