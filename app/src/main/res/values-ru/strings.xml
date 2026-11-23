@@ -931,4 +931,6 @@
     <string name="zapret2_site_search_invalid">Введите публичный домен без https://, порта, пути, локального адреса или IP.</string>
     <string name="zapret2_site_search_dns_fail">Проверенный DoH не дал подходящего публичного IPv4. AUTO не изменён.</string>
     <string name="zapret2_site_search_expired">Сеть изменилась, поиск прерван или истёк срок DNS (5 минут). Выбор AUTO не применён.</string>
+    <string name="zapret2_service_button">Проверить главную, API и изображения YouTube</string>
+    <string name="zapret2_service_note">Сравнение трёх компонентов HTTPS в режимах без модификаций, TLS-record + TCP split и fake-5 (по 3 независимых попытки). HTTP 2xx/4xx от API подтверждает лишь транспорт, JPEG не доказывает воспроизведение видео. Тест только диагностический: AUTO и рабочие маршруты не меняет; видеопоток Googlevideo не запрашивается.</string>
 </resources>
