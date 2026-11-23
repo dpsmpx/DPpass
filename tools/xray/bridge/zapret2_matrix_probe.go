@@ -499,7 +499,8 @@ func matrixHTTP3(ctx context.Context,raw net.Conn,ip,host,mode string) Zapret2HT
     packets:=&matrixPacketConn{Conn:raw,remote:remote}
     cfg:=&tls.Config{ServerName:host,RootCAs:probeRoots,
         MinVersion:tls.VersionTLS13,NextProtos:[]string{http3.NextProtoH3}}
-    conn,err:=quic.Dial(ctx,packets,remote,cfg,&quic.Config{})
+    // Preserve the exact QUIC v1 protocol proven by the 3/3 admission gate.
+    conn,err:=quic.Dial(ctx,packets,remote,cfg,&quic.Config{Versions:[]quic.Version{quic.Version1}})
     if err!=nil {
         out.TLSStage=packets.failureStage()
         switch {
