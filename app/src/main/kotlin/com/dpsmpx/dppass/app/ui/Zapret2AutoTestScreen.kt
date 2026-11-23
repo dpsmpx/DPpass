@@ -598,6 +598,124 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
      * diagnostic only because routing by shared IPv4 cannot be attributed
      * safely to the user's specific hostname.
      */
+    /**
+     * Dedicated opt-in cross-service YouTube controls. This cannot
+     * promote a domain's strategy into another domain and cannot replay
+     * credentials or user media URLs. Every checked endpoint has fixed
+     * anonymous GET/POST data and protected private DoH/Xray sockets.
+     */
+    private fun startYoutubePaths() {
+        if (job?.isActive == true) return
+        if (!ready(TunnelState.status.value)) {
+            statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
+            return
+        }
+        val network = NetworkCheck.underlying(context).type.toString()
+        val controls = Zapret2YoutubePathReport
+        val total = controls.services.size * controls.protocols.size *
+            controls.methods.size * Zapret2YoutubePathReport.REPEATS
+        runButton.isEnabled = false
+        dnsButton.isEnabled = false
+        matrixButton.isEnabled = false
+        h3Button.isEnabled = false
+        siteButton.isEnabled = false
+        siteQuicButton.isEnabled = false
+        youtubePathsButton.isEnabled = false
+        progress.visibility = View.VISIBLE
+        progress.max = total
+        progress.progress = 0
+        resultText.visibility = View.GONE
+        job = host.scope.launch {
+            val preparations = mutableListOf<Zapret2GoogleAttempt>()
+            val rows = mutableListOf<Zapret2GoogleAttempt>()
+            try {
+                val startedAt = SystemClock.elapsedRealtime()
+                for (service in controls.services) {
+                    ensureActive()
+                    if (!ready(TunnelState.status.value) ||
+                        NetworkCheck.underlying(context).type.toString() != network) {
+                        statusText.text = context.getString(R.string.zapret2_site_search_expired)
+                        return@launch
+                    }
+                    statusText.text = "DoH · $service"
+                    val prepared = try {
+                        withContext(Dispatchers.IO) {
+                            JniXrayRuntime.probeZapret2Google("plain",
+                                controls.preparation(service), DNS_TIMEOUT_MILLIS)
+                        }
+                    } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
+                    preparations += Zapret2GoogleAttempt("plain", 1, prepared,
+                        controls.preparation(service))
+                }
+                scan@ for (attempt in 1..Zapret2YoutubePathReport.REPEATS) {
+                    for (service in controls.services) {
+                        val prep = preparations.first {
+                            it.target == controls.preparation(service)
+                        }.result
+                        if (prep.outcome != "dns_ready") continue
+                        for (protocol in controls.protocols) {
+                            for (method in controls.methods) {
+                                ensureActive()
+                                if (!ready(TunnelState.status.value) ||
+                                    NetworkCheck.underlying(context).type.toString() != network ||
+                                    SystemClock.elapsedRealtime() - startedAt >=
+                                        Zapret2SiteSearch.TTL_MS - SITE_TIMEOUT_MILLIS) {
+                                    statusText.text =
+                                        context.getString(R.string.zapret2_site_search_expired)
+                                    return@launch
+                                }
+                                val target = controls.trial(service, protocol)
+                                statusText.text = context.getString(
+                                    R.string.zapret2_autotest_progress,
+                                    rows.size, total, "$service $protocol", method,
+                                    attempt, Zapret2YoutubePathReport.REPEATS)
+                                val checked = try {
+                                    withContext(Dispatchers.IO) {
+                                        JniXrayRuntime.probeZapret2Google(
+                                            method, target, SITE_TIMEOUT_MILLIS)
+                                    }
+                                } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
+                                rows += Zapret2GoogleAttempt(method, attempt, checked, target)
+                                progress.progress = rows.size
+                                if (checked.outcome == "dns_not_prepared" ||
+                                    checked.outcome == "engine_off") {
+                                    statusText.text =
+                                        context.getString(R.string.zapret2_site_search_expired)
+                                    return@launch
+                                }
+                            }
+                        }
+                    }
+                }
+                val report = controls.render(network, preparations, rows)
+                resultText.text = report
+                resultText.visibility = View.VISIBLE
+                val copied = try {
+                    context.getSystemService(ClipboardManager::class.java)?.let {
+                        it.setPrimaryClip(ClipData.newPlainText(
+                            "DPpass YouTube service path diagnostics", report))
+                        true
+                    } ?: false
+                } catch (_: SecurityException) {false}
+                  catch (_: IllegalStateException) {false}
+                statusText.text = context.getString(if (copied)
+                    R.string.zapret2_autotest_done else R.string.zapret2_autotest_copy_failed)
+            } catch (_: CancellationException) {
+                statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
+                throw CancellationException("YouTube service verification cancelled")
+            } finally {
+                job = null
+                runButton.isEnabled = ready(TunnelState.status.value)
+                dnsButton.isEnabled = ready(TunnelState.status.value)
+                matrixButton.isEnabled = ready(TunnelState.status.value)
+                h3Button.isEnabled = ready(TunnelState.status.value)
+                siteButton.isEnabled = ready(TunnelState.status.value)
+                siteQuicButton.isEnabled = ready(TunnelState.status.value)
+                youtubePathsButton.isEnabled = ready(TunnelState.status.value)
+            }
+        }
+    }
+
     private fun startSiteSearch(quic: Boolean) {
         if (job?.isActive == true) return
         if (!ready(TunnelState.status.value)) {
