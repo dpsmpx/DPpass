@@ -742,6 +742,107 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         }
     }
 
+    /**
+     * Fixed, non-mutating cross-component evidence. The 0.7.69 exact-host
+     * optimizer already verified www.youtube.com, but its winner must not
+     * silently be applied to youtubei.googleapis.com, i.ytimg.com or
+     * shared googlevideo IPs. Native target aliases exclude AUTO feedback.
+     */
+    private fun startYoutubeService() {
+        if (job?.isActive == true) return
+        if (!ready(TunnelState.status.value)) {
+            statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
+            host.toast(statusText.text)
+            return
+        }
+        val network = NetworkCheck.underlying(context).type.toString()
+        val targets = Zapret2ProbeCatalog.serviceTargets
+        val methods = Zapret2ProbeCatalog.serviceStrategies
+        val repeat = Zapret2ProbeCatalog.SERVICE_REPEATS
+        val total = targets.size * methods.size * repeat
+        runButton.isEnabled = false
+        dnsButton.isEnabled = false
+        matrixButton.isEnabled = false
+        h3Button.isEnabled = false
+        siteButton.isEnabled = false
+        siteQuicButton.isEnabled = false
+        serviceButton.isEnabled = false
+        siteInput.isEnabled = false
+        progress.max = total
+        progress.progress = 0
+        progress.visibility = View.VISIBLE
+        resultText.visibility = View.GONE
+        job = host.scope.launch {
+            try {
+                val rows = mutableListOf<Zapret2GoogleAttempt>()
+                serviceScan@ for (attempt in 1..repeat) {
+                    for (target in targets) {
+                        for (method in methods) {
+                            ensureActive()
+                            if (!ready(TunnelState.status.value) ||
+                                NetworkCheck.underlying(context).type.toString() != network) {
+                                statusText.text = context.getString(
+                                    R.string.zapret2_site_search_expired)
+                                return@launch
+                            }
+                            statusText.text = context.getString(
+                                R.string.zapret2_autotest_progress, rows.size, total,
+                                Zapret2ProbeCatalog.targetLabel(target), method, attempt, repeat)
+                            val response = try {
+                                withContext(Dispatchers.IO) {
+                                    JniXrayRuntime.probeZapret2Google(
+                                        method, target, SITE_TIMEOUT_MILLIS)
+                                }
+                            } catch (_: LinkageError) {
+                                Zapret2GoogleProbe.unavailable()
+                            }
+                            ensureActive()
+                            rows += Zapret2GoogleAttempt(method, attempt, response, target)
+                            progress.progress = rows.size
+                            if (response.outcome == "engine_off" ||
+                                response.outcome == "contract_error") {
+                                statusText.text = "Проверка остановлена: ${response.outcome}"
+                                return@launch
+                            }
+                        }
+                    }
+                }
+                if (rows.size != total) {
+                    statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
+                    return@launch
+                }
+                val report = Zapret2ServiceReport.render(network, rows)
+                resultText.text = report
+                resultText.visibility = View.VISIBLE
+                val copied = try {
+                    context.getSystemService(ClipboardManager::class.java)?.let {
+                        it.setPrimaryClip(ClipData.newPlainText(
+                            "DPpass YouTube service components", report))
+                        true
+                    } ?: false
+                } catch (_: SecurityException) { false }
+                  catch (_: IllegalStateException) { false }
+                statusText.text = context.getString(
+                    if (copied) R.string.zapret2_autotest_done
+                    else R.string.zapret2_autotest_copy_failed)
+                host.toast(statusText.text)
+            } catch (_: CancellationException) {
+                statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
+                throw CancellationException("YouTube service diagnostics cancelled")
+            } finally {
+                job = null
+                siteInput.isEnabled = true
+                runButton.isEnabled = ready(TunnelState.status.value)
+                dnsButton.isEnabled = ready(TunnelState.status.value)
+                matrixButton.isEnabled = ready(TunnelState.status.value)
+                h3Button.isEnabled = ready(TunnelState.status.value)
+                siteButton.isEnabled = ready(TunnelState.status.value)
+                siteQuicButton.isEnabled = ready(TunnelState.status.value)
+                serviceButton.isEnabled = ready(TunnelState.status.value)
+            }
+        }
+    }
+
     private companion object {
         const val REPEATS = 2
         const val TIMEOUT_MILLIS = 8_000
