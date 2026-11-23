@@ -116,10 +116,24 @@ func resolveFixedDoH(ctx context.Context, inst *core.Instance, providerName stri
     return resolveFixedDoHForQuestion(ctx,inst,providerName,zapret2DoHQuestion)
 }
 func resolveFixedDoHForQuestion(ctx context.Context, inst *core.Instance, providerName, question string) fixedDoHAnswer {
+    return resolvePreparedDoHQuestion(ctx,inst,providerName,question,newFixedDoHQuestionFor(question))
+}
+
+// Only an explicit, user-initiated hostname accepted by the site-search
+// allowlist can enter this route. The legacy fixed-target resolver above
+// retains its strict two-name allowlist and cannot be expanded indirectly.
+func resolveOptInSiteDoH(ctx context.Context, inst *core.Instance, hostname string) fixedDoHAnswer {
+    if !validOptInSiteHost(hostname) {return fixedDoHAnswer{status:"invalid_target"}}
+    question:=hostname+"."
+    msg:=new(dns.Msg)
+    msg.SetQuestion(question,dns.TypeA)
+    msg.Id=0
+    return resolvePreparedDoHQuestion(ctx,inst,"google",question,msg)
+}
+
+func resolvePreparedDoHQuestion(ctx context.Context, inst *core.Instance, providerName, question string, msg *dns.Msg) fixedDoHAnswer {
     provider,ok:=zapret2DoHProviders[providerName]
-    if !ok {return fixedDoHAnswer{status:"invalid_target"}}
-    msg:=newFixedDoHQuestionFor(question)
-    if msg==nil {return fixedDoHAnswer{status:"invalid_target"}}
+    if !ok || msg==nil {return fixedDoHAnswer{status:"invalid_target"}}
     wire,err:=msg.Pack()
     if err!=nil {return fixedDoHAnswer{status:"doh_invalid"}}
 
