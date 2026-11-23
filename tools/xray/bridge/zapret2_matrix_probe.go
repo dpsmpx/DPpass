@@ -371,6 +371,11 @@ type matrixPacketConn struct {
     sent atomic.Bool
     reply atomic.Bool
     firstReplyHeader atomic.Int32
+    initialTx atomic.Int32
+    peerRx atomic.Int32
+    firstInitialNano atomic.Int64
+    firstReplyNano atomic.Int64
+    maxInitialBytes atomic.Int32
 }
 
 // Header classes describe only apparent public QUIC packet-header bytes.
@@ -434,6 +439,8 @@ func (p *matrixPacketConn) ReadFrom(b []byte) (int,net.Addr,error) {
     n,err:=p.Conn.Read(b)
     if n>0 {
         p.firstReplyHeader.CompareAndSwap(0,matrixPeerHeaderClass(b[:n]))
+        p.peerRx.Add(1)
+        p.firstReplyNano.CompareAndSwap(0,time.Now().UnixNano())
         p.reply.Store(true)
     }
     return n,p.remote,err
@@ -443,7 +450,19 @@ func (p *matrixPacketConn) WriteTo(b []byte,addr net.Addr) (int,error) {
         return 0,errors.New("matrix UDP destination mismatch")
     }
     n,err:=p.Conn.Write(b)
-    if n>0 {p.sent.Store(true)}
+    if n>0 {
+        p.sent.Store(true)
+        // QUIC Initial retransmissions are counted, not guessed from
+        // elapsed time. Size and timing are anonymous numerical metrics.
+        if matrixPeerHeaderClass(b[:n])==matrixPeerInitialHeader {
+            p.initialTx.Add(1)
+            p.firstInitialNano.CompareAndSwap(0,time.Now().UnixNano())
+            for {
+                old:=p.maxInitialBytes.Load()
+                if int32(n)<=old || p.maxInitialBytes.CompareAndSwap(old,int32(n)) {break}
+            }
+        }
+    }
     return n,err
 }
 func (p *matrixPacketConn) LocalAddr() net.Addr {
@@ -452,10 +471,21 @@ func (p *matrixPacketConn) LocalAddr() net.Addr {
 func (p *matrixPacketConn) SetReadDeadline(t time.Time) error {return p.Conn.SetReadDeadline(t)}
 func (p *matrixPacketConn) SetWriteDeadline(t time.Time) error {return p.Conn.SetWriteDeadline(t)}
 
-func matrixQUIC(ctx context.Context,raw net.Conn,ip,host string,version quic.Version) Zapret2HTTPSResult {
-    out:=Zapret2HTTPSResult{Outcome:"quic_failed",TLSStage:"udp_connected",ALPN:"-"}
+func (p *matrixPacketConn) metrics(out *Zapret2HTTPSResult) {
+    out.QuicMetrics=true
+    out.QuicInitialTx=min(p.initialTx.Load(),255)
+    out.QuicPeerRx=min(p.peerRx.Load(),255)
+    out.QuicMaxInitialBytes=min(p.maxInitialBytes.Load(),65535)
+    sent,received:=p.firstInitialNano.Load(),p.firstReplyNano.Load()
+    if sent>0 && received>=sent {
+        out.QuicFirstReplyMillis=min((received-sent)/int64(time.Millisecond),60000)
+    }
+}
+func matrixQUIC(ctx context.Context,raw net.Conn,ip,host string,version quic.Version) (out Zapret2HTTPSResult) {
+    out=Zapret2HTTPSResult{Outcome:"quic_failed",TLSStage:"udp_connected",ALPN:"-"}
     remote:=&net.UDPAddr{IP:net.ParseIP(ip).To4(),Port:443}
     packets:=&matrixPacketConn{Conn:raw,remote:remote}
+    defer packets.metrics(&out)
     cfg:=&tls.Config{ServerName:host,RootCAs:probeRoots,
         MinVersion:tls.VersionTLS13,NextProtos:[]string{"h3"}}
     conn,err:=quic.Dial(ctx,packets,remote,cfg,&quic.Config{Versions:[]quic.Version{version}})
