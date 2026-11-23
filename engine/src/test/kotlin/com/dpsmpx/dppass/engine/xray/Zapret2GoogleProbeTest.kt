@@ -239,4 +239,65 @@ class Zapret2GoogleProbeTest {
         assertEquals(listOf("fake-5","tlsrec-split"), Zapret2ProbeCatalog.dnsStrategies)
     }
 
+
+    @Test fun dnsV3CapturesResolverHttp505AndAllAddressEvidence() {
+        val http11Failure = Zapret2GoogleProbe.fromWire(
+            "v3\tdoh_http_status\t0\t0\t318\t0\t0\t-\t0\t505\t1\t0\t0\t0"
+                .replace("\\t", "\t").encodeToByteArray())
+        assertEquals("doh_http_status", http11Failure.outcome)
+        assertEquals(505, http11Failure.dohHttpStatus)
+        assertEquals(1, http11Failure.dohProtocol)
+        assertEquals(0, http11Failure.dnsChecked)
+
+        val resolvedButBlocked = Zapret2GoogleProbe.fromWire(
+            "v3\ttimeout_tls\t0\t0\t17800\t0\t0\t6f706c12\t8\t200\t2\t8\t0\t0"
+                .replace("\\t", "\t").encodeToByteArray())
+        assertEquals("timeout_tls", resolvedButBlocked.outcome)
+        assertEquals(2, resolvedButBlocked.dohProtocol)
+        assertEquals(8, resolvedButBlocked.dnsChecked)
+        assertEquals(0, resolvedButBlocked.dnsTlsReady)
+        assertEquals(0, resolvedButBlocked.dnsHttpReady)
+        assertFalse(resolvedButBlocked.httpReachable)
+
+        val good = Zapret2GoogleProbe.fromWire(
+            "v3\thttp_reachable\t403\t0\t15000\t0\t0\t6f706c12\t8\t200\t2\t8\t1\t1"
+                .replace("\\t", "\t").encodeToByteArray())
+        assertEquals(403, good.httpStatus)
+        assertEquals(1, good.dnsTlsReady)
+        assertEquals(1, good.dnsHttpReady)
+        assertTrue(good.httpReachable)
+    }
+
+    @Test fun dnsV3RejectsImpossibleCountersAndIPLeak() {
+        for (wire in listOf(
+            "v3\ttimeout_tls\t0\t0\t100\t0\t0\t6f706c12\t8\t200\t2\t9\t0\t0",
+            "v3\ttimeout_tls\t0\t0\t100\t0\t0\t6f706c12\t8\t200\t2\t8\t9\t0",
+            "v3\ttimeout_tls\t0\t0\t100\t0\t0\t6f706c12\t8\t200\t2\t8\t0\t1",
+            "v3\ttimeout_tls\t0\t0\t100\t0\t0\t1.1.1.1\t8\t200\t2\t8\t0\t0",
+        )) {
+            assertEquals("contract_error",
+                Zapret2GoogleProbe.fromWire(wire.replace("\\t", "\t").encodeToByteArray()).outcome)
+        }
+    }
+
+    @Test fun dnsReportShowsQuad9HttpCodeSeparatelyFromYouTubeTls() {
+        val attempts = listOf(
+            Zapret2GoogleAttempt("fake-5", 1,
+                Zapret2GoogleProbe.fromWire(
+                    "v3\tdoh_http_status\t0\t0\t320\t0\t0\t-\t0\t505\t1\t0\t0\t0"
+                        .replace("\\t", "\t").encodeToByteArray()), "youtube_api_dns_quad9"),
+            Zapret2GoogleAttempt("fake-5", 1,
+                Zapret2GoogleProbe.fromWire(
+                    "v3\ttimeout_tls\t0\t0\t18000\t0\t0\t6f706c12\t8\t200\t2\t8\t0\t0"
+                        .replace("\\t", "\t").encodeToByteArray()), "youtube_api_dns_google"),
+        )
+        val report = Zapret2DNSComparisonReport.render("2026-11-23", "MOBILE", attempts)
+        assertTrue(report.contains("doh_http_codes=505"))
+        assertTrue(report.contains("doh_protocols=2"))
+        assertTrue(report.contains("ipv4_checked=8"))
+        assertTrue(report.contains("ip_tls_ok=0"))
+        assertTrue(report.contains("http_replies=0"))
+        assertFalse(report.contains("8.8.8.8"))
+    }
+
 }
