@@ -380,14 +380,20 @@ class Zapret2GoogleProbeTest {
 
     @Test fun http3RequiresThreeQUICVerifiedIndependentAttemptsAndExpires() {
         fun attempt(outcome: String, protocol: String = "quic",
-                stage: String = "quic_tls_verified", alpn: String = "h3") =
-            Zapret2GoogleAttempt("plain", 1,
+                stage: String = "quic_tls_verified", alpn: String = "h3",
+                number: Int = 3) =
+            Zapret2GoogleAttempt("plain", number,
                 Zapret2GoogleProbe(outcome, 0, 0, 120, 0, 0,
                     "aabbccdd", 8, 3, protocol, stage, alpn),
                 "youtube_api_h3_ip03_quic")
-        val valid = listOf(attempt("quic_verified"),
-            attempt("quic_verified"), attempt("quic_verified"))
+        val valid = listOf(attempt("quic_verified", number=1),
+            attempt("quic_verified", number=2), attempt("quic_verified", number=3))
         assertTrue(Zapret2H3Policy.stable(valid))
+        assertFalse(Zapret2H3Policy.stable(List(3) { attempt("quic_verified", number=1) }))
+        assertFalse(Zapret2H3Policy.stable(listOf(
+            attempt("quic_verified", number=1),
+            attempt("quic_verified", number=2),
+            attempt("quic_verified", number=2))))
         assertFalse(Zapret2H3Policy.stable(valid.take(2)))
         assertFalse(Zapret2H3Policy.stable(valid + valid.first()))
         assertFalse(Zapret2H3Policy.stable(valid.dropLast(1) +
@@ -409,15 +415,16 @@ class Zapret2GoogleProbeTest {
     }
 
     @Test fun http3ReportNeverExposesRawIPOrConflatesHandshakeWithApi() {
-        fun row(index: Int, proto: String, outcome: String, status: Int) =
-            Zapret2GoogleAttempt("plain", 1,
+        fun row(index: Int, proto: String, outcome: String, status: Int,
+                number: Int = 1) =
+            Zapret2GoogleAttempt("plain", number,
                 Zapret2GoogleProbe(outcome, status, 8, 120, 0, 0,
                     "ab12ef34", 8, index, proto, "quic_tls_verified", "h3"),
                 Zapret2H3Policy.target(index, proto))
         val dns = Zapret2GoogleAttempt("plain", 1,
             Zapret2GoogleProbe("dns_ready",200,0,110,0,0,
                 "ab12ef34",8,0,"dns","none","-"),"youtube_api_h3_prepare")
-        val good = listOf(dns) + List(3) { row(3,"quic","quic_verified",0) } +
+        val good = listOf(dns) + List(3) { row(3,"quic","quic_verified",0, it+1) } +
             listOf(row(3,"h3","http_reachable",404),
                 row(3,"h3api","h3_api_http_rejected",403))
         val report = Zapret2H3Report.render("test","MOBILE",good)
@@ -504,6 +511,47 @@ class Zapret2GoogleProbeTest {
             failedWithReply,
             row(1, 2, "quic_verified", "quic_tls_verified"),
             row(1, 3, "quic_verified", "quic_tls_verified"))))
+    }
+
+
+    @Test fun v2ComparisonIsGatedOnVerifiedGoogleControl() {
+        fun control(number: Int, outcome: String, stage: String, alpn: String,
+                protocol: String = "quicv2", target: String = "google_control_ip00_quicv2") =
+            Zapret2GoogleAttempt("plain", number,
+                Zapret2GoogleProbe(outcome, 0, 0, 5000, 0, 0,
+                    "6f706c12", 8, 0, protocol, stage, alpn), target)
+        val valid = control(1, "quic_verified", "quic_tls_verified", "h3")
+        assertTrue(Zapret2H3Policy.verifiedV2Control(valid))
+        assertFalse(Zapret2H3Policy.verifiedV2Control(
+            control(1, "quic_timeout_after_reply", "quic_peer_vn_header", "-")))
+        assertFalse(Zapret2H3Policy.verifiedV2Control(
+            control(1, "quic_verified", "quic_tls_verified", "h3", protocol="quic")))
+        assertFalse(Zapret2H3Policy.verifiedV2Control(
+            control(1, "quic_verified", "quic_tls_verified", "h3",
+                target="youtube_api_h3_ip00_quicv2")))
+        val rows = listOf(control(1, "quic_timeout_after_reply",
+                "quic_peer_vn_header", "-"),
+            control(2, "quic_timeout_after_reply", "quic_peer_vn_header", "-"))
+        val report = Zapret2H3Report.render("test", "MOBILE", rows)
+        assertTrue(report.contains(
+            "QUIC v2 YouTube matrix skipped: Google v2 pre-control did not verify TLS+ALPN h3."))
+        assertTrue(report.contains(
+            "Experimental QUIC v2: tested_ipv4=0 tls_verified=0; HTTP/3 v2 NOT attempted."))
+    }
+
+    @Test fun intermittentV1ReportNeverClaimsThreeOfThree() {
+        fun result(number: Int, success: Boolean) = Zapret2GoogleAttempt("plain", number,
+            Zapret2GoogleProbe(if (success) "quic_verified" else "quic_timeout_no_reply",
+                0, 0, if (success) 139 else 5001, 0, 0,
+                "6f706c12", 8, 1, "quic",
+                if (success) "quic_tls_verified" else "quic_initial_sent",
+                if (success) "h3" else "-"), "youtube_api_h3_ip01_quic")
+        val rows = listOf(result(1,true), result(2,false), result(3,true))
+        assertFalse(Zapret2H3Policy.stable(rows))
+        val report = Zapret2H3Report.render("test", "MOBILE", rows)
+        assertTrue(report.contains("ipv4_index=1 quic_successes=2/3 stable=false"))
+        assertTrue(report.contains("QUIC v1 intermittent_indices=1"))
+        assertTrue(report.contains("No address passed 3/3 independent QUIC handshakes."))
     }
 
     @Test fun quicV2ExperimentalWireAndReportRemainDiagnosticOnly() {
