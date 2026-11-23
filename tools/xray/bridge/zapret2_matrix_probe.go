@@ -15,6 +15,7 @@ import (
     "errors"
     "io"
     "net"
+    "syscall"
     "net/http"
     "strconv"
     "strings"
@@ -34,28 +35,43 @@ type matrixSpec struct {
     index int
     protocol string
     prepare bool
+    control bool
 }
 
+// Probe identifiers are finite; no URL, remote host or raw IP can be passed
+// from the UI to the native network layer.
 func parseMatrixTarget(id string) (matrixSpec, bool) {
-    const prefix = "youtube_api_matrix_"
-    if !strings.HasPrefix(id,prefix) { return matrixSpec{}, false }
+    if id=="google_control_prepare" {
+        return matrixSpec{provider:"google",prepare:true,control:true},true
+    }
+    if strings.HasPrefix(id,"google_control_") {
+        index,proto,ok:=parseMatrixIndexProtocol(strings.TrimPrefix(id,"google_control_"),2)
+        if !ok {return matrixSpec{},false}
+        return matrixSpec{provider:"google",index:index,protocol:proto,control:true},true
+    }
+    const prefix="youtube_api_matrix_"
+    if !strings.HasPrefix(id,prefix) {return matrixSpec{},false}
     suffix:=strings.TrimPrefix(id,prefix)
     for provider:=range zapret2DoHProviders {
         if !strings.HasPrefix(suffix,provider+"_") {continue}
         rest:=strings.TrimPrefix(suffix,provider+"_")
         if rest=="prepare" {return matrixSpec{provider:provider,prepare:true},true}
-        parts:=strings.Split(rest,"_")
-        if len(parts)!=2 || len(parts[0])!=4 || !strings.HasPrefix(parts[0],"ip") {
-            return matrixSpec{},false
-        }
-        n,err:=strconv.Atoi(parts[0][2:])
-        if err!=nil || n<0 || n>=16 {return matrixSpec{},false}
-        if parts[1]!="h1" && parts[1]!="h2" && parts[1]!="quic" {
-            return matrixSpec{},false
-        }
-        return matrixSpec{provider:provider,index:n,protocol:parts[1]},true
+        index,proto,ok:=parseMatrixIndexProtocol(rest,16)
+        if !ok {return matrixSpec{},false}
+        return matrixSpec{provider:provider,index:index,protocol:proto},true
     }
     return matrixSpec{},false
+}
+func parseMatrixIndexProtocol(rest string,limit int) (int,string,bool) {
+    parts:=strings.Split(rest,"_")
+    if len(parts)!=2 || len(parts[0])!=4 || !strings.HasPrefix(parts[0],"ip") {
+        return 0,"",false
+    }
+    n,err:=strconv.Atoi(parts[0][2:])
+    if err!=nil || n<0 || n>=limit {return 0,"",false}
+    proto:=parts[1]
+    if proto!="h1" && proto!="h2" && proto!="quic" {return 0,"",false}
+    return n,proto,true
 }
 
 // A successful, explicitly requested prepare replaces the cache. Cache is
@@ -68,8 +84,8 @@ var matrixRRsets = struct {
     answers map[string]fixedDoHAnswer
 }{}
 
-func matrixPrepare(ctx context.Context, inst *core.Instance, provider string) fixedDoHAnswer {
-    answer:=resolveFixedDoH(ctx,inst,provider)
+func matrixPrepare(ctx context.Context, inst *core.Instance, cacheKey, provider, question string) fixedDoHAnswer {
+    answer:=resolveFixedDoHForQuestion(ctx,inst,provider,question)
     matrixRRsets.Lock()
     defer matrixRRsets.Unlock()
     if matrixRRsets.instance!=inst || time.Now().After(matrixRRsets.expiry) {
@@ -77,8 +93,8 @@ func matrixPrepare(ctx context.Context, inst *core.Instance, provider string) fi
     }
     matrixRRsets.instance=inst
     matrixRRsets.expiry=time.Now().Add(45*time.Minute)
-    delete(matrixRRsets.answers,provider)
-    if answer.status=="ok" {matrixRRsets.answers[provider]=answer}
+    delete(matrixRRsets.answers,cacheKey)
+    if answer.status=="ok" {matrixRRsets.answers[cacheKey]=answer}
     return answer
 }
 
@@ -106,9 +122,20 @@ func matrixProbe(ctx context.Context, inst *core.Instance, strategy, targetID st
     out:=Zapret2HTTPSResult{Outcome:"invalid_target",DnsFingerprint:"-",
         Protocol:"dns",TLSStage:"none",ALPN:"-"}
     if !ok {return out}
+    cacheKey:=spec.provider
+    question:=zapret2DoHQuestion
+    if spec.control {
+        // Exactly the same protected private Xray TCP/UDP and per-socket
+        // instrumentation, but a well-known control hostname and pinned
+        // Google DoH A-answer set.
+        cacheKey="google_control"
+        question=zapret2ControlDoHQuestion
+        target=zapret2TestTarget{host:"www.google.com",path:"/",
+            contentKind:"http_transport",ipv4Only:true}
+    }
     if spec.prepare {
         if strategy!="plain" {return out}
-        answer:=matrixPrepare(ctx,inst,spec.provider)
+        answer:=matrixPrepare(ctx,inst,cacheKey,spec.provider,question)
         out.Outcome=answer.status
         if answer.status=="ok" {
             out.Outcome="dns_ready"
@@ -118,10 +145,10 @@ func matrixProbe(ctx context.Context, inst *core.Instance, strategy, targetID st
         out.HTTPStatus=answer.httpStatus
         return out
     }
-    if !matrixStrategyAllowed(strategy,spec.protocol) {return out}
+    if !matrixStrategyAllowed(strategy,spec.protocol) || (spec.control && strategy!="plain") {return out}
     out.Protocol=spec.protocol
     out.IPIndex=spec.index
-    answer,ok:=matrixPrepared(inst,spec.provider)
+    answer,ok:=matrixPrepared(inst,cacheKey)
     if !ok {out.Outcome="dns_not_prepared";return out}
     out.DnsFingerprint=answer.fingerprint
     out.DnsAnswers=len(answer.ips)
@@ -142,7 +169,7 @@ func matrixProbe(ctx context.Context, inst *core.Instance, strategy, targetID st
     defer close(done)
     go func() {select {case <-ctx.Done():_=raw.Close();case <-done:}}()
     if spec.protocol=="quic" {
-        return matrixWithMetadata(matrixQUIC(ctx,raw,ip),out)
+        return matrixWithMetadata(matrixQUIC(ctx,raw,ip,target.host),out)
     }
     return matrixWithMetadata(matrixHTTP(ctx,raw,target,spec.protocol),out)
 }
@@ -308,11 +335,11 @@ func (p *matrixPacketConn) LocalAddr() net.Addr {
 func (p *matrixPacketConn) SetReadDeadline(t time.Time) error {return p.Conn.SetReadDeadline(t)}
 func (p *matrixPacketConn) SetWriteDeadline(t time.Time) error {return p.Conn.SetWriteDeadline(t)}
 
-func matrixQUIC(ctx context.Context,raw net.Conn,ip string) Zapret2HTTPSResult {
+func matrixQUIC(ctx context.Context,raw net.Conn,ip,host string) Zapret2HTTPSResult {
     out:=Zapret2HTTPSResult{Outcome:"quic_failed",TLSStage:"udp_connected",ALPN:"-"}
     remote:=&net.UDPAddr{IP:net.ParseIP(ip).To4(),Port:443}
     packets:=&matrixPacketConn{Conn:raw,remote:remote}
-    cfg:=&tls.Config{ServerName:"youtubei.googleapis.com",RootCAs:probeRoots,
+    cfg:=&tls.Config{ServerName:host,RootCAs:probeRoots,
         MinVersion:tls.VersionTLS13,NextProtos:[]string{"h3"}}
     conn,err:=quic.Dial(ctx,packets,remote,cfg,&quic.Config{})
     if err!=nil {
