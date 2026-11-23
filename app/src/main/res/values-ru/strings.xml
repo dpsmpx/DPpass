@@ -882,6 +882,7 @@
     <string name="alpine_exited">Оболочка завершилась (код %1$d)</string>
     <string name="alpine_failed">Ошибка Alpine: %1$s</string>
     <string name="alpine_missing">PRoot ARM64 не включён в APK. Соберите с -Pdppass.alpine=true.</string>
+    <string name="zapret2_dns_compare_button">Сравнить DNS: Cloudflare / Google / Quad9 (TLS YouTube API, 16 проб)</string>
     <string name="zapret2_autotest_title">Zapret2 · диагностика Google и YouTube</string>
     <string name="zapret2_autotest_subtitle">Одна кнопка: 6 HTTPS-целей × 8 TCP-режимов × 2 попытки; полный отчёт в буфер обмена</string>
     <string name="zapret2_autotest_note">Тест через работающий VPN, не меняющий обычную стратегию: 96 HTTPS/HTTP1.1 попыток. Проверяет отдельный фиксированный поисковый запрос Google, а YouTube API — через DNS текущих настроек и отдельный исходящий только IPv4. Для тайм-аутов указывается этап (TCP, TLS, HTTP). HTML не доказывает полноценные результаты поиска, а HTTP 4xx от API — загрузку ленты и видео. Отчёт копируется по завершении.</string>
