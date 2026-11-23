@@ -31,7 +31,7 @@ diagnostic screen, then press **Test all IPv4, TLS / HTTP2 / QUIC**.
 4. For each address test protected TCP/443 with `plain`, `fake-5`,
    `tlsrec-split`, each offering HTTP/1.1 or HTTP/2 over verified TLS.
    Per-probe socket observation separates TCP dial, ClientHello sent,
-   peer TLS bytes seen, full verified TLS and HTTP status.
+   peer TLS bytes seen, a parsed unencrypted ServerHello, full verified TLS and HTTP status.
    ALPN must negotiate `h2` for the HTTP/2 probe.
 5. Also send a genuine QUIC v1 TLS 1.3 handshake over a separate protected,
    pinned UDP/443 connection with the original hostname and ALPN `h3`.
@@ -52,7 +52,7 @@ run until its deadline. The report is copied to clipboard if permitted.
   bytes seen before deadline; compatible with selective network filtering.
 - `timeout_tls_after_reply stage=server_reply_seen`: some peer bytes were
   seen, but the handshake was not verified; not proof of ServerHello.
-- `tls_alert`: a TLS Alert record was the first peer reply.
+- `serverhello_seen`: an unencrypted TLS ServerHello record was identified; this does not prove complete or verified TLS.\n- `tls_alert`: a TLS Alert record was the first peer reply.
 - `tls_verified` + `h2`: the certificate chain and HTTP/2 ALPN succeeded;
   HTTP `2xx/4xx` proves unauthenticated transport only.
 - `quic_verified`: valid QUIC handshake and certificate, **not** HTTP/3 or
