@@ -31,13 +31,27 @@ object Zapret2ProbeCatalog {
         "youtube_thumbnail",
     )
 
+    /** Independent, opt-in DNS comparison; not part of the 96-request autotest. */
+    val dnsTargets: List<String> = listOf(
+        "youtube_api_ipv4",
+        "youtube_api_dns_cloudflare",
+        "youtube_api_dns_google",
+        "youtube_api_dns_quad9",
+    )
+    // The two modes that repeatedly delivered www.youtube.com HTML in
+    // on-device tests. These controls never train a new global winner.
+    val dnsStrategies: List<String> = listOf("fake-5", "tlsrec-split")
+
     /** User-visible diagnostic meaning for each allowlisted probe ID. */
     fun targetLabel(id: String): String = when (id) {
         "google_final" -> "www.google.com/ (HTML)"
         "google_search" -> "www.google.com/search?q=site:example.com (HTML, not verified search results)"
         "youtube_home" -> "www.youtube.com/ (HTML)"
         "youtube_api_transport" -> "youtubei.googleapis.com/youtubei/v1/browse (TLS+HTTP, configured DNS)"
-        "youtube_api_ipv4" -> "youtubei.googleapis.com/youtubei/v1/browse (TLS+HTTP, IPv4-only control)"
+        "youtube_api_ipv4" -> "youtubei.googleapis.com (configured DNS, IPv4-only control)"
+        "youtube_api_dns_cloudflare" -> "youtubei.googleapis.com via Cloudflare DoH (pinned 1.1.1.1)"
+        "youtube_api_dns_google" -> "youtubei.googleapis.com via Google DoH (pinned 8.8.8.8)"
+        "youtube_api_dns_quad9" -> "youtubei.googleapis.com via Quad9 DoH (pinned 9.9.9.9)"
         "youtube_thumbnail" -> "i.ytimg.com/ (JPEG)"
         else -> "unknown"
     }
