@@ -73,9 +73,17 @@ type Zapret2HTTPSResult struct {
     Elapsed time.Duration
     AppliedDelta int64
     SkippedDelta int64
+    // Only nonempty for fixed-DoH experimental controls. No raw IPs.
+    DnsFingerprint string
+    DnsAnswers int
 }
 
 func (r Zapret2HTTPSResult) Wire() []byte {
+    if r.DnsFingerprint!="" {
+        return []byte(fmt.Sprintf("v2\t%s\t%d\t%d\t%d\t%d\t%d\t%s\t%d",
+            r.Outcome,r.HTTPStatus,r.BodyBytes,r.Elapsed.Milliseconds(),
+            r.AppliedDelta,r.SkippedDelta,r.DnsFingerprint,r.DnsAnswers))
+    }
     return []byte(fmt.Sprintf("v1\t%s\t%d\t%d\t%d\t%d\t%d",
         r.Outcome, r.HTTPStatus, r.BodyBytes, r.Elapsed.Milliseconds(),
         r.AppliedDelta, r.SkippedDelta))
@@ -170,6 +178,15 @@ func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2
     tag, valid := zapret2TestStrategies[strategy]
     if !valid { return out }
     target, valid := zapret2TestTargets[targetID]
+    dohProvider := ""
+    if !valid && strings.HasPrefix(targetID,"youtube_api_dns_") {
+        p:=strings.TrimPrefix(targetID,"youtube_api_dns_")
+        if validateFixedDoHProvider(p) {
+            dohProvider=p
+            target=zapret2TestTargets["youtube_api_ipv4"]
+            valid=true
+        }
+    }
     if !valid { out.Outcome = "invalid_target"; return out }
     if target.ipv4Only { tag += "-ipv4" }
     if timeout < time.Second || timeout > 15*time.Second {
@@ -207,6 +224,9 @@ func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2
     }
     ctx, cancel := context.WithTimeout(context.Background(), timeout)
     defer cancel()
+    if dohProvider!="" {
+        return finish(probeWithFixedDoH(ctx,inst,strategy,dohProvider,target))
+    }
     dest := xnet.Destination{Network:xnet.Network_TCP,
         Address:xnet.ParseAddress(target.host), Port:443}
     forced := session.SetForcedOutboundTagToContext(ctx, tag)
