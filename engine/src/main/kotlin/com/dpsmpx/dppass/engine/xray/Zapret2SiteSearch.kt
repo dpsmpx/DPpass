@@ -170,7 +170,7 @@ object Zapret2SiteSearch {
                     " successful; stable=${candidate.stable}; mean_success_ms=${candidate.meanLatency ?: "-"}")
             }
             appendLine("Выбор: ${recommendation.method ?: "-"} — ${recommendation.label}")
-            if (commit != null) appendLine("AUTO: ${commit.outcome}")
+            appendLine("AUTO: ${commit?.outcome ?: "not_applied"}")
             appendLine("QUIC TLS — не доказательство HTTP/3 GET, работы API или воспроизведения.")
             appendLine("HTTPS 2xx с небольшим телом — не доказательство авторизации или работы всего сайта.")
             appendLine("Другие IP/CDN/поддомены/протоколы не проверялись.")
