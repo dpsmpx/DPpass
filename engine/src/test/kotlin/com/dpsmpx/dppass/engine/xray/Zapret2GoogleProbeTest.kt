@@ -239,4 +239,56 @@ class Zapret2GoogleProbeTest {
         assertEquals(listOf("fake-5","tlsrec-split"), Zapret2ProbeCatalog.dnsStrategies)
     }
 
+
+    @Test fun matrixV3StrictProtocolStagesAndBackwardsCompatibility() {
+        val tls = Zapret2GoogleProbe.fromWire(
+            "v3\\ttimeout_tls_no_reply\\t0\\t0\\t5000\\t1\\t0\\t6f706c12\\t8\\t7\\th2\\tclienthello_sent\\t-"
+                .replace("\\t", "\t").encodeToByteArray())
+        assertEquals("timeout_tls_no_reply", tls.outcome)
+        assertEquals("clienthello_sent", tls.tlsStage)
+        assertEquals("h2", tls.protocol)
+        assertEquals(7, tls.ipIndex)
+        assertEquals(8, tls.dnsAnswers)
+        val dns = Zapret2GoogleProbe.fromWire(
+            "v3\\tdoh_http_status\\t400\\t0\\t311\\t0\\t0\\t-\\t0\\t0\\tdns\\tnone\\t-"
+                .replace("\\t", "\t").encodeToByteArray())
+        assertEquals("doh_http_status", dns.outcome)
+        assertEquals(400, dns.httpStatus)
+        assertEquals("contract_error", Zapret2GoogleProbe.fromWire(
+            "v3\\thttp_reachable\\t403\\t100\\t200\\t0\\t0\\t6f706c12\\t8\\t8\\th2\\ttls_verified\\th2"
+                .replace("\\t", "\t").encodeToByteArray()).outcome)
+        assertEquals("contract_error", Zapret2GoogleProbe.fromWire(
+            "v3\\thttp_reachable\\t403\\t100\\t200\\t0\\t0\\t6f706c12\\t8\\t0\\th3\\ttls_verified\\th3"
+                .replace("\\t", "\t").encodeToByteArray()).outcome)
+        assertTrue(Zapret2GoogleProbe.fromWire(
+            "v1\\tok\\t200\\t8192\\t240\\t0\\t0".replace("\\t", "\t").encodeToByteArray()).success)
+    }
+
+    @Test fun matrixReportKeepsPerIPStagesAndDoHHTTPStatusWithoutRawAddresses() {
+        fun row(target: String, strategy: String, wire: String) =
+            Zapret2GoogleAttempt(strategy, 1,
+                Zapret2GoogleProbe.fromWire(wire.replace("\\t", "\t").encodeToByteArray()), target)
+        val rows = listOf(
+            row("youtube_api_matrix_cloudflare_prepare", "plain",
+                "v3\\tdns_ready\\t200\\t0\\t100\\t0\\t0\\t6f706c12\\t8\\t0\\tdns\\tnone\\t-"),
+            row("youtube_api_matrix_google_prepare", "plain",
+                "v3\\tdns_ready\\t200\\t0\\t120\\t0\\t0\\t6f706c12\\t8\\t0\\tdns\\tnone\\t-"),
+            row("youtube_api_matrix_quad9_prepare", "plain",
+                "v3\\tdoh_http_status\\t400\\t0\\t300\\t0\\t0\\t-\\t0\\t0\\tdns\\tnone\\t-"),
+            row("youtube_api_matrix_cloudflare_ip07_h2", "fake-5",
+                "v3\\ttimeout_tls_no_reply\\t0\\t0\\t5000\\t0\\t0\\t6f706c12\\t8\\t7\\th2\\tclienthello_sent\\t-"),
+            row("youtube_api_matrix_cloudflare_ip07_quic", "plain",
+                "v3\\tquic_verified\\t0\\t0\\t220\\t0\\t0\\t6f706c12\\t8\\t7\\tquic\\tquic_tls_verified\\th3"),
+        )
+        val report = Zapret2MatrixReport.render("2026-11-23", "MOBILE", rows)
+        assertTrue(report.contains("resolver=quad9 outcome=doh_http_status doh_http=400"))
+        assertTrue(report.contains("Duplicate short RRset fingerprint"))
+        assertTrue(report.contains("ipv4_index=7"))
+        assertTrue(report.contains("stage=clienthello_sent"))
+        assertTrue(report.contains("quic_verified=1"))
+        assertTrue(report.contains("No global DNS, routing or AUTO preference is changed"))
+        assertFalse(report.contains("8.8.8.8"))
+        assertEquals(3, Zapret2ProbeCatalog.matrixStrategies.size)
+        assertEquals(3, Zapret2ProbeCatalog.matrixProviders.size)
+    }
 }
