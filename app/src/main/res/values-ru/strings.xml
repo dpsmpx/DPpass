@@ -931,4 +931,6 @@
     <string name="zapret2_site_search_invalid">Введите публичный домен без https://, порта, пути, локального адреса или IP.</string>
     <string name="zapret2_site_search_dns_fail">Проверенный DoH не дал подходящего публичного IPv4. AUTO не изменён.</string>
     <string name="zapret2_site_search_expired">Сеть изменилась, поиск прерван или истёк срок DNS (5 минут). Выбор AUTO не применён.</string>
+    <string name="zapret2_youtube_paths_button">Проверить страницу, API и CDN YouTube (H1/H2)</string>
+    <string name="zapret2_youtube_paths_note">Ручная проверка через защищённые DoH и TLS/Xray: главная, анонимный POST API, миниатюра CDN. Сравнение plain, tlsrec-split и fake-5 по HTTP/1.1 и HTTP/2 с повторами. Ошибка API 4xx — только проверка транспорта, миниатюра не доказывает воспроизведение. AUTO и VPN не меняются.</string>
 </resources>
