@@ -890,4 +890,7 @@
     <string name="model_ready_reconnect">Model saved. It will be activated after reconnection.</string>
     <string name="model_removed">Local model deleted. Built-in selection remains available.</string>
     <string name="model_generation_failed">Model generation or installation failed; existing selection was preserved.</string>
+
+    <string name="zapret2_matrix_button">Test all IPv4, TLS / HTTP2 / QUIC</string>
+    <string name="zapret2_matrix_note">Extended network diagnostics: up to 16 IPs per unique verified DNS set, HTTP/1.1, HTTP/2 and QUIC. May take several minutes and use mobile data; regular VPN settings are unchanged.</string>
 </resources>
