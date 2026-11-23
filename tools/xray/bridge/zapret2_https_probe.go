@@ -104,7 +104,7 @@ func classifyProbeHTTP(code int, contentType string, body []byte, readErr error,
     if code >= 300 && code < 400 { return "redirect" }
     // This is ONLY a transport probe: unauthenticated GET on an API that
     // normally needs POST/keys. 4xx is not working feed content.
-    if target.contentKind == "http_transport" {
+    if target.contentKind == "http_transport" || target.contentKind == "api_browse" {
         if code >= 200 && code < 500 { return "http_reachable" }
         return "http_status"
     }
@@ -200,6 +200,9 @@ func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2
     // reachable by ordinary routing, redirects or Android system DNS.
     if strings.HasPrefix(targetID,"site_") {
         return probeSiteSearchHTTPS(strategy,targetID,timeout)
+    }
+    if strings.HasPrefix(targetID,"yt_path_") {
+        return probeYoutubePath(strategy,targetID,timeout)
     }
     started := time.Now()
     out := Zapret2HTTPSResult{Outcome:"invalid_strategy"}
