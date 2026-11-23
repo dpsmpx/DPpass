@@ -10,6 +10,7 @@ import (
     "errors"
     "strings"
     "sync"
+    "time"
     "unicode"
 )
 
@@ -30,6 +31,11 @@ const adaptiveSmallResponseThreshold = 12 * 1024
 const adaptiveSmallResponseCount = 3
 const adaptiveMaxHosts = 1024
 const adaptiveMaxTargets = 512
+// A transient no-reply timeout is not proof of DPI. After two independent
+// read timeouts with the same method on the same host+protocol, pause that
+// method briefly instead of repeatedly blocking new connections.
+const adaptiveStallThreshold = 2
+const adaptiveStallCooldown = 90 * time.Second
 
 // Published atomically from a first Write and observed by concurrent Close.
 type adaptivePick struct {
@@ -45,6 +51,8 @@ type adaptiveEntry struct {
     smallResponses map[string]int
     probeSeeded bool // eligible for smaller verified-HTML responses
     usage map[string]int // bounded per-destination cold-start exploration
+    stalls map[string]int // per-method consecutive verified ClientHello read timeouts
+    cooldown map[string]time.Time // short-lived per-method circuit breaker
 }
 
 // Probe evidence is distinct from transport-byte heuristics. It comes from
@@ -176,18 +184,44 @@ func (a *adaptiveSelector) chooseWithGeneration(host string, candidates []string
     }
     e := a.entries[host]
     if e == nil { e = &adaptiveEntry{}; a.entries[host] = e }
+    now := time.Now()
+    blocked := func(strategy string) bool {
+        if e.cooldown == nil { return false }
+        until, exists := e.cooldown[strategy]
+        if !exists { return false }
+        if !now.Before(until) {
+            delete(e.cooldown, strategy)
+            return false
+        }
+        return true
+    }
     if e.preferred != "" {
         for _, candidate := range candidates {
-            if candidate == e.preferred { return e.preferred, a.generation }
+            if candidate == e.preferred && !blocked(e.preferred) {
+                return e.preferred, a.generation
+            }
+        }
+        if blocked(e.preferred) {
+            e.preferred = ""
+            e.probeSeeded = false
         }
     }
+    // Preserve established candidate ordering and the plain baseline
+    // unless an independent timeout-based circuit breaker is active.
     tag := candidates[e.index%len(candidates)]
+    for offset := 0; offset < len(candidates); offset++ {
+        choice := candidates[(e.index+offset)%len(candidates)]
+        if !blocked(choice) {
+            tag = choice
+            break
+        }
+    }
     // The optional locally generated MLP influences cold-start ordering only;
     // every fifth connection still explores the deterministic rotation.
     // A local neural prior must not suppress the plain TCP baseline.
     // Always try "pass" when its deterministic turn arrives, even with MLP.
     if tag != "pass" && e.index%5 != 4 {
-        if ranked, ok := zapret2Neural.rank(host, candidates, e.usage); ok {
+        if ranked, ok := zapret2Neural.rank(host, candidates, e.usage); ok && !blocked(ranked) {
             tag = ranked
         }
     }
@@ -209,10 +243,48 @@ func (a *adaptiveSelector) observeTracked(host, strategy string, payloadBytes in
     a.observeLocked(host, strategy, payloadBytes)
 }
 
+// A first-reply timeout is stronger evidence than an ordinary Close with
+// zero bytes: the application may deliberately cancel an unopened request.
+// Keep only one event per connection (desyncConn.stageReadTimedOut).
+func (a *adaptiveSelector) observeStallTracked(host, strategy string, generation uint64) {
+    a.mu.Lock()
+    defer a.mu.Unlock()
+    if a.generation != generation { return }
+    host = canonicalAdaptiveHost(host)
+    e := a.entries[host]
+    if e == nil { return }
+    known := false
+    for _, candidate := range adaptiveCandidates {
+        if candidate == strategy { known = true; break }
+    }
+    if !known { return }
+    if e.stalls == nil { e.stalls = make(map[string]int) }
+    e.stalls[strategy]++
+    if e.stalls[strategy] >= adaptiveStallThreshold {
+        if e.cooldown == nil { e.cooldown = make(map[string]time.Time) }
+        e.cooldown[strategy] = time.Now().Add(adaptiveStallCooldown)
+        e.stalls[strategy] = 0
+        if e.preferred == strategy {
+            e.preferred = ""
+            e.probeSeeded = false
+            e.weakFailures = 0
+            e.smallResponses = nil
+        }
+    }
+    a.observeLocked(host, strategy, 0)
+}
+
 func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int64) {
     host = canonicalAdaptiveHost(host)
     e := a.entries[host]
     if e == nil { return }
+    // Meaningful downstream data clears previous timeout suspicions for
+    // this exact host, transport and technique. Mere TCP dial success,
+    // HTTP headers or a zero-byte Close never clears the circuit breaker.
+    if payloadBytes >= adaptiveSmallResponseThreshold {
+        if e.stalls != nil { delete(e.stalls, strategy) }
+        if e.cooldown != nil { delete(e.cooldown, strategy) }
+    }
     // The same observations drive the old conservative per-host pinning
     // AND, if explicitly installed, the optional global neural prior.
     // Do not train on simulated selectors used by unit tests.
