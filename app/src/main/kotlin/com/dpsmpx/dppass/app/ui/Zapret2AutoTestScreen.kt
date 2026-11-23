@@ -28,8 +28,8 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * One-tap, in-app Google/YouTube HTTPS diagnostics. On first display, tests
- * every VpnService TCP candidate twice against each fixed target,
+ * Two opt-in Google/YouTube diagnostics. The 96-request suite must never
+ * auto-run when the shorter 16-request DNS-only comparison is available;
  * without changing the VPN profile or opening a browser.
  *
  * The user can leave to cancel between attempts; a cancelled/partial test
@@ -38,7 +38,7 @@ import java.util.Locale
  */
 class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autotest_title) {
     private val runButton: Button = Ui.button(
-        context, R.string.zapret2_autotest_again, Ui.Style.PRIMARY, R.drawable.ic_speed)
+        context, R.string.zapret2_autotest_full_button, Ui.Style.PRIMARY, R.drawable.ic_speed)
     private val dnsButton: Button = Ui.button(
         context, R.string.zapret2_dns_compare_button, Ui.Style.PRIMARY, R.drawable.ic_dns)
     private val progress = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -68,7 +68,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     override fun onShown() {
         if (!started) {
             started = true
-            start()
+            statusText.text = context.getString(R.string.zapret2_autotest_choose)
+            render(TunnelState.status.value)
         }
     }
 
