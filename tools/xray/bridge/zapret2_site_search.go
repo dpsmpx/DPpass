@@ -265,17 +265,17 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
         siteSearchState.Unlock()
         return finish(result)
     }
-    session,ready:=siteSearchReady(inst,request.host,gen)
+    preparedRun,ready:=siteSearchReady(inst,request.host,gen)
     if !ready {result.Outcome="dns_not_prepared";return finish(result)}
-    result.DnsFingerprint=session.answer.fingerprint
-    result.DnsAnswers=len(session.answer.ips)
+    result.DnsFingerprint=preparedRun.answer.fingerprint
+    result.DnsAnswers=len(preparedRun.answer.ips)
     if request.kind=="site_apply" {
         if siteSearchCommit(inst,request.host,strategy,gen) {
             result.Outcome="auto_applied"
         }else{result.Outcome="auto_no_winner"}
         return finish(result)
     }
-    if request.index>=len(session.answer.ips) {
+    if request.index>=len(preparedRun.answer.ips) {
         result.Outcome="invalid_index";return finish(result)
     }
     allowed:=false
@@ -288,7 +288,7 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     }
     if !allowed {result.Outcome="invalid_strategy";return finish(result)}
     result.IPIndex=request.index
-    ip:=session.answer.ips[request.index] // public only; never sent in report
+    ip:=preparedRun.answer.ips[request.index] // public only; never sent in report
     network:=xnet.Network_TCP
     if request.kind=="quic" {network=xnet.Network_UDP}
     dest:=xnet.Destination{Network:network,
