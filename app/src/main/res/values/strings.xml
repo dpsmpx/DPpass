@@ -895,4 +895,11 @@
     <string name="zapret2_matrix_note">Google controls (up to 2 IPv4 addresses) run before the YouTube address matrix. Includes Quad9 HTTP/2 DoH, TLS close/reset/timeout and protected QUIC. Can take several minutes and use mobile data; the active VPN remains unchanged.</string>
     <string name="zapret2_h3_button">Retest YouTube QUIC + real HTTP/3 API</string>
     <string name="zapret2_h3_note">Short opt-in network experiment. Rechecks every YouTube A address, requires 3 successful independent QUIC h3 handshakes, then performs a real bounded HTTP/3 GET and an anonymous fixed JSON browse POST. Only temporary candidates are used; VPN routing and AUTO stay unchanged.</string>
+    <string name="zapret2_site_search_host_hint">Domain, e.g. example.org (no URL or path)</string>
+    <string name="zapret2_site_search_button">Find optimal HTTPS strategy and apply to AUTO</string>
+    <string name="zapret2_site_quic_button">Compare QUIC methods for this site (diagnostics)</string>
+    <string name="zapret2_site_search_note">Opt-in scan: public IPv4 via verified protected Google DoH, up to two IPs, 3 independent connections per method. Compares plain TCP, splits, TLS record + TCP split, fake TTL + split, and disorder. Only verified 3/3 HTTPS with a weaker baseline may update exact-host AUTO for new connections. QUIC only tests handshakes; never trains other hosts, shares URLs, or changes VPN routing. Can consume mobile data.</string>
+    <string name="zapret2_site_search_invalid">Enter a public domain without https://, port, path, local address or IP.</string>
+    <string name="zapret2_site_search_dns_fail">Protected DoH did not return a usable public IPv4 for this domain. AUTO remains unchanged.</string>
+    <string name="zapret2_site_search_expired">Network changed, scan was interrupted, or the five-minute address limit was reached. No AUTO selection applied.</string>
 </resources>
