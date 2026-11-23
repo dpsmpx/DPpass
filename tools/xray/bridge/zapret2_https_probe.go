@@ -203,7 +203,13 @@ func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2
     }
     if !valid { out.Outcome = "invalid_target"; return out }
     if target.ipv4Only { tag += "-ipv4" }
-    if timeout < time.Second || timeout > 15*time.Second {
+    // Multi-IP DoH diagnostics need a larger bounded deadline; the regular
+    // 96-request HTTPS suite retains its original maximum of 15 seconds.
+    maxTimeout:=15*time.Second
+    if dohProvider!="" || targetID=="youtube_api_ipv4" {
+        maxTimeout=25*time.Second
+    }
+    if timeout < time.Second || timeout > maxTimeout {
         out.Outcome = "invalid_timeout"
         return out
     }
