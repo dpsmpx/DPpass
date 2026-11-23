@@ -32,7 +32,7 @@ object Zapret2SiteSearch {
     fun normalizedHost(value: String): String? {
         val trimmed = value.trim().trimEnd('.')
         if (trimmed.isEmpty() || trimmed.length > 253 ||
-            trimmed.contains(Regex("[/:@?#%\\\\\\s]"))) return null
+            trimmed.any { it.isWhitespace() || it in ":/@?#%" || it == '\\' }) return null
         val ascii = try {
             IDN.toASCII(trimmed, IDN.USE_STD3_ASCII_RULES).lowercase(Locale.ROOT)
         } catch (_: IllegalArgumentException) { return null }
@@ -160,7 +160,7 @@ object Zapret2SiteSearch {
             appendLine("=== DPpass — автоматический поиск стратегий ===")
             appendLine("Сайт по запросу пользователя: $host")
             appendLine("Сеть: $network")
-            appendLine("Протокол: " + if (quic) "QUIC v1 / TLS 1.3 / ALPN h3" else "HTTPS / TLS / HTTP1.1")
+            appendLine("Протокол: " + (if (quic) "QUIC v1 / TLS 1.3 / ALPN h3" else "HTTPS / TLS / HTTP1.1"))
             appendLine("DoH: ${prepared.outcome}; IPv4=${prepared.dnsAnswers}; fingerprint=${prepared.dnsFingerprint}")
             appendLine("Проверены максимум 2 IPv4, по 3 независимых соединения на метод; не меняем глобальные DNS/маршруты.")
             for (candidate in recommendation.candidates) {
