@@ -161,3 +161,37 @@ func TestSiteSearchRestoresPlainBaselineWhenStable(t *testing.T) {
         t.Fatalf("AUTO failed to restore original unmodified TCP, got %s",got)
     }
 }
+
+
+func TestSiteVerifiedAUTOHintSurvivesBenignShortClosesButNotRepeatedReadTimeouts(t *testing.T) {
+    host:="www.youtube.com"
+    inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1","8.8.8.8"})
+    for index:=0;index<2;index++ {
+        for attempt:=1;attempt<=3;attempt++ {
+            siteSearchRecord(inst,host,gen,index,attempt,"h1","plain","timeout_tls_no_reply",6000)
+            siteSearchRecord(inst,host,gen,index,attempt,"h1","tlsrec-split","ok",1100)
+        }
+    }
+    if !siteSearchCommit(inst,host,"tlsrec-split",gen) {t.Fatal("6/6 native verified hint not applied")}
+    for i:=0;i<4;i++ {
+        zapret2Auto.observeTracked(host,"tlsrec-split",0,gen)
+        if got:=zapret2Auto.choose(host);got!="tlsrec-split" {
+            t.Fatalf("legitimate short close demoted 6/6 winner: %s",got)
+        }
+    }
+    zapret2Auto.observeStallTracked(host,"tlsrec-split",gen)
+    if got:=zapret2Auto.choose(host);got!="tlsrec-split" {
+        t.Fatalf("single new read timeout demoted 6/6 winner: %s",got)
+    }
+    zapret2Auto.observeStallTracked(host,"tlsrec-split",gen)
+    if got:=zapret2Auto.choose(host);got=="tlsrec-split" {
+        t.Fatal("two independent explicit first-reply timeouts must release pinned winner")
+    }
+    zapret2Auto.mu.Lock()
+    cooled:=zapret2Auto.entries[host].cooldown["tlsrec-split"]
+    seeded:=zapret2Auto.entries[host].siteVerifiedPin
+    zapret2Auto.mu.Unlock()
+    if !cooled.After(time.Now())||seeded {
+        t.Fatal("cooldown did not prevent stale site-verified 6/6 pin from remaining active")
+    }
+}
