@@ -141,3 +141,23 @@ func TestSiteSearchExpiredRunNeverPromotesOrChangesAUTO(t *testing.T) {
     }
     if got:=zapret2Auto.choose(host);got!="split-1" {t.Fatal(got)}
 }
+
+func TestSiteSearchRestoresPlainBaselineWhenStable(t *testing.T) {
+    host:="www.example.org"
+    inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1","8.8.8.8"})
+    // Simulate a stale prior workaround without disabling existing streams.
+    zapret2Auto.mu.Lock()
+    zapret2Auto.entries[host]=&adaptiveEntry{preferred:"fake-5"}
+    zapret2Auto.mu.Unlock()
+    for ip:=0;ip<2;ip++ {
+        for attempt:=1;attempt<=3;attempt++ {
+            siteSearchRecord(inst,host,gen,ip,attempt,"h1","plain","ok",500)
+        }
+    }
+    if !siteSearchCommit(inst,host,"plain",gen) {
+        t.Fatal("verified original TLS/HTTP was not selected")
+    }
+    if got:=zapret2Auto.choose(host);got!="pass" {
+        t.Fatalf("AUTO failed to restore original unmodified TCP, got %s",got)
+    }
+}
