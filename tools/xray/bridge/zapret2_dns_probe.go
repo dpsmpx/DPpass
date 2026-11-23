@@ -48,6 +48,7 @@ type fixedDoHAnswer struct {
     ips []string
     fingerprint string // first 32 bits of SHA256 of sorted A RRset; not an IP
     status string
+    httpStatus int
 }
 
 func publicIPv4Answers(reply *dns.Msg, question string) []string {
@@ -94,6 +95,9 @@ func resolveFixedDoH(ctx context.Context, inst *core.Instance, providerName stri
     if !ok {return fixedDoHAnswer{status:"invalid_target"}}
     msg:=new(dns.Msg)
     msg.SetQuestion(zapret2DoHQuestion,dns.TypeA)
+    // RFC 8484: DNS message ID MUST be zero for DNS-over-HTTPS.
+    // Quad9 may reject a nonzero ID with HTTP 400.
+    msg.Id=0
     wire,err:=msg.Pack()
     if err!=nil {return fixedDoHAnswer{status:"doh_invalid"}}
 
@@ -127,7 +131,7 @@ func resolveFixedDoH(ctx context.Context, inst *core.Instance, providerName stri
     resp,err:=http.ReadResponse(bufio.NewReader(tlsConn),req)
     if err!=nil {return fixedDoHAnswer{status:fixedDoHReplyStatus(err,ctx,"headers")}}
     defer resp.Body.Close()
-    if resp.StatusCode != http.StatusOK {return fixedDoHAnswer{status:"doh_http_status"}}
+    if resp.StatusCode != http.StatusOK {return fixedDoHAnswer{status:"doh_http_status",httpStatus:resp.StatusCode}}
     if !strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")),
         "application/dns-message") {return fixedDoHAnswer{status:"doh_invalid"}}
     body,err:=io.ReadAll(io.LimitReader(resp.Body,4097))
@@ -141,7 +145,7 @@ func resolveFixedDoH(ctx context.Context, inst *core.Instance, providerName stri
     ips:=publicIPv4Answers(parsed,zapret2DoHQuestion)
     if len(ips)==0 {return fixedDoHAnswer{status:"doh_no_ipv4"}}
     sum:=sha256.Sum256([]byte(strings.Join(ips,",")))
-    return fixedDoHAnswer{ips:ips,fingerprint:hex.EncodeToString(sum[:4]),status:"ok"}
+    return fixedDoHAnswer{ips:ips,fingerprint:hex.EncodeToString(sum[:4]),status:"ok",httpStatus:200}
 }
 
 func validateFixedDoHProvider(name string) bool {
@@ -157,7 +161,7 @@ func probeWithFixedDoH(ctx context.Context, inst *core.Instance, strategy, provi
     out:=Zapret2HTTPSResult{Outcome:"doh_invalid",DnsFingerprint:"-",DnsAnswers:0}
     if !validateFixedDoHProvider(providerName) {return out}
     answer:=resolveFixedDoH(ctx,inst,providerName)
-    if answer.status!="ok" {out.Outcome=answer.status;return out}
+    if answer.status!="ok" {out.Outcome=answer.status;out.HTTPStatus=answer.httpStatus;return out}
     out.DnsFingerprint=answer.fingerprint
     out.DnsAnswers=len(answer.ips)
     // Select a stable IPv4 from each authenticated DNS answer set. A result
