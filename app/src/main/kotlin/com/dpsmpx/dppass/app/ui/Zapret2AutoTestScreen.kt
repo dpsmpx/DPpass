@@ -408,6 +408,22 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                             row.result.alpn == "h3") viable += index
                     }
 
+                    // A single returned datagram may be a Version Negotiation,
+                    // Retry, truncated packet or unrelated/invalid UDP response.
+                    // Recheck at most two failed-first-attempt addresses once,
+                    // strictly as evidence. These cannot qualify for H3.
+                    val peerReplyRechecks = Zapret2H3Policy.peerReplyRechecks(rows)
+                    progress.max = done + peerReplyRechecks.size
+                    for (index in peerReplyRechecks) {
+                        if (!Zapret2H3Policy.fresh(preparedAt,
+                                SystemClock.elapsedRealtime())) {
+                            expired = true
+                            break
+                        }
+                        attempt(Zapret2H3Policy.target(index, "quic"),
+                            2, 2, MATRIX_TIMEOUT_MILLIS)
+                    }
+
                     // Two more independent QUIC handshakes for each positive
                     // first-pass IP. Zero- or one-success guesses never become
                     // eligible for application-level traffic.
