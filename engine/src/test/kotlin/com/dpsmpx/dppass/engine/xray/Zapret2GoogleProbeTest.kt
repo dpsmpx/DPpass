@@ -347,4 +347,85 @@ class Zapret2GoogleProbeTest {
             assertFalse(r.httpReachable)
         }
     }
+
+    @Test fun http3WireCodesAndFixedTargetPlannerRemainPrivacySafe() {
+        fun row(index: Int, protocol: String, outcome: String,
+                status: Int, stage: String = "quic_tls_verified") =
+            Zapret2GoogleAttempt("plain", 1,
+                Zapret2GoogleProbe.fromWire(listOf("v3", outcome,
+                    status.toString(), "64", "130", "0", "0", "ab12ef34",
+                    "8", index.toString(), protocol, stage, "h3"
+                ).joinToString("\t").encodeToByteArray()),
+                Zapret2H3Policy.target(index, protocol))
+        val get = row(3, "h3", "http_reachable", 404)
+        val post = row(3, "h3api", "h3_api_json_valid", 200)
+        assertEquals("http_reachable", get.result.outcome)
+        assertEquals("h3", get.result.protocol)
+        assertTrue(get.result.httpReachable)
+        assertEquals("h3_api_json_valid", post.result.outcome)
+        assertFalse(post.result.httpReachable)
+        assertEquals("youtube_api_h3_ip03_h3api", post.target)
+        for (bad in listOf("h3_failed", "h3_request_failed",
+                "h3_timeout_headers", "h3_api_http_rejected",
+                "h3_api_content_type", "h3_api_body_failed",
+                "h3_api_empty", "h3_api_body_limit", "h3_api_json_invalid")) {
+            assertEquals(bad, row(3, "h3api", bad, 0).result.outcome)
+        }
+        assertEquals("contract_error", Zapret2GoogleProbe.fromWire(
+            listOf("v3", "h3_api_json_valid", "200", "64", "130", "0", "0",
+                "ab12ef34", "8", "8", "h3api", "quic_tls_verified", "h3")
+                .joinToString("\t").encodeToByteArray()).outcome)
+    }
+
+    @Test fun http3RequiresThreeQUICVerifiedIndependentAttemptsAndExpires() {
+        fun attempt(outcome: String, protocol: String = "quic",
+                stage: String = "quic_tls_verified", alpn: String = "h3") =
+            Zapret2GoogleAttempt("plain", 1,
+                Zapret2GoogleProbe(outcome, 0, 0, 120, 0, 0,
+                    "aabbccdd", 8, 3, protocol, stage, alpn),
+                "youtube_api_h3_ip03_quic")
+        val valid = listOf(attempt("quic_verified"),
+            attempt("quic_verified"), attempt("quic_verified"))
+        assertTrue(Zapret2H3Policy.stable(valid))
+        assertFalse(Zapret2H3Policy.stable(valid.take(2)))
+        assertFalse(Zapret2H3Policy.stable(valid + valid.first()))
+        assertFalse(Zapret2H3Policy.stable(valid.dropLast(1) +
+            attempt("quic_timeout_no_reply", stage="quic_initial_sent", alpn="-")))
+        assertFalse(Zapret2H3Policy.stable(valid.dropLast(1) +
+            attempt("quic_verified", protocol="h3")))
+        assertFalse(Zapret2H3Policy.stable(valid.dropLast(1) +
+            attempt("quic_verified", alpn="-")))
+        assertTrue(Zapret2H3Policy.fresh(1000, 1000))
+        assertTrue(Zapret2H3Policy.fresh(1000, 1000+Zapret2H3Policy.TTL_MILLIS-1))
+        assertFalse(Zapret2H3Policy.fresh(1000, 1000+Zapret2H3Policy.TTL_MILLIS))
+        assertFalse(Zapret2H3Policy.fresh(1000, 999))
+        assertThrows(IllegalArgumentException::class.java) {
+            Zapret2H3Policy.target(16, "h3")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            Zapret2H3Policy.target(3, "http3")
+        }
+    }
+
+    @Test fun http3ReportNeverExposesRawIPOrConflatesHandshakeWithApi() {
+        fun row(index: Int, proto: String, outcome: String, status: Int) =
+            Zapret2GoogleAttempt("plain", 1,
+                Zapret2GoogleProbe(outcome, status, 8, 120, 0, 0,
+                    "ab12ef34", 8, index, proto, "quic_tls_verified", "h3"),
+                Zapret2H3Policy.target(index, proto))
+        val dns = Zapret2GoogleAttempt("plain", 1,
+            Zapret2GoogleProbe("dns_ready",200,0,110,0,0,
+                "ab12ef34",8,0,"dns","none","-"),"youtube_api_h3_prepare")
+        val good = listOf(dns) + List(3) { row(3,"quic","quic_verified",0) } +
+            listOf(row(3,"h3","http_reachable",404),
+                row(3,"h3api","h3_api_http_rejected",403))
+        val report = Zapret2H3Report.render("test","MOBILE",good)
+        assertTrue(report.contains("ipv4_index=3 quic_successes=3/3 stable=true"))
+        assertTrue(report.contains("Selected experimental HTTP/3 transport: ipv4_index=3"))
+        assertTrue(report.contains("Anonymous API JSON response: ipv4_index=-"))
+        assertTrue(report.contains("a usable YouTube feed is NOT established"))
+        assertFalse(report.contains("8.8.8.8"))
+        assertFalse(report.contains("1.1.1.1"))
+        assertFalse(report.contains("198.51.100.1"))
+    }
 }
