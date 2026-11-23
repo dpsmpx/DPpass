@@ -41,7 +41,9 @@ object Zapret2SiteSearch {
         if (labels.any { it.length !in 1..63 || !it.matches(
                 Regex("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")) }) return null
         val tld = labels.last()
-        if (tld.length < 2 || !tld.all { it in 'a'..'z' } ||
+        val publicTld = if (tld.startsWith("xn--")) tld.length >= 6
+            else tld.length >= 2 && tld.all { it in 'a'..'z' }
+        if (!publicTld ||
             tld in setOf("local", "localhost", "internal", "lan", "home",
                 "test", "invalid", "example", "onion", "arpa")) return null
         return ascii
