@@ -2,6 +2,7 @@ package com.dpsmpx.dppass.app.ui
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.os.SystemClock
 import android.view.View
 import android.widget.Button
 import android.widget.ProgressBar
@@ -18,6 +19,8 @@ import com.dpsmpx.dppass.engine.xray.Zapret2GoogleProbe
 import com.dpsmpx.dppass.engine.xray.Zapret2GoogleReport
 import com.dpsmpx.dppass.engine.xray.Zapret2DNSComparisonReport
 import com.dpsmpx.dppass.engine.xray.Zapret2MatrixReport
+import com.dpsmpx.dppass.engine.xray.Zapret2H3Policy
+import com.dpsmpx.dppass.engine.xray.Zapret2H3Report
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -44,6 +47,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         context, R.string.zapret2_dns_compare_button, Ui.Style.PRIMARY, R.drawable.ic_dns)
     private val matrixButton: Button = Ui.button(
         context, R.string.zapret2_matrix_button, Ui.Style.PRIMARY, R.drawable.ic_speed)
+    private val h3Button: Button = Ui.button(
+        context, R.string.zapret2_h3_button, Ui.Style.PRIMARY, R.drawable.ic_speed)
     private val progress = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
         max = TOTAL
         visibility = View.GONE
@@ -66,6 +71,9 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         addView(matrixButton.apply { setOnClickListener { startMatrix() } }, Ui.matchWidth())
         addView(Ui.text(context, R.style.Text_DPpass_Caption,
             context.getString(R.string.zapret2_matrix_note)), Ui.matchWidth())
+        addView(h3Button.apply { setOnClickListener { startH3() } }, Ui.matchWidth())
+        addView(Ui.text(context, R.style.Text_DPpass_Caption,
+            context.getString(R.string.zapret2_h3_note)), Ui.matchWidth())
         addView(progress, Ui.matchWidth())
         addView(statusText, Ui.matchWidth())
         addView(resultText, Ui.matchWidth())
@@ -84,6 +92,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         runButton.isEnabled = ready(status)
         dnsButton.isEnabled = ready(status)
         matrixButton.isEnabled = ready(status)
+        h3Button.isEnabled = ready(status)
         if (!ready(status)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
         }
@@ -116,6 +125,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         runButton.isEnabled = false
         dnsButton.isEnabled = false
         matrixButton.isEnabled = false
+        h3Button.isEnabled = false
         progress.max = total
         progress.progress = 0
         progress.visibility = View.VISIBLE
@@ -190,6 +200,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 runButton.isEnabled = ready(TunnelState.status.value)
                 dnsButton.isEnabled = ready(TunnelState.status.value)
                 matrixButton.isEnabled = ready(TunnelState.status.value)
+                h3Button.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
@@ -210,6 +221,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         runButton.isEnabled = false
         dnsButton.isEnabled = false
         matrixButton.isEnabled = false
+        h3Button.isEnabled = false
         progress.visibility = View.VISIBLE
         progress.max = Zapret2ProbeCatalog.matrixProviders.size
         progress.progress = 0
@@ -304,6 +316,148 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 runButton.isEnabled = ready(TunnelState.status.value)
                 dnsButton.isEnabled = ready(TunnelState.status.value)
                 matrixButton.isEnabled = ready(TunnelState.status.value)
+                h3Button.isEnabled = ready(TunnelState.status.value)
+            }
+        }
+    }
+
+
+    /**
+     * Opt-in, short-lived target-specific HTTP/3 experiment. First check
+     * all fixed Google-DoH YouTube IPv4 addresses once; retry successes
+     * twice (three independent QUIC connections total). Only stable
+     * candidates receive an actual H3 GET and anonymous YouTube browse
+     * POST. Failing candidates are skipped automatically within this run;
+     * the normal VPN, system DNS and AUTO are never modified.
+     */
+    private fun startH3() {
+        if (job?.isActive == true) return
+        if (!ready(TunnelState.status.value)) {
+            statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
+            host.toast(statusText.text)
+            return
+        }
+        val network = NetworkCheck.underlying(context).type.toString()
+        val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ROOT).format(Date())
+        runButton.isEnabled = false
+        dnsButton.isEnabled = false
+        matrixButton.isEnabled = false
+        h3Button.isEnabled = false
+        progress.max = 1
+        progress.progress = 0
+        progress.visibility = View.VISIBLE
+        resultText.visibility = View.GONE
+        job = host.scope.launch {
+            val rows = mutableListOf<Zapret2GoogleAttempt>()
+            var done = 0
+            var expired = false
+            try {
+                suspend fun attempt(target: String, number: Int, maxAttempts: Int,
+                    timeout: Int): Zapret2GoogleAttempt {
+                    ensureActive()
+                    if (!ready(TunnelState.status.value)) {
+                        throw CancellationException("VpnService disconnected during H3 diagnostic")
+                    }
+                    statusText.text = context.getString(R.string.zapret2_autotest_progress,
+                        done, progress.max, target, "plain", number, maxAttempts)
+                    val result = try {
+                        withContext(Dispatchers.IO) {
+                            JniXrayRuntime.probeZapret2Google("plain", target, timeout)
+                        }
+                    } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
+                    ensureActive()
+                    val row = Zapret2GoogleAttempt("plain", number, result, target)
+                    rows += row
+                    done++
+                    progress.progress = done
+                    return row
+                }
+
+                val preparation = attempt("youtube_api_h3_prepare", 1, 1,
+                    DNS_TIMEOUT_MILLIS).result
+                if (preparation.outcome == "dns_ready" && preparation.dnsAnswers > 0) {
+                    val preparedAt = SystemClock.elapsedRealtime()
+                    val count = preparation.dnsAnswers.coerceAtMost(16)
+                    val viable = mutableListOf<Int>()
+                    progress.max = done + count
+                    for (index in 0 until count) {
+                        if (!Zapret2H3Policy.fresh(preparedAt,
+                                SystemClock.elapsedRealtime())) {
+                            expired = true
+                            break
+                        }
+                        val row = attempt(Zapret2H3Policy.target(index, "quic"),
+                            1, 3, MATRIX_TIMEOUT_MILLIS)
+                        if (row.result.outcome == "quic_verified" &&
+                            row.result.tlsStage == "quic_tls_verified" &&
+                            row.result.alpn == "h3") viable += index
+                    }
+
+                    // Two more independent QUIC handshakes for each positive
+                    // first-pass IP. Zero- or one-success guesses never become
+                    // eligible for application-level traffic.
+                    val stable = mutableListOf<Int>()
+                    progress.max = done + viable.size * 2
+                    for (index in viable) {
+                        if (!Zapret2H3Policy.fresh(preparedAt,
+                                SystemClock.elapsedRealtime())) {
+                            expired = true
+                            break
+                        }
+                        val quicRows = rows.filter {
+                            it.target == Zapret2H3Policy.target(index, "quic")
+                        }.toMutableList()
+                        for (number in 2..3) {
+                            val row = attempt(Zapret2H3Policy.target(index, "quic"),
+                                number, 3, MATRIX_TIMEOUT_MILLIS)
+                            quicRows += row
+                            if (row.result.outcome != "quic_verified") break
+                        }
+                        if (Zapret2H3Policy.stable(quicRows)) stable += index
+                    }
+
+                    progress.max = done + stable.size * 2
+                    for (index in stable) {
+                        if (!Zapret2H3Policy.fresh(preparedAt,
+                                SystemClock.elapsedRealtime())) {
+                            expired = true
+                            break
+                        }
+                        val get = attempt(Zapret2H3Policy.target(index, "h3"),
+                            1, 1, H3_TIMEOUT_MILLIS)
+                        // If HTTP/3 GET fails, this address is discarded in
+                        // favour of the next independently stable candidate.
+                        if (!get.result.httpReachable) continue
+                        val api = attempt(Zapret2H3Policy.target(index, "h3api"),
+                            1, 1, H3_TIMEOUT_MILLIS)
+                        if (api.result.outcome == "h3_api_json_valid") break
+                    }
+                }
+                val report = Zapret2H3Report.render(stamp, network, rows) +
+                    if (expired) "Experiment expired after five minutes; rerun for fresh DoH addresses.\n" else ""
+                resultText.text = report
+                resultText.visibility = View.VISIBLE
+                progress.max = done.coerceAtLeast(1)
+                progress.progress = done
+                val copied = try {
+                    context.getSystemService(ClipboardManager::class.java)?.let {
+                        it.setPrimaryClip(ClipData.newPlainText("DPpass protected HTTP3 YouTube API", report))
+                        true
+                    } ?: false
+                } catch (_: SecurityException) { false }
+                  catch (_: IllegalStateException) { false }
+                statusText.text = context.getString(
+                    if (copied) R.string.zapret2_autotest_done else R.string.zapret2_autotest_copy_failed)
+                host.toast(statusText.text)
+            } catch (_: CancellationException) {
+                statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
+                throw CancellationException("YouTube H3 diagnostic cancelled")
+            } finally {
+                job = null
+                runButton.isEnabled = ready(TunnelState.status.value)
+                dnsButton.isEnabled = ready(TunnelState.status.value)
+                matrixButton.isEnabled = ready(TunnelState.status.value)
+                h3Button.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
@@ -313,6 +467,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         const val TIMEOUT_MILLIS = 8_000
         const val DNS_TIMEOUT_MILLIS = 12_000
         const val MATRIX_TIMEOUT_MILLIS = 5_000
+        const val H3_TIMEOUT_MILLIS = 8_000
         val TOTAL: Int = Zapret2ProbeCatalog.targets.size *
             Zapret2ProbeCatalog.strategies.size * REPEATS
     }
