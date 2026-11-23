@@ -12,6 +12,7 @@ import (
     "context"
     "crypto/tls"
     "crypto/x509"
+    "encoding/binary"
     "encoding/json"
     "bytes"
     "errors"
@@ -357,10 +358,72 @@ type matrixPacketConn struct {
     remote *net.UDPAddr
     sent atomic.Bool
     reply atomic.Bool
+    firstReplyHeader atomic.Int32
 }
+
+// Header classes describe only apparent public QUIC packet-header bytes.
+// A matching header is not a verified server identity or completed handshake.
+const (
+    matrixPeerShortHeader int32 = iota + 1
+    matrixPeerVersionNegotiation
+    matrixPeerRetryHeader
+    matrixPeerInitialHeader
+    matrixPeerHandshakeHeader
+    matrixPeerLongOther
+    matrixPeerUnrecognized
+)
+
+func matrixPeerHeaderClass(datagram []byte) int32 {
+    if len(datagram)==0 {return matrixPeerUnrecognized}
+    if datagram[0]&0x80==0 {return matrixPeerShortHeader}
+    if len(datagram)<5 {return matrixPeerUnrecognized}
+    version:=binary.BigEndian.Uint32(datagram[1:5])
+    if version==0 {return matrixPeerVersionNegotiation}
+    // Check the fixed bit and the minimum long-header fields only.
+    // No CID, payload, token, address or unencrypted bytes are exported.
+    if datagram[0]&0x40==0 || len(datagram)<7 {
+        return matrixPeerUnrecognized
+    }
+    packetType:=(datagram[0]>>4)&3
+    switch version {
+    case 1: // RFC 9000: Initial(0), 0-RTT(1), Handshake(2), Retry(3)
+        switch packetType {
+        case 0: return matrixPeerInitialHeader
+        case 2: return matrixPeerHandshakeHeader
+        case 3: return matrixPeerRetryHeader
+        }
+    case 0x6b3343cf: // RFC 9369 QUIC v2: Retry(0), Initial(1), Handshake(3)
+        switch packetType {
+        case 0: return matrixPeerRetryHeader
+        case 1: return matrixPeerInitialHeader
+        case 3: return matrixPeerHandshakeHeader
+        }
+    }
+    return matrixPeerLongOther
+}
+
+func (p *matrixPacketConn) failureStage() string {
+    if p.reply.Load() {
+        switch p.firstReplyHeader.Load() {
+        case matrixPeerShortHeader: return "quic_peer_short_header"
+        case matrixPeerVersionNegotiation: return "quic_peer_vn_header"
+        case matrixPeerRetryHeader: return "quic_peer_retry_header"
+        case matrixPeerInitialHeader: return "quic_peer_initial_header"
+        case matrixPeerHandshakeHeader: return "quic_peer_handshake_header"
+        case matrixPeerLongOther: return "quic_peer_long_other"
+        default: return "quic_peer_unrecognized"
+        }
+    }
+    if p.sent.Load() {return "quic_initial_sent"}
+    return "udp_connected"
+}
+
 func (p *matrixPacketConn) ReadFrom(b []byte) (int,net.Addr,error) {
     n,err:=p.Conn.Read(b)
-    if n>0 {p.reply.Store(true)}
+    if n>0 {
+        p.firstReplyHeader.CompareAndSwap(0,matrixPeerHeaderClass(b[:n]))
+        p.reply.Store(true)
+    }
     return n,p.remote,err
 }
 func (p *matrixPacketConn) WriteTo(b []byte,addr net.Addr) (int,error) {
@@ -385,7 +448,7 @@ func matrixQUIC(ctx context.Context,raw net.Conn,ip,host string) Zapret2HTTPSRes
         MinVersion:tls.VersionTLS13,NextProtos:[]string{"h3"}}
     conn,err:=quic.Dial(ctx,packets,remote,cfg,&quic.Config{})
     if err!=nil {
-        if packets.reply.Load() {out.TLSStage="quic_peer_reply"} else if packets.sent.Load() {out.TLSStage="quic_initial_sent"}
+        out.TLSStage=packets.failureStage()
         switch {
         case ctx.Err()!=nil && packets.reply.Load():out.Outcome="quic_timeout_after_reply"
         case ctx.Err()!=nil:out.Outcome="quic_timeout_no_reply"
@@ -436,8 +499,7 @@ func matrixHTTP3(ctx context.Context,raw net.Conn,ip,host,mode string) Zapret2HT
         MinVersion:tls.VersionTLS13,NextProtos:[]string{http3.NextProtoH3}}
     conn,err:=quic.Dial(ctx,packets,remote,cfg,&quic.Config{})
     if err!=nil {
-        if packets.reply.Load() {out.TLSStage="quic_peer_reply"
-        } else if packets.sent.Load() {out.TLSStage="quic_initial_sent"}
+        out.TLSStage=packets.failureStage()
         switch {
         case ctx.Err()!=nil && packets.reply.Load():out.Outcome="quic_timeout_after_reply"
         case ctx.Err()!=nil:out.Outcome="quic_timeout_no_reply"
