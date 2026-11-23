@@ -4,6 +4,13 @@ package bridge
 
 import (
     "context"
+    "crypto/ecdsa"
+    "crypto/elliptic"
+    "crypto/rand"
+    "crypto/tls"
+    "crypto/x509"
+    "math/big"
+    "net/http"
     "encoding/binary"
     "errors"
     "io"
@@ -12,6 +19,9 @@ import (
     "strings"
     "testing"
     "time"
+
+    quic "github.com/apernet/quic-go"
+    "github.com/apernet/quic-go/http3"
 )
 
 func TestDoHRequestHasZeroIDAndFixedAQuestion(t *testing.T) {
@@ -218,5 +228,135 @@ func TestMatrixTLSUnexpectedEOFObservedFromLivePipe(t *testing.T) {
     got:=matrixHTTP(ctx,client,zapret2TestTargets["youtube_api_ipv4"],"h1")
     if got.Outcome!="tls_eof_no_reply" || got.TLSStage!="clienthello_sent" {
         t.Fatalf("live EOF should not be timeout: %+v",got)
+    }
+}
+
+func TestYouTubeH3TargetsCannotEscapeFixedIPv4OrProtocols(t *testing.T) {
+    for _,id:=range []string{
+        "youtube_api_h3_prepare","youtube_api_h3_ip03_quic",
+        "youtube_api_h3_ip00_h3","youtube_api_h3_ip15_h3api",
+    } {
+        spec,ok:=parseMatrixTarget(id)
+        if !ok || !spec.h3test || spec.provider!="google" {
+            t.Fatalf("rejected fixed H3 target %s: %+v",id,spec)
+        }
+    }
+    for _,id:=range []string{
+        "youtube_api_h3_ip16_quic","youtube_api_h3_ip-1_h3",
+        "youtube_api_h3_ip3_h3","youtube_api_h3_ip03_http3",
+        "youtube_api_h3_ip03_h3_extra","youtube_api_h3_ip03_h1",
+        "youtube_api_matrix_google_ip03_h3",
+        "google_control_ip00_h3api",
+        "youtube_api_h3_ip00_h3/../../other",
+    } {
+        if _,ok:=parseMatrixTarget(id);ok {t.Fatalf("accepted unallowlisted %s",id)}
+    }
+    if matrixStrategyAllowed("fake-5","h3") ||
+        matrixStrategyAllowed("tlsrec-split","h3api") {
+        t.Fatal("HTTP3 must bypass TCP strategy tags")
+    }
+    if !matrixStrategyAllowed("plain","h3") ||
+        !matrixStrategyAllowed("plain","h3api") {t.Fatal("plain H3 control missing")}
+    if got:=ProbeZapret2HTTPS("plain","youtube_api_h3_ip16_h3",8*time.Second);
+        got.Outcome!="invalid_target" {t.Fatalf("unapproved index: %+v",got)}
+}
+
+func TestH3AnonymousAPIClassificationNeverClaimsLargeJSONIsVerified(t *testing.T) {
+    cases:=[]struct{
+        code int
+        ctype string
+        body string
+        overflow bool
+        want string
+    }{
+        {200,"application/json; charset=UTF-8",`{"contents":[]}`,false,"h3_api_json_valid"},
+        {200,"application/json",`{"contents":`,false,"h3_api_json_invalid"},
+        {200,"application/json",`{"contents":`,true,"h3_api_body_limit"},
+        {401,"application/json",`{"error":"authentication required"}`,false,"h3_api_http_rejected"},
+        {403,"application/json","",false,"h3_api_http_rejected"},
+        {200,"text/html","<html>",false,"h3_api_content_type"},
+        {500,"application/json","{}",false,"http_status"},
+        {200,"application/json","",false,"h3_api_empty"},
+    }
+    for _,tc:=range cases {
+        got:=matrixH3ClassifyAPI(tc.code,tc.ctype,[]byte(tc.body),nil,tc.overflow)
+        if got!=tc.want {t.Errorf("http=%d body=%q got=%s want=%s",tc.code,tc.body,got,tc.want)}
+    }
+    if got:=matrixH3ClassifyAPI(200,"application/json",[]byte("{}"),
+        io.ErrUnexpectedEOF,false);got!="h3_api_body_failed" {
+        t.Fatalf("partial JSON read must not be accepted: %s",got)
+    }
+}
+
+func TestH3RealGETAndAnonymousBrowsePOSTOnLocalQUIC(t *testing.T) {
+    // Network-free integration: local UDP packets only. This proves that
+    // http3.NewClientConn sends HEADERS / DATA on the EXACT QUIC socket
+    // supplied to it, with validated TLS and ALPN h3. No internet or
+    // unprotected resolver access is required.
+    key,err:=ecdsa.GenerateKey(elliptic.P256(),rand.Reader)
+    if err!=nil {t.Fatal(err)}
+    now:=time.Now()
+    tpl:=&x509.Certificate{
+        SerialNumber:big.NewInt(1234),DNSNames:[]string{"youtubei.googleapis.com"},
+        NotBefore:now.Add(-time.Hour),NotAfter:now.Add(time.Hour),
+        KeyUsage:x509.KeyUsageDigitalSignature,
+        ExtKeyUsage:[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+    }
+    der,err:=x509.CreateCertificate(rand.Reader,tpl,tpl,&key.PublicKey,key)
+    if err!=nil {t.Fatal(err)}
+    parsed,err:=x509.ParseCertificate(der)
+    if err!=nil {t.Fatal(err)}
+    roots:=x509.NewCertPool()
+    roots.AddCert(parsed)
+    cert:=tls.Certificate{Certificate:[][]byte{der},PrivateKey:key}
+    methodSeen:=make(chan string,4)
+    server:=&http3.Server{
+        TLSConfig:&tls.Config{Certificates:[]tls.Certificate{cert},
+            NextProtos:[]string{http3.NextProtoH3}},
+        Handler:http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+            methodSeen<-r.Method+" "+r.URL.Path
+            if r.Method==http.MethodPost {
+                if r.URL.Path!="/youtubei/v1/browse" ||
+                    r.Header.Get("Content-Type")!="application/json" {
+                    w.WriteHeader(http.StatusBadRequest);return
+                }
+                w.Header().Set("Content-Type","application/json")
+                _,_=w.Write([]byte(`{"contents":[],"responseContext":{}}`))
+                return
+            }
+            if r.URL.Path!="/" {w.WriteHeader(404);return}
+            w.WriteHeader(http.StatusNoContent)
+        }),
+    }
+    udp,err:=net.ListenPacket("udp","127.0.0.1:0")
+    if err!=nil {t.Fatal(err)}
+    defer udp.Close()
+    go func(){_=server.Serve(udp)}()
+    defer server.Close()
+    for _,tc:=range []struct{mode,want string}{
+        {"h3","http_reachable"},
+        {"h3api","h3_api_json_valid"},
+    } {
+        ctx,cancel:=context.WithTimeout(context.Background(),5*time.Second)
+        clientPacket,err:=net.ListenPacket("udp","127.0.0.1:0")
+        if err!=nil {cancel();t.Fatal(err)}
+        tlsConf:=&tls.Config{ServerName:"youtubei.googleapis.com",
+            RootCAs:roots,MinVersion:tls.VersionTLS13,NextProtos:[]string{"h3"}}
+        conn,err:=quic.Dial(ctx,clientPacket,udp.LocalAddr(),tlsConf,&quic.Config{})
+        if err!=nil {clientPacket.Close();cancel();t.Fatal(err)}
+        if conn.ConnectionState().TLS.NegotiatedProtocol!="h3" {
+            t.Fatal("HTTP/3 ALPN not negotiated")
+        }
+        result:=matrixH3OnConnection(ctx,conn,"youtubei.googleapis.com",tc.mode)
+        _=conn.CloseWithError(0,"test finished")
+        _=clientPacket.Close()
+        cancel()
+        if result.Outcome!=tc.want || result.TLSStage!="quic_tls_verified" {
+            t.Fatalf("HTTP3 mode=%s outcome %+v",tc.mode,result)
+        }
+    }
+    seen1,seen2:=<-methodSeen,<-methodSeen
+    if seen1!="GET /" || seen2!="POST /youtubei/v1/browse" {
+        t.Fatalf("H3 server did not receive expected HTTP requests: %s / %s",seen1,seen2)
     }
 }
