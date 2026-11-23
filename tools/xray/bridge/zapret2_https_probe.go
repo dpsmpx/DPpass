@@ -81,9 +81,24 @@ type Zapret2HTTPSResult struct {
     Protocol string
     TLSStage string
     ALPN string
+    // Redacted QUIC transport-only socket counters; no datagrams/CIDs.
+    QuicMetrics bool
+    QuicInitialTx int32
+    QuicPeerRx int32
+    QuicFirstReplyMillis int64
+    QuicMaxInitialBytes int32
 }
 
 func (r Zapret2HTTPSResult) Wire() []byte {
+    if r.QuicMetrics {
+        return []byte(fmt.Sprintf(
+            "v4\\t%s\\t%d\\t%d\\t%d\\t%d\\t%d\\t%s\\t%d\\t%d\\t%s\\t%s\\t%s\\t%d\\t%d\\t%d\\t%d",
+            r.Outcome,r.HTTPStatus,r.BodyBytes,r.Elapsed.Milliseconds(),
+            r.AppliedDelta,r.SkippedDelta,r.DnsFingerprint,r.DnsAnswers,
+            r.IPIndex,r.Protocol,r.TLSStage,r.ALPN,
+            r.QuicInitialTx,r.QuicPeerRx,r.QuicFirstReplyMillis,
+            r.QuicMaxInitialBytes))
+    }
     if r.Protocol!="" {
         return []byte(fmt.Sprintf("v3\t%s\t%d\t%d\t%d\t%d\t%d\t%s\t%d\t%d\t%s\t%s\t%s",
             r.Outcome,r.HTTPStatus,r.BodyBytes,r.Elapsed.Milliseconds(),
