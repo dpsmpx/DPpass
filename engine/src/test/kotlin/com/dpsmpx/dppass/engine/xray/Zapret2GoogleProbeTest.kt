@@ -249,6 +249,11 @@ class Zapret2GoogleProbeTest {
         assertEquals("h2", tls.protocol)
         assertEquals(7, tls.ipIndex)
         assertEquals(8, tls.dnsAnswers)
+        val serverHello = Zapret2GoogleProbe.fromWire(
+            "v3\\ttimeout_tls_after_reply\\t0\\t0\\t5000\\t0\\t0\\t6f706c12\\t8\\t5\\th1\\tserverhello_seen\\t-"
+                .replace("\\t", "\t").encodeToByteArray())
+        assertEquals("timeout_tls_after_reply", serverHello.outcome)
+        assertEquals("serverhello_seen", serverHello.tlsStage)
         val dns = Zapret2GoogleProbe.fromWire(
             "v3\\tdoh_http_status\\t400\\t0\\t311\\t0\\t0\\t-\\t0\\t0\\tdns\\tnone\\t-"
                 .replace("\\t", "\t").encodeToByteArray())
