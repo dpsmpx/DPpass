@@ -12,6 +12,8 @@ import (
     "context"
     "crypto/tls"
     "crypto/x509"
+    "encoding/json"
+    "bytes"
     "errors"
     "io"
     "net"
@@ -24,6 +26,7 @@ import (
     "time"
 
     quic "github.com/apernet/quic-go"
+    "github.com/apernet/quic-go/http3"
     xnet "github.com/xtls/xray-core/common/net"
     "github.com/xtls/xray-core/common/session"
     "github.com/xtls/xray-core/core"
@@ -36,11 +39,20 @@ type matrixSpec struct {
     protocol string
     prepare bool
     control bool
+    h3test bool
 }
 
 // Probe identifiers are finite; no URL, remote host or raw IP can be passed
 // from the UI to the native network layer.
 func parseMatrixTarget(id string) (matrixSpec, bool) {
+    if id=="youtube_api_h3_prepare" {
+        return matrixSpec{provider:"google",prepare:true,h3test:true},true
+    }
+    if strings.HasPrefix(id,"youtube_api_h3_") {
+        index,proto,ok:=parseMatrixIndexProtocol(strings.TrimPrefix(id,"youtube_api_h3_"),16)
+        if !ok || (proto!="quic" && proto!="h3" && proto!="h3api") {return matrixSpec{},false}
+        return matrixSpec{provider:"google",index:index,protocol:proto,h3test:true},true
+    }
     if id=="google_control_prepare" {
         return matrixSpec{provider:"google",prepare:true,control:true},true
     }
@@ -70,7 +82,7 @@ func parseMatrixIndexProtocol(rest string,limit int) (int,string,bool) {
     n,err:=strconv.Atoi(parts[0][2:])
     if err!=nil || n<0 || n>=limit {return 0,"",false}
     proto:=parts[1]
-    if proto!="h1" && proto!="h2" && proto!="quic" {return 0,"",false}
+    if proto!="h1" && proto!="h2" && proto!="quic" && proto!="h3" && proto!="h3api" {return 0,"",false}
     return n,proto,true
 }
 
@@ -82,6 +94,7 @@ var matrixRRsets = struct {
     instance *core.Instance
     expiry time.Time
     answers map[string]fixedDoHAnswer
+    h3Issued time.Time // five-minute experimental selection TTL
 }{}
 
 func matrixPrepare(ctx context.Context, inst *core.Instance, cacheKey, provider, question string) fixedDoHAnswer {
@@ -94,6 +107,7 @@ func matrixPrepare(ctx context.Context, inst *core.Instance, cacheKey, provider,
     matrixRRsets.instance=inst
     matrixRRsets.expiry=time.Now().Add(45*time.Minute)
     delete(matrixRRsets.answers,cacheKey)
+    if cacheKey=="youtube_api_h3" {matrixRRsets.h3Issued=time.Now()}
     if answer.status=="ok" {matrixRRsets.answers[cacheKey]=answer}
     return answer
 }
@@ -104,6 +118,9 @@ func matrixPrepared(inst *core.Instance, provider string) (fixedDoHAnswer,bool) 
     if matrixRRsets.instance!=inst || time.Now().After(matrixRRsets.expiry) {
         return fixedDoHAnswer{},false
     }
+    if provider=="youtube_api_h3" && time.Since(matrixRRsets.h3Issued)>5*time.Minute {
+        return fixedDoHAnswer{},false
+    }
     answer,ok:=matrixRRsets.answers[provider]
     return answer,ok
 }
@@ -111,7 +128,7 @@ func matrixPrepared(inst *core.Instance, provider string) (fixedDoHAnswer,bool) 
 // Only these validated strategy IDs are meaningful for TCP. QUIC is
 // independent of TCP splitting and uses the plain private UDP outbound.
 func matrixStrategyAllowed(strategy, protocol string) bool {
-    if protocol=="quic" {return strategy=="plain"}
+    if protocol=="quic" || protocol=="h3" || protocol=="h3api" {return strategy=="plain"}
     if protocol!="h1" && protocol!="h2" {return false}
     return strategy=="plain" || strategy=="fake-5" || strategy=="tlsrec-split"
 }
@@ -124,6 +141,7 @@ func matrixProbe(ctx context.Context, inst *core.Instance, strategy, targetID st
     if !ok {return out}
     cacheKey:=spec.provider
     question:=zapret2DoHQuestion
+    if spec.h3test {cacheKey="youtube_api_h3"}
     if spec.control {
         // Exactly the same protected private Xray TCP/UDP and per-socket
         // instrumentation, but a well-known control hostname and pinned
@@ -156,7 +174,10 @@ func matrixProbe(ctx context.Context, inst *core.Instance, strategy, targetID st
     ip:=answer.ips[spec.index] // never serialized
     network:=xnet.Network_TCP
     tag:=zapret2TestStrategies[strategy]+"-ipv4"
-    if spec.protocol=="quic" {network=xnet.Network_UDP;tag=zapret2PlainTag+"-ipv4"}
+    if spec.protocol=="quic" || spec.protocol=="h3" || spec.protocol=="h3api" {
+        network=xnet.Network_UDP
+        tag=zapret2PlainTag+"-ipv4"
+    }
     dest:=xnet.Destination{Network:network,Address:xnet.ParseAddress(ip),Port:443}
     raw,err:=core.Dial(session.SetForcedOutboundTagToContext(ctx,tag),inst,dest)
     if err!=nil {
@@ -170,6 +191,9 @@ func matrixProbe(ctx context.Context, inst *core.Instance, strategy, targetID st
     go func() {select {case <-ctx.Done():_=raw.Close();case <-done:}}()
     if spec.protocol=="quic" {
         return matrixWithMetadata(matrixQUIC(ctx,raw,ip,target.host),out)
+    }
+    if spec.protocol=="h3" || spec.protocol=="h3api" {
+        return matrixWithMetadata(matrixHTTP3(ctx,raw,ip,target.host,spec.protocol),out)
     }
     return matrixWithMetadata(matrixHTTP(ctx,raw,target,spec.protocol),out)
 }
