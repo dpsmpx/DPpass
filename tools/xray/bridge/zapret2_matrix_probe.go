@@ -449,7 +449,20 @@ func matrixHTTP3(ctx context.Context,raw net.Conn,ip,host,mode string) Zapret2HT
     out.TLSStage="quic_tls_verified"
     out.ALPN=conn.ConnectionState().TLS.NegotiatedProtocol
     if out.ALPN!="h3" {out.Outcome="quic_alpn_mismatch";return out}
+    result:=matrixH3OnConnection(ctx,conn,host,mode)
+    result.TLSStage=out.TLSStage
+    result.ALPN=out.ALPN
+    return result
+}
 
+// This helper is also exercised by a local, real QUIC/HTTP3 server test;
+// it accepts only an already connected TLS-verified QUIC session. No Dial.
+func matrixH3OnConnection(ctx context.Context,conn *quic.Conn,host,mode string) Zapret2HTTPSResult {
+    out:=Zapret2HTTPSResult{Outcome:"h3_failed",TLSStage:"quic_tls_verified",ALPN:"h3"}
+    if host!="youtubei.googleapis.com" || (mode!="h3" && mode!="h3api") {
+        out.Outcome="invalid_target"
+        return out
+    }
     tr:=&http3.Transport{}
     // NewClientConn reuses our already verified QUIC connection and never
     // invokes the transport's default network dialer.
