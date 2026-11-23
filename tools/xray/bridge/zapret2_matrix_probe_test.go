@@ -5,7 +5,10 @@ package bridge
 import (
     "context"
     "encoding/binary"
+    "errors"
+    "io"
     "net"
+    "syscall"
     "strings"
     "testing"
     "time"
@@ -147,5 +150,73 @@ func TestMatrixRecognizesServerHelloRecordNotJustPeerBytes(t *testing.T) {
     _,_=observed.Read(buf)
     if observed.phase()!="serverhello_seen" {
         t.Fatalf("split TLS record was misclassified: %s",observed.phase())
+    }
+}
+
+func TestMatrixGoogleControlAllowlistAndFixedProtocol(t *testing.T) {
+    for _,id:=range []string{
+        "google_control_prepare","google_control_ip00_h1",
+        "google_control_ip01_h2","google_control_ip01_quic",
+    } {
+        spec,ok:=parseMatrixTarget(id)
+        if !ok || !spec.control || spec.provider!="google" {
+            t.Fatalf("fixed Google control rejected: %s %+v",id,spec)
+        }
+    }
+    for _,id:=range []string{
+        "google_control_ip02_h1","google_control_ip-1_h1",
+        "google_control_ip0_h1","google_control_ip00_h3",
+        "google_control_youtube_api_matrix_google_ip00_h1",
+        "google_control_ip01_quic_https://bad.test",
+    } {
+        if _,ok:=parseMatrixTarget(id);ok {t.Fatalf("unsafe control accepted: %s",id)}
+    }
+    for _,id:=range []string{
+        "google_control_prepare", "google_control_ip00_h1", "google_control_ip01_quic",
+    } {
+        got:=ProbeZapret2HTTPS("fake-9",id,2*time.Second)
+        if got.Outcome!="invalid_strategy" {t.Fatalf("unapproved strategy accepted: %s",id)}
+    }
+}
+
+func TestMatrixTLSCloseResetAndTimeoutAreDistinct(t *testing.T) {
+    ctx:=context.Background()
+    cases:=[]struct{err error; reply bool; want string}{
+        {io.EOF,false,"tls_eof_no_reply"},
+        {io.EOF,true,"tls_eof_after_reply"},
+        {io.ErrUnexpectedEOF,false,"tls_eof_no_reply"},
+        {syscall.ECONNRESET,false,"tls_reset_no_reply"},
+        {syscall.ECONNRESET,true,"tls_reset_after_reply"},
+        {net.ErrClosed,false,"tls_closed_no_reply"},
+        {net.ErrClosed,true,"tls_closed_after_reply"},
+        {errors.New("unrecognized transport"),false,"tls_failed"},
+    }
+    for _,tc:=range cases {
+        obs:=&matrixTLSConn{firstReply:tc.reply}
+        if got:=matrixTLSFailure(tc.err,ctx,obs);got!=tc.want {
+            t.Errorf("error %s reply=%v got=%s want=%s",tc.err,tc.reply,got,tc.want)
+        }
+    }
+    canceled,cancel:=context.WithCancel(context.Background())
+    cancel()
+    obs:=&matrixTLSConn{helloWritten:true}
+    if got:=matrixTLSFailure(io.EOF,canceled,obs);got!="timeout_tls_no_reply" {
+        t.Fatalf("timeout must override cancellation-induced EOF: %s",got)
+    }
+}
+
+func TestMatrixTLSUnexpectedEOFObservedFromLivePipe(t *testing.T) {
+    client,server:=net.Pipe()
+    defer client.Close()
+    ctx,cancel:=context.WithTimeout(context.Background(),time.Second)
+    defer cancel()
+    go func(){
+        b:=make([]byte,4096)
+        _,_=server.Read(b) // consume ClientHello before EOF
+        _=server.Close()
+    }()
+    got:=matrixHTTP(ctx,client,zapret2TestTargets["youtube_api_ipv4"],"h1")
+    if got.Outcome!="tls_eof_no_reply" || got.TLSStage!="clienthello_sent" {
+        t.Fatalf("live EOF should not be timeout: %+v",got)
     }
 }
