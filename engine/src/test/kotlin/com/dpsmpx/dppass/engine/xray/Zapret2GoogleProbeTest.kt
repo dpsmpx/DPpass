@@ -548,7 +548,10 @@ class Zapret2GoogleProbeTest {
                 if (success) "h3" else "-"), "youtube_api_h3_ip01_quic")
         val rows = listOf(result(1,true), result(2,false), result(3,true))
         assertFalse(Zapret2H3Policy.stable(rows))
-        val report = Zapret2H3Report.render("test", "MOBILE", rows)
+        val dns = Zapret2GoogleAttempt("plain", 1,
+            Zapret2GoogleProbe("dns_ready", 200, 0, 80, 0, 0,
+                "6f706c12", 8, 0, "dns", "none", "-"), "youtube_api_h3_prepare")
+        val report = Zapret2H3Report.render("test", "MOBILE", listOf(dns) + rows)
         assertTrue(report.contains("ipv4_index=1 quic_successes=2/3 stable=false"))
         assertTrue(report.contains("QUIC v1 intermittent_indices=1"))
         assertTrue(report.contains("No address passed 3/3 independent QUIC handshakes."))
