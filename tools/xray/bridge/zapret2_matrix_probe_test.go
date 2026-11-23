@@ -121,3 +121,31 @@ func TestMatrixConnectedUDPForbidsForeignDestination(t *testing.T) {
     if p.sent.Load() {t.Fatal("blocked packet was sent")}
     if p.LocalAddr()==nil {t.Fatal("packet adapter missing local UDP address")}
 }
+
+func TestMatrixRecognizesServerHelloRecordNotJustPeerBytes(t *testing.T) {
+    hello:=[]byte{22,3,3,0,4,2,0,0,0}
+    alert:=[]byte{21,3,3,0,2,2,40}
+    clientHello:=[]byte{22,3,3,0,4,1,0,0,0}
+    if !matrixHasServerHello(hello) {t.Fatal("missed ServerHello")}
+    for _,bad:=range [][]byte{hello[:5],alert,clientHello} {
+        if matrixHasServerHello(bad) {t.Fatalf("false positive for %v",bad)}
+    }
+    ccs:=[]byte{20,3,3,0,1,1}
+    if !matrixHasServerHello(append(ccs,hello...)) {
+        t.Fatal("missed ServerHello after TLS 1.3 CCS")
+    }
+    client,server:=net.Pipe()
+    defer client.Close()
+    defer server.Close()
+    observed:=&matrixTLSConn{Conn:client}
+    go func(){
+        _,_=server.Write(hello[:3])
+        _,_=server.Write(hello[3:])
+    }()
+    buf:=make([]byte,16)
+    _,_=observed.Read(buf)
+    _,_=observed.Read(buf)
+    if observed.phase()!="serverhello_seen" {
+        t.Fatalf("split TLS record was misclassified: %s",observed.phase())
+    }
+}
