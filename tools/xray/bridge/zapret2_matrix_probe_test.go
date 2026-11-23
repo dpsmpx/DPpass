@@ -403,3 +403,41 @@ func TestMatrixQUICHeaderClassificationDoesNotAssumeTLSCompletion(t *testing.T) 
         })
     }
 }
+
+
+func TestMatrixQUICVersion2IsOnlyAllowedInFixedExperimentalProbes(t *testing.T) {
+    valid:=[]string{
+        "google_control_ip00_quicv2",
+        "google_control_ip01_quicv2",
+        "youtube_api_h3_ip00_quicv2",
+        "youtube_api_h3_ip15_quicv2",
+    }
+    for _,name:=range valid {
+        spec,ok:=parseMatrixTarget(name)
+        if !ok || spec.protocol!="quicv2" {
+            t.Fatalf("QUIC v2 experiment not available: %s %+v",name,spec)
+        }
+        if !matrixStrategyAllowed("plain",spec.protocol) {
+            t.Fatalf("protected plain UDP is disabled: %s",name)
+        }
+    }
+    for _,name:=range []string{
+        "youtube_api_matrix_google_ip00_quicv2",
+        "youtube_api_h3_ip16_quicv2",
+        "youtube_api_h3_ip00_quicv3",
+        "google_control_ip02_quicv2",
+        "google_control_ip00_quicv2_extra",
+    } {
+        if _,ok:=parseMatrixTarget(name);ok {
+            t.Fatalf("QUIC v2 escaped strict fixed target allowlist: %s",name)
+        }
+    }
+    for _,strategy:=range []string{"auto","fake-5","tlsrec-split"} {
+        if matrixStrategyAllowed(strategy,"quicv2") {
+            t.Fatalf("QUIC v2 permitted TCP strategy %s",strategy)
+        }
+    }
+    if matrixStrategyAllowed("plain","quicv3") {
+        t.Fatal("unsupported QUIC version allowed")
+    }
+}
