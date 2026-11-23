@@ -39,6 +39,9 @@ func TestZapret2HTTPSAllowlistedDestinations(t *testing.T) {
         "youtube_api_transport": {"youtubei.googleapis.com", "/youtubei/v1/browse", "http_transport", false},
         "youtube_api_ipv4": {"youtubei.googleapis.com", "/youtubei/v1/browse", "http_transport", true},
         "youtube_thumbnail": {"i.ytimg.com", "/vi/jNQXAC9IVRw/hqdefault.jpg", "jpeg", false},
+        "service_youtube_home": {"www.youtube.com", "/", "html", false},
+        "service_youtube_api": {"youtubei.googleapis.com", "/youtubei/v1/browse", "http_transport", false},
+        "service_youtube_thumbnail": {"i.ytimg.com", "/vi/jNQXAC9IVRw/hqdefault.jpg", "jpeg", false},
     }
     if len(wants) != len(zapret2TestTargets) { t.Fatal("target list changed") }
     for key, want := range wants {
@@ -132,5 +135,29 @@ func TestZapret2IPv4ProbeIsTheSameHostAndHTTPRoute(t *testing.T) {
     }
     if zapret2TestTargets["google_search"].path!="/search?q=site%3Aexample.com" {
         t.Fatal("Google search test path is not a fixed, nonpersonal query")
+    }
+}
+
+func TestYouTubeServiceControlsAreFixedReadOnlyTargets(t *testing.T) {
+    pairs:=map[string]string{
+        "service_youtube_home":"youtube_home",
+        "service_youtube_api":"youtube_api_transport",
+        "service_youtube_thumbnail":"youtube_thumbnail",
+    }
+    for alias,base:=range pairs {
+        if zapret2TestTargets[alias]!=zapret2TestTargets[base] {
+            t.Fatalf("service control %s does not preserve fixed verified host/path/content",alias)
+        }
+        if alias=="youtube_home" || alias=="youtube_api_transport" {
+            t.Fatal("service target must never enter probe feedback")
+        }
+    }
+    for _,untrusted:=range []string{
+        "service_youtube_googlevideo","service_youtube_api?key=private",
+        "service_youtube_api/secret","service_www.youtube.com",
+    } {
+        if _,ok:=zapret2TestTargets[untrusted];ok {
+            t.Fatalf("untrusted service endpoint in allowlist: %s",untrusted)
+        }
     }
 }
