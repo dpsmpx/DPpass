@@ -574,12 +574,157 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         }
     }
 
+    /**
+     * Complete bounded strategy search for any explicitly entered *public*
+     * hostname. All probes use native protected DoH+Xray; no direct Android
+     * DNS, browser, arbitrary URL/path, custom packet injector or user data.
+     * TCP may seed the existing per-host AUTO selector only with fully
+     * independent, verified 3/3 results on every selected address. QUIC is
+     * diagnostic only because routing by shared IPv4 cannot be attributed
+     * safely to the user's specific hostname.
+     */
+    private fun startSiteSearch(quic: Boolean) {
+        if (job?.isActive == true) return
+        if (!ready(TunnelState.status.value)) {
+            statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
+            host.toast(statusText.text)
+            return
+        }
+        val domain = Zapret2SiteSearch.normalizedHost(siteInput.text.toString())
+        if (domain == null) {
+            statusText.text = context.getString(R.string.zapret2_site_search_invalid)
+            host.toast(statusText.text)
+            return
+        }
+        val network = NetworkCheck.underlying(context).type.toString()
+        val methods = if (quic) Zapret2SiteSearch.quicMethods else Zapret2SiteSearch.tcpMethods
+        runButton.isEnabled = false
+        dnsButton.isEnabled = false
+        matrixButton.isEnabled = false
+        h3Button.isEnabled = false
+        siteButton.isEnabled = false
+        siteQuicButton.isEnabled = false
+        siteInput.isEnabled = false
+        progress.visibility = View.VISIBLE
+        progress.progress = 0
+        progress.max = methods.size * Zapret2SiteSearch.MAX_IPS * Zapret2SiteSearch.ATTEMPTS
+        resultText.visibility = View.GONE
+        statusText.text = "DoH · $domain"
+        job = host.scope.launch {
+            try {
+                val prepared = try {
+                    withContext(Dispatchers.IO) {
+                        JniXrayRuntime.probeZapret2Google(
+                            "plain", Zapret2SiteSearch.prepare(domain), DNS_TIMEOUT_MILLIS)
+                    }
+                } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
+                ensureActive()
+                if (prepared.outcome != "dns_ready" || prepared.dnsAnswers < 1) {
+                    statusText.text = context.getString(R.string.zapret2_site_search_dns_fail) +
+                        " (${prepared.outcome})"
+                    resultText.text = statusText.text
+                    resultText.visibility = View.VISIBLE
+                    return@launch
+                }
+                val ipCount = prepared.dnsAnswers.coerceAtMost(Zapret2SiteSearch.MAX_IPS)
+                val total = methods.size * ipCount * Zapret2SiteSearch.ATTEMPTS
+                val preparedAt = SystemClock.elapsedRealtime()
+                progress.max = total
+                progress.progress = 0
+                val rows = mutableListOf<Zapret2GoogleAttempt>()
+                var expired = false
+                scan@ for (method in methods) {
+                    for (ip in 0 until ipCount) {
+                        for (number in 1..Zapret2SiteSearch.ATTEMPTS) {
+                            ensureActive()
+                            if (!ready(TunnelState.status.value) ||
+                                NetworkCheck.underlying(context).type.toString() != network ||
+                                SystemClock.elapsedRealtime() - preparedAt >=
+                                    Zapret2SiteSearch.TTL_MS - SITE_TIMEOUT_MILLIS) {
+                                expired = true
+                                break@scan
+                            }
+                            val target = Zapret2SiteSearch.trial(domain, ip, number, quic)
+                            statusText.text = context.getString(
+                                R.string.zapret2_autotest_progress,
+                                rows.size, total, domain + " IPv4 #$ip", method,
+                                number, Zapret2SiteSearch.ATTEMPTS)
+                            val response = try {
+                                withContext(Dispatchers.IO) {
+                                    JniXrayRuntime.probeZapret2Google(
+                                        method, target, SITE_TIMEOUT_MILLIS)
+                                }
+                            } catch (_: LinkageError) {
+                                Zapret2GoogleProbe.unavailable()
+                            }
+                            ensureActive()
+                            rows += Zapret2GoogleAttempt(method, number, response, target)
+                            progress.progress = rows.size
+                            if (response.outcome == "dns_not_prepared" ||
+                                response.outcome == "engine_off") {
+                                expired = true
+                                break@scan
+                            }
+                        }
+                    }
+                }
+                if (expired || rows.size != total) {
+                    statusText.text = context.getString(R.string.zapret2_site_search_expired)
+                    resultText.text = statusText.text
+                    resultText.visibility = View.VISIBLE
+                    return@launch
+                }
+                val selection = Zapret2SiteSearch.recommend(domain, ipCount, rows, quic)
+                val commit = if (!quic && selection.readyToApply && selection.method != null) {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            JniXrayRuntime.probeZapret2Google(
+                                selection.method, Zapret2SiteSearch.apply(domain), 1_500)
+                        }
+                    } catch (_: LinkageError) {
+                        Zapret2GoogleProbe.unavailable()
+                    }
+                } else null
+                val report = Zapret2SiteSearch.report(
+                    domain, network, quic, prepared, rows, selection, commit)
+                resultText.text = report
+                resultText.visibility = View.VISIBLE
+                val copied = try {
+                    val clipboard = context.getSystemService(ClipboardManager::class.java)
+                    if (clipboard == null) false else {
+                        clipboard.setPrimaryClip(ClipData.newPlainText(
+                            "DPpass site strategy search", report))
+                        true
+                    }
+                } catch (_: SecurityException) { false }
+                  catch (_: IllegalStateException) { false }
+                statusText.text = context.getString(if (copied)
+                    R.string.zapret2_autotest_done
+                    else R.string.zapret2_autotest_copy_failed)
+                host.toast(statusText.text)
+            } catch (_: CancellationException) {
+                statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
+                throw CancellationException("Any-site strategy search cancelled")
+            } finally {
+                job = null
+                siteInput.isEnabled = true
+                runButton.isEnabled = ready(TunnelState.status.value)
+                dnsButton.isEnabled = ready(TunnelState.status.value)
+                matrixButton.isEnabled = ready(TunnelState.status.value)
+                h3Button.isEnabled = ready(TunnelState.status.value)
+                siteButton.isEnabled = ready(TunnelState.status.value)
+                siteQuicButton.isEnabled = ready(TunnelState.status.value)
+            }
+        }
+    }
+
     private companion object {
         const val REPEATS = 2
         const val TIMEOUT_MILLIS = 8_000
         const val DNS_TIMEOUT_MILLIS = 12_000
         const val MATRIX_TIMEOUT_MILLIS = 5_000
         const val H3_TIMEOUT_MILLIS = 8_000
+        const val SITE_TIMEOUT_MILLIS = 6_000
         val TOTAL: Int = Zapret2ProbeCatalog.targets.size *
             Zapret2ProbeCatalog.strategies.size * REPEATS
     }
