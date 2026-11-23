@@ -675,7 +675,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     return@launch
                 }
                 val selection = Zapret2SiteSearch.recommend(domain, ipCount, rows, quic)
-                val commit = if (!quic && selection.readyToApply && selection.method != null) {
+                val commit = if (!quic && selection.method != null &&
+                    (selection.readyToApply || selection.baselineStable)) {
                     try {
                         withContext(Dispatchers.IO) {
                             JniXrayRuntime.probeZapret2Google(
