@@ -18,9 +18,7 @@ import (
     "crypto/sha256"
     "crypto/tls"
     "encoding/hex"
-    "errors"
     "io"
-    "net"
     "net/http"
     "sort"
     "strings"
@@ -185,7 +183,3 @@ func probeWithFixedDoH(ctx context.Context, inst *core.Instance, strategy, provi
     return downstream
 }
 
-// Verify raw-IP does not get serialized; the host is fixed and public,
-// but IP fingerprints enable direct same-network A/B comparisons.
-var _ = errors.Is
-var _ net.Conn
