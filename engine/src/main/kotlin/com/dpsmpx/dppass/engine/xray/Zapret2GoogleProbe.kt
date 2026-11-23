@@ -20,6 +20,11 @@ data class Zapret2GoogleProbe(
     /** Per-socket TLS stage, not process-wide Xray counters. */
     val tlsStage: String = "",
     val alpn: String = "",
+    // Numerical public-header-only socket metrics (no QUIC payload/CID).
+    val quicInitialTx: Int = 0,
+    val quicPeerRx: Int = 0,
+    val quicFirstReplyMillis: Long = 0,
+    val quicMaxInitialBytes: Int = 0,
 ) {
     /** An HTTP 3xx proves reachability, not final content. */
     val success: Boolean get() = outcome == "ok"
@@ -59,7 +64,8 @@ data class Zapret2GoogleProbe(
 
         fun fromWire(bytes: ByteArray): Zapret2GoogleProbe {
             val fields = bytes.decodeToString().split('\t')
-            val matrix = fields[0] == "v3" && fields.size == 13
+            val quicMetrics = fields[0] == "v4" && fields.size == 17
+            val matrix = fields[0] == "v3" && fields.size == 13 || quicMetrics
             val enhanced = fields[0] == "v2" && fields.size == 9 || matrix
             if (!(enhanced || fields[0] == "v1" && fields.size == 7) ||
                 fields[1] !in outcomes) return unavailable()
@@ -112,6 +118,27 @@ data class Zapret2GoogleProbe(
                 if (protocol in setOf("h3", "h3api") &&
                     stage == "quic_tls_verified" && alpn != "h3" &&
                     fields[1] != "quic_alpn_mismatch") return unavailable()
+                if (quicMetrics) {
+                    if (protocol !in setOf("quic","quicv2","h3","h3api") ||
+                        stage !in setOf("none","udp_connected","quic_initial_sent",
+                            "quic_peer_reply","quic_peer_short_header","quic_peer_vn_header",
+                            "quic_peer_retry_header","quic_peer_initial_header",
+                            "quic_peer_handshake_header","quic_peer_long_other",
+                            "quic_peer_unrecognized","quic_tls_verified")) return unavailable()
+                    val sent = fields[13].toIntOrNull()?.takeIf { it in 0..255 }
+                        ?: return unavailable()
+                    val received = fields[14].toIntOrNull()?.takeIf { it in 0..255 }
+                        ?: return unavailable()
+                    val replyMs = fields[15].toLongOrNull()?.takeIf { it in 0L..60000L }
+                        ?: return unavailable()
+                    val maxInitial = fields[16].toIntOrNull()?.takeIf { it in 0..65535 }
+                        ?: return unavailable()
+                    if (sent == 0 && maxInitial != 0 || received == 0 && replyMs != 0L)
+                        return unavailable()
+                    return Zapret2GoogleProbe(fields[1], http, numbers[0], numbers[1],
+                        numbers[2], numbers[3], fingerprint, answers, index, protocol,
+                        stage, alpn, sent, received, replyMs, maxInitial)
+                }
                 return Zapret2GoogleProbe(fields[1], http, numbers[0], numbers[1],
                     numbers[2], numbers[3], fingerprint, answers, index, protocol, stage, alpn)
             }
