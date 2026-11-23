@@ -853,6 +853,7 @@
     <string name="alpine_exited">Shell exited (code %1$d)</string>
     <string name="alpine_failed">Alpine error: %1$s</string>
     <string name="alpine_missing">No ARM64 PRoot bundled. Build with -Pdppass.alpine=true.</string>
+    <string name="zapret2_dns_compare_button">Compare DNS: Cloudflare / Google / Quad9 (YouTube API TLS, 16 probes)</string>
     <string name="zapret2_autotest_title">Zapret2 · Check Google and YouTube</string>
     <string name="zapret2_autotest_subtitle">One tap: 6 HTTPS targets × 8 TCP modes × 2 attempts; copy the full result</string>
     <string name="zapret2_autotest_note">Uses the active VPN without changing its strategy: 96 HTTPS/HTTP1.1 attempts, including a fixed Google search request and YouTube API transport over configured DNS versus an IPv4-only private test. Timeouts identify the failed stage (TCP, TLS, HTTP). Search HTML does not prove usable results; API HTTP 4xx does not prove app feed or video playback. Results are copied when finished.</string>
