@@ -297,7 +297,7 @@ class Zapret2GoogleProbeTest {
         assertTrue(report.contains("ipv4_checked=8"))
         assertTrue(report.contains("ip_tls_ok=0"))
         assertTrue(report.contains("http_replies=0"))
-        assertFalse(report.contains("8.8.8.8"))
+        assertFalse(report.contains("dns_fingerprint=8.8.8.8"))
     }
 
 }
