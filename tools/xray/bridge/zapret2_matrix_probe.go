@@ -239,6 +239,30 @@ func (c *matrixTLSConn) phase() string {
     return "tcp_connected"
 }
 
+// Distinguish actual EOF/reset/closed-socket failures from missing peer
+// replies that lasted until the deadline. Never serialize Go error strings,
+// socket addresses, certificates, DNS answers or server response content.
+func matrixTLSFailure(err error, ctx context.Context, observed *matrixTLSConn) string {
+    var authority x509.UnknownAuthorityError
+    if errors.As(err,&authority) {return "tls_ca_failed"}
+    if observed.firstAlert {return "tls_alert"}
+    suffix:="_no_reply"
+    if observed.firstReply {suffix="_after_reply"}
+    if ctx.Err()!=nil {return "timeout_tls"+suffix}
+    if errors.Is(err,syscall.ECONNRESET) || errors.Is(err,syscall.EPIPE) {
+        return "tls_reset"+suffix
+    }
+    if errors.Is(err,io.EOF) || errors.Is(err,io.ErrUnexpectedEOF) {
+        return "tls_eof"+suffix
+    }
+    if errors.Is(err,net.ErrClosed) {return "tls_closed"+suffix}
+    var netErr net.Error
+    if errors.As(err,&netErr) && netErr.Timeout() {
+        return "timeout_tls"+suffix
+    }
+    return "tls_failed"
+}
+
 func matrixHTTP(ctx context.Context,raw net.Conn,target zapret2TestTarget,proto string) Zapret2HTTPSResult {
     out:=Zapret2HTTPSResult{Outcome:"tls_failed",TLSStage:"tcp_connected",ALPN:"-"}
     observed:=&matrixTLSConn{Conn:raw}
@@ -249,13 +273,7 @@ func matrixHTTP(ctx context.Context,raw net.Conn,target zapret2TestTarget,proto 
     defer tc.Close()
     if err:=tc.HandshakeContext(ctx);err!=nil {
         out.TLSStage=observed.phase()
-        var authority x509.UnknownAuthorityError
-        switch {
-        case errors.As(err,&authority):out.Outcome="tls_ca_failed"
-        case observed.firstAlert:out.Outcome="tls_alert"
-        case ctx.Err()!=nil && !observed.firstReply:out.Outcome="timeout_tls_no_reply"
-        case ctx.Err()!=nil:out.Outcome="timeout_tls_after_reply"
-        }
+        out.Outcome=matrixTLSFailure(err,ctx,observed)
         return out
     }
     out.TLSStage="tls_verified"
