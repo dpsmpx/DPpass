@@ -680,6 +680,7 @@ type desyncUDPConn struct {
     observed sync.Once
     stageInitialSent atomic.Bool
     stageFirstReply atomic.Bool
+    stageReadTimedOut atomic.Bool
     stageCloseRecorded atomic.Bool
 }
 
@@ -698,6 +699,16 @@ func (c *desyncUDPConn) Read(b []byte) (int, error) {
             }
         }
     }
+    if err != nil && c.stageInitialSent.Load() && !c.stageFirstReply.Load() &&
+        isZapret2Timeout(err) && c.stageReadTimedOut.CompareAndSwap(false, true) &&
+        c.received.Load()==0 {
+        // A QUIC Initial was sent and timed out without even a UDP first
+        // reply. This is weak reachability evidence, not proof of DPI.
+        // Never infer an application response from packet send success.
+        if pick:=c.adaptiveSelection.Load();pick!=nil {
+            zapret2Auto.observeStallTracked(pick.host,pick.strategy,pick.generation)
+        }
+    }
     return n, err
 }
 
@@ -707,7 +718,12 @@ func (c *desyncUDPConn) Close() error {
     }
     c.observed.Do(func() {
         if pick := c.adaptiveSelection.Load(); pick != nil {
-            zapret2Auto.observeTracked(pick.host, pick.strategy, c.received.Load(), pick.generation)
+            // The read timeout already contributed the zero-byte
+            // observation; Close must not punish the same flow twice.
+            total:=c.received.Load()
+            if total>0 || !c.stageReadTimedOut.Load() {
+                zapret2Auto.observeTracked(pick.host,pick.strategy,total,pick.generation)
+            }
         }
     })
     return c.UDPConn.Close()
