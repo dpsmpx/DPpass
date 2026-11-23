@@ -58,7 +58,7 @@ func parseMatrixTarget(id string) (matrixSpec, bool) {
     }
     if strings.HasPrefix(id,"google_control_") {
         index,proto,ok:=parseMatrixIndexProtocol(strings.TrimPrefix(id,"google_control_"),2)
-        if !ok {return matrixSpec{},false}
+        if !ok || proto=="h3" || proto=="h3api" {return matrixSpec{},false}
         return matrixSpec{provider:"google",index:index,protocol:proto,control:true},true
     }
     const prefix="youtube_api_matrix_"
@@ -69,7 +69,7 @@ func parseMatrixTarget(id string) (matrixSpec, bool) {
         rest:=strings.TrimPrefix(suffix,provider+"_")
         if rest=="prepare" {return matrixSpec{provider:provider,prepare:true},true}
         index,proto,ok:=parseMatrixIndexProtocol(rest,16)
-        if !ok {return matrixSpec{},false}
+        if !ok || proto=="h3" || proto=="h3api" {return matrixSpec{},false}
         return matrixSpec{provider:provider,index:index,protocol:proto},true
     }
     return matrixSpec{},false
@@ -399,5 +399,104 @@ func matrixQUIC(ctx context.Context,raw net.Conn,ip,host string) Zapret2HTTPSRes
     out.ALPN=state.NegotiatedProtocol
     if out.ALPN!="h3" {out.Outcome="quic_alpn_mismatch";return out}
     out.Outcome="quic_verified" // handshake only; NOT HTTP/3 or a working feed
+    return out
+}
+
+// Experimental HTTP/3 checks intentionally share exactly the same QUIC socket,
+// pinned IPv4 peer and certificate-verified SNI as matrixQUIC. Neither the
+// HTTP/3 transport nor net/http may open an additional UDP or DNS socket.
+// A GET checks actual H3 HTTP transport; a fixed unauthenticated browse POST
+// checks the application endpoint without credentials or personalized input.
+const matrixH3BodyLimit = 8192
+const matrixH3BrowseBody = `{"context":{"client":{"clientName":"WEB","clientVersion":"2.20261122.00.00","hl":"en","gl":"US"}},"browseId":"FEwhat_to_watch"}`
+
+func matrixH3ClassifyAPI(code int,ctype string,body []byte,readErr error,overflow bool) string {
+    if code>=400 && code<500 {return "h3_api_http_rejected"}
+    if code<200 || code>=300 {return "http_status"}
+    if !strings.HasPrefix(strings.ToLower(ctype),"application/json") {
+        return "h3_api_content_type"
+    }
+    if readErr!=nil {return "h3_api_body_failed"}
+    if len(body)==0 {return "h3_api_empty"}
+    // Never label a truncated JSON body a verified YouTube feed.
+    if overflow {return "h3_api_body_limit"}
+    if !json.Valid(body) {return "h3_api_json_invalid"}
+    return "h3_api_json_valid" // syntax only; not proof of usable feed
+}
+
+func matrixHTTP3(ctx context.Context,raw net.Conn,ip,host,mode string) Zapret2HTTPSResult {
+    out:=Zapret2HTTPSResult{Outcome:"h3_failed",TLSStage:"udp_connected",ALPN:"-"}
+    if host!="youtubei.googleapis.com" || (mode!="h3" && mode!="h3api") {
+        out.Outcome="invalid_target"
+        return out
+    }
+    remote:=&net.UDPAddr{IP:net.ParseIP(ip).To4(),Port:443}
+    packets:=&matrixPacketConn{Conn:raw,remote:remote}
+    cfg:=&tls.Config{ServerName:host,RootCAs:probeRoots,
+        MinVersion:tls.VersionTLS13,NextProtos:[]string{http3.NextProtoH3}}
+    conn,err:=quic.Dial(ctx,packets,remote,cfg,&quic.Config{})
+    if err!=nil {
+        if packets.reply.Load() {out.TLSStage="quic_peer_reply"
+        } else if packets.sent.Load() {out.TLSStage="quic_initial_sent"}
+        switch {
+        case ctx.Err()!=nil && packets.reply.Load():out.Outcome="quic_timeout_after_reply"
+        case ctx.Err()!=nil:out.Outcome="quic_timeout_no_reply"
+        default:out.Outcome="quic_failed"
+        }
+        return out
+    }
+    defer conn.CloseWithError(0,"experimental probe complete")
+    out.TLSStage="quic_tls_verified"
+    out.ALPN=conn.ConnectionState().TLS.NegotiatedProtocol
+    if out.ALPN!="h3" {out.Outcome="quic_alpn_mismatch";return out}
+
+    tr:=&http3.Transport{}
+    // NewClientConn reuses our already verified QUIC connection and never
+    // invokes the transport's default network dialer.
+    client:=tr.NewClientConn(conn)
+    method:=http.MethodGet
+    path:="/"
+    var input io.Reader
+    if mode=="h3api" {
+        method=http.MethodPost
+        path="/youtubei/v1/browse"
+        input=bytes.NewReader([]byte(matrixH3BrowseBody))
+    }
+    req,err:=http.NewRequestWithContext(ctx,method,"https://"+host+path,input)
+    if err!=nil {out.Outcome="request_failed";return out}
+    req.Header.Set("Accept-Encoding","identity")
+    req.Header.Set("Accept","application/json")
+    if mode=="h3api" {
+        req.Header.Set("Content-Type","application/json")
+        req.Header.Set("X-YouTube-Client-Name","1")
+        req.Header.Set("X-YouTube-Client-Version","2.20261122.00.00")
+    }
+    resp,err:=client.RoundTrip(req)
+    if err!=nil {
+        out.Outcome="h3_request_failed"
+        if ctx.Err()!=nil {out.Outcome="h3_timeout_headers"}
+        return out
+    }
+    defer resp.Body.Close()
+    out.HTTPStatus=resp.StatusCode
+    // Read a fixed-size bound only; the response is neither logged nor
+    // returned to Android. No redirect is followed.
+    body,readErr:=io.ReadAll(io.LimitReader(resp.Body,matrixH3BodyLimit+1))
+    overflow:=len(body)>matrixH3BodyLimit
+    if overflow {body=body[:matrixH3BodyLimit]}
+    out.BodyBytes=int64(len(body))
+    if ctx.Err()!=nil && readErr!=nil {
+        out.Outcome="timeout_body"
+        return out
+    }
+    if mode=="h3api" {
+        out.Outcome=matrixH3ClassifyAPI(resp.StatusCode,
+            resp.Header.Get("Content-Type"),body,readErr,overflow)
+        return out
+    }
+    // Even a genuine h3 400/404 confirms H3 transport only, not content.
+    if resp.StatusCode>=200 && resp.StatusCode<500 {
+        out.Outcome="http_reachable"
+    } else {out.Outcome="http_status"}
     return out
 }
