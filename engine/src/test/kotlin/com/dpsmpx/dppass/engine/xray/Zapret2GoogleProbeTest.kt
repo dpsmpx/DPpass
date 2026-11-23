@@ -202,21 +202,21 @@ class Zapret2GoogleProbeTest {
     @Test fun verifiedDoHFingerprintV2AndLegacyV1RemainCompatible() {
         val passed = Zapret2GoogleProbe.fromWire(
             "v2\\ttimeout_tls\\t0\\t0\\t12000\\t0\\t0\\tab12ef34\\t4"
-                .replace("\\\\t", "\\t").encodeToByteArray())
+                .replace("\\t", "\t").encodeToByteArray())
         assertEquals("timeout_tls", passed.outcome)
         assertEquals(4, passed.dnsAnswers)
         assertEquals("ab12ef34", passed.dnsFingerprint)
         assertFalse(passed.httpReachable)
         val blocked = Zapret2GoogleProbe.fromWire(
             "v2\\tdoh_timeout_tls\\t0\\t0\\t12000\\t0\\t0\\t-\\t0"
-                .replace("\\\\t", "\\t").encodeToByteArray())
+                .replace("\\t", "\t").encodeToByteArray())
         assertEquals("doh_timeout_tls", blocked.outcome)
         assertEquals(0, blocked.dnsAnswers)
         assertEquals("contract_error", Zapret2GoogleProbe.fromWire(
             "v2\\ttimeout_tls\\t0\\t0\\t0\\t0\\t0\\t1.2.3.4\\t1"
-                .replace("\\\\t", "\\t").encodeToByteArray()).outcome)
+                .replace("\\t", "\t").encodeToByteArray()).outcome)
         val legacy = Zapret2GoogleProbe.fromWire("v1\\tok\\t200\\t8192\\t250\\t1\\t0"
-            .replace("\\\\t", "\\t").encodeToByteArray())
+            .replace("\\t", "\t").encodeToByteArray())
         assertTrue(legacy.success)
         assertEquals("", legacy.dnsFingerprint)
     }
@@ -226,7 +226,7 @@ class Zapret2GoogleProbeTest {
             Zapret2GoogleAttempt("fake-5", 1,
                 Zapret2GoogleProbe.fromWire(
                     "v2\\t$outcome\\t0\\t0\\t8000\\t0\\t0\\t$digest\\t$count"
-                        .replace("\\\\t", "\\t").encodeToByteArray()), target)
+                        .replace("\\t", "\t").encodeToByteArray()), target)
         val report = Zapret2DNSComparisonReport.render("2026-11-23", "MOBILE",
             listOf(row("youtube_api_dns_cloudflare", "timeout_tls", "abcdef01", 2),
                 row("youtube_api_dns_google", "doh_timeout_tls", "-", 0),
