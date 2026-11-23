@@ -31,10 +31,23 @@ object Zapret2H3Policy {
     fun fresh(preparedAtMillis: Long, nowMillis: Long): Boolean =
         nowMillis >= preparedAtMillis && nowMillis - preparedAtMillis < TTL_MILLIS
 
+    fun verifiedV2Control(row: Zapret2GoogleAttempt): Boolean =
+        row.target == "google_control_ip00_quicv2" &&
+            row.strategy == "plain" &&
+            row.result.protocol == "quicv2" &&
+            row.result.outcome == "quic_verified" &&
+            row.result.tlsStage == "quic_tls_verified" &&
+            row.result.alpn == "h3"
+
     fun stable(attempts: List<Zapret2GoogleAttempt>): Boolean =
         attempts.size == REQUIRED_QUIC_SUCCESSES &&
+            attempts.map { it.attempt }.sorted() == listOf(1, 2, 3) &&
+            attempts.map { it.target }.distinct().size == 1 &&
             attempts.all {
-                it.result.protocol == "quic" &&
+                it.strategy == "plain" &&
+                    it.result.ipIndex in 0..15 &&
+                    it.target == target(it.result.ipIndex, "quic") &&
+                    it.result.protocol == "quic" &&
                     it.result.outcome == "quic_verified" &&
                     it.result.tlsStage == "quic_tls_verified" &&
                     it.result.alpn == "h3"
@@ -56,7 +69,8 @@ object Zapret2H3Report {
         appendLine("QUIC requires three successful independent TLS 1.3 / ALPN h3 handshakes.")
         appendLine("First peer UDP reply is classified by public QUIC header shape only; it is NOT TLS verification.")
         appendLine("Up to two peer-reply timeouts are rechecked once for evidence; failed first attempts never qualify for H3.")
-        appendLine("If QUIC v1 has no stable address, QUIC v2 (RFC 9369) is tested separately for diagnostics only.")
+        appendLine("Every first-pass verified QUIC v1 IP receives 3 independent samples, including after a timeout.")
+        appendLine("QUIC v2 (RFC 9369) matrix runs only if Google v2 TLS+ALPN h3 baseline verifies.")
         appendLine("QUIC v2 handshakes do not bypass the three-success v1 gate for HTTP/3 in this build.")
         appendLine("A validated IP index expires in five minutes and is discarded with this diagnostic run.")
         appendLine("An actual HTTP/3 GET / and a fixed anonymous JSON HTTP/3 POST /youtubei/v1/browse follow.")
@@ -100,6 +114,12 @@ object Zapret2H3Report {
                 appendLine("CONTROL: QUIC v2 baseline not verified at both ends; negative YouTube v2 outcomes are inconclusive.")
             }
         }
+        if (v2Before != null && !Zapret2H3Policy.verifiedV2Control(
+                googleV2.first { it.attempt == 1 }) &&
+            rows.none { it.target.startsWith("youtube_api_h3_ip") &&
+                it.result.protocol == "quicv2" }) {
+            appendLine("QUIC v2 YouTube matrix skipped: Google v2 pre-control did not verify TLS+ALPN h3.")
+        }
         appendLine("Indexed IPv4 trials:")
         val trials = rows.filter { it.target.startsWith("youtube_api_h3_ip") }
         val perIndex = trials.groupBy { it.result.ipIndex }
@@ -128,6 +148,12 @@ object Zapret2H3Report {
                 it.result.outcome == "quic_verified" &&
                     it.result.tlsStage == "quic_tls_verified" && it.result.alpn == "h3"
             } + "; HTTP/3 v2 NOT attempted.")
+        val intermittentV1 = perIndex.count { (_, group) ->
+            val quic = group.filter { it.result.protocol == "quic" }
+            quic.any { it.result.outcome == "quic_verified" } &&
+                !Zapret2H3Policy.stable(quic)
+        }
+        appendLine("QUIC v1 intermittent_indices=$intermittentV1 (some TLS-verified handshakes, but not 3/3).")
         val h3Reply = trials.firstOrNull {
             it.result.protocol == "h3" && it.result.httpReachable
         }
