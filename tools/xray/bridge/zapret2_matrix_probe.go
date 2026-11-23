@@ -310,9 +310,19 @@ func matrixHTTP(ctx context.Context,raw net.Conn,target zapret2TestTarget,proto 
         out.Outcome="h2_not_negotiated"
         return out
     }
-    req,err:=http.NewRequestWithContext(ctx,http.MethodGet,
-        "https://"+target.host+target.path,nil)
+    requestMethod:=http.MethodGet
+    var requestBody io.Reader
+    if target.contentKind=="api_browse" {
+        // Fixed anonymous context only, no application data or cookies.
+        requestMethod=http.MethodPost
+        requestBody=bytes.NewReader([]byte(matrixH3BrowseBody))
+    }
+    req,err:=http.NewRequestWithContext(ctx,requestMethod,
+        "https://"+target.host+target.path,requestBody)
     if err!=nil {out.Outcome="request_failed";return out}
+    if requestMethod==http.MethodPost {
+        req.Header.Set("Content-Type","application/json")
+    }
     req.Header.Set("Accept","*/*")
     req.Header.Set("Accept-Encoding","identity")
     req.Close=true
