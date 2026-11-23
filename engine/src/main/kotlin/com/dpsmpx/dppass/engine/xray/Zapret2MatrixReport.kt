@@ -66,7 +66,7 @@ object Zapret2MatrixReport {
             " http_reachable=" + tested.count { it.result.httpReachable } +
             " quic_verified=" + tested.count { it.result.outcome == "quic_verified" })
         appendLine("HTTP reachability is not YouTube feed/API or video playback; QUIC handshake is not HTTP/3 transport.")
-        appendLine("For TLS failures, clienthello_sent means sent without an observed reply; server_reply_seen means some peer bytes, NOT proof of ServerHello.")
+        appendLine("For TLS failures, clienthello_sent means sent without an observed reply; server_reply_seen means some peer bytes, NOT proof of ServerHello; serverhello_seen identifies an unencrypted TLS handshake type 2, NOT certificate verification.")
         appendLine("A TLS-verified reply to one address does not establish access to other addresses or to googlevideo.com.")
         appendLine("Only tested IP indices, strategies and protocols are covered; repeat on the actual mobile network.")
     }
