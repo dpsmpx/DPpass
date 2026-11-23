@@ -76,9 +76,20 @@ type Zapret2HTTPSResult struct {
     // Only nonempty for fixed-DoH experimental controls. No raw IPs.
     DnsFingerprint string
     DnsAnswers int
+    // Address/protocol matrix only: no raw addresses or response content.
+    IPIndex int
+    Protocol string
+    TLSStage string
+    ALPN string
 }
 
 func (r Zapret2HTTPSResult) Wire() []byte {
+    if r.Protocol!="" {
+        return []byte(fmt.Sprintf("v3\\t%s\\t%d\\t%d\\t%d\\t%d\\t%d\\t%s\\t%d\\t%d\\t%s\\t%s\\t%s",
+            r.Outcome,r.HTTPStatus,r.BodyBytes,r.Elapsed.Milliseconds(),
+            r.AppliedDelta,r.SkippedDelta,r.DnsFingerprint,r.DnsAnswers,
+            r.IPIndex,r.Protocol,r.TLSStage,r.ALPN))
+    }
     if r.DnsFingerprint!="" {
         return []byte(fmt.Sprintf("v2\t%s\t%d\t%d\t%d\t%d\t%d\t%s\t%d",
             r.Outcome,r.HTTPStatus,r.BodyBytes,r.Elapsed.Milliseconds(),
@@ -179,6 +190,14 @@ func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2
     if !valid { return out }
     target, valid := zapret2TestTargets[targetID]
     dohProvider := ""
+    matrix := false
+    if !valid && strings.HasPrefix(targetID,"youtube_api_matrix_") {
+        if _,ok:=parseMatrixTarget(targetID);ok {
+            matrix=true
+            target=zapret2TestTargets["youtube_api_ipv4"]
+            valid=true
+        }
+    }
     if !valid && strings.HasPrefix(targetID,"youtube_api_dns_") {
         p:=strings.TrimPrefix(targetID,"youtube_api_dns_")
         if validateFixedDoHProvider(p) {
@@ -226,6 +245,9 @@ func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2
     defer cancel()
     if dohProvider!="" {
         return finish(probeWithFixedDoH(ctx,inst,strategy,dohProvider,target))
+    }
+    if matrix {
+        return finish(matrixProbe(ctx,inst,strategy,targetID,target))
     }
     dest := xnet.Destination{Network:xnet.Network_TCP,
         Address:xnet.ParseAddress(target.host), Port:443}
