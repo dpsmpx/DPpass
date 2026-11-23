@@ -166,6 +166,8 @@ type matrixTLSConn struct {
     helloWritten bool
     firstReply bool
     firstAlert bool
+    serverHello bool
+    replyPrefix []byte
 }
 
 func (c *matrixTLSConn) Write(b []byte) (int,error) {
@@ -173,15 +175,38 @@ func (c *matrixTLSConn) Write(b []byte) (int,error) {
     if n>=5 && b[0]==22 && b[1]==3 {c.helloWritten=true}
     return n,err
 }
+// ServerHello is an unencrypted TLS handshake message with type 2. Treat
+// arbitrary first TLS bytes as only a peer reply; a ServerHello marker is
+// not a verified certificate or completed TLS handshake.
+func matrixHasServerHello(records []byte) bool {
+    for i:=0;i+6<=len(records); {
+        typ:=records[i]
+        if records[i+1]!=3 || records[i+2]>4 {return false}
+        size:=int(records[i+3])<<8|int(records[i+4])
+        if size<1 || size>16384 {return false}
+        if typ==22 && records[i+5]==2 {return true}
+        if i+5+size>len(records) {return false}
+        i+=5+size
+    }
+    return false
+}
 func (c *matrixTLSConn) Read(b []byte) (int,error) {
     n,err:=c.Conn.Read(b)
-    if n>0 && !c.firstReply {
-        c.firstReply=true
-        c.firstAlert=isTLSAlertRecordHeader(b[:n])
+    if n>0 {
+        if !c.firstReply {
+            c.firstReply=true
+            c.firstAlert=isTLSAlertRecordHeader(b[:n])
+        }
+        if !c.serverHello && len(c.replyPrefix)<8192 {
+            count:=min(n,8192-len(c.replyPrefix))
+            c.replyPrefix=append(c.replyPrefix,b[:count]...)
+            c.serverHello=matrixHasServerHello(c.replyPrefix)
+        }
     }
     return n,err
 }
 func (c *matrixTLSConn) phase() string {
+    if c.serverHello {return "serverhello_seen"}
     if c.firstReply {return "server_reply_seen"}
     if c.helloWritten {return "clienthello_sent"}
     return "tcp_connected"
