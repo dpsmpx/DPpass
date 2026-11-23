@@ -7,6 +7,7 @@ import java.nio.ByteOrder
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class Zapret2GoogleProbeTest {
@@ -399,10 +400,10 @@ class Zapret2GoogleProbeTest {
         assertTrue(Zapret2H3Policy.fresh(1000, 1000+Zapret2H3Policy.TTL_MILLIS-1))
         assertFalse(Zapret2H3Policy.fresh(1000, 1000+Zapret2H3Policy.TTL_MILLIS))
         assertFalse(Zapret2H3Policy.fresh(1000, 999))
-        assertThrows(IllegalArgumentException::class.java) {
+        assertFailsWith<IllegalArgumentException> {
             Zapret2H3Policy.target(16, "h3")
         }
-        assertThrows(IllegalArgumentException::class.java) {
+        assertFailsWith<IllegalArgumentException> {
             Zapret2H3Policy.target(3, "http3")
         }
     }
