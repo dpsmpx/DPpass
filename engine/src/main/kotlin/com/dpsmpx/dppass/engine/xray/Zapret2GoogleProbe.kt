@@ -76,7 +76,7 @@ data class Zapret2GoogleProbe(
             if (matrix) {
                 val index = fields[9].toIntOrNull()?.takeIf { it in 0..15 }
                     ?: return unavailable()
-                val protocol = fields[10].takeIf { it in setOf("dns", "h1", "h2", "quic", "h3", "h3api") }
+                val protocol = fields[10].takeIf { it in setOf("dns", "h1", "h2", "quic", "quicv2", "h3", "h3api") }
                     ?: return unavailable()
                 val stage = fields[11].takeIf { it in setOf(
                     "none", "tcp_connected", "clienthello_sent", "server_reply_seen", "serverhello_seen",
@@ -89,6 +89,14 @@ data class Zapret2GoogleProbe(
                     ?: return unavailable()
                 if (answers > 0 && protocol != "dns" && index >= answers) return unavailable()
                 if (protocol == "dns" && index != 0) return unavailable()
+                // Experimental QUIC v2 never maps to TCP handshake phases.
+                if (protocol == "quicv2" && stage !in setOf(
+                        "none", "udp_connected", "quic_initial_sent",
+                        "quic_peer_reply", "quic_peer_short_header",
+                        "quic_peer_vn_header", "quic_peer_retry_header",
+                        "quic_peer_initial_header", "quic_peer_handshake_header",
+                        "quic_peer_long_other", "quic_peer_unrecognized",
+                        "quic_tls_verified")) return unavailable()
                 // An HTTP/3 request must traverse QUIC states, never a TCP
                 // tls_verified/clienthello_sent stage. Preserve the original
                 // strict v3 contract while recognizing the two new H3 modes.
