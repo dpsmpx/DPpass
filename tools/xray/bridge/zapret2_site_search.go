@@ -213,6 +213,7 @@ func siteSearchCommit(inst *core.Instance,host,method string,gen uint64) bool {
     if selected=="plain" {selected="pass"}
     entry.preferred=selected
     entry.probeSeeded=method!="plain"
+    entry.siteVerifiedPin=true
     entry.weakFailures=0
     entry.smallResponses=nil
     // Any existing timeout suspension for this exact, freshly proven
