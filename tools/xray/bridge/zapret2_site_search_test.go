@@ -161,3 +161,49 @@ func TestSiteSearchRestoresPlainBaselineWhenStable(t *testing.T) {
         t.Fatalf("AUTO failed to restore original unmodified TCP, got %s",got)
     }
 }
+
+func TestSiteSearchVerifiedBackupUsedOnlyAfterTimeoutBreaker(t *testing.T) {
+    host:="www.example.org"
+    inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1","8.8.8.8"})
+    for ip:=0;ip<2;ip++ {
+        for attempt:=1;attempt<=3;attempt++ {
+            siteSearchRecord(inst,host,gen,ip,attempt,"h1","plain","timeout_tls",6000)
+            siteSearchRecord(inst,host,gen,ip,attempt,"h1","tlsrec-split","ok",900)
+            siteSearchRecord(inst,host,gen,ip,attempt,"h1","fake-5","ok",1100)
+            siteSearchRecord(inst,host,gen,ip,attempt,"h1","split","timeout_tls",6000)
+        }
+    }
+    if !siteSearchCommit(inst,host,"tlsrec-split",gen) {t.Fatal("primary not applied")}
+    zapret2Auto.mu.Lock()
+    fallback:=zapret2Auto.entries[host].verifiedFallback
+    zapret2Auto.mu.Unlock()
+    if fallback!="fake-5" {t.Fatalf("unexpected fallback %s",fallback)}
+    if got:=zapret2Auto.choose(host);got!="tlsrec-split" {t.Fatal(got)}
+    for i:=0;i<adaptiveStallThreshold;i++ {
+        zapret2Auto.observeStallTracked(host,"tlsrec-split",gen)
+    }
+    if got:=zapret2Auto.choose(host);got!="fake-5" {
+        t.Fatalf("verified backup not activated after breaker: %s",got)
+    }
+    zapret2Auto.mu.Lock()
+    remaining:=zapret2Auto.entries[host].verifiedFallback
+    zapret2Auto.mu.Unlock()
+    if remaining!="" {t.Fatalf("backup must be consumed: %s",remaining)}
+    if got:=zapret2Auto.choose("other.example.org");got!="split-1" {
+        t.Fatalf("backup leaked to another hostname: %s",got)
+    }
+}
+func TestSiteSearchNeverUsesUnverifiedBackup(t *testing.T) {
+    host:="www.example.org"
+    inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1"})
+    for attempt:=1;attempt<=3;attempt++ {
+        siteSearchRecord(inst,host,gen,0,attempt,"h1","plain","timeout_tls",6000)
+        siteSearchRecord(inst,host,gen,0,attempt,"h1","tlsrec-split","ok",900)
+        siteSearchRecord(inst,host,gen,0,attempt,"h1","fake-5","timeout_tls",6000)
+    }
+    if !siteSearchCommit(inst,host,"tlsrec-split",gen) {t.Fatal("primary not applied")}
+    zapret2Auto.mu.Lock()
+    fallback:=zapret2Auto.entries[host].verifiedFallback
+    zapret2Auto.mu.Unlock()
+    if fallback!="" {t.Fatalf("unverified backup selected: %s",fallback)}
+}
