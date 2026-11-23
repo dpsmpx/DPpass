@@ -259,7 +259,9 @@ func (c *desyncConn) Read(b []byte) (int, error) {
         // about the zero-byte stall for future flows, not the current stream.
         if c.received.Load() == 0 {
             if pick := c.adaptiveSelection.Load(); pick != nil {
-                zapret2Auto.observeTracked(pick.host, pick.strategy, 0, pick.generation)
+                // Distinguish an actual first-reply timeout from a benign
+                // application Close: only the former triggers AUTO backoff.
+                zapret2Auto.observeStallTracked(pick.host, pick.strategy, pick.generation)
             }
         }
     }
