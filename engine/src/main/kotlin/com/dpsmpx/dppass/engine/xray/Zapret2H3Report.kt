@@ -24,7 +24,7 @@ object Zapret2H3Policy {
 
     fun target(index: Int, protocol: String): String {
         require(index in 0..15)
-        require(protocol in setOf("quic", "h3", "h3api"))
+        require(protocol in setOf("quic", "quicv2", "h3", "h3api"))
         return "youtube_api_h3_ip" + index.toString().padStart(2, '0') + "_" + protocol
     }
 
@@ -56,6 +56,8 @@ object Zapret2H3Report {
         appendLine("QUIC requires three successful independent TLS 1.3 / ALPN h3 handshakes.")
         appendLine("First peer UDP reply is classified by public QUIC header shape only; it is NOT TLS verification.")
         appendLine("Up to two peer-reply timeouts are rechecked once for evidence; failed first attempts never qualify for H3.")
+        appendLine("If QUIC v1 has no stable address, QUIC v2 (RFC 9369) is tested separately for diagnostics only.")
+        appendLine("QUIC v2 handshakes do not bypass the three-success v1 gate for HTTP/3 in this build.")
         appendLine("A validated IP index expires in five minutes and is discarded with this diagnostic run.")
         appendLine("An actual HTTP/3 GET / and a fixed anonymous JSON HTTP/3 POST /youtubei/v1/browse follow.")
         appendLine("The POST uses fixed public client context only; no personal identity, cookies, keys or credentials.")
@@ -85,6 +87,19 @@ object Zapret2H3Report {
         } else {
             appendLine("CONTROL: Google protected QUIC was not verified at both endpoints of this scan; YouTube-specific filtering is NOT established.")
         }
+        val googleV2 = rows.filter { it.target == "google_control_ip00_quicv2" }
+        val v2Before = googleV2.firstOrNull { it.attempt == 1 }?.result
+        val v2After = googleV2.firstOrNull { it.attempt == 2 }?.result
+        appendLine("Google QUIC v2 control: before=" + controlStatus(v2Before) +
+            " after=" + controlStatus(v2After))
+        if (v2Before != null || v2After != null) {
+            if (v2Before?.outcome == "quic_verified" && v2After?.outcome == "quic_verified" &&
+                v2Before.alpn == "h3" && v2After.alpn == "h3") {
+                appendLine("CONTROL: Google QUIC v2 verified twice; compare YouTube v2 outcomes without inferring the cause.")
+            } else {
+                appendLine("CONTROL: QUIC v2 baseline not verified at both ends; negative YouTube v2 outcomes are inconclusive.")
+            }
+        }
         appendLine("Indexed IPv4 trials:")
         val trials = rows.filter { it.target.startsWith("youtube_api_h3_ip") }
         val perIndex = trials.groupBy { it.result.ipIndex }
@@ -106,6 +121,13 @@ object Zapret2H3Report {
         val stable = perIndex.filter { (_, group) ->
             Zapret2H3Policy.stable(group.filter { it.result.protocol == "quic" })
         }.keys.sorted()
+        val v2Trials = trials.filter { it.result.protocol == "quicv2" }
+        appendLine("Experimental QUIC v2: tested_ipv4=" +
+            v2Trials.map { it.result.ipIndex }.distinct().size +
+            " tls_verified=" + v2Trials.count {
+                it.result.outcome == "quic_verified" &&
+                    it.result.tlsStage == "quic_tls_verified" && it.result.alpn == "h3"
+            } + "; HTTP/3 v2 NOT attempted.")
         val h3Reply = trials.firstOrNull {
             it.result.protocol == "h3" && it.result.httpReachable
         }
