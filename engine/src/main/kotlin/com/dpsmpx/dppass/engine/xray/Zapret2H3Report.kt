@@ -37,8 +37,9 @@ object Zapret2H3Report {
         appendLine("=== DPpass — YouTube API protected QUIC retry / real HTTP3 ===")
         appendLine("Time: $timestamp")
         appendLine("Network: $network")
-        appendLine("Fixed SNI/Host: youtubei.googleapis.com; fixed private Google DoH A-only IPv4.")
-        appendLine("Strictly the original certificate-verified Xray UDP/443 outbound; no extra UDP socket or DNS.")
+        appendLine("YouTube SNI/Host: youtubei.googleapis.com; verified private Google DoH A-only IPv4.")
+        appendLine("Same-run www.google.com QUIC control before/after the scan (fixed verified Google DoH).")
+        appendLine("All QUIC trials use original protected Xray UDP/443; no unprotected socket or system DNS.")
         appendLine("QUIC requires three successful independent TLS 1.3 / ALPN h3 handshakes.")
         appendLine("A validated IP index expires in five minutes and is discarded with this diagnostic run.")
         appendLine("An actual HTTP/3 GET / and a fixed anonymous JSON HTTP/3 POST /youtubei/v1/browse follow.")
@@ -51,6 +52,24 @@ object Zapret2H3Report {
             " doh_http=" + (prep?.httpStatus ?: 0) +
             " ipv4_count=" + (prep?.dnsAnswers ?: 0) +
             " address_set_fingerprint=" + (prep?.dnsFingerprint?.ifBlank { "-" } ?: "-"))
+        val googlePreparation = rows.firstOrNull { it.target == "google_control_prepare" }?.result
+        val googleChecks = rows.filter { it.target == "google_control_ip00_quic" }
+        val before = googleChecks.firstOrNull { it.attempt == 1 }?.result
+        val after = googleChecks.firstOrNull { it.attempt == 2 }?.result
+        fun controlStatus(result: Zapret2GoogleProbe?): String =
+            if (result == null) "not_run" else
+                result.outcome + " stage=" + result.tlsStage + " alpn=" + result.alpn
+        appendLine("Google QUIC control: doh=" +
+            (googlePreparation?.outcome ?: "not_run") +
+            " before=" + controlStatus(before) +
+            " after=" + controlStatus(after))
+        if (before?.outcome == "quic_verified" && after?.outcome == "quic_verified" &&
+            before.tlsStage == "quic_tls_verified" && after.tlsStage == "quic_tls_verified" &&
+            before.alpn == "h3" && after.alpn == "h3") {
+            appendLine("CONTROL: Google protected QUIC worked before and after the YouTube scan; this does not establish the reason for YouTube failures.")
+        } else {
+            appendLine("CONTROL: Google protected QUIC was not verified at both endpoints of this scan; YouTube-specific filtering is NOT established.")
+        }
         appendLine("Indexed IPv4 trials:")
         val trials = rows.filter { it.target.startsWith("youtube_api_h3_ip") }
         val perIndex = trials.groupBy { it.result.ipIndex }
