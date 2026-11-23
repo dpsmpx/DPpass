@@ -187,6 +187,27 @@ func siteSearchCommit(inst *core.Instance,host,method string,gen uint64) bool {
         time.Since(r.prepared)>=siteSearchTTL {siteSearchState.Unlock();return false}
     count:=len(r.answer.ips)
     if count>siteSearchMaxIPs {count=siteSearchMaxIPs}
+    // Build a second candidate only from complete independent validated
+    // measurements. The shared memory result never comes from a Kotlin
+    // ranking alone, and is never keyed by the shared public IPv4.
+    secondary:=""
+    var secondaryLatency int64
+    if method!="plain" {
+        for _,candidate:=range siteSearchMethods {
+            if candidate=="plain" || candidate==method {continue}
+            var total int64
+            valid:=true
+            for index:=0;index<count;index++ {
+                wins,complete,duration:=siteSearchTrialGood(r,index,"h1",candidate)
+                if !complete || wins!=siteSearchAttempts {valid=false;break}
+                total+=duration
+            }
+            if valid && (secondary=="" || total<secondaryLatency) {
+                secondary=candidate
+                secondaryLatency=total
+            }
+        }
+    }
     // The native engine independently verifies the entire requested
     // candidate and baseline on every selected IP. Incomplete/duplicate
     // samples or intermittent 1/3 or 2/3 do not permit auto-promotion.
@@ -212,6 +233,12 @@ func siteSearchCommit(inst *core.Instance,host,method string,gen uint64) bool {
     selected:=method
     if selected=="plain" {selected="pass"}
     entry.preferred=selected
+    // A verified backup is used for new TLS streams only after two
+    // explicit failures of the primary. Evidence expires and is reset
+    // on network generation changes; no route or server is swapped.
+    entry.fallback=secondary
+    entry.fallbackUntil=time.Time{}
+    if secondary!="" {entry.fallbackUntil=time.Now().Add(20*time.Minute)}
     entry.probeSeeded=method!="plain"
     entry.weakFailures=0
     entry.smallResponses=nil
