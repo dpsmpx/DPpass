@@ -12,14 +12,17 @@ package bridge
 // No application DNS setting or regular VPN route is changed; plaintext
 // DNS/53, arbitrary user hostnames and redirects are prohibited.
 import (
-    "bufio"
     "bytes"
     "context"
     "crypto/sha256"
     "crypto/tls"
     "encoding/hex"
+    "fmt"
     "io"
+    "net"
     "net/http"
+    "sync/atomic"
+    "time"
     "sort"
     "strings"
 
@@ -48,6 +51,8 @@ type fixedDoHAnswer struct {
     ips []string
     fingerprint string // first 32 bits of SHA256 of sorted A RRset; not an IP
     status string
+    httpStatus int
+    protocol int
 }
 
 func publicIPv4Answers(reply *dns.Msg, question string) []string {
@@ -87,32 +92,70 @@ func fixedDoHReplyStatus(err error, ctx context.Context, phase string) string {
     return "doh_invalid"
 }
 
-// Return a bound, anonymized address-set fingerprint, never raw IPs to Java.
-// Each HTTPS request and the downstream TLS probe share the same deadline.
+// This TLS-verified DoH request must support HTTP/2. Some providers
+// reject HTTP/1.1, so manual req.Write/ReadResponse is not an adequate test.
+// The custom dialer uses ONLY the allowlisted literal bootstrap IPv4;
+// neither system DNS nor normal VPN DNS is involved.
 func resolveFixedDoH(ctx context.Context, inst *core.Instance, providerName string) fixedDoHAnswer {
-    provider,ok:=zapret2DoHProviders[providerName]
-    if !ok {return fixedDoHAnswer{status:"invalid_target"}}
+    provider, ok := zapret2DoHProviders[providerName]
+    if !ok { return fixedDoHAnswer{status:"invalid_target"} }
     msg:=new(dns.Msg)
     msg.SetQuestion(zapret2DoHQuestion,dns.TypeA)
     wire,err:=msg.Pack()
-    if err!=nil {return fixedDoHAnswer{status:"doh_invalid"}}
+    if err!=nil { return fixedDoHAnswer{status:"doh_invalid"} }
 
-    // DoH uses HTTPS-over-protected-TCP, not UDP/53. No system DNS needed.
-    destination:=xnet.Destination{Network:xnet.Network_TCP,
-        Address:xnet.ParseAddress(provider.address),Port:443}
-    forced:=session.SetForcedOutboundTagToContext(ctx,zapret2PlainTag+"-ipv4")
-    raw,err:=core.Dial(forced,inst,destination)
-    if err!=nil {return fixedDoHAnswer{status:fixedDoHReplyStatus(err,ctx,"dial")}}
-    defer raw.Close()
-    done:=make(chan struct{})
-    defer close(done)
-    go func() {select {case <-ctx.Done(): _=raw.Close();case <-done:}}()
-
-    tlsConn:=tls.Client(raw,&tls.Config{ServerName:provider.host,
-        RootCAs:probeRoots,MinVersion:tls.VersionTLS12,NextProtos:[]string{"http/1.1"}})
-    defer tlsConn.Close()
-    if err=tlsConn.HandshakeContext(ctx);err!=nil {
-        return fixedDoHAnswer{status:fixedDoHReplyStatus(err,ctx,"tls")}
+    // Stage tracking distinguishes resolver dial, TLS and HTTP errors.
+    var stage atomic.Int32
+    stage.Store(1)
+    var stopClosing func()
+    tr:=&http.Transport{
+        Proxy:nil,
+        ForceAttemptHTTP2:true,
+        DisableKeepAlives:true,
+        MaxConnsPerHost:1,
+        TLSClientConfig:&tls.Config{
+            RootCAs:probeRoots, MinVersion:tls.VersionTLS12,
+            ServerName:provider.host,
+            NextProtos:[]string{"h2","http/1.1"},
+        },
+    }
+    tr.DialTLSContext=func(dialCtx context.Context, network, addr string) (net.Conn,error) {
+        // Reject alternative endpoints and redirects, even if a caller changes
+        // the URL by accident. Every dial uses a known fixed IP.
+        if addr!=provider.host+":443" || (network!="tcp" && network!="tcp4") {
+            return nil,fmt.Errorf("unexpected DoH endpoint")
+        }
+        stage.Store(1)
+        destination:=xnet.Destination{Network:xnet.Network_TCP,
+            Address:xnet.ParseAddress(provider.address),Port:443}
+        forced:=session.SetForcedOutboundTagToContext(dialCtx,zapret2PlainTag+"-ipv4")
+        raw,dialErr:=core.Dial(forced,inst,destination)
+        if dialErr!=nil {return nil,dialErr}
+        // core.Dial's protected socket is also closed when the request times
+        // out, rather than lingering through a blocked TLS handshake.
+        done:=make(chan struct{})
+        stopClosing=func(){close(done)}
+        go func(){
+            select {case <-dialCtx.Done():_=raw.Close();case <-done:}
+        }()
+        stage.Store(2)
+        conn:=tls.Client(raw,tr.TLSClientConfig.Clone())
+        if err:=conn.HandshakeContext(dialCtx);err!=nil {
+            _=conn.Close()
+            return nil,err
+        }
+        stage.Store(3)
+        return conn,nil
+    }
+    defer func(){
+        tr.CloseIdleConnections()
+        if stopClosing!=nil {stopClosing()}
+    }()
+    client:=&http.Client{
+        Transport:tr,
+        CheckRedirect:func(_ *http.Request,_ []*http.Request) error {
+            return http.ErrUseLastResponse
+        },
     }
     req,err:=http.NewRequestWithContext(ctx,http.MethodPost,
         "https://"+provider.host+"/dns-query",bytes.NewReader(wire))
@@ -120,28 +163,51 @@ func resolveFixedDoH(ctx context.Context, inst *core.Instance, providerName stri
     req.Header.Set("Content-Type","application/dns-message")
     req.Header.Set("Accept","application/dns-message")
     req.Header.Set("Accept-Encoding","identity")
-    req.Close=true
-    if err=req.Write(tlsConn);err!=nil {
-        return fixedDoHAnswer{status:fixedDoHReplyStatus(err,ctx,"write")}
+    resp,err:=client.Do(req)
+    if err!=nil {
+        phase:="headers"
+        switch stage.Load() {case 1:phase="dial";case 2:phase="tls"}
+        return fixedDoHAnswer{status:fixedDoHReplyStatus(err,ctx,phase)}
     }
-    resp,err:=http.ReadResponse(bufio.NewReader(tlsConn),req)
-    if err!=nil {return fixedDoHAnswer{status:fixedDoHReplyStatus(err,ctx,"headers")}}
     defer resp.Body.Close()
-    if resp.StatusCode != http.StatusOK {return fixedDoHAnswer{status:"doh_http_status"}}
+    answer:=fixedDoHAnswer{httpStatus:resp.StatusCode,protocol:resp.ProtoMajor}
+    if resp.StatusCode!=http.StatusOK {
+        answer.status="doh_http_status"
+        return answer
+    }
     if !strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")),
-        "application/dns-message") {return fixedDoHAnswer{status:"doh_invalid"}}
+        "application/dns-message") {
+        answer.status="doh_invalid"
+        return answer
+    }
     body,err:=io.ReadAll(io.LimitReader(resp.Body,4097))
-    if err!=nil {return fixedDoHAnswer{status:fixedDoHReplyStatus(err,ctx,"body")}}
-    if len(body)>4096 {return fixedDoHAnswer{status:"doh_invalid"}}
+    if err!=nil {
+        answer.status=fixedDoHReplyStatus(err,ctx,"body")
+        return answer
+    }
+    if len(body)>4096 {
+        answer.status="doh_invalid"
+        return answer
+    }
     parsed:=new(dns.Msg)
-    if err=parsed.Unpack(body);err!=nil {return fixedDoHAnswer{status:"doh_invalid"}}
+    if err=parsed.Unpack(body);err!=nil {
+        answer.status="doh_invalid"
+        return answer
+    }
     if parsed.Id!=msg.Id || parsed.Truncated || parsed.Rcode!=dns.RcodeSuccess {
-        return fixedDoHAnswer{status:"doh_invalid"}
+        answer.status="doh_invalid"
+        return answer
     }
     ips:=publicIPv4Answers(parsed,zapret2DoHQuestion)
-    if len(ips)==0 {return fixedDoHAnswer{status:"doh_no_ipv4"}}
+    if len(ips)==0 {
+        answer.status="doh_no_ipv4"
+        return answer
+    }
     sum:=sha256.Sum256([]byte(strings.Join(ips,",")))
-    return fixedDoHAnswer{ips:ips,fingerprint:hex.EncodeToString(sum[:4]),status:"ok"}
+    answer.ips=ips
+    answer.fingerprint=hex.EncodeToString(sum[:4])
+    answer.status="ok"
+    return answer
 }
 
 func validateFixedDoHProvider(name string) bool {
@@ -149,37 +215,82 @@ func validateFixedDoHProvider(name string) bool {
     return ok
 }
 
+// A maximum per-IP deadline stops a single blackholed endpoint from
+// consuming the entire differential test. Check *all* returned IPv4 A
+// addresses (up to 16) and keep counters without exposing individual IPs.
+const fixedDoHIPTimeout=2100*time.Millisecond
+func probeAllDNSIPs(ctx context.Context, ips []string,
+    check func(context.Context,string) Zapret2HTTPSResult) Zapret2HTTPSResult {
+    out:=Zapret2HTTPSResult{Outcome:"timeout_dial"}
+    bestScore:=-1
+    for index,ip:=range ips {
+        if ctx.Err()!=nil {break}
+        perIP:=fixedDoHIPTimeout
+        if deadline,ok:=ctx.Deadline();ok {
+            remaining:=time.Until(deadline)
+            each:=remaining/time.Duration(len(ips)-index)
+            if each<perIP {perIP=each}
+        }
+        if perIP<400*time.Millisecond {break}
+        oneCtx,cancel:=context.WithTimeout(ctx,perIP)
+        result:=check(oneCtx,ip)
+        cancel()
+        out.DnsChecked++
+        // A successful TLS verification is any state reached past the
+        // handshake; the probe exposes no raw payloads or remote IPs.
+        tlsOK:=result.TLSVerified
+        if tlsOK {out.DnsTLSReady++}
+        if result.Outcome=="http_reachable" {out.DnsHTTPReady++}
+        score:=0
+        if result.Outcome=="timeout_tls" {score=1}
+        if tlsOK {score=2}
+        if result.Outcome=="http_reachable" {score=3}
+        if score>bestScore {
+            bestScore=score
+            out.Outcome=result.Outcome
+            out.HTTPStatus=result.HTTPStatus
+            out.BodyBytes=result.BodyBytes
+        }
+    }
+    return out
+}
+
 // Handles a test-only DoH arm without exposing raw IPs or altering the
-// global DNS policy. HTTPS is still sent with youtubei.googleapis.com Host
-// and SNI, and its certificate is fully checked for that original host.
+// global DNS policy. HTTPS uses youtubei.googleapis.com Host and SNI with
+// full certificate verification for every selected IPv4.
 func probeWithFixedDoH(ctx context.Context, inst *core.Instance, strategy, providerName string,
     target zapret2TestTarget) Zapret2HTTPSResult {
-    out:=Zapret2HTTPSResult{Outcome:"doh_invalid",DnsFingerprint:"-",DnsAnswers:0}
+    out:=Zapret2HTTPSResult{Outcome:"doh_invalid",DnsFingerprint:"-"}
     if !validateFixedDoHProvider(providerName) {return out}
     answer:=resolveFixedDoH(ctx,inst,providerName)
+    out.DoHHTTPStatus=answer.httpStatus
+    out.DoHProtocol=answer.protocol
     if answer.status!="ok" {out.Outcome=answer.status;return out}
     out.DnsFingerprint=answer.fingerprint
     out.DnsAnswers=len(answer.ips)
-    // Select a stable IPv4 from each authenticated DNS answer set. A result
-    // is valid only for that IP; differing sets are exposed by fingerprint.
-    ip:=answer.ips[0]
     tag:=zapret2TestStrategies[strategy]+"-ipv4"
-    dest:=xnet.Destination{Network:xnet.Network_TCP,
-        Address:xnet.ParseAddress(ip),Port:443}
-    forced:=session.SetForcedOutboundTagToContext(ctx,tag)
-    conn,err:=core.Dial(forced,inst,dest)
-    if err!=nil {
-        out.Outcome="dial_failed"
-        if ctx.Err()!=nil {out.Outcome="timeout_dial"}
-        return out
-    }
-    defer conn.Close()
-    done:=make(chan struct{})
-    defer close(done)
-    go func() {select {case <-ctx.Done():_=conn.Close();case <-done:}}()
-    downstream:=probeHTTPSWithConn(ctx,conn,target)
-    downstream.DnsFingerprint=out.DnsFingerprint
-    downstream.DnsAnswers=out.DnsAnswers
-    return downstream
+    targetProbes:=probeAllDNSIPs(ctx,answer.ips,
+        func(oneCtx context.Context,ip string) Zapret2HTTPSResult {
+            dest:=xnet.Destination{Network:xnet.Network_TCP,
+                Address:xnet.ParseAddress(ip),Port:443}
+            forced:=session.SetForcedOutboundTagToContext(oneCtx,tag)
+            conn,err:=core.Dial(forced,inst,dest)
+            if err!=nil {
+                state:="dial_failed"
+                if oneCtx.Err()!=nil {state="timeout_dial"}
+                return Zapret2HTTPSResult{Outcome:state}
+            }
+            defer conn.Close()
+            done:=make(chan struct{})
+            defer close(done)
+            go func(){
+                select {case <-oneCtx.Done():_=conn.Close();case <-done:}
+            }()
+            return probeHTTPSWithConn(oneCtx,conn,target)
+        })
+    targetProbes.DnsFingerprint=out.DnsFingerprint
+    targetProbes.DnsAnswers=out.DnsAnswers
+    targetProbes.DoHHTTPStatus=out.DoHHTTPStatus
+    targetProbes.DoHProtocol=out.DoHProtocol
+    return targetProbes
 }
-
