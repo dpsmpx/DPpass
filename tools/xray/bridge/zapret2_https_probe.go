@@ -82,11 +82,11 @@ type Zapret2HTTPSResult struct {
     DnsTLSReady int
     DnsHTTPReady int
     TLSVerified bool // internal only: do not serialize directly
+    DoHProbe bool // v3 for all DoH calls, including dial/TLS failures
 }
 
 func (r Zapret2HTTPSResult) Wire() []byte {
-    if r.DnsFingerprint!="" && (r.DoHHTTPStatus!=0 || r.DoHProtocol!=0 ||
-        r.DnsChecked!=0 || r.DnsTLSReady!=0 || r.DnsHTTPReady!=0) {
+    if r.DoHProbe {
         return []byte(fmt.Sprintf("v3\t%s\t%d\t%d\t%d\t%d\t%d\t%s\t%d\t%d\t%d\t%d\t%d\t%d",
             r.Outcome,r.HTTPStatus,r.BodyBytes,r.Elapsed.Milliseconds(),
             r.AppliedDelta,r.SkippedDelta,r.DnsFingerprint,r.DnsAnswers,
