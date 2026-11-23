@@ -260,7 +260,7 @@ func probeAllDNSIPs(ctx context.Context, ips []string,
 // full certificate verification for every selected IPv4.
 func probeWithFixedDoH(ctx context.Context, inst *core.Instance, strategy, providerName string,
     target zapret2TestTarget) Zapret2HTTPSResult {
-    out:=Zapret2HTTPSResult{Outcome:"doh_invalid",DnsFingerprint:"-"}
+    out:=Zapret2HTTPSResult{Outcome:"doh_invalid",DnsFingerprint:"-",DoHProbe:true}
     if !validateFixedDoHProvider(providerName) {return out}
     answer:=resolveFixedDoH(ctx,inst,providerName)
     out.DoHHTTPStatus=answer.httpStatus
@@ -288,6 +288,7 @@ func probeWithFixedDoH(ctx context.Context, inst *core.Instance, strategy, provi
             }()
             return probeHTTPSWithConn(oneCtx,conn,target)
         })
+    targetProbes.DoHProbe=true
     targetProbes.DnsFingerprint=out.DnsFingerprint
     targetProbes.DnsAnswers=out.DnsAnswers
     targetProbes.DoHHTTPStatus=out.DoHHTTPStatus
