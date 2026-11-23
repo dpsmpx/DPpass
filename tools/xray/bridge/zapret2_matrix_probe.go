@@ -59,7 +59,7 @@ func parseMatrixTarget(id string) (matrixSpec, bool) {
 }
 
 // A successful, explicitly requested prepare replaces the cache. Cache is
-// bound to the active Xray instance and expires after ten minutes. The
+// bound to the active Xray instance and expires after forty-five minutes. The
 // unredacted addresses live only in native memory, never in the report.
 var matrixRRsets = struct {
     sync.Mutex
@@ -76,7 +76,7 @@ func matrixPrepare(ctx context.Context, inst *core.Instance, provider string) fi
         matrixRRsets.answers=make(map[string]fixedDoHAnswer)
     }
     matrixRRsets.instance=inst
-    matrixRRsets.expiry=time.Now().Add(10*time.Minute)
+    matrixRRsets.expiry=time.Now().Add(45*time.Minute)
     delete(matrixRRsets.answers,provider)
     if answer.status=="ok" {matrixRRsets.answers[provider]=answer}
     return answer
