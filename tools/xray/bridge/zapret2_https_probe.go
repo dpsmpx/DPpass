@@ -85,7 +85,7 @@ type Zapret2HTTPSResult struct {
 
 func (r Zapret2HTTPSResult) Wire() []byte {
     if r.Protocol!="" {
-        return []byte(fmt.Sprintf("v3\\t%s\\t%d\\t%d\\t%d\\t%d\\t%d\\t%s\\t%d\\t%d\\t%s\\t%s\\t%s",
+        return []byte(fmt.Sprintf("v3\t%s\t%d\t%d\t%d\t%d\t%d\t%s\t%d\t%d\t%s\t%s\t%s",
             r.Outcome,r.HTTPStatus,r.BodyBytes,r.Elapsed.Milliseconds(),
             r.AppliedDelta,r.SkippedDelta,r.DnsFingerprint,r.DnsAnswers,
             r.IPIndex,r.Protocol,r.TLSStage,r.ALPN))
