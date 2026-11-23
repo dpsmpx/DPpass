@@ -295,3 +295,41 @@ func TestUniversalAUTORealPayloadClearsOnlyMatchingCircuitBreaker(t *testing.T) 
         t.Fatal("meaningful response should restore just the matching strategy")
     }
 }
+
+func TestUniversalAUTOQUICRealReadTimeoutIsCountedOnceOnClose(t *testing.T) {
+    if err:=zapret2Auto.configureHosts("");err!=nil {t.Fatal(err)}
+    t.Cleanup(func(){_ = zapret2Auto.configureHosts("")})
+    host:="127.0.0.1"
+    strategy,generation:=zapret2Auto.chooseQUICTracked(host)
+    if strategy!="fake-3" {t.Fatalf("unexpected cold start: %s",strategy)}
+    for attempt:=0;attempt<2;attempt++ {
+        receiver,err:=net.ListenUDP("udp",&net.UDPAddr{IP:net.IPv4(127,0,0,1)})
+        if err!=nil {t.Fatal(err)}
+        udp,err:=net.DialUDP("udp",nil,receiver.LocalAddr().(*net.UDPAddr))
+        if err!=nil {receiver.Close();t.Fatal(err)}
+        c:=&desyncUDPConn{UDPConn:udp,host:host,mode:desyncMode{kind:desyncAuto}}
+        c.stageInitialSent.Store(true)
+        c.adaptiveSelection.Store(&adaptivePick{
+            host:"udp:"+host,strategy:strategy,generation:generation})
+        if err:=udp.SetReadDeadline(time.Now().Add(-time.Millisecond));err!=nil {t.Fatal(err)}
+        if _,err:=c.Read(make([]byte,2048));!isZapret2Timeout(err) {
+            t.Fatalf("expected QUIC no-reply timeout, got %v",err)
+        }
+        if err:=c.Close();err!=nil {t.Fatal(err)}
+        _=receiver.Close()
+        zapret2Auto.mu.Lock()
+        e:=zapret2Auto.entries["udp:"+host]
+        cooldown:=e.cooldown[strategy]
+        stalls:=e.stalls[strategy]
+        zapret2Auto.mu.Unlock()
+        if attempt==0 && (!cooldown.IsZero() || stalls!=1) {
+            t.Fatalf("first QUIC timeout counted twice or prematurely cooled: %v %d",cooldown,stalls)
+        }
+        if attempt==1 && !cooldown.After(time.Now()) {
+            t.Fatalf("two independent QUIC read timeouts not cooled: %v",cooldown)
+        }
+    }
+    if got:=zapret2Auto.chooseQUIC(host);got!="fake-5" {
+        t.Fatalf("QUIC cooldown did not skip fake-3: %s",got)
+    }
+}
