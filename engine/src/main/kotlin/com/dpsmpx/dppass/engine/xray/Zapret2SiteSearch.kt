@@ -180,6 +180,16 @@ object Zapret2SiteSearch {
             }
             appendLine("Выбор: ${recommendation.method ?: "-"} — ${recommendation.label}")
             appendLine("AUTO: ${commit?.outcome ?: "not_applied"}")
+            if (!quic && commit?.outcome == "auto_applied" &&
+                recommendation.method != null && recommendation.method != "plain") {
+                val fallback = recommendation.candidates.filter {
+                    it.stable && it.method != "plain" && it.method != recommendation.method
+                }.minWithOrNull(compareBy<Candidate>({ it.meanLatency ?: Long.MAX_VALUE },
+                    { tcpMethods.indexOf(it.method) }))
+                appendLine("Резерв для AUTO при подтверждённых тайм-аутах: " +
+                    (fallback?.method ?: "-") +
+                    " (только другой 3/3 HTTPS-кандидат того же домена).")
+            }
             appendLine("QUIC TLS — не доказательство HTTP/3 GET, работы API или воспроизведения.")
             appendLine("HTTPS 2xx с небольшим телом — не доказательство авторизации или работы всего сайта.")
             appendLine("Другие IP/CDN/поддомены/протоколы не проверялись.")
