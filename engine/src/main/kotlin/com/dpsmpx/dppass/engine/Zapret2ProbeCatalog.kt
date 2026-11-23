@@ -42,6 +42,10 @@ object Zapret2ProbeCatalog {
     // on-device tests. These controls never train a new global winner.
     val dnsStrategies: List<String> = listOf("fake-5", "tlsrec-split")
 
+    /** TCP-baseline plus two prior candidate strategies; QUIC is plain UDP only. */
+    val matrixStrategies: List<String> = listOf("plain", "fake-5", "tlsrec-split")
+    val matrixProviders: List<String> = listOf("cloudflare", "google", "quad9")
+
     /** User-visible diagnostic meaning for each allowlisted probe ID. */
     fun targetLabel(id: String): String = when (id) {
         "google_final" -> "www.google.com/ (HTML)"
