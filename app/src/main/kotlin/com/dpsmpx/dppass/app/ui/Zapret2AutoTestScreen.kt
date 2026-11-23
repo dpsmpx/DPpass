@@ -16,6 +16,7 @@ import com.dpsmpx.dppass.engine.xray.JniXrayRuntime
 import com.dpsmpx.dppass.engine.xray.Zapret2GoogleAttempt
 import com.dpsmpx.dppass.engine.xray.Zapret2GoogleProbe
 import com.dpsmpx.dppass.engine.xray.Zapret2GoogleReport
+import com.dpsmpx.dppass.engine.xray.Zapret2DNSComparisonReport
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -38,6 +39,8 @@ import java.util.Locale
 class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autotest_title) {
     private val runButton: Button = Ui.button(
         context, R.string.zapret2_autotest_again, Ui.Style.PRIMARY, R.drawable.ic_speed)
+    private val dnsButton: Button = Ui.button(
+        context, R.string.zapret2_dns_compare_button, Ui.Style.PRIMARY, R.drawable.ic_dns)
     private val progress = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
         max = TOTAL
         visibility = View.GONE
@@ -54,6 +57,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         addView(Ui.text(context, R.style.Text_DPpass_Secondary,
             context.getString(R.string.zapret2_autotest_note)), Ui.matchWidth())
         addView(runButton.apply { setOnClickListener { start() } }, Ui.matchWidth())
+        addView(dnsButton.apply { setOnClickListener { start(dnsComparison = true) } }, Ui.matchWidth())
         addView(progress, Ui.matchWidth())
         addView(statusText, Ui.matchWidth())
         addView(resultText, Ui.matchWidth())
@@ -69,6 +73,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     override fun render(status: TunnelStatus) {
         if (job?.isActive == true) return
         runButton.isEnabled = ready(status)
+        dnsButton.isEnabled = ready(status)
         if (!ready(status)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
         }
@@ -83,7 +88,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         host.prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE &&
             status is TunnelStatus.Connected && status.profileId == ServerlessPlan.PROFILE_ID
 
-    private fun start() {
+    private fun start(dnsComparison: Boolean = false) {
         if (job?.isActive == true) return
         if (!ready(TunnelState.status.value)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
@@ -92,14 +97,20 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         }
         val network = NetworkCheck.underlying(context).type.toString()
         val quic = host.prefs.zapret2VpnForceTcp
+        val targets = if (dnsComparison) Zapret2ProbeCatalog.dnsTargets else Zapret2ProbeCatalog.targets
+        val strategies = if (dnsComparison) Zapret2ProbeCatalog.dnsStrategies else Zapret2ProbeCatalog.strategies
+        val timeout = if (dnsComparison) DNS_TIMEOUT_MILLIS else TIMEOUT_MILLIS
+        val total = targets.size * strategies.size * REPEATS
         val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ROOT).format(Date())
         val rows = mutableListOf<Zapret2GoogleAttempt>()
         runButton.isEnabled = false
+        dnsButton.isEnabled = false
+        progress.max = total
         progress.progress = 0
         progress.visibility = View.VISIBLE
         resultText.visibility = View.GONE
         statusText.text = context.getString(R.string.zapret2_autotest_progress,
-            0, TOTAL, Zapret2ProbeCatalog.targets.first(), "plain", 0, REPEATS)
+            0, total, targets.first(), strategies.first(), 0, REPEATS)
         job = host.scope.launch {
             try {
                 val stageStart = withContext(Dispatchers.IO) {
@@ -107,18 +118,18 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     catch (_: LinkageError) { null }
                 }
                 var done = 0
-                for (target in Zapret2ProbeCatalog.targets) {
-                    for (strategy in Zapret2ProbeCatalog.strategies) {
+                for (target in targets) {
+                    for (strategy in strategies) {
                         for (attempt in 1..REPEATS) {
                             ensureActive()
                             // Real TLS/HTTP content checks run in the worker.
                             // No browser, manual strategy switch, or VPN restart.
                             statusText.text = context.getString(
                                 R.string.zapret2_autotest_progress,
-                                done, TOTAL, target, strategy, attempt, REPEATS)
+                                done, total, target, strategy, attempt, REPEATS)
                             val response = try {
                                 withContext(Dispatchers.IO) {
-                                    JniXrayRuntime.probeZapret2Google(strategy, target, TIMEOUT_MILLIS)
+                                    JniXrayRuntime.probeZapret2Google(strategy, target, timeout)
                                 }
                             } catch (_: LinkageError) {
                                 Zapret2GoogleProbe.unavailable()
@@ -129,7 +140,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                             progress.progress = done
                             statusText.text = context.getString(
                                 R.string.zapret2_autotest_progress,
-                                done, TOTAL, target, strategy, attempt, REPEATS)
+                                done, total, target, strategy, attempt, REPEATS)
                         }
                     }
                 }
@@ -139,13 +150,17 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 }
                 val stages = if (stageStart == null || stageEnd == null) null
                     else stageEnd.delta(stageStart)
-                val report = Zapret2GoogleReport.render(stamp, network, quic, rows, stages)
+                val report = if (dnsComparison)
+                    Zapret2DNSComparisonReport.render(stamp, network, rows)
+                else Zapret2GoogleReport.render(stamp, network, quic, rows, stages)
                 resultText.text = report
                 resultText.visibility = View.VISIBLE
                 val copied = try {
                     val clipboard = context.getSystemService(ClipboardManager::class.java)
                     if (clipboard == null) false else {
-                        clipboard.setPrimaryClip(ClipData.newPlainText("DPpass Zapret2 HTTPS diagnostics", report))
+                        clipboard.setPrimaryClip(ClipData.newPlainText(
+                            if (dnsComparison) "DPpass protected DoH comparison" else "DPpass Zapret2 HTTPS diagnostics",
+                            report))
                         true
                     }
                 } catch (_: SecurityException) {
@@ -162,6 +177,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             } finally {
                 job = null
                 runButton.isEnabled = ready(TunnelState.status.value)
+                dnsButton.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
@@ -169,6 +185,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     private companion object {
         const val REPEATS = 2
         const val TIMEOUT_MILLIS = 8_000
+        const val DNS_TIMEOUT_MILLIS = 12_000
         val TOTAL: Int = Zapret2ProbeCatalog.targets.size *
             Zapret2ProbeCatalog.strategies.size * REPEATS
     }
