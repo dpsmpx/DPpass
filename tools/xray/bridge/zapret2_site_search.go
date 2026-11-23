@@ -201,6 +201,27 @@ func siteSearchCommit(inst *core.Instance,host,method string,gen uint64) bool {
             return false
         }
     }
+    // A backup is only eligible if it independently passed all three
+    // HTTPS checks at every identical pinned IPv4. Rank by average
+    // successful latency; never reuse a QUIC-only or incomplete profile.
+    backup:=""
+    bestMillis:=int64(1<<62)
+    if method!="plain" {
+        for _,other:=range siteSearchMethods {
+            if other=="plain"||other==method {continue}
+            var total int64
+            stable:=true
+            for i:=0;i<count;i++ {
+                successes,complete,elapsed:=siteSearchTrialGood(r,i,"h1",other)
+                if !complete||successes!=siteSearchAttempts {stable=false;break}
+                total+=elapsed
+            }
+            if stable && total<bestMillis {
+                backup=other
+                bestMillis=total
+            }
+        }
+    }
     siteSearchState.Unlock()
     zapret2Auto.mu.Lock()
     defer zapret2Auto.mu.Unlock()
@@ -212,6 +233,7 @@ func siteSearchCommit(inst *core.Instance,host,method string,gen uint64) bool {
     selected:=method
     if selected=="plain" {selected="pass"}
     entry.preferred=selected
+    entry.verifiedFallback=backup
     entry.probeSeeded=method!="plain"
     entry.weakFailures=0
     entry.smallResponses=nil
