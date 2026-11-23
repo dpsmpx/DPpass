@@ -902,4 +902,6 @@
     <string name="zapret2_site_search_invalid">Enter a public domain without https://, port, path, local address or IP.</string>
     <string name="zapret2_site_search_dns_fail">Protected DoH did not return a usable public IPv4 for this domain. AUTO remains unchanged.</string>
     <string name="zapret2_site_search_expired">Network changed, scan was interrupted, or the five-minute address limit was reached. No AUTO selection applied.</string>
+    <string name="zapret2_youtube_paths_button">Verify YouTube homepage, API and thumbnail CDN (H1/H2)</string>
+    <string name="zapret2_youtube_paths_note">Opt-in checks use protected private DoH and Xray TLS against fixed public YouTube domains. Compares plain, tlsrec-split and fake-5 over HTTP/1.1 and HTTP/2, with independent retries. A 4xx API is transport-only; a thumbnail is not video playback. No AUTO or VPN changes.</string>
 </resources>
