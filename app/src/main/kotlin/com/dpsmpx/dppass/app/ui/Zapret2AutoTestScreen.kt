@@ -217,11 +217,14 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         job = host.scope.launch {
             val rows = mutableListOf<Zapret2GoogleAttempt>()
             try {
-                // Fresh certificate-verified DNS snapshots are mandatory for
-                // each run; no stale Android/OS resolver cache is consulted.
-                for ((index, provider) in Zapret2ProbeCatalog.matrixProviders.withIndex()) {
+                // Google control is prepared first, before the long YouTube
+                // matrix. All A answers use fixed, verified DoH rather than
+                // the configured Android DNS.
+                val preparations = listOf("google_control_prepare") +
+                    Zapret2ProbeCatalog.matrixProviders.map { "youtube_api_matrix_" + it + "_prepare" }
+                progress.max = preparations.size
+                for ((index, id) in preparations.withIndex()) {
                     ensureActive()
-                    val id = "youtube_api_matrix_" + provider + "_prepare"
                     statusText.text = context.getString(R.string.zapret2_autotest_progress,
                         index, progress.max, id, "plain", 1, 1)
                     val response = try {
@@ -235,6 +238,17 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 }
                 val seenSets = mutableSetOf<String>()
                 val trials = mutableListOf<Pair<String, String>>()
+                val control = rows.first { it.target == "google_control_prepare" }.result
+                if (control.outcome == "dns_ready") {
+                    // Two Google A addresses, one baseline mode, three
+                    // protocols each: six short fixed controls maximum.
+                    for (index in 0 until control.dnsAnswers.coerceAtMost(2)) {
+                        val prefix = "google_control_ip" + index.toString().padStart(2, '0') + "_"
+                        for (protocol in listOf("h1", "h2", "quic")) {
+                            trials += (prefix + protocol) to "plain"
+                        }
+                    }
+                }
                 for (provider in Zapret2ProbeCatalog.matrixProviders) {
                     val id = "youtube_api_matrix_" + provider + "_prepare"
                     val answer = rows.first { it.target == id }.result
@@ -253,11 +267,11 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                         trials += (prefix + "quic") to "plain"
                     }
                 }
-                val total = Zapret2ProbeCatalog.matrixProviders.size + trials.size
+                val total = preparations.size + trials.size
                 progress.max = total
                 for ((index, trial) in trials.withIndex()) {
                     ensureActive()
-                    val done = Zapret2ProbeCatalog.matrixProviders.size + index
+                    val done = preparations.size + index
                     statusText.text = context.getString(R.string.zapret2_autotest_progress,
                         done, total, trial.first, trial.second, 1, 1)
                     val response = try {
