@@ -76,6 +76,6 @@ class Zapret2ServiceReportTest {
             it.method == method }
         assertFalse(item.stable)
         assertEquals(2, item.attempted)
-        assertEquals(1, item.successful)
+        assertEquals(2, item.successful)
     }
 }
