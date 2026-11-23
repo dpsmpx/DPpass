@@ -19,6 +19,7 @@ import (
     "strconv"
     "strings"
     "sync"
+    "sync/atomic"
     "time"
 
     quic "github.com/apernet/quic-go"
@@ -259,12 +260,12 @@ func matrixHTTP(ctx context.Context,raw net.Conn,target zapret2TestTarget,proto 
 type matrixPacketConn struct {
     net.Conn
     remote *net.UDPAddr
-    sent bool
-    reply bool
+    sent atomic.Bool
+    reply atomic.Bool
 }
 func (p *matrixPacketConn) ReadFrom(b []byte) (int,net.Addr,error) {
     n,err:=p.Conn.Read(b)
-    if n>0 {p.reply=true}
+    if n>0 {p.reply.Store(true)}
     return n,p.remote,err
 }
 func (p *matrixPacketConn) WriteTo(b []byte,addr net.Addr) (int,error) {
@@ -272,7 +273,7 @@ func (p *matrixPacketConn) WriteTo(b []byte,addr net.Addr) (int,error) {
         return 0,errors.New("matrix UDP destination mismatch")
     }
     n,err:=p.Conn.Write(b)
-    if n>0 {p.sent=true}
+    if n>0 {p.sent.Store(true)}
     return n,err
 }
 func (p *matrixPacketConn) LocalAddr() net.Addr {
@@ -289,10 +290,10 @@ func matrixQUIC(ctx context.Context,raw net.Conn,ip string) Zapret2HTTPSResult {
         MinVersion:tls.VersionTLS13,NextProtos:[]string{"h3"}}
     conn,err:=quic.Dial(ctx,packets,remote,cfg,&quic.Config{})
     if err!=nil {
-        if packets.reply {out.TLSStage="quic_peer_reply"}
-        else if packets.sent {out.TLSStage="quic_initial_sent"}
+        if packets.reply.Load() {out.TLSStage="quic_peer_reply"}
+        else if packets.sent.Load() {out.TLSStage="quic_initial_sent"}
         switch {
-        case ctx.Err()!=nil && packets.reply:out.Outcome="quic_timeout_after_reply"
+        case ctx.Err()!=nil && packets.reply.Load():out.Outcome="quic_timeout_after_reply"
         case ctx.Err()!=nil:out.Outcome="quic_timeout_no_reply"
         default:out.Outcome="quic_failed"
         }
