@@ -902,4 +902,6 @@
     <string name="zapret2_site_search_invalid">Enter a public domain without https://, port, path, local address or IP.</string>
     <string name="zapret2_site_search_dns_fail">Protected DoH did not return a usable public IPv4 for this domain. AUTO remains unchanged.</string>
     <string name="zapret2_site_search_expired">Network changed, scan was interrupted, or the five-minute address limit was reached. No AUTO selection applied.</string>
+    <string name="zapret2_service_button">Validate YouTube homepage, API transport and thumbnails</string>
+    <string name="zapret2_service_note">Compares the three actual HTTPS components using plain, TLS-record + TCP split and fake-5 (3 independent attempts each). API HTTP 2xx/4xx proves transport only; a fixed JPEG is not video playback. This read-only test never trains AUTO or changes normal routing. No Googlevideo media stream is requested.</string>
 </resources>
