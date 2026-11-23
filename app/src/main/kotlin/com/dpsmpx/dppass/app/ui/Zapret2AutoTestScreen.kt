@@ -4,6 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.os.SystemClock
 import android.view.View
+import android.text.InputType
+import android.widget.EditText
 import android.widget.Button
 import android.widget.ProgressBar
 import com.dpsmpx.dppass.R
@@ -21,6 +23,7 @@ import com.dpsmpx.dppass.engine.xray.Zapret2DNSComparisonReport
 import com.dpsmpx.dppass.engine.xray.Zapret2MatrixReport
 import com.dpsmpx.dppass.engine.xray.Zapret2H3Policy
 import com.dpsmpx.dppass.engine.xray.Zapret2H3Report
+import com.dpsmpx.dppass.engine.xray.Zapret2SiteSearch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -49,6 +52,18 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         context, R.string.zapret2_matrix_button, Ui.Style.PRIMARY, R.drawable.ic_speed)
     private val h3Button: Button = Ui.button(
         context, R.string.zapret2_h3_button, Ui.Style.PRIMARY, R.drawable.ic_speed)
+    private val siteInput = EditText(context).apply {
+        hint = context.getString(R.string.zapret2_site_search_host_hint)
+        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI or
+            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        isSingleLine = true
+        maxLines = 1
+        contentDescription = context.getString(R.string.zapret2_site_search_host_hint)
+    }
+    private val siteButton: Button = Ui.button(
+        context, R.string.zapret2_site_search_button, Ui.Style.PRIMARY, R.drawable.ic_speed)
+    private val siteQuicButton: Button = Ui.button(
+        context, R.string.zapret2_site_quic_button, Ui.Style.OUTLINE, R.drawable.ic_speed)
     private val progress = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
         max = TOTAL
         visibility = View.GONE
@@ -74,6 +89,15 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         addView(h3Button.apply { setOnClickListener { startH3() } }, Ui.matchWidth())
         addView(Ui.text(context, R.style.Text_DPpass_Caption,
             context.getString(R.string.zapret2_h3_note)), Ui.matchWidth())
+        addView(Ui.section(context, context.getString(R.string.zapret2_site_search_button)),
+            Ui.matchWidth())
+        addView(siteInput, Ui.matchWidth())
+        addView(siteButton.apply { setOnClickListener { startSiteSearch(quic = false) } },
+            Ui.matchWidth())
+        addView(siteQuicButton.apply { setOnClickListener { startSiteSearch(quic = true) } },
+            Ui.matchWidth())
+        addView(Ui.text(context, R.style.Text_DPpass_Caption,
+            context.getString(R.string.zapret2_site_search_note)), Ui.matchWidth())
         addView(progress, Ui.matchWidth())
         addView(statusText, Ui.matchWidth())
         addView(resultText, Ui.matchWidth())
@@ -93,6 +117,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         dnsButton.isEnabled = ready(status)
         matrixButton.isEnabled = ready(status)
         h3Button.isEnabled = ready(status)
+        siteButton.isEnabled = ready(status)
+        siteQuicButton.isEnabled = ready(status)
         if (!ready(status)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
         }
@@ -126,6 +152,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         dnsButton.isEnabled = false
         matrixButton.isEnabled = false
         h3Button.isEnabled = false
+        siteButton.isEnabled = false
+        siteQuicButton.isEnabled = false
         progress.max = total
         progress.progress = 0
         progress.visibility = View.VISIBLE
@@ -201,6 +229,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 dnsButton.isEnabled = ready(TunnelState.status.value)
                 matrixButton.isEnabled = ready(TunnelState.status.value)
                 h3Button.isEnabled = ready(TunnelState.status.value)
+                siteButton.isEnabled = ready(TunnelState.status.value)
+                siteQuicButton.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
@@ -222,6 +252,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         dnsButton.isEnabled = false
         matrixButton.isEnabled = false
         h3Button.isEnabled = false
+        siteButton.isEnabled = false
+        siteQuicButton.isEnabled = false
         progress.visibility = View.VISIBLE
         progress.max = Zapret2ProbeCatalog.matrixProviders.size
         progress.progress = 0
@@ -317,6 +349,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 dnsButton.isEnabled = ready(TunnelState.status.value)
                 matrixButton.isEnabled = ready(TunnelState.status.value)
                 h3Button.isEnabled = ready(TunnelState.status.value)
+                siteButton.isEnabled = ready(TunnelState.status.value)
+                siteQuicButton.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
@@ -343,6 +377,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         dnsButton.isEnabled = false
         matrixButton.isEnabled = false
         h3Button.isEnabled = false
+        siteButton.isEnabled = false
+        siteQuicButton.isEnabled = false
         progress.max = 1
         progress.progress = 0
         progress.visibility = View.VISIBLE
@@ -532,6 +568,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 dnsButton.isEnabled = ready(TunnelState.status.value)
                 matrixButton.isEnabled = ready(TunnelState.status.value)
                 h3Button.isEnabled = ready(TunnelState.status.value)
+                siteButton.isEnabled = ready(TunnelState.status.value)
+                siteQuicButton.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
