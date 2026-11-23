@@ -83,6 +83,40 @@ POST. Neither the control nor a one-off QUIC handshake is positive AUTO
 training evidence. The signed ARM64 development build version is
 `0.7.64-dev` (`versionCode 142`); field validation remains open.
 
+## 0.7.67 follow-up: intermittent verified QUIC v1 and unsupported v2 baseline
+
+The 2026-11-23 11:40:47 +03:00 MOBILE test found a certificate-verified
+QUIC v1/TLS 1.3/ALPN h3 handshake for YouTube API IPv4 index 1 in
+**139 ms**, but its next independent attempt timed out. All seven
+remaining v1 indices timed out on first trial. The resulting v1 evidence
+was **1/9 verified attempts**, not a stable HTTP/3 candidate.
+
+The same-run Google QUIC v1 controls passed 2/2. Google QUIC v2 controls
+received Version Negotiation-shaped public QUIC headers in both attempts
+but did not complete TLS. YouTube v2 returned 0/8; without a verified
+Google v2 baseline, those failures do not show YouTube v2-specific
+filtering.
+
+The new diagnostic completes exactly three separate v1 samples for each
+IP with a verified first sample, **even when the second times out**,
+and labels partial successes as intermittent. The HTTP/3 eligibility
+predicate now requires three distinct numbered v1 samples (1, 2, 3),
+all certificate-verified with ALPN h3 on the same indexed fixed
+target; partial successes are never promoted into production routing
+or auto-learning.
+
+When the Google QUIC v2 pre-control is not verified, the YouTube
+v2 matrix is skipped instead of generating eight inconclusive
+timeouts. A second Google v2 control is still attempted to check
+whether the baseline changed. This saves about 40 seconds in the
+observed failure case, keeps private protected UDP connections and
+fixed DoH unchanged, and does not infer censorship from version
+negotiation alone. The signed development test version is
+`0.7.67-dev` (`versionCode 145`).
+
+Real-device results remain required; a successful QUIC handshake is
+neither an HTTP/3 GET nor evidence of a usable YouTube feed.
+
 ## Verification
 
 - Go strict allowlist, 5-minute address expiry and malformed target tests;
