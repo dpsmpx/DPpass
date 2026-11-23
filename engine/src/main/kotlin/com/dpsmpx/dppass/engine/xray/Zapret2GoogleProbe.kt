@@ -279,13 +279,14 @@ object Zapret2DNSComparisonReport {
         if (verified.isEmpty()) appendLine(
             "No authenticated DoH A responses: compare resolver reachability, not CDN IP quality.")
         else if (uniqueSets.size == 1) appendLine(
-            "All successful DoH controls returned the same A set (fingerprint).")
+            "All received DoH A-answer sets were equal (fingerprint).")
         else appendLine(
-            "DoH providers returned different A sets: differing CDN/IP choice is plausible.")
+            "Multiple DoH A-answer sets observed (possibly also within one provider); CDN/IP choice may differ.")
         if (verified.isNotEmpty() && verified.none { it.result.httpReachable })
             appendLine("All resolved-IP HTTPS controls still failed: DNS alone did not restore HTTP reachability.")
         appendLine("A successful DoH reply can coexist with SNI/TLS blocking on the requested site.")
         appendLine("Different DNS fingerprints do not prove interception: legitimate CDN geo steering is possible.")
+        appendLine("Only one resolved IPv4 per DoH trial is tested; other A addresses may behave differently.")
         appendLine("No global DNS/server/strategy preference is changed by this diagnostic.")
     }
 }
