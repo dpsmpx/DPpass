@@ -931,4 +931,8 @@
     <string name="zapret2_site_search_invalid">Введите публичный домен без https://, порта, пути, локального адреса или IP.</string>
     <string name="zapret2_site_search_dns_fail">Проверенный DoH не дал подходящего публичного IPv4. AUTO не изменён.</string>
     <string name="zapret2_site_search_expired">Сеть изменилась, поиск прерван или истёк срок DNS (5 минут). Выбор AUTO не применён.</string>
+    <string name="zapret2_youtube_hosts_note">Этапы YouTube: отдельно проверьте главную страницу, API и CDN миниатюр. Каждая кнопка запускает защищённый HTTPS-поиск 3/3 только для указанного домена. Это не подтверждает HTTP/2, авторизованный API или воспроизведение видео.</string>
+    <string name="zapret2_youtube_home_button">Проверить HTTPS главной YouTube</string>
+    <string name="zapret2_youtube_api_button">Проверить HTTPS YouTube API</string>
+    <string name="zapret2_youtube_thumbnail_button">Проверить HTTPS CDN миниатюр YouTube</string>
 </resources>
