@@ -81,7 +81,10 @@ data class Zapret2GoogleProbe(
                 val stage = fields[11].takeIf { it in setOf(
                     "none", "tcp_connected", "clienthello_sent", "server_reply_seen", "serverhello_seen",
                     "tls_verified", "udp_connected", "quic_initial_sent",
-                    "quic_peer_reply", "quic_tls_verified") } ?: return unavailable()
+                    "quic_peer_reply", "quic_peer_short_header", "quic_peer_vn_header",
+                    "quic_peer_retry_header", "quic_peer_initial_header",
+                    "quic_peer_handshake_header", "quic_peer_long_other",
+                    "quic_peer_unrecognized", "quic_tls_verified") } ?: return unavailable()
                 val alpn = fields[12].takeIf { it in setOf("-", "http/1.1", "h2", "h3") }
                     ?: return unavailable()
                 if (answers > 0 && protocol != "dns" && index >= answers) return unavailable()
@@ -91,7 +94,10 @@ data class Zapret2GoogleProbe(
                 // strict v3 contract while recognizing the two new H3 modes.
                 if (protocol in setOf("h3", "h3api") &&
                     stage !in setOf("none", "udp_connected", "quic_initial_sent",
-                        "quic_peer_reply", "quic_tls_verified")) return unavailable()
+                        "quic_peer_reply", "quic_peer_short_header", "quic_peer_vn_header",
+                    "quic_peer_retry_header", "quic_peer_initial_header",
+                    "quic_peer_handshake_header", "quic_peer_long_other",
+                    "quic_peer_unrecognized", "quic_tls_verified")) return unavailable()
                 if (protocol in setOf("h3", "h3api") &&
                     alpn !in setOf("-", "h3")) return unavailable()
                 if (protocol in setOf("h3", "h3api") &&
