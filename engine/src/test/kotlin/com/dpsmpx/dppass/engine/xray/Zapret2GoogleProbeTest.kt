@@ -232,7 +232,7 @@ class Zapret2GoogleProbeTest {
                 row("youtube_api_dns_google", "doh_timeout_tls", "-", 0),
                 row("youtube_api_dns_quad9", "timeout_tls", "0123abcd", 1)))
         assertTrue(report.contains("doh_timeout_tls"))
-        assertTrue(report.contains("DoH providers returned different A sets"))
+        assertTrue(report.contains("Multiple DoH A-answer sets observed"))
         assertTrue(report.contains("ordinary VPN DNS and routing are unchanged"))
         assertFalse(report.contains("1.2.3.4"))
         assertEquals(4, Zapret2ProbeCatalog.dnsTargets.size)
