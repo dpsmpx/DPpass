@@ -910,6 +910,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                             response.outcome == "engine_off") break@repeatScan
                     }
                 }
+                progress.max = rows.size
+                progress.progress = rows.size
                 val report = Zapret2SiteSearch.apiSweepReport(
                     network, prepared, rows, ipCount)
                 resultText.text = report
