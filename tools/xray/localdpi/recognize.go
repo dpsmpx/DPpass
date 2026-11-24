@@ -79,54 +79,52 @@ func HTTPHostRange(b []byte) (start, end int, ok bool) {
 	return 0, 0, false
 }
 
-// SNIRange — где в записи TLS лежит имя сервера (server_name): [start, end)
-// байтов имени. ok — это начало ClientHello, и имя целиком в [b].
+// SNIRange returns the first server_name host within the available bytes of
+// the first ClientHello record. Never consume a later TLS record or a byte
+// outside the declared handshake/extension/list. A partial first read can
+// still reveal SNI when its complete extension is already present.
 func SNIRange(b []byte) (start, end int, ok bool) {
-	// Запись TLS: тип 22 (handshake), версия, длина; затем сообщение 1 (ClientHello).
-	if len(b) < 5+4 || b[0] != 22 || b[5] != 1 {
-		return 0, 0, false
-	}
-	p := 5 + 4 // заголовок записи и сообщения
-	p += 2 + 32 // версия и случайное
-	if p+1 > len(b) {
-		return 0, 0, false
-	}
-	p += 1 + int(b[p]) // session id
-	if p+2 > len(b) {
-		return 0, 0, false
-	}
-	p += 2 + int(binary.BigEndian.Uint16(b[p:])) // наборы шифров
-	if p+1 > len(b) {
-		return 0, 0, false
-	}
-	p += 1 + int(b[p]) // методы сжатия
-	if p+2 > len(b) {
-		return 0, 0, false
-	}
-	extEnd := p + 2 + int(binary.BigEndian.Uint16(b[p:]))
-	p += 2
-	if extEnd > len(b) {
-		extEnd = len(b)
-	}
-	for p+4 <= extEnd {
-		typ := binary.BigEndian.Uint16(b[p:])
-		size := int(binary.BigEndian.Uint16(b[p+2:]))
-		body := p + 4
-		if body+size > len(b) {
-			return 0, 0, false
-		}
-		if typ == 0 { // server_name: список, первый — host_name
-			if size < 5 || b[body+2] != 0 {
-				return 0, 0, false
-			}
-			n := int(binary.BigEndian.Uint16(b[body+3:]))
-			s := body + 5
-			if n == 0 || s+n > body+size {
-				return 0, 0, false
-			}
-			return s, s + n, true
-		}
-		p = body + size
-	}
-	return 0, 0, false
+    if !IsTLSClientHelloPrefix(b) { return 0,0,false }
+    recordLen:=int(binary.BigEndian.Uint16(b[3:5]))
+    if recordLen>16384 {return 0,0,false}
+    helloLen:=int(b[6])<<16|int(b[7])<<8|int(b[8])
+    if helloLen==0 {return 0,0,false}
+    helloEnd:=9+helloLen
+    limit:=min(len(b),5+recordLen,helloEnd)
+    b=b[:limit]
+    p:=9+2+32
+    if p+1>len(b) {return 0,0,false}
+    sid:=int(b[p])
+    if sid>32 {return 0,0,false}
+    p+=1+sid
+    if p+2>len(b) {return 0,0,false}
+    cipherLen:=int(binary.BigEndian.Uint16(b[p:]))
+    if cipherLen<2 || cipherLen%2!=0 {return 0,0,false}
+    p+=2+cipherLen
+    if p+1>len(b) {return 0,0,false}
+    compressionLen:=int(b[p])
+    if compressionLen==0 {return 0,0,false}
+    p+=1+compressionLen
+    if p+2>len(b) {return 0,0,false}
+    extEnd:=p+2+int(binary.BigEndian.Uint16(b[p:]))
+    p+=2
+    if extEnd>helloEnd {return 0,0,false}
+    available:=min(extEnd,len(b))
+    for p+4<=available {
+        typ:=binary.BigEndian.Uint16(b[p:])
+        size:=int(binary.BigEndian.Uint16(b[p+2:]))
+        body:=p+4
+        if body+size>available {return 0,0,false}
+        if typ==0 {
+            if size<5 || b[body+2]!=0 {return 0,0,false}
+            listLen:=int(binary.BigEndian.Uint16(b[body:]))
+            if listLen!=size-2 {return 0,0,false}
+            n:=int(binary.BigEndian.Uint16(b[body+3:]))
+            s:=body+5
+            if n==0 || s+n>body+size {return 0,0,false}
+            return s,s+n,true
+        }
+        p=body+size
+    }
+    return 0,0,false
 }
