@@ -28,6 +28,10 @@ import com.dpsmpx.dppass.engine.xray.Zapret2MatrixReport
 import com.dpsmpx.dppass.engine.xray.Zapret2H3Policy
 import com.dpsmpx.dppass.engine.xray.Zapret2H3Report
 import com.dpsmpx.dppass.engine.xray.Zapret2SiteSearch
+import com.dpsmpx.dppass.app.Zapret2NeuralModel
+import com.dpsmpx.dppass.engine.xray.XrayResult
+import com.dpsmpx.dppass.engine.xray.DptsPlan
+import com.dpsmpx.dppass.engine.xray.DptsLearning
 import com.dpsmpx.dppass.engine.xray.DptsScript
 import com.dpsmpx.dppass.engine.xray.DptsPresets
 import com.dpsmpx.dppass.engine.xray.DptsCompileException
@@ -95,7 +99,23 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             .getString("source", null) ?: DptsPresets.scripts.values.first())
         contentDescription = context.getString(R.string.dpts_script_hint)
     }
-    private val dptsPresets = DptsPresets.scripts.keys.toList()
+    private val dptsPresets = DptsPresets.scripts.keys.toMutableList()
+    private val personalScripts = linkedMapOf<String, String>().also { saved ->
+        val prefs = context.getSharedPreferences("dpts_saved_scripts", Context.MODE_PRIVATE)
+        for ((key, value) in prefs.all) {
+            if (key.startsWith("script.") && value is String &&
+                value.length <= DptsScript.MAX_SOURCE_LENGTH) {
+                val name = key.removePrefix("script.")
+                if (name.length in 1..80) saved[name] = value
+            }
+        }
+    }
+    private val dptsNameInput = EditText(context).apply {
+        hint = context.getString(R.string.dpts_name_hint)
+        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+        isSingleLine = true
+        filters = arrayOf(InputFilter.LengthFilter(80))
+    }
     private val dptsPresetSpinner = Spinner(context).apply {
         adapter = ArrayAdapter(context, android.R.layout.simple_spinner_item,
             dptsPresets).apply {
@@ -106,6 +126,16 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         Ui.Style.OUTLINE, R.drawable.ic_dns)
     private val dptsRunButton = Ui.button(context, R.string.dpts_run_script,
         Ui.Style.PRIMARY, R.drawable.ic_speed)
+    private val dptsSaveButton = Ui.button(context, R.string.dpts_save_script,
+        Ui.Style.OUTLINE, R.drawable.ic_dns)
+    private val dptsTrainButton = Ui.button(context, R.string.dpts_train_network,
+        Ui.Style.OUTLINE, R.drawable.ic_speed)
+    private val dptsStopButton = Ui.button(context, R.string.dpts_stop_script,
+        Ui.Style.OUTLINE, R.drawable.ic_speed)
+    private var lastDptsPlan: DptsPlan? = null
+    private var lastDptsRows: List<Zapret2GoogleAttempt> = emptyList()
+    private var lastDptsNetwork: String? = null
+    private var lastTrainingSubmitted = false
     private val progress = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
         max = TOTAL
         visibility = View.GONE
@@ -119,69 +149,23 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     private var started = false
 
     override fun content(): View = Ui.column(context, 12).apply {
-        addView(Ui.text(context, R.style.Text_DPpass_Secondary,
-            context.getString(R.string.zapret2_autotest_note)), Ui.matchWidth())
-        addView(runButton.apply { setOnClickListener { start() } }, Ui.matchWidth())
-        addView(dnsButton.apply { setOnClickListener { start(dnsComparison = true) } }, Ui.matchWidth())
         addView(Ui.text(context, R.style.Text_DPpass_Caption,
-            context.getString(R.string.zapret2_dns_compare_note)), Ui.matchWidth())
-        addView(matrixButton.apply { setOnClickListener { startMatrix() } }, Ui.matchWidth())
-        addView(Ui.text(context, R.style.Text_DPpass_Caption,
-            context.getString(R.string.zapret2_matrix_note)), Ui.matchWidth())
-        addView(h3Button.apply { setOnClickListener { startH3() } }, Ui.matchWidth())
-        addView(Ui.text(context, R.style.Text_DPpass_Caption,
-            context.getString(R.string.zapret2_h3_note)), Ui.matchWidth())
-        addView(Ui.section(context, context.getString(R.string.zapret2_site_search_button)),
-            Ui.matchWidth())
-        addView(siteInput, Ui.matchWidth())
-        addView(Ui.text(context, R.style.Text_DPpass_Caption,
-            context.getString(R.string.zapret2_youtube_hosts_note)), Ui.matchWidth())
-        addView(youtubeHomeButton.apply { setOnClickListener {
-            siteInput.setText("www.youtube.com")
-            startSiteSearch(quic = false)
-        } }, Ui.matchWidth())
-        addView(youtubeApiButton.apply { setOnClickListener {
-            siteInput.setText("youtubei.googleapis.com")
-            startSiteSearch(quic = false)
-        } }, Ui.matchWidth())
-        addView(youtubeThumbnailButton.apply { setOnClickListener {
-            siteInput.setText("i.ytimg.com")
-            startSiteSearch(quic = false)
-        } }, Ui.matchWidth())
-        addView(youtubeApiSweepButton.apply { setOnClickListener {
-            startYoutubeApiSweep()
-        } }, Ui.matchWidth())
-        addView(apiSniControlButton.apply { setOnClickListener {
-            startSameIpSniControl()
-        } }, Ui.matchWidth())
-        addView(apiTLSVersionButton.apply { setOnClickListener {
-            startTLSVersionControl()
-        } }, Ui.matchWidth())
-        addView(Ui.text(context, R.style.Text_DPpass_Caption,
-            context.getString(R.string.zapret2_youtube_api_tls_version_note)), Ui.matchWidth())
-        addView(Ui.text(context, R.style.Text_DPpass_Caption,
-            context.getString(R.string.zapret2_youtube_api_sni_control_note)), Ui.matchWidth())
-        addView(Ui.text(context, R.style.Text_DPpass_Caption,
-            context.getString(R.string.zapret2_youtube_api_sweep_note)), Ui.matchWidth())
-        addView(siteButton.apply { setOnClickListener { startSiteSearch(quic = false) } },
-            Ui.matchWidth())
-        addView(siteQuicButton.apply { setOnClickListener { startSiteSearch(quic = true) } },
-            Ui.matchWidth())
-        addView(Ui.text(context, R.style.Text_DPpass_Caption,
-            context.getString(R.string.zapret2_site_search_note)), Ui.matchWidth())
-        addView(Ui.section(context, context.getString(R.string.dpts_title)),
-            Ui.matchWidth())
-        addView(Ui.text(context, R.style.Text_DPpass_Caption,
-            context.getString(R.string.dpts_note)), Ui.matchWidth())
+            context.getString(R.string.dpts_unified_note)), Ui.matchWidth())
         addView(dptsPresetSpinner, Ui.matchWidth())
-        addView(dptsLoadButton.apply { setOnClickListener {
-            if (job?.isActive == true) return@setOnClickListener
-            dptsEditor.setText(DptsPresets.scripts.getValue(
-                dptsPresets[dptsPresetSpinner.selectedItemPosition]))
-        } }, Ui.matchWidth())
+        addView(dptsLoadButton.apply { setOnClickListener { loadSelectedScript() } },
+            Ui.matchWidth())
+        addView(dptsNameInput, Ui.matchWidth())
         addView(dptsEditor, Ui.matchWidth())
+        addView(dptsSaveButton.apply { setOnClickListener { saveCurrentScript() } },
+            Ui.matchWidth())
         addView(dptsRunButton.apply { setOnClickListener { startDptsScript() } },
             Ui.matchWidth())
+        addView(dptsTrainButton.apply { setOnClickListener { trainFromLastScript() } },
+            Ui.matchWidth())
+        addView(dptsStopButton.apply { setOnClickListener {
+            job?.cancel()
+            statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
+        } }, Ui.matchWidth())
         addView(progress, Ui.matchWidth())
         addView(statusText, Ui.matchWidth())
         addView(resultText, Ui.matchWidth())
