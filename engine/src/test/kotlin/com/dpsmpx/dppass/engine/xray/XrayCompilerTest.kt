@@ -1141,6 +1141,19 @@ class XrayCompilerTest {
 
 
     @Test
+    fun autoForceTcpWithHostlistDoesNotBlockUnrelatedQuic() {
+        val dns = DnsPolicy(listOf(DnsServer("local", DnsTransport.System, DnsRoute.DIRECT)),
+            "local", leakProtection = false)
+        val sites = SplitSites.parse("youtube.com").valueOrNull()!!
+        val result = XrayCompiler().compileServerless(ServerlessPlan(dns, sites, splitRest = false,
+            desync = DesyncTrick.Auto, forceQuicTcp = true))
+        val doc = Json.parse(result.valueOrNull()!!.payloadForEngine()) as JsonObject
+        assertTrue(rules(doc).none { it["ruleTag"].text == "dppass:zapret2-quic-tcp" })
+        assertEquals(XrayBackend.TAG_BLOCK,
+            rules(doc).single { it["ruleTag"].text == XrayBackend.RULE_SPLIT_QUIC }["outboundTag"].text)
+    }
+
+    @Test
     fun zapret2IpOnlyQuicDecoyRespectsForceTcpSwitch() {
         val dns = DnsPolicy(
             listOf(DnsServer("local", DnsTransport.System, DnsRoute.DIRECT)),

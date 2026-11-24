@@ -405,9 +405,9 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             context.getString(R.string.dpts_train_success, candidates.joinToString(", "))
         else context.getString(R.string.dpts_train_ack_error)
         appendTrainingLog(if (persisted)
-            "local_mlp_context_updated persisted=true eligible_methods=" +
+            "local_verified_html_head_updated persisted=true eligible_methods=" +
                 candidates.joinToString(",") + " " + evidence.report()
-            else "local_mlp_context_updated snapshot_persisted_ack_failed")
+            else "local_verified_html_head_updated snapshot_persisted_ack_failed")
     }
 
     private fun start(dnsComparison: Boolean = false) {

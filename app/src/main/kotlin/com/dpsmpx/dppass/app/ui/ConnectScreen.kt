@@ -423,7 +423,8 @@ class ConnectScreen(host: Host) : Screen(host) {
         upSpeed.text = speed(t.upPerSec)
         downTotal.text = context.getString(R.string.traffic_total, bytes(t.downBytes))
         upTotal.text = context.getString(R.string.traffic_total, bytes(t.upBytes))
-        stats.contentDescription = context.getString(R.string.a11y_traffic, speed(t.downPerSec), speed(t.upPerSec))
+        stats.contentDescription = context.getString(R.string.a11y_traffic, speed(t.downPerSec), speed(t.upPerSec)) +
+            "; Ping TCP: " + ping.text + "; Jitter TCP: " + jitter.text
     }
 
     override fun onShown() {

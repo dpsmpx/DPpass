@@ -31,6 +31,7 @@ on:
       - release/dpts-v0.8.0-alpha1
       - release/dpts-v0.8.1-unified
       - release/dpts-v0.8.2
+      - feature/dppass-0.8.3
   workflow_dispatch:
 
 concurrency:
