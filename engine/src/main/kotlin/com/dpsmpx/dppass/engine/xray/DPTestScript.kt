@@ -151,9 +151,9 @@ object DPTestScript {
         if (builder.train != null) {
             require(builder.train != "plain" && builder.train in builder.methods &&
                 "plain" in builder.methods && "h1" in builder.protocols &&
-                builder.attempts == 3 && builder.ips <= 2 &&
+                builder.attempts == 3 && builder.ips == 2 &&
                 builder.protocols == listOf("h1")) {
-                "Обучение: только h1, plain + один поддерживаемый метод, IP <=2, attempts=3"
+                "Обучение: только h1, plain + один поддерживаемый метод, ips=2, attempts=3"
             }
         }
         val steps = ArrayList<Step>()
