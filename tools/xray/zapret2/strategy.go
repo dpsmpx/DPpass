@@ -16,6 +16,7 @@ const (
     Disorder Kind = "disorder"
     Split Kind = "split"
     SplitFirst Kind = "split-1"
+    SplitSecond Kind = "split-2"
     Auto Kind = "auto"
     TLSRecordSplit Kind = "tlsrec-split"
     Pass Kind = "pass" // intentional untouched QUIC baseline, AUTO only
@@ -37,6 +38,7 @@ func ParseTag(tag string) (Mode, bool, error) {
     case "disorder": return Mode{Kind: Disorder, TTL: 1}, true, nil
     case "split": return Mode{Kind: Split}, true, nil
     case "split-1": return Mode{Kind: SplitFirst}, true, nil
+    case "split-2": return Mode{Kind: SplitSecond}, true, nil
     case "tlsrec-split": return Mode{Kind: TLSRecordSplit}, true, nil
     case "pass": return Mode{Kind: Pass}, true, nil
     }

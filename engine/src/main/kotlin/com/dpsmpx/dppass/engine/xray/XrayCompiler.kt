@@ -247,7 +247,7 @@ class XrayCompiler(
         // the protected experimental freedom outbound. This tests the
         // *actual* adapter instead of a different DNS path.
         val extraExperimentOutbounds = if (plan.withTun && plan.desync != null)
-            Zapret2ProbeCatalog.strategies.mapNotNull { strategy ->
+            Zapret2ProbeCatalog.allProbeStrategies.mapNotNull { strategy ->
                 val exp = Zapret2ProbeCatalog.experimentTag(strategy) ?: return@mapNotNull null
                 if (exp == experimentTag(plan.desync)) null
                 else Json.obj("tag" to Json.str(exp), "protocol" to Json.str("freedom"))
@@ -256,7 +256,7 @@ class XrayCompiler(
         val testOutbounds = if (plan.withTun && plan.desync != null) {
             val stream = direct.fields["streamSettings"] as JsonObject
             val sockopt = stream.fields["sockopt"] as JsonObject
-            Zapret2ProbeCatalog.strategies.map { strategy ->
+            Zapret2ProbeCatalog.allProbeStrategies.map { strategy ->
                 val tag = Zapret2ProbeCatalog.tag(strategy)!!
                 if (strategy == "plain") {
                     JsonObject(direct.fields + ("tag" to JsonString(tag)))
@@ -279,7 +279,7 @@ class XrayCompiler(
             val sockopt = stream.fields["sockopt"] as JsonObject
             val ipv4Sockopt = JsonObject(
                 sockopt.fields + ("domainStrategy" to JsonString("ForceIPv4")))
-            Zapret2ProbeCatalog.strategies.map { strategy ->
+            Zapret2ProbeCatalog.allProbeStrategies.map { strategy ->
                 val tag = Zapret2ProbeCatalog.tag(strategy)!! + "-ipv4"
                 val finalSockopt = if (strategy == "plain") ipv4Sockopt else JsonObject(
                     ipv4Sockopt.fields + ("dialerProxy" to JsonString(

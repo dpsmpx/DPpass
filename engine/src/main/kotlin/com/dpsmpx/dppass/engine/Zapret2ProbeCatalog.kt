@@ -20,6 +20,10 @@ object Zapret2ProbeCatalog {
         "auto",
     )
 
+    // Additional physical profiles only for explicit DPTS probes, not legacy AUTO.
+    val scriptOnlyStrategies = listOf("split-2", "fake-2", "fake-4", "fake-8")
+    val allProbeStrategies = strategies + scriptOnlyStrategies
+
     /** Dedicated test ingress; routes through the real protected exp dialer. */
     /** Fixed safe HTTPS destinations; no user-provided URL or redirect chain. */
     val targets: List<String> = listOf(
@@ -61,11 +65,11 @@ object Zapret2ProbeCatalog {
     }
 
     fun tag(strategy: String): String? =
-        if (strategy !in strategies) null
+        if (strategy !in allProbeStrategies) null
         else if (strategy == "plain") PLAIN_TAG
         else "dppass:test-$strategy"
 
     fun experimentTag(strategy: String): String? =
-        if (strategy == "plain" || strategy !in strategies) null
+        if (strategy == "plain" || strategy !in allProbeStrategies) null
         else "dppass:exp-$strategy"
 }

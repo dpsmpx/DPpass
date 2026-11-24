@@ -8,7 +8,7 @@ import kotlin.test.assertTrue
 
 class DptsScriptTest {
     @Test fun allBundledPresetsCompileToBoundedPublicTargets() {
-        assertEquals(17, DptsPresets.scripts.size)
+        assertEquals(18, DptsPresets.scripts.size)
         for ((name, script) in DptsPresets.scripts) {
             val plan = DptsScript.compile(script)
             assertEquals(name.isNotBlank(), plan.title.isNotBlank())
@@ -21,7 +21,8 @@ class DptsScriptTest {
                 assertTrue(probe.attempt in 1..3)
                 assertTrue(probe.timeoutMs in 1000..12000)
                 assertTrue(probe.method in Zapret2SiteSearch.tcpMethods ||
-                    probe.method in Zapret2SiteSearch.quicMethods)
+                    probe.method in Zapret2SiteSearch.quicMethods ||
+                    probe.method in com.dpsmpx.dppass.engine.Zapret2ProbeCatalog.scriptOnlyStrategies)
             }
         }
     }

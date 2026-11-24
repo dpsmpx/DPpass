@@ -1023,12 +1023,12 @@ class XrayCompilerTest {
             tags.take(5),
             "existing primary routing order must not change",
         )
-        val probeTags = Zapret2ProbeCatalog.strategies.mapNotNull(Zapret2ProbeCatalog::tag)
+        val probeTags = Zapret2ProbeCatalog.allProbeStrategies.mapNotNull(Zapret2ProbeCatalog::tag)
         assertEquals(probeTags.toSet(), tags.toSet().intersect(probeTags.toSet()))
         assertEquals(tags.size, tags.toSet().size, "duplicate Xray outbound tags")
         assertEquals(5 + (probeTags.size - 2) + probeTags.size * 2, tags.size,
             "selected experiment registered once; regular and IPv4-only probes stay private")
-        for (strategy in Zapret2ProbeCatalog.strategies.filter { it != "plain" }) {
+        for (strategy in Zapret2ProbeCatalog.allProbeStrategies.filter { it != "plain" }) {
             val testTag = Zapret2ProbeCatalog.tag(strategy)!!
             val experimentTag = Zapret2ProbeCatalog.experimentTag(strategy)!!
             assertEquals(experimentTag,

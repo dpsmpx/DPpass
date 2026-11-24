@@ -35,8 +35,8 @@ object DptsScript {
     const val MAX_SOURCE_LENGTH = 12_000
     const val MAX_PROBES = 64
     const val MAX_BUDGET_MS = 240_000L
-    private val allowedMethods = Zapret2SiteSearch.tcpMethods.toSet()
-    private val allowedQuic = Zapret2SiteSearch.quicMethods.toSet()
+    private val allowedMethods = (Zapret2SiteSearch.tcpMethods + com.dpsmpx.dppass.engine.Zapret2ProbeCatalog.scriptOnlyStrategies).toSet()
+    private val allowedQuic = (Zapret2SiteSearch.quicMethods + listOf("fake-2", "fake-4", "fake-8")).toSet()
     private val supported = setOf("https", "tls", "quic", "sni")
     val suites = setOf("google_youtube", "dns_compare", "ip_matrix",
         "h3_api", "site_https", "site_quic", "api_ipv4_sweep",
@@ -373,6 +373,12 @@ object DptsPresets {
             host youtubei.googleapis.com
             learn observe
             https protocols=h1 methods=plain,split-1,split,tlsrec-split,fake-3,fake-5,disorder ips=2 attempts=3 timeout_ms=5000
+        """.trimIndent(),
+        "YouTube API · дополнительные TCP профили" to """
+            dpts 1
+            name Extended native TCP profile comparison
+            host youtubei.googleapis.com
+            https protocols=h1,h2 methods=plain,split-2,fake-2,fake-4,fake-8 ips=2 attempts=2 timeout_ms=5000
         """.trimIndent(),
         "YouTube · public thumbnail" to """
             dpts 1

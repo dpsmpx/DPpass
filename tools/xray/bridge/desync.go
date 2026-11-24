@@ -63,6 +63,7 @@ const (
 	desyncAuto desyncKind = 5
     desyncTLSRecordSplit desyncKind = 6
     desyncPass desyncKind = 7
+    desyncSplitSecond desyncKind = 8
 )
 
 type desyncMode struct {
@@ -116,6 +117,7 @@ func parseDesyncTag(tag string) (desyncMode, bool, error) {
     case zapret2.Fake: return desyncMode{kind: desyncFake, ttl: mode.TTL}, true, nil
     case zapret2.Split: return desyncMode{kind: desyncSplit}, true, nil
     case zapret2.SplitFirst: return desyncMode{kind: desyncSplitFirst}, true, nil
+    case zapret2.SplitSecond: return desyncMode{kind: desyncSplitSecond}, true, nil
     case zapret2.TLSRecordSplit: return desyncMode{kind: desyncTLSRecordSplit}, true, nil
     case zapret2.Pass: return desyncMode{kind: desyncPass}, true, nil
     case zapret2.Auto: return desyncMode{kind: desyncAuto}, true, nil
@@ -442,7 +444,7 @@ func (c *desyncConn) desyncFirst(b []byte) (int, error) {
             return 0, c.plannerErr
         }
         sent, err = c.fakeWrite(b[:plan.Cut], plan.Fake)
-    case desyncSplit:
+    case desyncSplit, desyncSplitSecond:
         sent, err = c.TCPConn.Write(b[:plan.Cut])
     default:
         c.plannerErr = errors.New("invalid Zapret2 strategy")
@@ -473,6 +475,7 @@ func modeTag(m desyncMode) string {
     case desyncDisorder: return zapret2.TagPrefix + "disorder"
     case desyncSplit: return zapret2.TagPrefix + "split"
     case desyncSplitFirst: return zapret2.TagPrefix + "split-1"
+    case desyncSplitSecond: return zapret2.TagPrefix + "split-2"
     case desyncTLSRecordSplit: return zapret2.TagPrefix + "tlsrec-split"
     case desyncPass: return zapret2.TagPrefix + "pass"
     case desyncFake: return fmt.Sprintf("%sfake-%d", zapret2.TagPrefix, m.ttl)

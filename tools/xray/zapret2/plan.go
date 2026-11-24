@@ -40,6 +40,12 @@ func BuildPlan(tag, network string, first []byte) (Plan, error) {
             }
             return p, nil
         }
+        if mode.Kind == SplitSecond {
+            if !IsTLSClientHelloPrefix(first) || len(first) <= 2 { p.Reason = "TLS ClientHello prefix required"; return p, nil }
+            p.Applied = true
+            p.Cut = 2
+            return p, nil
+        }
         if mode.Kind == SplitFirst {
             if !IsTLSClientHelloPrefix(first) { p.Reason = "not TLS ClientHello"; return p, nil }
             p.Applied = true

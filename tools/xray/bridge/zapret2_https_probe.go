@@ -37,6 +37,10 @@ var zapret2TestStrategies = map[string]string{
     "fake-5": "dppass:test-fake-5",
     "disorder": "dppass:test-disorder",
     "auto": "dppass:test-auto",
+    "split-2": "dppass:test-split-2",
+    "fake-2": "dppass:test-fake-2",
+    "fake-4": "dppass:test-fake-4",
+    "fake-8": "dppass:test-fake-8",
 }
 
 type zapret2TestTarget struct {

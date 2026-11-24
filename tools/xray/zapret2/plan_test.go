@@ -181,3 +181,14 @@ func TestTCPAutoPassBaselinePreservesOriginalTraffic(t *testing.T) {
         if !bytes.Equal(original, untouched) { t.Fatal("plan mutated input") }
     }
 }
+
+func TestAdditionalDptsNativeProfiles(t *testing.T) {
+    hello := []byte{22, 3, 1, 0, 8, 1, 0, 0, 4, 3, 3, 0, 0}
+    p, err := BuildPlan(TagPrefix+"split-2", "tcp", hello)
+    if err != nil || !p.Applied || p.Cut != 2 { t.Fatalf("split-2: %+v %v", p, err) }
+    http := []byte("GET / HTTP/1.1\r\nHost: video.example.org\r\n\r\n")
+    for _, tc := range []struct{ tag string; ttl int }{{"fake-2",2},{"fake-4",4},{"fake-8",8}} {
+        p, err := BuildPlan(TagPrefix+tc.tag, "tcp", http)
+        if err != nil || !p.Applied || p.TTL != tc.ttl || len(p.Fake) != p.Cut { t.Fatalf("%s: %+v %v", tc.tag,p,err) }
+    }
+}

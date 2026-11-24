@@ -397,9 +397,11 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
         // data is NEVER eligible for live AUTO promotion or neural training.
         if request.kind=="script_quic" {
             for _,m:=range siteSearchQUICMethods {if m==strategy {allowed=true}}
+            if strategy=="fake-2" || strategy=="fake-4" || strategy=="fake-8" {allowed=true}
             result.Protocol="quic"
         } else {
             for _,m:=range siteSearchMethods {if m==strategy {allowed=true}}
+            if strategy=="split-2" || strategy=="fake-2" || strategy=="fake-4" || strategy=="fake-8" {allowed=true}
             if request.kind=="script_h2" {result.Protocol="h2"} else {result.Protocol="h1"}
         }
     } else if request.kind=="tls12_api" || request.kind=="tls13_api" ||
