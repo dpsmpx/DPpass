@@ -327,7 +327,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         // Training is a separate explicit user action after the completed
         // report. Keep its outcome in the same automatically copied log.
         val previous = resultText.text.toString().take(64_000)
-        val updated = previous + "\nTRAINING: " + event + "\n"
+        val updated = previous.trimEnd() + "\n\n" + statusText.text.toString() + 
+            "\nTRAINING: " + event + "\n"
         resultText.text = updated
         resultText.visibility = View.VISIBLE
         try {
