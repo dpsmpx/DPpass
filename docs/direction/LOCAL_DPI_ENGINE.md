@@ -372,3 +372,7 @@ CI 03a37e4: Linux/Windows #45493697178 и Android #45493685159 успешны. S
 ## A6 — legacy observation metadata validation
 
 Go validator v2 теперь отклоняет отрицательные/выходящие за 1e9 глобальные observation counts и непустые modern-only context_observations. Валидный legacy count сохраняется; пустые/отсутствующие поля по-прежнему допустимы. Добавлены synthetic unit fixtures; изменение только в проверке некорректных метаданных, формат/индексы/алгоритмы неизменны. CI ожидается.
+
+## A6 — numeric validation parity on Android
+
+ModelNumericFields removes JSONObject numeric coercions in storage validation for both local models: integer counters/budget, actual finite numeric weights in [-4,4], canonical decimal sparse keys inside capacity. Global observations validated for legacy too; absent observations remain compatible. Pure JVM fixtures test types, bounds and canonical keys. Normal generated models and Go export use these representations. This is stricter validation of malformed/noncanonical snapshots, not a complete JSON parser equivalence proof (Android JSON lexical normalization and unknown fields remain separate). No new model format, training algorithm or network method. Previous CI 886b506 was running when work started; new CI pending.

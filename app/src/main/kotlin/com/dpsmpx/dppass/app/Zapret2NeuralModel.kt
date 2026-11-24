@@ -117,8 +117,6 @@ object Zapret2NeuralModel {
         return create(kind, first, second, parameters)
     }
 
-    private fun validNumber(value: Double): Boolean = value.isFinite() && kotlin.math.abs(value) <= 4.0
-
     /** Independent bounded validation before storage, then repeated in Go. */
     fun verify(raw: ByteArray, kind: Kind): Boolean {
         if (raw.isEmpty() || raw.size > MAX_BYTES) return false
@@ -136,7 +134,7 @@ object Zapret2NeuralModel {
                 !modern && h.length() !in SIZES) return@runCatching false
             fun valid(row: JSONArray, count: Int): Boolean {
                 if (row.length() != count) return false
-                for (i in 0 until count) if (!validNumber(row.getDouble(i))) return false
+                for (i in 0 until count) if (!ModelNumericFields.weight(row.get(i))) return false
                 return true
             }
             if (!valid(b, h.length()) || !valid(ob, kind.outputs) ||
@@ -151,8 +149,10 @@ object Zapret2NeuralModel {
             val last = if (deep.length() > 0) deep.length() else h.length()
             if (!(0 until kind.outputs).all { valid(o.getJSONArray(it), last) })
                 return@runCatching false
+            if (obj.has("observations") && !ModelNumericFields.observation(obj.get("observations")))
+                return@runCatching false
             if (!modern) return@runCatching true
-            val budget = obj.getLong("parameters")
+            val budget = ModelNumericFields.integer(obj.get("parameters")) ?: return@runCatching false
             val used = denseCount(kind, h.length(), deep.length())
             if (budget !in used..MAX_PARAMETERS ||
                 !obj.getString("seed").matches(Regex("[0-9a-f]{16}")))
@@ -162,7 +162,7 @@ object Zapret2NeuralModel {
             if (context.length() != kind.contexts || counts.length() != kind.contexts ||
                 !(0 until kind.contexts).all { i ->
                     valid(context.getJSONArray(i), kind.outputs) &&
-                        counts.getLong(i) in 0L..1_000_000_000L
+                        ModelNumericFields.observation(counts.get(i))
                 }) return@runCatching false
             // The optional, fixed 3×6 HTML calibration is separate from the
             // legacy MLP parameter budget. Older snapshots need no migration.
@@ -173,18 +173,18 @@ object Zapret2NeuralModel {
                 if (html.length() != 3 || htmlCounts.length() != 3 ||
                     !(0 until 3).all { i ->
                         valid(html.getJSONArray(i), 6) &&
-                            htmlCounts.getLong(i) in 0L..1_000_000_000L
+                            ModelNumericFields.observation(htmlCounts.get(i))
                     }) return@runCatching false
             }
             val sparse = obj.getJSONObject("sparse")
             if (sparse.length() > MAX_SPARSE_ENTRIES) return@runCatching false
             val capacity = budget - used
             for (key in sparse.keys()) {
-                val index = key.toLongOrNull() ?: return@runCatching false
-                if (index !in 0L until capacity || !validNumber(sparse.getDouble(key)))
+                if (ModelNumericFields.sparseIndex(key, capacity) == null ||
+                    !ModelNumericFields.weight(sparse.get(key)))
                     return@runCatching false
             }
-            obj.optLong("observations", 0) in 0L..1_000_000_000L
+            true
         }.getOrDefault(false)
     }
 
