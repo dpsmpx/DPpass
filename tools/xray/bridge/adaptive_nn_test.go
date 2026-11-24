@@ -304,3 +304,26 @@ func TestModernModelNormalizesAbsentSparseMap(t *testing.T) {
         if err!=nil || persisted.Sparse["0"]!=0.125 {t.Fatal("sparse snapshot lost",err)}
     }
 }
+
+func TestNeuralAcknowledgementRejectsReplacedCleanModel(t *testing.T) {
+    defer ConfigureZapret2NeuralModel(nil)
+    raw:=generatedSparseTestModel(t,100000,16)
+    if err:=ConfigureZapret2NeuralModel(raw);err!=nil {t.Fatal(err)}
+    zapret2Neural.mu.Lock()
+    zapret2Neural.weights.Observations=1
+    zapret2Neural.dirty=true
+    zapret2Neural.mu.Unlock()
+    old:=ExportZapret2NeuralModel()
+    if len(old)==0 {t.Fatal("missing snapshot")}
+    if err:=AcknowledgeZapret2NeuralModel(old);err!=nil {t.Fatal(err)}
+    if err:=AcknowledgeZapret2NeuralModel(old);err!=nil {t.Fatal("matching acknowledgement not idempotent",err)}
+    replacement,err:=parseAdaptiveNN(raw)
+    if err!=nil {t.Fatal(err)}
+    replacement.Seed="fedcba9876543210"
+    next,err:=json.Marshal(replacement)
+    if err!=nil {t.Fatal(err)}
+    if err:=ConfigureZapret2NeuralModel(next);err!=nil {t.Fatal(err)}
+    if err:=AcknowledgeZapret2NeuralModel(old);err==nil {t.Fatal("stale acknowledgement accepted for replacement")}
+    if len(ExportZapret2NeuralModel())!=0 {t.Fatal("stale acknowledgement changed clean state")}
+    if err:=AcknowledgeZapret2NeuralModel(next);err!=nil {t.Fatal("matching clean snapshot rejected",err)}
+}

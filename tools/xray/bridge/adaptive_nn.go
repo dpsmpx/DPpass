@@ -245,7 +245,8 @@ func AcknowledgeZapret2NeuralModel(saved []byte) error {
     zapret2Neural.mu.Lock()
     defer zapret2Neural.mu.Unlock()
     if zapret2Neural.weights == nil { return errors.New("neural model not installed") }
-    if !zapret2Neural.dirty { return nil }
+    // Even a clean model can have been replaced since the export.
+    // An acknowledgement must match the current bytes in either state.
     current, err := json.Marshal(zapret2Neural.weights)
     if err != nil || !bytes.Equal(current, saved) {
         return errors.New("neural model updated after snapshot")

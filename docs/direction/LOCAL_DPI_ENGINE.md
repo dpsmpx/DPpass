@@ -360,3 +360,7 @@ CI 878b771 #45490108916 и #45490085490 успешны. ModelSnapshotFile.readBo
 ## A6 — защита архитектуры и контекстных счётчиков снимка
 
 CI 62e8a38: Go/Linux/Windows #45492057470 и Android #45492042269 успешны. В JNI snapshot guard добавлен ModelSnapshotStamp: совпадение format, seed, parameter budget и hidden dimensions; не допускается уменьшение global/context/calibration observation counts или исчезновение существующей calibration. Optional calibration может впервые появиться. Тесты pure JVM без Android JSON runtime. Форматы, обучение и выбор стратегий не меняются. Равные/насыщенные счётчики не доказывают идентичность весов; это дополнительная защита, не полноценный revision protocol. CI ожидается.
+
+## A6 — точное подтверждение сохранения после замены модели
+
+Go AcknowledgeZapret2NeuralModel проверяет совпадение текущей сериализации со snapshot даже при dirty=false. Раньше stale ACK после замены чистой модели возвращал success без проверки. Сохранена идемпотентность ACK для тех же байтов; stale ACK не меняет состояние модели. Добавлен regression test замены seed и повторного ACK. Нет изменения формата, индексов, обучения или выбора методов. CI и физическая проверка ожидаются.
