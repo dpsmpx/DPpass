@@ -19,7 +19,12 @@ object DPTestScript {
     val tcpMethods = listOf(
         "plain", "split-1", "split", "tlsrec-split",
         "fake-3", "fake-5", "disorder",
-    )
+    ) + (1..16).map { "fake-" + it }.filterNot {
+        it in setOf("fake-3", "fake-5")
+    }
+    // Only these six TCP outputs exist in the installed MLP schema.
+    val neuralMethods = setOf("split-1", "split", "tlsrec-split",
+        "fake-3", "fake-5", "disorder")
     val udpMethods = listOf("plain", "fake-3", "fake-5")
 
     // These primitives have real protected JNI/Go implementations.
@@ -149,7 +154,8 @@ object DPTestScript {
             }
         }
         if (builder.train != null) {
-            require(builder.train != "plain" && builder.train in builder.methods &&
+            require(builder.train in neuralMethods &&
+                builder.train in builder.methods &&
                 "plain" in builder.methods && "h1" in builder.protocols &&
                 builder.attempts == 3 && builder.ips == 2 &&
                 builder.protocols == listOf("h1")) {
