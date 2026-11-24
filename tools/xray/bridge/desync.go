@@ -44,6 +44,7 @@ import (
 	xnet "github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/common/session"
 	"github.com/dpsmpx/dppass/tools/xray/zapret2"
+	"github.com/dpsmpx/dppass/tools/xray/localdpi"
 	"github.com/xtls/xray-core/transport/internet"
 	"golang.org/x/sys/unix"
 )
@@ -283,11 +284,22 @@ func (c *desyncConn) Read(b []byte) (int, error) {
             if pick := c.adaptiveSelection.Load(); pick != nil {
                 // Distinguish an actual first-reply timeout from a benign
                 // application Close: only the former triggers AUTO backoff.
-                zapret2Auto.observeStallTracked(pick.host, pick.strategy, pick.generation)
+                recordLocalSocketEvidence(pick, localdpi.SocketFirstReplyTimeout(true, false, 0))
             }
         }
     }
     return n, err
+}
+
+// Both socket transports feed the same evidence contract. A transport
+// reply is not verified application content; ordinary closes are neutral.
+func recordLocalSocketEvidence(pick *adaptivePick, evidence localdpi.Evidence) {
+    switch evidence.Kind {
+    case localdpi.Downstream:
+        zapret2Auto.observeTracked(pick.host, pick.strategy, evidence.Bytes, pick.generation)
+    case localdpi.FirstReplyTimeout:
+        zapret2Auto.observeStallTracked(pick.host, pick.strategy, pick.generation)
+    }
 }
 
 func (c *desyncConn) Close() error {
@@ -303,9 +315,7 @@ func (c *desyncConn) Close() error {
             // Zero-byte Close is ambiguous: cancellation, reconnect or
             // shutdown may end a healthy in-flight request. Only the
             // explicit read-timeout path supplies a negative observation.
-            if total > 0 {
-                zapret2Auto.observeTracked(selected.host, selected.strategy, total, selected.generation)
-            }
+            recordLocalSocketEvidence(selected, localdpi.SocketClose(total))
         }
     })
     closeErr := c.TCPConn.Close()
@@ -737,7 +747,7 @@ func (c *desyncUDPConn) Read(b []byte) (int, error) {
         // reply. This is weak reachability evidence, not proof of DPI.
         // Never infer an application response from packet send success.
         if pick:=c.adaptiveSelection.Load();pick!=nil {
-            zapret2Auto.observeStallTracked(pick.host,pick.strategy,pick.generation)
+            recordLocalSocketEvidence(pick, localdpi.SocketFirstReplyTimeout(true, false, 0))
         }
     }
     return n, err
@@ -752,9 +762,7 @@ func (c *desyncUDPConn) Close() error {
             // As with TCP, an ordinary zero-byte Close is not evidence
             // of a failed strategy; explicit read timeouts are handled above.
             total:=c.received.Load()
-            if total>0 {
-                zapret2Auto.observeTracked(pick.host,pick.strategy,total,pick.generation)
-            }
+            recordLocalSocketEvidence(pick, localdpi.SocketClose(total))
         }
     })
     return c.UDPConn.Close()
