@@ -320,3 +320,7 @@ Native wrapper теперь до выделения output проверяет Co
 ## A4 — read-only native recognition ABI
 
 Go CI #45480239158 и Android CI #45480224398 для b251833 успешно завершены. Existing C dp_packet_inspect подключён к экспериментальному Go native package: фиксированная Hint enum, проверка ABI version/reserved, cap 16384, отсутствие borrowed pointers. Default stub явно сообщает unavailable. Тесты демонстрируют, что C hint шире Go recognition (короткий TLS, пустой/повторный Host) и не заменяет его. В рабочем planner/selector Inspect не вызывается; это лабораторный интерфейс для сопоставления, не дополнительный метод AUTO. Upstream parse_http/mod_http не подключены. CI нового шага ожидается.
+
+## A2/A4 — проверка платформенной переносимости
+
+В Go regression добавлены default native stub tests и отдельный Windows host job CGO_ENABLED=0 для localdpi и localdpi/native. Это реальное выполнение unit tests общей библиотеки на Windows runner после успешного CI, не сборка Windows приложения, не поддержка WinDivert и не физическая проверка VPN. Зафиксированы причины не подключать legacy parse_http/mod_http из закреплённых исходников в рабочий путь без дополнительного контракта. Первое выполнение нового Windows job ещё ожидается.
