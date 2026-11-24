@@ -300,9 +300,10 @@ func (c *desyncConn) Close() error {
     c.observed.Do(func() {
         if selected := c.adaptiveSelection.Load(); selected != nil {
             total := c.received.Load()
-            // Do not double-count the no-reply timeout on Close. A late
-            // response can still supply real evidence after that timeout.
-            if total > 0 || !c.stageReadTimedOut.Load() {
+            // Zero-byte Close is ambiguous: cancellation, reconnect or
+            // shutdown may end a healthy in-flight request. Only the
+            // explicit read-timeout path supplies a negative observation.
+            if total > 0 {
                 zapret2Auto.observeTracked(selected.host, selected.strategy, total, selected.generation)
             }
         }
@@ -748,10 +749,10 @@ func (c *desyncUDPConn) Close() error {
     }
     c.observed.Do(func() {
         if pick := c.adaptiveSelection.Load(); pick != nil {
-            // The read timeout already contributed the zero-byte
-            // observation; Close must not punish the same flow twice.
+            // As with TCP, an ordinary zero-byte Close is not evidence
+            // of a failed strategy; explicit read timeouts are handled above.
             total:=c.received.Load()
-            if total>0 || !c.stageReadTimedOut.Load() {
+            if total>0 {
                 zapret2Auto.observeTracked(pick.host,pick.strategy,total,pick.generation)
             }
         }

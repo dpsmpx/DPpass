@@ -631,7 +631,8 @@ class DPpassVpnService : VpnService() {
         // AAAA to applications in this experimental mobile mode. Keep IPv6
         // TUN routes to avoid silently bypassing the VPN.
         val localEngine = desync != null || useByeDpi
-        val ipv4Only = localEngine && NetworkCheck.underlying(this).type == NetworkType.MOBILE
+        val initialUnderlying = if (localEngine) NetworkCheck.underlying(this) else null
+        val ipv4Only = initialUnderlying?.type == NetworkType.MOBILE
         val tunSpec = when (val spec = core.tunnelSpecFor(core.serverlessConfig(settings, ipv4Only))) {
             is Outcome.Failure -> {
                 fail(spec.errors.first())
@@ -639,7 +640,13 @@ class DPpassVpnService : VpnService() {
             }
             is Outcome.Success -> spec.value
         }
-        val handle = when (val t = AndroidTunnelProvider(this).establish(tunSpec)) {
+        // Both local modes start with the same physical network used for the
+        // DNS family decision; watchNetwork still handles subsequent handoffs.
+        if (initialUnderlying != null) core.log.info("local_initial_network",
+            "type" to initialUnderlying.type,
+            "available" to (initialUnderlying.network != null),
+            "validated" to (initialUnderlying.caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true))
+        val handle = when (val t = AndroidTunnelProvider(this, initialUnderlying?.network).establish(tunSpec)) {
             is Outcome.Failure -> {
                 t.errors.drop(1).forEach(core.log::diagnostic)
                 fail(t.errors.first())

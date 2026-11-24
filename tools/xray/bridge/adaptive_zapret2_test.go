@@ -372,3 +372,44 @@ func TestLiveMediaPlainWeakRepliesDoNotPinForever(t *testing.T) {
         t.Fatal("two weak media flows pinned the direct transport")
     }
 }
+
+func TestCancelledZeroByteTCPAndUDPCloseDoNotDemotePreferred(t *testing.T) {
+    if err := zapret2Auto.configureHosts(""); err != nil { t.Fatal(err) }
+    t.Cleanup(func() { _ = zapret2Auto.configureHosts("") })
+    tcpHost, udpHost := "cancelled.example.org", "udp:127.0.0.1"
+    tcpStrategy, tcpGen := zapret2Auto.chooseTracked(tcpHost)
+    udpStrategy, udpGen := zapret2Auto.chooseQUICTracked("127.0.0.1")
+    zapret2Auto.observeTracked(tcpHost, tcpStrategy, adaptivePayloadThreshold, tcpGen)
+    zapret2Auto.observeTracked(udpHost, udpStrategy, adaptivePayloadThreshold, udpGen)
+    listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127,0,0,1)})
+    if err != nil { t.Fatal(err) }
+    defer listener.Close()
+    receiver, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127,0,0,1)})
+    if err != nil { t.Fatal(err) }
+    defer receiver.Close()
+    for i := 0; i < 3; i++ {
+        raw, err := net.DialTCP("tcp4", nil, listener.Addr().(*net.TCPAddr))
+        if err != nil { t.Fatal(err) }
+        peer, err := listener.AcceptTCP()
+        if err != nil { raw.Close(); t.Fatal(err) }
+        conn := &desyncConn{TCPConn: raw, firstDone: true}
+        conn.stageHelloSent.Store(true)
+        conn.adaptiveSelection.Store(&adaptivePick{host: tcpHost, strategy: tcpStrategy, generation: tcpGen})
+        if err := conn.Close(); err != nil { peer.Close(); t.Fatal(err) }
+        peer.Close()
+        udp, err := net.DialUDP("udp4", nil, receiver.LocalAddr().(*net.UDPAddr))
+        if err != nil { t.Fatal(err) }
+        uc := &desyncUDPConn{UDPConn: udp}
+        uc.stageInitialSent.Store(true)
+        uc.adaptiveSelection.Store(&adaptivePick{host: udpHost, strategy: udpStrategy, generation: udpGen})
+        if err := uc.Close(); err != nil { t.Fatal(err) }
+    }
+    zapret2Auto.mu.Lock()
+    defer zapret2Auto.mu.Unlock()
+    for host, want := range map[string]string{tcpHost: tcpStrategy, udpHost: udpStrategy} {
+        e := zapret2Auto.entries[host]
+        if e == nil || e.preferred != want || e.weakFailures != 0 {
+            t.Fatalf("cancelled zero-byte close changed preferred strategy for %s: %+v", host, e)
+        }
+    }
+}

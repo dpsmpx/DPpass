@@ -2,6 +2,7 @@ package com.dpsmpx.dppass.app
 
 import android.content.pm.PackageManager
 import android.net.IpPrefix
+import android.net.Network
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -18,7 +19,8 @@ import java.net.InetAddress
  * TunnelSpec → `VpnService.Builder` один к одному (D-17). Решений здесь
  * нет: что маршрутизировать и кого исключить, уже решил `tunnel/`.
  */
-class AndroidTunnelProvider(private val service: VpnService) : TunnelProvider {
+class AndroidTunnelProvider(private val service: VpnService,
+    private val initialUnderlying: Network? = null) : TunnelProvider {
     override suspend fun establish(spec: TunnelSpec): Outcome<TunnelHandle> {
         // Отказы Builder и establish() — ожидаемые (D-22): исключение мимо этого места
         // оставило бы «Подключение…» без причины (D-90: тест пути на JVM нашёл).
@@ -45,6 +47,9 @@ class AndroidTunnelProvider(private val service: VpnService) : TunnelProvider {
     private fun builder(spec: TunnelSpec): VpnService.Builder {
         val b = service.Builder()
         b.setSession("DPpass")
+        // Supply the known physical network in the initial VPN agent state,
+        // rather than waiting for a post-connect network callback.
+        initialUnderlying?.let { b.setUnderlyingNetworks(arrayOf(it)) }
         b.setMtu(spec.mtu)
         b.addAddress(spec.address4.address.toInet(), spec.address4.prefix)
         spec.address6?.let { b.addAddress(it.address.toInet(), it.prefix) }
