@@ -9,6 +9,7 @@ on:
       - 'tools/xray/bridge/**'
       - 'tools/xray/zapret2/**'
       - 'tools/xray/localdpi/**'
+      - 'tools/localdpi/**'
       - 'tools/xray/cmd/zapret2-alpine/**'
       - 'tools/xray/go.mod'
       - 'tools/xray/go.sum'
@@ -31,6 +32,8 @@ jobs:
         with:
           go-version-file: tools/xray/go.mod
           cache-dependency-path: tools/xray/go.sum
+      - name: Compile and test pinned ByeDPI packet module on host
+        run: bash tools/localdpi/check_byedpi_packets.sh
       - name: Run protected TCP/QUIC AUTO, planner and Alpine tests
         working-directory: tools/xray
         run: go test -count=1 ./localdpi ./bridge ./zapret2 ./cmd/zapret2-alpine

@@ -273,3 +273,8 @@ Xray (`infra/conf`), а не DPpass, и отсечь их без правки up
 оригинальный текст MIT и copyright включаются в репозиторий и дистрибутив.
 Лицензия собственного кода DPpass не меняется. На данном шаге чужой код
 не импортирован; см. `docs/direction/LOCAL_DPI_ENGINE.md`.
+
+Первый перенос исходников ByeDPI: `tools/localdpi/vendor/byedpi/packets.c`,
+`packets.h`, `LICENSE`, закреплённый commit 7efde1b1296eaaa187b70e951894dde17527489c.
+Полный текст MIT и исходные blob SHA-1 сохранены рядом с кодом.
+Статус: хостовый тестовый модуль, не поставляется в APK на этом шаге.
