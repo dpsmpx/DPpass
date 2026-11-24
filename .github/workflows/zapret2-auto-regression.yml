@@ -52,3 +52,6 @@ jobs:
       - name: Run protected TCP/QUIC AUTO, planner and Alpine tests
         working-directory: tools/xray
         run: go test -count=1 ./localdpi ./bridge ./zapret2 ./cmd/zapret2-alpine
+      - name: Race-check Alpine connection admission and cleanup
+        working-directory: tools/xray
+        run: CGO_ENABLED=1 go test -race -count=3 ./cmd/zapret2-alpine
