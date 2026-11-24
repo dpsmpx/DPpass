@@ -137,13 +137,17 @@ def run(cmd, env, what):
 LIBRARY_PACKAGES = {"jni", "bridge", "zapret2", "localdpi"}
 
 
-def check_library_packages(env):
+def check_library_packages(env, experimental_native=False):
     """Библиотека — только из пакетов LIBRARY_PACKAGES: иначе задача Gradle не увидит правку
     нового пакета и оставит в APK старое ядро."""
     module = run(["go", "list", "-m"], env, "go list -m").strip()
-    deps = run(["go", "list", "-deps", "-f", "{{if not .Standard}}{{.ImportPath}}{{end}}", "./jni"], env, "go list ./jni").split()
+    flags = ["-tags=localdpi_native"] if experimental_native else []
+    deps = run(["go", "list", *flags, "-deps", "-f", "{{if not .Standard}}{{.ImportPath}}{{end}}", "./jni"], env, "go list ./jni").split()
     local = {d[len(module) + 1:] for d in deps if d.startswith(module + "/")}
-    extra = sorted(local - LIBRARY_PACKAGES)
+    allowed = LIBRARY_PACKAGES | ({"localdpi/native"} if experimental_native else set())
+    if experimental_native and "localdpi/native" not in local:
+        raise RuntimeError("experimental native build does not link localdpi/native")
+    extra = sorted(local - allowed)
     if extra:
         raise RuntimeError(f"библиотека зависит от локальных пакетов {', '.join(extra)}: добавить их во входы "
                            f"xrayNative (app/build.gradle.kts) и в LIBRARY_PACKAGES")
@@ -447,7 +451,7 @@ def ndk_dir(versions):
     return ndk, want
 
 
-def android(out_dir, abis):
+def android(out_dir, abis, experimental_native=False):
     versions = catalog_versions()
     ndk, ndk_version = ndk_dir(versions)
     api = versions.get("android-minSdk")
@@ -461,10 +465,14 @@ def android(out_dir, abis):
         if not os.path.isfile(cc):
             raise Missing(f"в NDK {ndk_version} нет {os.path.basename(cc)}")
         env = dict(env0, GOOS="android", GOARCH=goarch, CC=cc, **extra)
+        check_library_packages(env, experimental_native=experimental_native)
         target_dir = os.path.join(out_dir, abi)
         os.makedirs(target_dir, exist_ok=True)
         out = os.path.join(target_dir, LIBRARY)
-        run(["go", "build", *BUILD_FLAGS, f"-ldflags={LDFLAGS_ANDROID}", "-o", out, "./jni"], env, f"сборка {abi}")
+        # External included C sources are not tracked reliably by Go's
+        # cache. The explicit experiment always rebuilds with -a.
+        flags = ["-a", "-tags=localdpi_native"] if experimental_native else []
+        run(["go", "build", *flags, *BUILD_FLAGS, f"-ldflags={LDFLAGS_ANDROID}", "-o", out, "./jni"], env, f"сборка {abi}")
         _remove_header(out)
         size, align, n = check_library(out, machine, is64, PAGE_16K, linux=False)
         built.append(f"{abi} {mib(size)}")
@@ -494,6 +502,8 @@ def main(argv):
     a = sub.add_parser("android", help="библиотеки для APK")
     a.add_argument("--out", required=True, help="каталог: <ABI>/libdppassxray.so")
     a.add_argument("--abi", action="append", choices=sorted(ABIS), help="ABI (по умолчанию — все три)")
+    a.add_argument("--experimental-localdpi-native", action="store_true",
+                   help="только отдельная CI-проверка JNI с C-модулем, не штатный APK")
     args = ap.parse_args(argv)
     try:
         if args.cmd == "check-packages":
@@ -506,7 +516,7 @@ def main(argv):
             return desktop(os.path.abspath(args.out))
         if args.cmd == "windows":
             return windows(os.path.abspath(args.out), args.require_tests)
-        return android(os.path.abspath(args.out), args.abi or list(ABIS))
+        return android(os.path.abspath(args.out), args.abi or list(ABIS), args.experimental_localdpi_native)
     except Missing as e:
         print(f"✗ {e}")
         return 3
