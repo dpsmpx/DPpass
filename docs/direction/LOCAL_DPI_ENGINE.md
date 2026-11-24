@@ -356,3 +356,7 @@ CI 878b771 #45490108916 и #45490085490 успешны. ModelSnapshotFile.readBo
 ## A6 — compare-and-replace снимков
 
 Добавлен общий ModelSnapshotFile.replaceIfUnchanged и locked Zapret2NeuralModel.storeIfUnchanged: проверка exact bytes исходного snapshot непосредственно перед заменой под существующей storageGuard. Для SERVER observe закрывается race между чтением модели, вычислением и сохранением (новая/удалённая/обновлённая модель не перезаписывается stale результатом). Не меняются формулы, фильтрация, порядок серверов или формат. JNI strategy snapshot path не меняется. JVM fixtures проверяют успешную замену, stale, удаление, cap. Межпроцессная блокировка не добавлена. CI и физические испытания ожидаются.
+
+## A6 — защита архитектуры и контекстных счётчиков снимка
+
+CI 62e8a38: Go/Linux/Windows #45492057470 и Android #45492042269 успешны. В JNI snapshot guard добавлен ModelSnapshotStamp: совпадение format, seed, parameter budget и hidden dimensions; не допускается уменьшение global/context/calibration observation counts или исчезновение существующей calibration. Optional calibration может впервые появиться. Тесты pure JVM без Android JSON runtime. Форматы, обучение и выбор стратегий не меняются. Равные/насыщенные счётчики не доказывают идентичность весов; это дополнительная защита, не полноценный revision protocol. CI ожидается.

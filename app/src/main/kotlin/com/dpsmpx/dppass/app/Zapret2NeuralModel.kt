@@ -247,6 +247,23 @@ object Zapret2NeuralModel {
     fun store(context: Context, kind: Kind, raw: ByteArray): Boolean =
         synchronized(storageGuard) { verify(raw, kind) && write(context, kind, raw) }
 
+    private fun stamp(model: JSONObject): ModelSnapshotStamp {
+        fun counts(key: String): List<Long> {
+            val values = model.optJSONArray(key) ?: return emptyList()
+            return List(values.length()) { values.getLong(it) }
+        }
+        return ModelSnapshotStamp(
+            format = model.getString("format"),
+            seed = model.getString("seed"),
+            parameters = model.getLong("parameters"),
+            hidden = model.getJSONArray("hidden").length(),
+            deep = model.getJSONArray("deep_hidden").length(),
+            observations = model.optLong("observations", 0),
+            contextCounts = counts("context_observations"),
+            calibrationCounts = counts("verified_html_observations"),
+        )
+    }
+
     /**
      * JNI snapshots must not overwrite a user-regenerated model. The seed
      * identifies the immutable architecture, whereas learned weights differ.
@@ -259,8 +276,7 @@ object Zapret2NeuralModel {
             val snapshot = JSONObject(raw.decodeToString())
             if (latest.optString("format") != kind.format ||
                 snapshot.optString("format") != kind.format ||
-                latest.optString("seed") != snapshot.optString("seed") ||
-                snapshot.optLong("observations", 0) < latest.optLong("observations", 0))
+                !stamp(latest).canReplaceWith(stamp(snapshot)))
                 return@synchronized false
             write(context, kind, raw)
         }
