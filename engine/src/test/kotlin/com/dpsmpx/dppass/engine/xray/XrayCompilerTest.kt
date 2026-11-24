@@ -1141,6 +1141,26 @@ class XrayCompilerTest {
 
 
     @Test
+    fun originalByeDpiUsesOnlyLoopbackSocksAndConfiguredDns() {
+        val dns = DnsPolicy(listOf(DnsServer("local", DnsTransport.System, DnsRoute.DIRECT)),
+            "local", leakProtection = false)
+        val sites = SplitSites.parse("youtube.com").valueOrNull()!!
+        val result = XrayCompiler().compileServerless(ServerlessPlan(dns, sites,
+            splitRest = false, byeDpiPort = 41000))
+        val doc = Json.parse(result.valueOrNull()!!.payloadForEngine()) as JsonObject
+        val socks = outbound(doc, XrayBackend.TAG_PROXY)
+        assertEquals("socks", socks["protocol"].text)
+        assertEquals("127.0.0.1", socks["settings"]["address"].text)
+        assertEquals("41000", socks["settings"]["port"].text)
+        assertTrue(socks["targetStrategy"].text.startsWith("Force"))
+        assertTrue(doc["outbounds"].items.none { it["tag"].text.startsWith("dppass:exp-") })
+        assertEquals(XrayBackend.TAG_PROXY,
+            rules(doc).single { it["ruleTag"].text == XrayBackend.RULE_SPLIT_QUIC }["outboundTag"].text)
+        assertTrue(XrayCompiler().compileServerless(ServerlessPlan(dns, sites,
+            splitRest = false, byeDpiPort = 1)).diagnostics.any { it.isError })
+    }
+
+    @Test
     fun autoForceTcpWithHostlistDoesNotBlockUnrelatedQuic() {
         val dns = DnsPolicy(listOf(DnsServer("local", DnsTransport.System, DnsRoute.DIRECT)),
             "local", leakProtection = false)

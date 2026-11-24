@@ -55,6 +55,7 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
 
     private fun cleanup(stopWatch: Boolean = true): String = buildString {
         appendLine("set +e")
+        appendLine("iptables -t nat -S OUTPUT >/dev/null || exit 1")
         if (stopWatch) appendLine("if test -s " + quote("$ROOT/watch.pid") +
             "; then pid=$(cat " + quote("$ROOT/watch.pid") + "); " +
             "if tr '\\000' ' ' </proc/\$pid/cmdline 2>/dev/null | grep -Fq " + quote("$ROOT/watch.sh") +

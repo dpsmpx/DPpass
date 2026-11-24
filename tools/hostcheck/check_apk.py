@@ -303,6 +303,7 @@ def check_natives(apk, problems, only_abi=None, alpine=False):
             "lib/arm64-v8a/libdpai-native.so": "arm64-v8a",
             "lib/arm64-v8a/libproot.so": "arm64-v8a",
             "lib/arm64-v8a/libproot-loader.so": "arm64-v8a",
+            "lib/arm64-v8a/libciadpi.so": "arm64-v8a",
         })
     which = f"ABI {only_abi}" if only_abi else "трёх ABI"
     with zipfile.ZipFile(apk) as z, tempfile.TemporaryDirectory() as tmp:

@@ -903,7 +903,9 @@ class DPpassVpnService : VpnService() {
                 val notify = pace.tick(interactive)
                 if (interactive) {
                     if (qualityTick++ % 2 == 0) {
-                        quality = runCatching { JniXrayRuntime.passiveQuality() }.getOrNull()
+                        // The loopback SOCKS hop is not internet RTT. Until original
+                        // ciadpi exports its own TCP_INFO, show no misleading sample.
+                        quality = if (byeDpi != null) null else runCatching { JniXrayRuntime.passiveQuality() }.getOrNull()
                     }
                     val displayStats = runCatching { JniXrayRuntime.displayTraffic() }.getOrNull() ?: session.stats()
                     val traffic = meter.sample(displayStats, Clock.MONOTONIC.nowMillis()).copy(

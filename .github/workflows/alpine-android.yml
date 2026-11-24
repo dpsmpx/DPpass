@@ -90,6 +90,9 @@ jobs:
                   "lib/arm64-v8a/libproot-loader.so",
                   "lib/arm64-v8a/libdpai-native.so",
                   "assets/alpine/rootfs.tgz",
+                  "lib/arm64-v8a/libciadpi.so",
+                  "assets/byedpi/LICENSE.txt",
+                  "assets/byedpi/SOURCE.txt",
                   "assets/alpine/zapret2-runtime.bin",
                   "assets/alpine/zapret2-runtime.sha256",
                   "assets/alpine/NOTICE.txt",
@@ -158,10 +161,18 @@ jobs:
                   "lib/arm64-v8a/libproot.so",
                   "lib/arm64-v8a/libproot-loader.so",
                   "lib/arm64-v8a/libdppassxray.so",
+                  "lib/arm64-v8a/libciadpi.so",
+                  "assets/byedpi/LICENSE.txt",
+                  "assets/byedpi/SOURCE.txt",
                   "assets/alpine/rootfs.tgz",
                   "assets/alpine/zapret2-runtime.bin",
               ):
                   assert path in z.namelist(), path
+              byedpi = z.read("lib/arm64-v8a/libciadpi.so")
+              assert byedpi.startswith(b"\x7fELF")
+              provenance = z.read("assets/byedpi/SOURCE.txt").decode().splitlines()
+              assert provenance[0] == "source=https://github.com/hufrea/byedpi/tree/7efde1b1296eaaa187b70e951894dde17527489c"
+              assert "arm64-v8a=" + hashlib.sha256(byedpi).hexdigest() in provenance
               forbidden = [n for n in z.namelist()
                            if n.startswith("models/") or n.startswith("assets/models/")
                            or "zapret2-mlp-seed" in n or n.endswith("server-v1.json")]

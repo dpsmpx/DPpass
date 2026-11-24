@@ -164,7 +164,11 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
         }
 		return conn, err
 	}
-	if dest.Network == xnet.Network_TCP { trackPassiveTCP(conn, generation) }
+	if dest.Network == xnet.Network_TCP {
+        if tcp, ok := conn.(*net.TCPConn); ok && !tcp.RemoteAddr().(*net.TCPAddr).IP.IsLoopback() {
+            trackPassiveTCP(tcp, generation)
+        }
+    }
 	// Experimental tag is only consulted on TCP/UDP outbound sockets.
 	// Ordinary subscriptions, DNS and other traffic retain the stock dialer.
 	if dest.Network != xnet.Network_TCP && dest.Network != xnet.Network_UDP {

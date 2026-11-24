@@ -280,7 +280,13 @@ class ConnectScreen(host: Host) : Screen(host) {
         )
         pathPicker.addView(
             Ui.text(context, R.style.Text_DPpass_Caption,
-                if (localMode) host.prefs.zapret2Backend.wire else context.getString(R.string.path_provider_explained)).apply {
+                context.getString(when (host.prefs.zapret2Backend) {
+                    Zapret2Backend.OFF -> R.string.path_provider_explained
+                    Zapret2Backend.ROOT -> R.string.zapret2_root
+                    Zapret2Backend.VPN_SERVICE -> R.string.zapret2_vpn
+                    Zapret2Backend.BYEDPI_ROOT -> R.string.byedpi_root
+                    Zapret2Backend.BYEDPI_VPN -> R.string.byedpi_vpn
+                })).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
             }, Ui.matchWidth(),
         )

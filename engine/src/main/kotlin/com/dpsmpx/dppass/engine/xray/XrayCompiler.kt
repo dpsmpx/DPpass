@@ -227,6 +227,14 @@ class XrayCompiler(
         if (problems.any { it.isError }) return Outcome.Failure(problems)
         val split = if (plan.byeDpiPort != null) {
             Json.obj("tag" to Json.str(XrayBackend.TAG_PROXY), "protocol" to Json.str("socks"),
+                // Resolve inside Xray via the configured DNS policy, never in ciadpi.
+                "targetStrategy" to Json.str(when (plan.dns.strategy) {
+                    DnsStrategy.DUAL -> "ForceIP"
+                    DnsStrategy.PREFER_IPV4 -> "ForceIPv4v6"
+                    DnsStrategy.PREFER_IPV6 -> "ForceIPv6v4"
+                    DnsStrategy.IPV4_ONLY -> "ForceIPv4"
+                    DnsStrategy.IPV6_ONLY -> "ForceIPv6"
+                }),
                 "settings" to Json.obj("address" to Json.str("127.0.0.1"), "port" to Json.num(plan.byeDpiPort)))
         } else if (plan.desync != null) {
             // Не прокси и не внешний сервер: freedom напрямую, а dialerProxy
