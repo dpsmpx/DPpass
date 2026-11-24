@@ -42,6 +42,7 @@ import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Safe
 import com.dpsmpx.dppass.engine.EngineSession
+import com.dpsmpx.dppass.engine.TrafficStats
 import com.dpsmpx.dppass.engine.DesyncTrick
 import com.dpsmpx.dppass.engine.Zapret2Stages
 import com.dpsmpx.dppass.engine.ServerlessPlan
@@ -159,6 +160,9 @@ class DPpassVpnService : VpnService() {
         val initialStages: Zapret2Stages?,
     )
     @Volatile private var zapret2FinalState: Zapret2FinalState? = null
+    private data class LocalPathState(val session: EngineSession, val backend: String,
+        val startedMillis: Long, val baseline: LocalPathSample)
+    @Volatile private var localPathState: LocalPathState? = null
     private var supervisor: Job? = null
     private var shareWatch: Job? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -809,8 +813,10 @@ class DPpassVpnService : VpnService() {
                         "content_verified" to false,
                         "zapret2_planner" to Safe(if (desync == null) "off" else if (alpineStrategy != null) "alpine" else "in_process"))
                     progress(TunnelStatus.Connected(ServerlessPlan.PROFILE_ID, name, core.clock.nowMillis(), Clock.MONOTONIC.nowMillis()))
-                    watchNetwork()
-                    startTicker(session)
+                    val backend = if (useByeDpi) Zapret2Backend.BYEDPI_VPN else
+                        if (desync != null) Zapret2Backend.VPN_SERVICE else null
+                    watchNetwork(strategySession = backend == Zapret2Backend.VPN_SERVICE)
+                    startTicker(session, backend)
                     byeDpi?.let { daemon ->
                         byeDpiWatch?.cancel()
                         byeDpiWatch = scope.launch {
@@ -876,9 +882,39 @@ class DPpassVpnService : VpnService() {
             "udp_closed_no_reply" to s.udpClosedNoReply)
     }
 
-    private fun startTicker(session: EngineSession) {
+    private fun localPathSample(session: EngineSession): LocalPathSample? = runCatching {
+        val proxy = session.stats()
+        JniXrayRuntime.displayTraffic()?.let { LocalPathSample(proxy, it) }
+    }.getOrNull()
+
+    private fun logLocalPath(event: String, backend: String, before: LocalPathSample,
+        after: LocalPathSample, durationMillis: Long) {
+        val d = after.deltaFrom(before)
+        if (d == null) {
+            DeviceLog.log.warning("local_path_counter_reset", "backend" to Safe(backend))
+            return
+        }
+        DeviceLog.log.info(event, "backend" to Safe(backend),
+            "scope" to Safe("terminal_outbounds_after_control"),
+            "duration_ms" to durationMillis.coerceAtLeast(0L),
+            "proxy_up" to d.proxyUp, "proxy_down" to d.proxyDown,
+            "other_up" to d.otherUp, "other_down" to d.otherDown)
+    }
+
+    private fun startTicker(session: EngineSession, localBackend: Zapret2Backend? = null) {
         ticker?.cancel()
-        val diagnosticEnabled = AppPrefs(this).zapret2Backend == Zapret2Backend.VPN_SERVICE
+        val diagnosticEnabled = localBackend == Zapret2Backend.VPN_SERVICE
+        val backendName = when (localBackend) {
+            Zapret2Backend.VPN_SERVICE -> "zapret2"
+            Zapret2Backend.BYEDPI_VPN -> "byedpi"
+            else -> null
+        }
+        // Establish the baseline after the startup dispatcher control. Keep
+        // the actual session backend, not the mutable selection preference.
+        localPathState = backendName?.let { name ->
+            localPathSample(session)?.let { LocalPathState(session, name, Clock.MONOTONIC.nowMillis(), it) }
+        }
+        val pathState = localPathState
         val initialCounters = if (diagnosticEnabled) AppGraph.graph(this).engine.desyncCounters() else null
         val initialStages = if (diagnosticEnabled) AppGraph.graph(this).engine.zapret2Stages() else null
         val diagnostic = if (diagnosticEnabled) Zapret2FinalCounter(
@@ -897,10 +933,8 @@ class DPpassVpnService : VpnService() {
             val owners = graph.owners
             var diagUp = 0L
             var diagDown = 0L
-            var localAllUp = 0L
-            var localAllDown = 0L
-            var localProxyUp = 0L
-            var localProxyDown = 0L
+            var lastLocalPath = pathState?.baseline
+            var lastLocalAt = pathState?.startedMillis ?: 0L
             // Xray desync counters are process-wide; baselines must start at
             // this VPN session, unlike per-session traffic counters.
             var diagApplied = initialCounters?.applied ?: 0L
@@ -915,27 +949,17 @@ class DPpassVpnService : VpnService() {
                 // A successful DoH probe cannot prove that YouTube feed/CDN
                 // payloads arrived. Periodic privacy-safe transport counters
                 // make "connected but feed stalls" measurable in device logs.
-                if (ticks % 30L == 0L && AppPrefs(this@DPpassVpnService).zapret2Backend in
-                    setOf(Zapret2Backend.VPN_SERVICE, Zapret2Backend.BYEDPI_VPN)) {
-                    val proxyStats = session.stats()
-                    val allStats = runCatching { JniXrayRuntime.displayTraffic() }.getOrNull()
-                    if (allStats != null) {
-                        val proxyUp = (proxyStats.uplinkBytes - localProxyUp).coerceAtLeast(0)
-                        val proxyDown = (proxyStats.downlinkBytes - localProxyDown).coerceAtLeast(0)
-                        val allUp = (allStats.uplinkBytes - localAllUp).coerceAtLeast(0)
-                        val allDown = (allStats.downlinkBytes - localAllDown).coerceAtLeast(0)
-                        core.log.info("local_path_window",
-                            "backend" to Safe(if (byeDpi != null) "byedpi" else "zapret2"),
-                            "proxy_up" to proxyUp, "proxy_down" to proxyDown,
-                            "other_up" to (allUp - proxyUp).coerceAtLeast(0),
-                            "other_down" to (allDown - proxyDown).coerceAtLeast(0))
-                        localAllUp = allStats.uplinkBytes
-                        localAllDown = allStats.downlinkBytes
-                        localProxyUp = proxyStats.uplinkBytes
-                        localProxyDown = proxyStats.downlinkBytes
+                if (pathState != null && (ticks == 5L || ticks == 15L || ticks % 30L == 0L)) {
+                    val sample = localPathSample(session)
+                    val before = lastLocalPath
+                    if (sample != null && before != null) {
+                        val now = Clock.MONOTONIC.nowMillis()
+                        logLocalPath("local_path_window", pathState.backend, before, sample, now - lastLocalAt)
+                        lastLocalPath = sample
+                        lastLocalAt = now
                     }
                 }
-                if (ticks % 30L == 0L && AppPrefs(this@DPpassVpnService).zapret2Backend == Zapret2Backend.VPN_SERVICE) {
+                if (ticks % 30L == 0L && diagnosticEnabled) {
                     val stats = session.stats()
                     val probes = graph.engine.desyncCounters()
                     core.log.info("zapret2_transfer_window",
@@ -1178,7 +1202,7 @@ class DPpassVpnService : VpnService() {
      * каждом событии нынешняя сеть выбирается заново ([NetworkCheck.underlying]),
      * и только её смена что-то меняет.
      */
-    private fun watchNetwork(fixed: Network? = null) {
+    private fun watchNetwork(fixed: Network? = null, strategySession: Boolean = false) {
         if (fixed != null) {
             // Через устройство раздачи режим оператора ни при чём (D-64): проверка после смены не нужна.
             changeCheck?.cancel()
@@ -1210,7 +1234,7 @@ class DPpassVpnService : VpnService() {
                 // another carrier/Wi-Fi or after a network outage. Keep the
                 // explicit selections, but clear ephemeral per-host evidence.
                 if (networkChanged) ServerAutoModel.resetTransient()
-                if (networkChanged && AppPrefs(this@DPpassVpnService).zapret2Backend == Zapret2Backend.VPN_SERVICE) {
+                if (networkChanged && strategySession) {
                     val result = runCatching {
                         JniXrayRuntime.configureZapret2AdaptiveHosts(
                             AppPrefs(this@DPpassVpnService).zapret2AdaptiveTargetsText)
@@ -1513,6 +1537,15 @@ class DPpassVpnService : VpnService() {
         shareWatch = null
         ticker?.cancel()
         ticker = null
+        // Capture both local backends even on a switch before the first window.
+        val path = localPathState
+        localPathState = null
+        if (path != null) {
+            val sample = localPathSample(path.session)
+            if (sample != null) logLocalPath("local_path_final", path.backend, path.baseline, sample,
+                Clock.MONOTONIC.nowMillis() - path.startedMillis)
+            else DeviceLog.log.warning("local_path_final_unavailable", "backend" to Safe(path.backend))
+        }
         // Save before Xray stops, including fast reconnects under 30 seconds.
         if (zapret2FinalState != null) runCatching { persistStrategyLearning() }
         // A reconnect may happen before the first 30-second transfer window.
