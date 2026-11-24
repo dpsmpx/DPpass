@@ -990,24 +990,10 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     return@launch
                 }
                 val selection = Zapret2SiteSearch.recommend(domain, ipCount, rows, quic)
-                // Cross-module data-class getters are not eligible for a
-                // Kotlin smart cast inside withContext's coroutine lambda.
-                val selectedMethod = selection.method
-                // Migrated DPTS suites are diagnostic-only. Applying a
-                // script to the live AUTO selector requires a separate
-                // explicitly reviewed capability, not an implicit old-button
-                // side effect. Neural training uses its own gated action.
-                val commit = if (false && !quic && selectedMethod != null &&
-                    (selection.readyToApply || selection.baselineStable)) {
-                    try {
-                        withContext(Dispatchers.IO) {
-                            JniXrayRuntime.probeZapret2Google(
-                                selectedMethod, Zapret2SiteSearch.apply(domain), 1_500)
-                        }
-                    } catch (_: LinkageError) {
-                        Zapret2GoogleProbe.unavailable()
-                    }
-                } else null
+                // Script suites do not apply a live AUTO strategy implicitly.
+                // The explicit "Train" button has its own stronger evidence
+                // gate and changes only the contextual MLP, not the route.
+                val commit: Zapret2GoogleProbe? = null
                 val report = Zapret2SiteSearch.report(
                     domain, network, quic, prepared, rows, selection, commit)
                 resultText.text = report
