@@ -98,6 +98,13 @@ func parseSiteSearchRequest(target string) (siteSearchRequest,bool) {
     if kind=="site_prepare"||kind=="site_apply" {return r,true}
     var prefix string
     switch {
+    case strings.HasPrefix(kind,"site_sni_google_ip"):
+        // Exact same pinned API IPv4, but an independent, public control
+        // name. This is certificate-verified; no domain fronting or
+        // upstream destination rewrite for production connections.
+        if host!="youtubei.googleapis.com" {return siteSearchRequest{},false}
+        prefix="site_sni_google_ip"
+        r.kind="sni_control"
     case strings.HasPrefix(kind,"site_sweep_h1_ip"):
         if host!="youtubei.googleapis.com" {return siteSearchRequest{},false}
         prefix="site_sweep_h1_ip"
@@ -117,7 +124,8 @@ func parseSiteSearchRequest(target string) (siteSearchRequest,bool) {
     }
     index,err:=strconv.Atoi(rest[:2])
     limit:=siteSearchMaxIPs
-    if r.kind=="sweep_h1" || r.kind=="sweep_h2" {limit=siteSweepMaxIPs}
+    if r.kind=="sweep_h1" || r.kind=="sweep_h2" ||
+        r.kind=="sni_control" {limit=siteSweepMaxIPs}
     if err!=nil || index<0 || index>=limit {return siteSearchRequest{},false}
     r.index=index
     r.attempt=int(rest[4]-'0')
@@ -348,6 +356,11 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     } else if request.kind=="quic" {
         for _,m:=range siteSearchQUICMethods {if m==strategy {allowed=true}}
         result.Protocol="quic"
+    } else if request.kind=="sni_control" {
+        // The SNI/Host control tests Google on the identical API IP
+        // and rejects every non-plain profile to avoid confounding.
+        allowed=strategy=="plain"
+        result.Protocol="h1"
     } else if request.kind=="sweep_h1" || request.kind=="sweep_h2" {
         // Only three existing implemented profiles, only the known API
         // host, and only explicitly prepared public Google DoH IPv4.
@@ -380,6 +393,10 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     // catalog, and the unauthenticated transport-only YouTube API path.
     // Never pass arbitrary user-controlled paths, credentials or cookies.
     target:=siteSearchHTTPTarget(request.host)
+    if request.kind=="sni_control" {
+        target=zapret2TestTarget{host:"www.google.com",path:"/",
+            contentKind:"http_transport",ipv4Only:true}
+    }
     var checked Zapret2HTTPSResult
     if request.kind=="quic" {
         checked=matrixQUIC(ctx,conn,ip,request.host,quic.Version1)
