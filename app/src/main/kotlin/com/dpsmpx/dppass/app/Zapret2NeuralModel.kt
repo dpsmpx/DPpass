@@ -271,7 +271,8 @@ object Zapret2NeuralModel {
             val snapshot = JSONObject(raw.decodeToString())
             if (latest.optString("format") != kind.format ||
                 snapshot.optString("format") != kind.format ||
-                latest.optString("seed") != snapshot.optString("seed"))
+                latest.optString("seed") != snapshot.optString("seed") ||
+                snapshot.optLong("observations", 0) < latest.optLong("observations", 0))
                 return@synchronized false
             write(context, kind, raw)
         }

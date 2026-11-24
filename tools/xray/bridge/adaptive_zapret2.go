@@ -108,6 +108,15 @@ func canonicalAdaptiveHost(host string) string {
 // A live key may contain a concrete TCP peer after |. Never persist this
 // address in neural sparse keys or reuse host-only probe evidence for it.
 func adaptiveHostOnly(key string) string { return strings.SplitN(key, "|", 2)[0] }
+
+// A TLS/QUIC first reply alone is insufficient for media/API targets.
+func mediaAdaptiveHost(key string) bool {
+    host := strings.TrimPrefix(strings.TrimPrefix(adaptiveHostOnly(key), "http:"), "udp:")
+    for _, suffix := range []string{"youtube.com", "youtubei.googleapis.com", "googlevideo.com", "ytimg.com"} {
+        if host == suffix || strings.HasSuffix(host, "."+suffix) { return true }
+    }
+    return false
+}
 func canonicalAdaptiveKey(key string) string {
     parts := strings.SplitN(key, "|", 2)
     host := canonicalAdaptiveHost(parts[0])
@@ -289,10 +298,11 @@ func (a *adaptiveSelector) retainPlainReply(host string, generation uint64) {
     if a.generation != generation { return }
     e := a.entries[canonicalAdaptiveKey(host)]
     if e == nil { return }
+    if e.preferred != "" && e.preferred != "pass" { return }
+    if e.cooldown != nil && time.Now().Before(e.cooldown["pass"]) { return }
     e.preferred = "pass"
     e.plainReachable = true
     e.probeSeeded = false
-    e.weakFailures = 0
     delete(e.stalls, "pass")
     delete(e.cooldown, "pass")
 }
@@ -377,7 +387,7 @@ func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int
         e.weakFailures = 0
         e.smallResponses = nil
     } else if e.preferred == strategy {
-        if strategy == "pass" && payloadBytes > 0 { e.weakFailures = 0; return }
+        if strategy == "pass" && payloadBytes > 0 && !mediaAdaptiveHost(host) { e.weakFailures = 0; return }
         // A verified HTML probe earns a *temporary* preference. Its
         // successful 8 KiB page sample must not be misclassified as a
         // failure merely because the media-oriented default is 12 KiB.
@@ -389,7 +399,11 @@ func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int
             e.weakFailures++
             if e.weakFailures >= 2 {
                 e.preferred = ""
-            e.plainReachable = false
+                e.plainReachable = false
+                if strategy == "pass" && mediaAdaptiveHost(host) {
+                    if e.cooldown == nil { e.cooldown = make(map[string]time.Time) }
+                    e.cooldown["pass"] = time.Now().Add(adaptiveStallCooldown)
+                }
                 e.probeSeeded = false
                 e.weakFailures = 0
                 e.smallResponses = nil

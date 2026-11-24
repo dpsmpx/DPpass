@@ -358,3 +358,17 @@ func TestLiveAddressEvidenceIsIsolated(t *testing.T) {
     if got, _ := a.chooseLive(two, adaptiveCandidates[:]); got == "pass" { t.Fatal("other IP inherited reachability") }
     if got, _ := a.chooseLive(one, adaptiveCandidates[:]); got != "pass" { t.Fatal("first IP lost its own evidence") }
 }
+
+func TestLiveMediaPlainWeakRepliesDoNotPinForever(t *testing.T) {
+    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry)}
+    host := "youtubei.googleapis.com|192.0.2.1"
+    for i:=0; i<2; i++ {
+        got, generation := a.chooseLive(host, adaptiveCandidates[:])
+        if got != "pass" { t.Fatal(got) }
+        a.retainPlainReply(host, generation)
+        a.observeTracked(host, "pass", 256, generation)
+    }
+    if got, _ := a.chooseLive(host, adaptiveCandidates[:]); got == "pass" {
+        t.Fatal("two weak media flows pinned the direct transport")
+    }
+}

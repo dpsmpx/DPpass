@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 from android_auth import patch
+from smoke import smoke
 
 REPO = "https://github.com/hufrea/byedpi.git"
 COMMIT = "7efde1b1296eaaa187b70e951894dde17527489c"
@@ -37,6 +38,9 @@ def main():
         if actual != COMMIT:
             raise ValueError("Unexpected ByeDPI source commit")
         patch(src / "proxy.c")
+        host = src / "ciadpi-host-test"
+        run(["cc", "-D_DEFAULT_SOURCE", "-D_GNU_SOURCE", "-std=c99", "-O2", "-I.", *SOURCES, "-o", str(host)], cwd=src)
+        smoke(host, src / "protect.sock")
         assets = ROOT / "app/src/main/assets/byedpi"
         assets.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(src / "LICENSE", assets / "LICENSE.txt")
