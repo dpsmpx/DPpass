@@ -30,3 +30,15 @@ The selected fixtures are not a comprehensive security or parity test.
 
 The existing ByeDPI executable remains the RC6 reference until a
 replacement passes comparative physical tests.
+
+## DPpass inspection ABI v1
+
+`tools/localdpi/packet_inspect.h` exposes a bounded, read-only protocol
+recognition hint (not a validated parser). It calls only the upstream
+`is_tls_chello` and `is_http` predicates, with explicit length checks.
+It exports no payload, borrowed pointer or host name; has no network
+IO; does not call parse_http, parse_tls, or mutation functions. Inputs
+and outputs must be distinct valid objects. Maximum input 16 KiB.
+Host fixtures use exact-sized allocations, malformed/truncated inputs,
+8192 deterministic mixed cases, ASan/UBSan, and input immutability checks.
+This is not exhaustive fuzzing or proof of safety of the upstream module.
