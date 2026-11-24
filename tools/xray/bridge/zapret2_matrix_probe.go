@@ -595,3 +595,39 @@ func matrixH3OnConnection(ctx context.Context,conn *quic.Conn,host,mode string) 
     } else {out.Outcome="http_status"}
     return out
 }
+
+// Script H3 uses the very same protected, pinned UDP socket as the QUIC
+// diagnostic. This does not open a second unprotected socket. The only
+// permitted HTTP/3 target is the fixed unauthenticated YouTube API control.
+func matrixH3Pinned(ctx context.Context, raw net.Conn, ip, host, mode string) Zapret2HTTPSResult {
+    out:=Zapret2HTTPSResult{Outcome:"h3_failed",TLSStage:"udp_connected",ALPN:"-"}
+    if host!="youtubei.googleapis.com" || (mode!="h3" && mode!="h3api") {
+        out.Outcome="invalid_target"
+        return out
+    }
+    remote:=&net.UDPAddr{IP:net.ParseIP(ip).To4(),Port:443}
+    packets:=&matrixPacketConn{Conn:raw,remote:remote}
+    cfg:=&tls.Config{ServerName:host,RootCAs:probeRoots,
+        MinVersion:tls.VersionTLS13,NextProtos:[]string{"h3"}}
+    conn,err:=quic.Dial(ctx,packets,remote,cfg,&quic.Config{
+        Versions:[]quic.Version{quic.Version1},
+    })
+    if err!=nil {
+        out.TLSStage=packets.failureStage()
+        if ctx.Err()!=nil && packets.reply.Load() {
+            out.Outcome="quic_timeout_after_reply"
+        } else if ctx.Err()!=nil {
+            out.Outcome="quic_timeout_no_reply"
+        } else {
+            out.Outcome="quic_failed"
+        }
+        return out
+    }
+    defer conn.CloseWithError(0,"diagnostic completed")
+    if conn.ConnectionState().TLS.NegotiatedProtocol!="h3" {
+        out.Outcome="quic_alpn_mismatch"
+        out.TLSStage="quic_tls_verified"
+        return out
+    }
+    return matrixH3OnConnection(ctx,conn,host,mode)
+}
