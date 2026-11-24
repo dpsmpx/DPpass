@@ -397,3 +397,78 @@ func TestHTTPVersionProbeRejectsUnknownTLSVersion(t *testing.T) {
         t.Fatalf("unexpected invalid-version result: %q",result.Outcome)
     }
 }
+
+func TestDPTSPublicTargetsAreStrictAndNeverAUTO(t *testing.T) {
+    for _,k:=range []string{
+        "h1","h2","t12","t13","gh1","gh2","g12","g13",
+        "q1","q2","h3","h3api",
+    } {
+        for ip:=0;ip<siteSweepMaxIPs;ip++ {
+            for attempt:=1;attempt<=siteSearchAttempts;attempt++ {
+                id:=fmt.Sprintf("dpts_%s_ip%02d_a%d_:youtubei.googleapis.com",
+                    k,ip,attempt)
+                req,ok:=parseSiteSearchRequest(id)
+                if !ok || req.kind!="script_"+k || req.index!=ip ||
+                    req.attempt!=attempt || req.host!="youtubei.googleapis.com" {
+                    t.Fatalf("bad DPTS grammar %s: %#v %t",id,req,ok)
+                }
+                if siteSearchMayRecord(req.kind) {
+                    t.Fatalf("script trial can poison AUTO: %q",id)
+                }
+            }
+        }
+    }
+    for _,id:=range []string{
+        "dpts_h1_ip08_a1_:router.local",
+        "dpts_h1_ip08_a1_:127.0.0.1",
+        "dpts_h1_ip08_a1_:www.google.com:22",
+        "dpts_h1_ip08_a1_:youtubei.googleapis.com",
+        "dpts_h1_ip00_a0_:youtubei.googleapis.com",
+        "dpts_h1_ip00_a4_:youtubei.googleapis.com",
+        "dpts_h1_ip00_a1_:youtubei.googleapis.com/path",
+        "dpts_h1_ip00_a1_:youtubei.googleapis.com?token=secret",
+        "dpts_arbitrary_ip00_a1_:youtubei.googleapis.com",
+    } {
+        if _,ok:=parseSiteSearchRequest(id);ok {
+            t.Fatalf("unsafe DPTS target accepted: %q",id)
+        }
+    }
+    r,ok:=parseSiteSearchRequest("dpts_train:youtubei.googleapis.com")
+    if !ok||r.kind!="script_train" {t.Fatalf("neural train grammar: %#v",r)}
+    if siteSearchMayRecord(r.kind) {t.Fatal("training result can poison AUTO")}
+}
+
+func TestDPTSTrainingRequiresFullContentAndPlainBaselineFailure(t *testing.T) {
+    host:="www.youtube.com"
+    inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1","8.8.8.8"})
+    if code:=siteScriptTrain(inst,host,"tlsrec-split",gen);
+        code!="neural_no_evidence" {
+        t.Fatalf("empty evidence must reject training: %s",code)
+    }
+    for ip:=0;ip<2;ip++ {
+        for attempt:=1;attempt<=siteSearchAttempts;attempt++ {
+            siteScriptRecord(inst,host,gen,ip,attempt,"plain","timeout_tls_no_reply",5000)
+            siteScriptRecord(inst,host,gen,ip,attempt,"tlsrec-split","http_reachable",100)
+        }
+    }
+    if code:=siteScriptTrain(inst,host,"tlsrec-split",gen);
+        code!="neural_no_evidence" {
+        t.Fatalf("HTTP transport alone must reject training: %s",code)
+    }
+    // A duplicate HTTP sample must not overwrite a recorded result.
+    for ip:=0;ip<2;ip++ {
+        for attempt:=1;attempt<=siteSearchAttempts;attempt++ {
+            siteScriptRecord(inst,host,gen,ip,attempt,"tlsrec-split","ok",100)
+        }
+    }
+    if code:=siteScriptTrain(inst,host,"tlsrec-split",gen);
+        code!="neural_no_evidence" {
+        t.Fatalf("duplicate samples must not promote success: %s",code)
+    }
+    if code:=siteScriptTrain(inst,host,"plain",gen);code!="invalid_strategy" {
+        t.Fatalf("plain is not a neural output class: %s",code)
+    }
+    if siteSearchCommit(inst,host,"tlsrec-split",gen) {
+        t.Fatal("even full script batches never satisfy the regular AUTO gate")
+    }
+}
