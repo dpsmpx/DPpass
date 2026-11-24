@@ -59,7 +59,7 @@ class DPTestScriptTest {
             "attempts 9",
             "timeout_ms 99999",
             "report unredacted",
-            "train verified fake-5",
+            "train verified fake-3",
             "methods plain,split-1,split,tlsrec-split,fake-3,fake-5,disorder\n" +
                 "protocols h1,h2,tls12,tls13",
         )) {
