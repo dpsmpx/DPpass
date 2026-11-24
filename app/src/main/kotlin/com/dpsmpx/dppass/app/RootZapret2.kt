@@ -108,9 +108,7 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
     private fun cleanup(stopWatch: Boolean = true): String = (
         listOf("set +e", "iptables -t mangle -S OUTPUT >/dev/null || exit 1") +
             (if (stopWatch) listOf(
-                "if test -f " + quote(ROOT + "/watch.pid") + "; then kill \"$(cat " +
-                    quote(ROOT + "/watch.pid") + ")\" 2>/dev/null; rm -f " +
-                    quote(ROOT + "/watch.pid") + "; fi",
+                RootProcessIdentity.stopScript(ROOT + "/watch.pid", ROOT + "/watchdog.sh"),
             ) else emptyList()) +
             listOf(
         "while iptables -t mangle -C OUTPUT " + TCP +
@@ -122,8 +120,7 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
             " 2>/dev/null; do ip6tables -t mangle -D OUTPUT " + TCP + " || exit 1; done; " +
             "while ip6tables -t mangle -C OUTPUT " + UDP +
             " 2>/dev/null; do ip6tables -t mangle -D OUTPUT " + UDP + " || exit 1; done; fi",
-        "if test -f " + quote(ROOT + "/pid") + "; then kill \"$(cat " +
-            quote(ROOT + "/pid") + ")\" 2>/dev/null; rm -f " + quote(ROOT + "/pid") + "; fi",
+        RootProcessIdentity.stopExecutable(ROOT + "/pid", ROOT + "/nfqws2"),
         )).joinToString("\n")
 
     private fun execute(script: String) {

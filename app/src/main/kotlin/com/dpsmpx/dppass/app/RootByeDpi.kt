@@ -68,16 +68,11 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
     private fun cleanup(stopWatch: Boolean = true): String = buildString {
         appendLine("set +e")
         appendLine("iptables -t nat -S OUTPUT >/dev/null || exit 1")
-        if (stopWatch) appendLine("if test -s " + quote("$ROOT/watch.pid") +
-            "; then pid=$(cat " + quote("$ROOT/watch.pid") + "); " +
-            "if tr '\\000' ' ' </proc/\$pid/cmdline 2>/dev/null | grep -Fq " + quote("$ROOT/watch.sh") +
-            "; then kill \"\$pid\" 2>/dev/null; fi; rm -f " + quote("$ROOT/watch.pid") + "; fi")
+        if (stopWatch) appendLine(RootProcessIdentity.stopScript("$ROOT/watch.pid", "$ROOT/watch.sh"))
         appendLine("while iptables -t nat -C OUTPUT " + RULE + " 2>/dev/null; do iptables -t nat -D OUTPUT " + RULE + " || exit 1; done")
         appendLine("if ip6tables -t nat -S OUTPUT >/dev/null 2>&1; then while ip6tables -t nat -C OUTPUT " + RULE + " 2>/dev/null; do ip6tables -t nat -D OUTPUT " + RULE + " || exit 1; done; fi")
         for (name in listOf("pid", "pid6")) {
-            appendLine("if test -s " + quote("$ROOT/$name") + "; then pid=$(cat " + quote("$ROOT/$name") + "); " +
-                "if test \"$(readlink /proc/\$pid/exe)\" = " + quote("$ROOT/ciadpi") +
-                "; then kill \"\$pid\" 2>/dev/null; fi; rm -f " + quote("$ROOT/$name") + "; fi")
+            appendLine(RootProcessIdentity.stopExecutable("$ROOT/$name", "$ROOT/ciadpi"))
         }
         appendLine("exit 0")
     }
