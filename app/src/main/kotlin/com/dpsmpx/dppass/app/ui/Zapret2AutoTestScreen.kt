@@ -14,6 +14,8 @@ import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.NetworkCheck
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.TunnelStatus
+import com.dpsmpx.dppass.app.Zapret2NeuralModel
+import com.dpsmpx.dppass.engine.xray.XrayResult
 import com.dpsmpx.dppass.connection.Zapret2Backend
 import com.dpsmpx.dppass.engine.ServerlessPlan
 import com.dpsmpx.dppass.engine.Zapret2ProbeCatalog
@@ -1378,6 +1380,20 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     } catch (_: SecurityException) { false }
       catch (_: IllegalStateException) { false }
 
+    private suspend fun persistScriptNeuralSnapshot(): String =
+        withContext(Dispatchers.IO) {
+            val kind = Zapret2NeuralModel.Kind.STRATEGY
+            val snapshot = runCatching { JniXrayRuntime.snapshotZapret2NeuralModel() }
+                .getOrNull() ?: return@withContext "snapshot_unavailable"
+            if (!Zapret2NeuralModel.storeLearnedSnapshot(context, kind, snapshot))
+                return@withContext "disk_write_failed"
+            val acknowledgement = runCatching {
+                JniXrayRuntime.acknowledgeZapret2NeuralModel(snapshot)
+            }.getOrNull()
+            if (acknowledgement == null || acknowledgement is XrayResult.Failed)
+                "saved_newer_updates_pending" else "saved_and_acknowledged"
+        }
+
     /** Runs a fully validated and expanded immutable plan, never source code. */
     private fun runScript() {
         if (job?.isActive == true) return
@@ -1403,6 +1419,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         progress.progress = 0
         resultText.visibility = View.GONE
         val entries = mutableListOf<DPTestScript.ReportEntry>()
+        val persistence = mutableListOf<String>()
         val started = SystemClock.elapsedRealtime()
         job = host.scope.launch {
             var complete = true
@@ -1474,6 +1491,10 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                             DNS_TIMEOUT_MILLIS)
                         entries += DPTestScript.ReportEntry(scenarioIndex, null,
                             result, training = true)
+                        if (result.outcome == "neural_trained") {
+                            persistence += "neural_persist scenario=" + scenarioIndex +
+                                " status=" + persistScriptNeuralSnapshot()
+                        }
                         progress.progress = progress.progress + 1
                     }
                 }
@@ -1487,6 +1508,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 reason = "execution_error_" + e.javaClass.simpleName
             } finally {
                 val report = DPTestScript.report(program, network, entries, complete) +
+                    persistence.joinToString(separator = "", postfix = "") { it + "\n" } +
                     "reason=" + reason + "\n"
                 resultText.text = report
                 resultText.visibility = View.VISIBLE
