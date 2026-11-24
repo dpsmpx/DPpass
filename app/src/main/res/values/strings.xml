@@ -906,4 +906,6 @@
     <string name="zapret2_youtube_home_button">Test YouTube homepage HTTPS</string>
     <string name="zapret2_youtube_api_button">Test YouTube API HTTPS</string>
     <string name="zapret2_youtube_thumbnail_button">Test YouTube thumbnail CDN HTTPS</string>
+    <string name="zapret2_youtube_api_sweep_button">Check all API IPv4 / HTTP2 (diagnostic)</string>
+    <string name="zapret2_youtube_api_sweep_note">Check up to eight Google-DoH IPv4 addresses for youtubei.googleapis.com, comparing TLS/HTTP1.1 and HTTP/2 with existing protected methods. This is a one-time diagnostic, not a new bypass. No AUTO, no raw IP export, no app API POST or video verification.</string>
 </resources>
