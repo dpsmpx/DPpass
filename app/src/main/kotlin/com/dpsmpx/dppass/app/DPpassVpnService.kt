@@ -1250,17 +1250,9 @@ class DPpassVpnService : VpnService() {
                 // explicit selections, but clear ephemeral per-host evidence.
                 if (networkChanged) ServerAutoModel.resetTransient()
                 if (networkChanged && strategySession) {
-                    val result = runCatching {
-                        JniXrayRuntime.configureZapret2AdaptiveHosts(
-                            AppPrefs(this@DPpassVpnService).zapret2AdaptiveTargetsText)
-                    }.getOrNull()
-                    if (result == null || result is XrayResult.Failed) {
-                        DeviceLog.log.warning("zapret2_adaptive_reset_failed", "reason" to Safe("network_change"))
-                    } else {
-                        DeviceLog.log.info("zapret2_adaptive_reset", "reason" to Safe("network_change"))
-                    }
-                    // Change the active head only. NEVER reload random weights
-                    // on a handoff: MOBILE/Wi-Fi/OTHER learning is retained.
+                    // Atomically clear transient evidence and set the active
+                    // network head, even for MOBILE->MOBILE. Keep the active
+                    // target selection and all learned weights.
                     val networkClass = when (u.type) {
                         NetworkType.MOBILE -> "MOBILE"
                         NetworkType.WIFI -> "WIFI"
@@ -1272,6 +1264,8 @@ class DPpassVpnService : VpnService() {
                     if (updated == null || updated is XrayResult.Failed) {
                         DeviceLog.log.warning("zapret2_neural_context_failed",
                             "reason" to Safe("network_change"))
+                    } else {
+                        DeviceLog.log.info("zapret2_adaptive_reset", "reason" to Safe("network_change"))
                     }
                 }
                 val from = underlyingType

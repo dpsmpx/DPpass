@@ -259,3 +259,27 @@ func TestNeuralRejectsUnsupportedTransportWithoutMutatingModel(t *testing.T) {
     zapret2Neural.learn("http:example.test","split",adaptivePayloadThreshold)
     if len(ExportZapret2NeuralModel())==0 {t.Fatal("compatible method failed to train")}
 }
+
+func TestNetworkConfigurationResetsGenerationButKeepsModelAndTargets(t *testing.T) {
+    defer ConfigureZapret2NeuralModel(nil)
+    defer ConfigureZapret2NeuralNetwork("UNKNOWN")
+    defer ConfigureZapret2AdaptiveHosts("")
+    if err:=ConfigureZapret2AdaptiveHosts("example.test");err!=nil {t.Fatal(err)}
+    if err:=ConfigureZapret2NeuralNetwork("MOBILE");err!=nil {t.Fatal(err)}
+    if err:=ConfigureZapret2NeuralModel(generatedSparseTestModel(t,100000,16));err!=nil {t.Fatal(err)}
+    zapret2Neural.learn("example.test","split",adaptivePayloadThreshold)
+    before:=ExportZapret2NeuralModel()
+    if len(before)==0 {t.Fatal("missing learned snapshot")}
+    _,old:=zapret2Auto.chooseTracked("example.test")
+    if err:=ConfigureZapret2NeuralNetwork("MOBILE");err!=nil {t.Fatal(err)}
+    if zapret2Auto.generationSnapshot()==old {t.Fatal("same category did not reset")}
+    zapret2Auto.mu.Lock()
+    _,targetKept:=zapret2Auto.selected["example.test"]
+    count:=len(zapret2Auto.entries)
+    zapret2Auto.mu.Unlock()
+    if !targetKept || count!=0 {t.Fatal("wrong transient reset",targetKept,count)}
+    zapret2Auto.observeTracked("example.test","split",adaptivePayloadThreshold,old)
+    if !bytes.Equal(before,ExportZapret2NeuralModel()) {t.Fatal("old generation modified weights")}
+    if err:=ConfigureZapret2NeuralNetwork("WIFI");err!=nil {t.Fatal(err)}
+    if !bytes.Equal(before,ExportZapret2NeuralModel()) {t.Fatal("handoff modified saved weights")}
+}

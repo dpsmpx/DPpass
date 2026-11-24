@@ -72,12 +72,16 @@ func ConfigureZapret2NeuralNetwork(kind string) error {
     case "OTHER", "UNKNOWN": category=0
     default: return errors.New("invalid underlying network class")
     }
-    // Rank, learn and explicit DPTS calibration hold this lock. Changing
-    // category between feature extraction, context index and sparse-slot
-    // calculation would mix two different networks in one observation.
+    // A network configuration is a session boundary even if its coarse
+    // category is unchanged. Use the selector -> model lock order so a
+    // new selection cannot inherit the previous network's generation or
+    // contextual head. Keep configured targets and persistent weights.
+    zapret2Auto.mu.Lock()
+    defer zapret2Auto.mu.Unlock()
     zapret2Neural.mu.Lock()
+    defer zapret2Neural.mu.Unlock()
+    zapret2Auto.resetLocked()
     zapret2NeuralNetwork.Store(category)
-    zapret2Neural.mu.Unlock()
     return nil
 }
 

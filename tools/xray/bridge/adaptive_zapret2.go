@@ -210,9 +210,7 @@ func (a *adaptiveSelector) configureHosts(text string) error {
     }
     a.mu.Lock()
     a.selected = list
-    a.generation++
-    a.entries = make(map[string]*adaptiveEntry)
-    a.probe = nil
+    a.resetLocked()
     a.mu.Unlock()
     return nil
 }
@@ -578,10 +576,15 @@ func (a *adaptiveSelector) observeVerifiedProbe(host, requiredHost, validOutcome
 
 // Reset all temporary knowledge when the network changes. Never persist
 // the target's browsing history or the probe winner to preferences.
+// Caller holds the selector lock. Configured targets are not transient.
+func (a *adaptiveSelector) resetLocked() {
+    a.entries = make(map[string]*adaptiveEntry)
+    a.probe = nil
+    a.generation++
+}
+
 func ResetZapret2AdaptiveLearning() {
     zapret2Auto.mu.Lock()
-    zapret2Auto.entries = make(map[string]*adaptiveEntry)
-    zapret2Auto.probe = nil
-    zapret2Auto.generation++
-    zapret2Auto.mu.Unlock()
+    defer zapret2Auto.mu.Unlock()
+    zapret2Auto.resetLocked()
 }
