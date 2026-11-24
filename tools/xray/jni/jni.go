@@ -215,7 +215,7 @@ func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSetZapret2NeuralModel(env 
 }
 
 //export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeDPTSGeneration
-func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeDPTSGeneration(_ *C.JNIEnv, _ C.jclass) C.jlong {
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeDPTSGeneration(env *C.JNIEnv, _ C.jclass) C.jlong {
     return C.jlong(bridge.DPTSGeneration())
 }
 

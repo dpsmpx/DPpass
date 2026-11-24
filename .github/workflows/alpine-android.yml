@@ -66,7 +66,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 tools/release/check_upgrade_code.py
       - name: Check JNI local package allowlist and Gradle inputs
-        run: python3 tools/xray/check_native_inputs.py && python3 tools/xray/native.py check-packages
+        run: python3 tools/xray/check_cgo_exports.py && python3 tools/xray/check_native_inputs.py && python3 tools/xray/native.py check-packages
       - name: Use pinned direct Gradle distribution
         run: sed -i 's@services.gradle.org/distributions@downloads.gradle.org/distributions@' gradle/wrapper/gradle-wrapper.properties
       - name: Install Android SDK, NDK and CMake for PRoot/JNI
