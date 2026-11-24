@@ -328,3 +328,7 @@ Go CI #45480239158 и Android CI #45480224398 для b251833 успешно за
 ## A4 — расширенные сравнительные проверки native ABI
 
 CI 39ba827: Go/Linux и новый Windows job #45482033792 успешны; Android #45482019759 со второй попытки успешен без изменения зависимостей. Добавлены FuzzNativeRecordParity для синтетических и повреждённых TLS records (сравнение Go/C, целостность, неизменность input, стабильность hints) и TestConcurrentNativeCalls (8 параллельных workers, 128 вызовов encoder/inspect на worker). Эти тесты не проверяют сетевую доступность, не подключают legacy Host parser и не меняют runtime или модель. Go race detector не инструментирует весь код C; существующие C sanitizer fixtures сохраняются. Новый CI ожидается.
+
+## A4 — автоматический native parity gate
+
+Go/Linux CI запускает отдельный 20-секундный fuzz target FuzzNativeRecordParity (2 workers), затем три race-enabled прогона tagged native package. Все прежние sanitizer, portable fuzz, regression, Windows и Android checks сохранены. Новый native gate ограничен synthetic fixtures и тестовой средой; нет включения новых методов или публикации APK. Первый результат ожидается.
