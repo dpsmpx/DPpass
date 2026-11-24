@@ -21,6 +21,8 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
 
     override suspend fun start(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
+            // Read-only preflight, only after explicit selection of ROOT.
+            execute(RootDpiPreflight.script(RootDpiPreflight.Kind.PACKET))
             val abi = Build.SUPPORTED_ABIS.firstOrNull { it in ARCH }
                 ?: error("nfqws2 не собран для архитектуры устройства")
             val hosts = Zapret2Hostlist.parse(AppPrefs(context).zapret2HostlistText).getOrThrow()

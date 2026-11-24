@@ -573,6 +573,13 @@ class DPpassVpnService : VpnService() {
     private suspend fun connectRootZapret2(core: DPpassCore, useByeDpi: Boolean) {
         val name = if (useByeDpi) "ByeDPI root" else "Zapret2 root"
         progress(TunnelStatus.Connecting(name))
+        // Side-by-side native debug APK must not touch root rules or state
+        // belonging to the main app. ROOT is not part of this experiment.
+        if (!RootDpiPreflight.permitsLegacyRoot(packageName)) {
+            fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
+                "В отдельной сборке Local DPI (test) доступен только тест VpnService; ROOT отключён"))
+            return
+        }
         val root: RootDpiRuntime = if (useByeDpi) RootByeDpi(this) else RootZapret2(this)
         // Root-команда завершается или откатывается, даже если пользователь нажал «Стоп».
         val result = withContext(NonCancellable) { root.start() }

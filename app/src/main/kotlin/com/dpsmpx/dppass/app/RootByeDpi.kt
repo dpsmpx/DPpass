@@ -15,6 +15,8 @@ import java.util.concurrent.TimeUnit
 internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
     override suspend fun start(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
+            // Read-only preflight, only after explicit selection of ROOT.
+            execute(RootDpiPreflight.script(RootDpiPreflight.Kind.SOCKET))
             val binary = ByeDpiRuntime.executable(context)
             val hosts = Zapret2Hostlist.parse(AppPrefs(context).zapret2HostlistText).getOrThrow()
             val localHosts = File(context.noBackupFilesDir, "bd-root-hosts").apply {
