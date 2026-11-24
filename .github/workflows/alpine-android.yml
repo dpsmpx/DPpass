@@ -89,8 +89,11 @@ jobs:
       - name: Portable Zapret2 strategy and Xray bridge Go tests
         working-directory: tools/xray
         run: go test ./localdpi ./zapret2 ./bridge ./cmd/zapret2-alpine
+      - name: Test Gradle dependency retry policy
+        run: bash tools/ci/test-gradle-resolution-retry.sh
       - name: Alpine process-layout and activation/adaptive-selection JVM tests
-        run: ./gradlew --no-daemon --console=plain :engine:test :connection:test :tunnel:test :app:testDebugUnitTest
+        shell: bash
+        run: bash tools/ci/gradle-resolution-retry.sh :engine:test :connection:test :tunnel:test :app:testDebugUnitTest
       - name: Build ARM64 app with actual Alpine minirootfs and PRoot
         run: ./gradlew --no-daemon --console=plain :app:assembleDebug -Pdppass.alpine=true -Pdppass.nativeAbis=arm64-v8a
       - name: Verify PRoot executables, PTY JNI and Alpine rootfs packaged

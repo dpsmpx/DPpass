@@ -189,3 +189,7 @@ Linux desktop и Alpine planner; добавлена ранняя проверк�
 JNI зависимостей и Gradle inputs в оба CI. Экспериментальный native tag
 не включён в штатную сборку; отдельный пакет localdpi/native не добавлен
 в production allowlist. Повторная сборка ожидается.
+
+## Android CI: сбой разрешения Gradle
+
+[CI #45436638331](https://github.com/dpsmpx/DPpass/actions/runs/45436638331) прошёл; в [Android CI #45436619712](https://github.com/dpsmpx/DPpass/actions/runs/45436619712) также прошли проверка JNI inputs, ARM64 cross-link и Go tests. JVM шаг остановился при разрешении org.gradle.kotlin.kotlin-dsl 6.7.6, до выполнения тестов. На предыдущем запуске те же закреплённые версии Gradle и плагина разрешались успешно. Добавлен ограниченный повтор (до трёх попыток) только при ошибке разрешения зависимостей до отказа задачи, без изменения версий или репозиториев; добавлены fixtures transient/persistent/task/other. Постоянная ошибка возвращает ненулевой код. Новая полная сборка ещё не подтверждена.
