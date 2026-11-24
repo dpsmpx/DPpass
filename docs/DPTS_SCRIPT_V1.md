@@ -119,3 +119,77 @@ never silently be emulated or marked successful.
 
 **This is an alpha foundation, not completion of the full upstream method
 catalog or a guarantee that YouTube feed playback has been restored.**
+
+
+## 0.8.1-dev: unified scripting user interface
+
+The Settings menu is now **"Script Testing" / "Тестирование скриптами"**.
+The screen contains only DPTS script controls: preset selector, Load,
+script name/editor, Save, Run, Train neural, Stop, progress/status and the
+selectable automatically copied report. No old one-off test buttons are
+shown. Up to 30 named drafts are saved privately on-device and can be
+loaded/edited again. No remote script fetching, arbitrary code execution
+or user-submitted URL access is allowed.
+
+Every former single-purpose diagnostics button was exposed as a **finite,
+strictly allowlisted DPTS suite**:
+
+```text
+dpts 1
+name Full original site search
+host www.youtube.com
+suite site_https
+```
+
+Accepted suites (one per script, cannot mix with a matrix):
+`google_youtube`, `dns_compare`, `ip_matrix`, `h3_api`,
+`site_https`, `site_quic`, `api_ipv4_sweep`,
+`sni_control`, `tls_versions`. The corresponding original
+procedures and auto-copied reports are preserved rather than silently
+truncated to the smaller DPTS generic matrix. In addition to the
+existing eight generic presets, nine migrated routine presets are
+provided, totalling **17 built-in editable presets**. Suite commands
+are intentionally fixed/bounded existing implementations: unlike the
+generic `https` matrix, they cannot yet be arbitrarily recombined
+with other steps in a single script.
+
+### Opt-in neural training
+
+The **Train neural model from completed script** action trains the
+*existing* locally installed STRATEGY MLP, not a synthetic UI counter.
+
+- The user must have executed a complete generic DPTS/1 script with
+  `learn observe`, with the same current network and no partial
+  execution, and must explicitly press Train once.
+- A stable training pair must be on the exact HTTPS
+  `www.youtube.com` fixed public homepage, HTTP/1.1, with
+  independently certificate-verified HTTP 200–299 and at least
+  128 bounded response bytes, **3/3 attempts on each of two public IP
+  indices** for one implemented TCP candidate. Baseline `plain` must
+  have no such content-verified response on either IP in its own 3/3.
+  Both candidate and baseline must have an exactly matching, complete,
+  unique step per attempt; duplicated/missing/misaligned observations
+  invalidate learning.
+- A genuine 3/3 success only proves the tested bounded HTML content,
+  not YouTube API authenticated POST, live feed, CDN media or playback.
+  No unsuccessful method is given a negative neural reward, since
+  `clienthello_sent` + timeout does not determine cause.
+- Kotlin independently checks the evidence. Native Go validates the
+  finite strategy method set, network generation context and installed
+  modern MLP, then applies a small positive logistic gradient
+  (at most 0.02 per qualified method) only to the corresponding
+  MOBILE/WIFI TCP contextual output head. It does **not** pin AUTO,
+  override protective circuit breakers or modify routes.
+- Weights are exported through the existing native dirty snapshot
+  path and saved atomically with the model-seed guard; the native
+  snapshot is acknowledged only after durable storage.
+- A `0/32` transport-failure report for `youtubei.googleapis.com`,
+  QUIC-only proofs, 301/404, content-invalid replies and one-off
+  TLS successes are **ineligible**. The app informs the user instead
+  of silently "training" on zero useful data.
+
+**Device acceptance:** verify script loading/saving, screen transitions,
+legacy suite reports, editor persistence, clipboard after full results,
+Stop midway, network switch/reconnect, no AUTO changes, learning refusal
+on the current API `0/32` report, and controlled training on a real
+2-IP 3/3 matched HTML result. Keep PR draft until physical tests.
