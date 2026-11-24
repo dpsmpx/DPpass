@@ -103,6 +103,7 @@ func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
     if len(raw) == 0 || len(raw) > adaptiveNNMaxBytes {
         return nil, errors.New("invalid neural model length")
     }
+    if err := checkModelJSON(raw); err != nil { return nil, err }
     var w adaptiveNNWeights
     decoder := json.NewDecoder(bytes.NewReader(raw))
     decoder.DisallowUnknownFields()

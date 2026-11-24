@@ -376,3 +376,7 @@ Go validator v2 теперь отклоняет отрицательные/вы�
 ## A6 — numeric validation parity on Android
 
 ModelNumericFields removes JSONObject numeric coercions in storage validation for both local models: integer counters/budget, actual finite numeric weights in [-4,4], canonical decimal sparse keys inside capacity. Global observations validated for legacy too; absent observations remain compatible. Pure JVM fixtures test types, bounds and canonical keys. Normal generated models and Go export use these representations. This is stricter validation of malformed/noncanonical snapshots, not a complete JSON parser equivalence proof (Android JSON lexical normalization and unknown fields remain separate). No new model format, training algorithm or network method. Previous CI 886b506 was running when work started; new CI pending.
+
+## A6 — native JSON structural preflight
+
+Перед типизированной Go загрузкой модели добавлена bounded token validation: точные top-level keys, запрет duplicate keys (включая sparse), null внутри массивов/вложенных объектов, невалидного UTF-8, trailing data и глубины >4. Top-level null для совместимых необязательных полей по-прежнему допускается; существующий typed validator проверяет схему и размеры. Regression fixtures для v2/v3 и неоднозначных JSON. Дополнительный проход по файлу до 1 MiB, производительность на устройстве ещё не измерена. Android JSON parser не заменён; полная parity не заявляется. Предыдущий Go CI #45507077086 успешен, Android #45507068800 был в работе. Новый CI ожидается.
