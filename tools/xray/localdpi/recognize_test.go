@@ -88,3 +88,33 @@ func FuzzCommonHostRanges(f *testing.F) {
         if !bytes.Equal(b,before) {t.Fatal("read-only parser mutated input")}
     })
 }
+
+func TestHTTPHostRecognitionRejectsAmbiguousFraming(t *testing.T) {
+    for _,tc:=range []struct{raw,want string}{
+        {"GET / HTTP/1.1\r\nHost: example.test\r\n\r\n","example.test"},
+        {"POST / HTTP/1.0\r\nhOsT:\t example.test:8080 \t\r\nContent-Length: 0\r\n\r\n","example.test:8080"},
+        {"GET / HTTP/1.1\r\nHost: [::1]:80\r\n\r\n","[::1]:80"},
+        {"POST / HTTP/1.1\r\nHost: example.test\r\n\r\nHost: body.test","example.test"},
+        {"GET / HTTP/1.1\r\nHost: a.test\r\nhost: b.test\r\n\r\n",""},
+        {"GET / HTTP/1.1\r\nHost: a.test\r\nHost: a.test\r\n\r\n",""},
+        {"GET / HTTP/1.9\r\nHost: a.test\r\n\r\n",""},
+        {"GET / HTTP/1.1 extra\r\nHost: a.test\r\n\r\n",""},
+        {"GET  / HTTP/1.1\r\nHost: a.test\r\n\r\n",""},
+        {"GET / HTTP/1.1\r\nHost : a.test\r\n\r\n",""},
+        {"GET / HTTP/1.1\r\nHost: a.test\r\n continuation\r\n\r\n",""},
+        {"GET / HTTP/1.1\r\nHost: a.test\r\nBadHeader\r\n\r\n",""},
+        {"GET / HTTP/1.1\r\nHost: a.test\x00\r\n\r\n",""},
+        {"GET / HTTP/1.1\r\nHost: a.test,b.test\r\n\r\n",""},
+        {"GET / HTTP/1.1\r\nX: a\r\n\r\nHost: body.test\r\n",""},
+    } {
+        raw:=[]byte(tc.raw)
+        before:=bytes.Clone(raw)
+        s,e,ok:=HTTPHostRange(raw)
+        if tc.want=="" {
+            if ok || s!=0 || e!=0 {t.Fatalf("ambiguous input recognized: %q",tc.raw)}
+        } else if !ok || string(raw[s:e])!=tc.want {
+            t.Fatalf("valid input rejected: %q (%d,%d,%v)",tc.raw,s,e,ok)
+        }
+        if !bytes.Equal(raw,before) {t.Fatal("parser mutated input")}
+    }
+}

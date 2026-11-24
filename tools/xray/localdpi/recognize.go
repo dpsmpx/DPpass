@@ -37,46 +37,60 @@ func FirstHostRange(b []byte) (start, end int, ok bool) {
 	return HTTPHostRange(b)
 }
 
-// Host header is only recognized in a complete HTTP/1.x request, avoiding
-// accidental manipulation of arbitrary TCP streams or partial headers.
-func HTTPHostRange(b []byte) (start, end int, ok bool) {
-	if len(b) < 22 || len(b) > 16*1024 {
-		return 0, 0, false
-	}
-	firstLine := bytes.Index(b, []byte("\r\n"))
-	headersEnd := bytes.Index(b, []byte("\r\n\r\n"))
-	if firstLine <= 0 || headersEnd <= firstLine || !bytes.Contains(b[:firstLine], []byte(" HTTP/1.")) {
-		return 0, 0, false
-	}
-	method := b[:firstLine]
-	valid := false
-	for _, m := range [][]byte{[]byte("GET "), []byte("POST "), []byte("HEAD "), []byte("PUT "), []byte("PATCH "), []byte("DELETE "), []byte("OPTIONS ")} {
-		if bytes.HasPrefix(method, m) {
-			valid = true
-			break
-		}
-	}
-	if !valid {
-		return 0, 0, false
-	}
-	for p := firstLine + 2; p < headersEnd; {
-		rel := bytes.Index(b[p:headersEnd+2], []byte("\r\n"))
-		if rel < 0 { return 0, 0, false }
-		lineEnd := p + rel
-		colon := bytes.IndexByte(b[p:lineEnd], ':')
-		if colon > 0 && bytes.EqualFold(b[p:p+colon], []byte("Host")) {
-			a := p + colon + 1
-			for a < lineEnd && (b[a] == ' ' || b[a] == '\t') { a++ }
-			e := lineEnd
-			for e > a && (b[e-1] == ' ' || b[e-1] == '\t') { e-- }
-			if e-a == 0 || e-a > 255 || bytes.IndexAny(b[a:e], " \t\r\n") >= 0 {
-				return 0, 0, false
-			}
-			return a, e, true
-		}
-		p = lineEnd + 2
-	}
-	return 0, 0, false
+// HTTPHostRange recognizes a single Host field in a complete HTTP/1.0
+// or HTTP/1.1 header block. Ambiguous or malformed framing is rejected.
+// It does not interpret request bodies or validate authority resolution.
+func HTTPHostRange(b []byte) (start,end int,ok bool) {
+    if len(b)<22 || len(b)>16*1024 {return 0,0,false}
+    firstLine:=bytes.Index(b,[]byte("\r\n"))
+    headersEnd:=bytes.Index(b,[]byte("\r\n\r\n"))
+    if firstLine<=0 || headersEnd<=firstLine {return 0,0,false}
+    fields:=bytes.Split(b[:firstLine],[]byte(" "))
+    if len(fields)!=3 || len(fields[1])==0 ||
+        !(bytes.Equal(fields[2],[]byte("HTTP/1.0")) || bytes.Equal(fields[2],[]byte("HTTP/1.1"))) {
+        return 0,0,false
+    }
+    switch string(fields[0]) {
+    case "GET","POST","HEAD","PUT","PATCH","DELETE","OPTIONS":
+    default: return 0,0,false
+    }
+    for _,v:=range fields[1] {
+        if v<=32 || v==127 {return 0,0,false}
+    }
+    found:=false
+    for p:=firstLine+2;p<headersEnd; {
+        rel:=bytes.Index(b[p:headersEnd+2],[]byte("\r\n"))
+        if rel<0 {return 0,0,false}
+        lineEnd:=p+rel
+        colon:=bytes.IndexByte(b[p:lineEnd],':')
+        if colon<=0 {return 0,0,false}
+        for _,v:=range b[p:p+colon] {
+            if !httpFieldToken(v) {return 0,0,false}
+        }
+        value:=b[p+colon+1:lineEnd]
+        for _,v:=range value {
+            if (v<32 && v!='\t') || v==127 {return 0,0,false}
+        }
+        if bytes.EqualFold(b[p:p+colon],[]byte("Host")) {
+            if found {return 0,0,false}
+            a,e:=p+colon+1,lineEnd
+            for a<e && (b[a]==' ' || b[a]=='\t') {a++}
+            for e>a && (b[e-1]==' ' || b[e-1]=='\t') {e--}
+            if e-a==0 || e-a>255 {return 0,0,false}
+            for _,v:=range b[a:e] {
+                if v<=32 || v>=127 || v==',' {return 0,0,false}
+            }
+            start,end,found=a,e,true
+        }
+        p=lineEnd+2
+    }
+    if !found {return 0,0,false}
+    return start,end,true
+}
+
+func httpFieldToken(v byte) bool {
+    return v>='a' && v<='z' || v>='A' && v<='Z' || v>='0' && v<='9' ||
+        bytes.IndexByte([]byte("!#$%&'*+-.^_`|~"),v)>=0
 }
 
 // SNIRange returns the first server_name host within the available bytes of
