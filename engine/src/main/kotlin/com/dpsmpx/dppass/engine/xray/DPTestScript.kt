@@ -134,7 +134,7 @@ object DPTestScript {
 
     private fun csv(value: String): List<String> {
         val items = value.split(',').map { it.trim() }
-        require(items.isNotEmpty() && items.size <= 16 &&
+        require(items.isNotEmpty() && items.size <= 32 &&
             items.all { it.isNotEmpty() } && items.size == items.distinct().size) {
             "Недопустимый или повторяющийся список: " + value.take(100)
         }
@@ -446,6 +446,17 @@ attempts 3
 methods plain,tlsrec-split
 protocols h1
 train verified tlsrec-split
+report redacted+clipboard
+""".trimIndent(),
+        "09 · TTL 1–16 (эксперимент)" to """
+dptest 1
+name "Experimental TTL fake sweep"
+scenario www.youtube.com
+ips 2
+attempts 1
+timeout_ms 5000
+methods plain,fake-1,fake-2,fake-3,fake-4,fake-5,fake-6,fake-7,fake-8,fake-9,fake-10,fake-11,fake-12,fake-13,fake-14,fake-15,fake-16
+protocols h1
 report redacted+clipboard
 """.trimIndent(),
     )
