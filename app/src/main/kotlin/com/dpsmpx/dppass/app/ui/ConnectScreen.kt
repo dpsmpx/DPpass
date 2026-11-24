@@ -41,6 +41,8 @@ class ConnectScreen(host: Host) : Screen(host) {
     private val downTotal = Ui.text(context, R.style.Text_DPpass_Caption)
     private val upSpeed = Ui.text(context, R.style.Text_DPpass_Title)
     private val upTotal = Ui.text(context, R.style.Text_DPpass_Caption)
+    private val ping = Ui.text(context, R.style.Text_DPpass_Title)
+    private val jitter = Ui.text(context, R.style.Text_DPpass_Title)
     private val stats = Ui.card(context, 0).apply {
         val row = Ui.row(context)
         row.addView(stat(R.drawable.ic_down, R.string.traffic_down, downSpeed, downTotal), Ui.weight())
@@ -53,6 +55,16 @@ class ConnectScreen(host: Host) : Screen(host) {
         )
         row.addView(stat(R.drawable.ic_up, R.string.traffic_up, upSpeed, upTotal), Ui.weight())
         addView(row, Ui.matchWidth())
+        addView(Ui.divider(context, 0), Ui.matchWidth().apply { topMargin = Ui.dp(context, 12); bottomMargin = Ui.dp(context, 12) })
+        addView(Ui.row(context).apply {
+            addView(qualityStat("Ping · TCP RTT", ping), Ui.weight())
+            addView(qualityStat("Jitter · TCP RTTVAR", jitter), Ui.weight())
+        }, Ui.matchWidth())
+    }
+
+    private fun qualityStat(label: String, value: TextView): LinearLayout = Ui.column(context, 2).apply {
+        addView(Ui.text(context, R.style.Text_DPpass_Caption, label))
+        addView(value)
     }
 
     private val serverAvatar = Ui.avatar(context, "•")
@@ -402,6 +414,11 @@ class ConnectScreen(host: Host) : Screen(host) {
 
     private fun renderTraffic(t: Traffic, status: TunnelStatus) {
         stats.visibility = if (status is TunnelStatus.Connected) View.VISIBLE else View.GONE
+        fun milliseconds(us: Long?): String = us?.let {
+            String.format(context.resources.configuration.locales[0], "%.1f %s", it / 1000.0, context.getString(R.string.conn_unit_ms))
+        } ?: "—"
+        ping.text = milliseconds(t.pingMicros)
+        jitter.text = milliseconds(t.jitterMicros)
         downSpeed.text = speed(t.downPerSec)
         upSpeed.text = speed(t.upPerSec)
         downTotal.text = context.getString(R.string.traffic_total, bytes(t.downBytes))

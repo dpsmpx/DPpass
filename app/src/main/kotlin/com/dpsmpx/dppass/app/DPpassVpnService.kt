@@ -815,7 +815,9 @@ class DPpassVpnService : VpnService() {
             initialCounters?.applied ?: 0L, initialCounters?.skipped ?: 0L) else null
         zapret2FinalState = diagnostic?.let { Zapret2FinalState(session, it, Clock.MONOTONIC.nowMillis(), initialStages) }
         ticker = scope.launch {
-            val meter = TrafficMeter()
+            val meter = TrafficMeter(averageMillis = 5_000)
+            var quality: LongArray? = null
+            var qualityTick = 0
             val pace = NotificationPace()
             val power = getSystemService(PowerManager::class.java)
             val core = AppGraph.core(this@DPpassVpnService)
@@ -867,12 +869,18 @@ class DPpassVpnService : VpnService() {
                 val interactive = power.isInteractive
                 val notify = pace.tick(interactive)
                 if (interactive) {
-                    val traffic = meter.sample(session.stats(), Clock.MONOTONIC.nowMillis())
+                    if (qualityTick++ % 2 == 0) {
+                        quality = runCatching { JniXrayRuntime.passiveQuality() }.getOrNull()
+                    }
+                    val traffic = meter.sample(session.stats(), Clock.MONOTONIC.nowMillis()).copy(
+                        pingMicros = quality?.get(0), jitterMicros = quality?.get(1))
                     TunnelState.traffic(traffic)
                     if (notify) (TunnelState.status.value as? TunnelStatus.Connected)?.let { startInForeground(it, traffic) }
                 } else {
                     // Экран выключен: никто не смотрит — отсчёт скорости заново после включения.
                     meter.reset()
+                    quality = null
+                    qualityTick = 0
                 }
                 delay(NotificationPace.TICK_MILLIS)
             }

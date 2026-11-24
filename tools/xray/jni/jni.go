@@ -291,6 +291,12 @@ func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeTraffic(env *C.JNIEnv, _ C
 	return C.dppass_new_longs(env, C.jlong(up), C.jlong(down))
 }
 
+//export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativePassiveQuality
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativePassiveQuality(env *C.JNIEnv, _ C.jclass) C.jlongArray {
+	rtt, variation := bridge.PassiveQuality()
+	return C.dppass_new_longs(env, C.jlong(rtt), C.jlong(variation))
+}
+
 // Эксперимент с началом соединения (D-116): сколько соединений получили приём
 // и сколько ушли как есть, с запуска процесса.
 //

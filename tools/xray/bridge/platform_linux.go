@@ -51,6 +51,7 @@ func detachTun(coreFD int, tun Tun) { releaseCoreTun(coreFD, tun.FD) }
 
 // armSockets ставит защитника сеанса; без него сокеты не трогаются.
 func armSockets(p Protector) {
+	resetPassiveQuality(true)
 	if p != nil {
 		setGuard(p)
 	} else {
@@ -59,7 +60,7 @@ func armSockets(p Protector) {
 }
 
 // disarmSockets — после остановки сокеты ядра не уходят никуда.
-func disarmSockets() { setGuard(denyAll{}) }
+func disarmSockets() { setGuard(denyAll{}); resetPassiveQuality(false) }
 
 func clearTunEnv() error { return os.Unsetenv(platform.TunFdKey) }
 

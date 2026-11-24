@@ -37,7 +37,7 @@ sealed interface TunnelStatus {
 }
 
 /** Трафик сессии (D-40): итоги с подключения и скорость по счётчикам ядра. */
-data class Traffic(val upBytes: Long, val downBytes: Long, val upPerSec: Long, val downPerSec: Long) {
+data class Traffic(val upBytes: Long, val downBytes: Long, val upPerSec: Long, val downPerSec: Long, val pingMicros: Long? = null, val jitterMicros: Long? = null) {
     companion object {
         val ZERO: Traffic = Traffic(0, 0, 0, 0)
     }
@@ -48,7 +48,8 @@ data class Traffic(val upBytes: Long, val downBytes: Long, val upPerSec: Long, v
  * разница за прошедшее время. Счётчики уменьшились — это новая сессия,
  * отсчёт заново, а не «отрицательная скорость». Время — монотонное.
  */
-class TrafficMeter {
+class TrafficMeter(private val averageMillis: Long = 0) {
+    private val history = ArrayDeque<Pair<Long, TrafficStats>>()
     private var lastAt: Long? = null
     private var last: TrafficStats? = null
 
@@ -58,20 +59,28 @@ class TrafficMeter {
         last = stats
         lastAt = nowMillis
         if (prev == null || prevAt == null || nowMillis <= prevAt || stats.uplinkBytes < prev.uplinkBytes || stats.downlinkBytes < prev.downlinkBytes) {
+            history.clear()
+            history.addLast(nowMillis to stats)
             return Traffic(stats.uplinkBytes, stats.downlinkBytes, 0, 0)
         }
-        val dt = nowMillis - prevAt
+        val (baseAt, base) = if (averageMillis > 0) {
+            history.addLast(nowMillis to stats)
+            while (history.size > 2 && (nowMillis - history.first().first > averageMillis || history.size > 16)) history.removeFirst()
+            history.first()
+        } else prevAt to prev
+        val dt = nowMillis - baseAt
         return Traffic(
             stats.uplinkBytes,
             stats.downlinkBytes,
-            (stats.uplinkBytes - prev.uplinkBytes) * 1000 / dt,
-            (stats.downlinkBytes - prev.downlinkBytes) * 1000 / dt,
+            (stats.uplinkBytes - base.uplinkBytes) * 1000 / dt,
+            (stats.downlinkBytes - base.downlinkBytes) * 1000 / dt,
         )
     }
 
     fun reset() {
         last = null
         lastAt = null
+        history.clear()
     }
 }
 

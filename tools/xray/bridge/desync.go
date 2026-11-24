@@ -138,6 +138,7 @@ type desyncDialer struct {
 }
 
 func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Destination, sockopt *internet.SocketConfig) (net.Conn, error) {
+	generation := passiveQualityGeneration()
 	conn, err := d.base.Dial(ctx, src, dest, sockopt)
 	if err != nil {
         // Count failed experimental dials, never ordinary Xray or DoH sockets.
@@ -151,6 +152,7 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
         }
 		return conn, err
 	}
+	if dest.Network == xnet.Network_TCP { trackPassiveTCP(conn, generation) }
 	// Experimental tag is only consulted on TCP/UDP outbound sockets.
 	// Ordinary subscriptions, DNS and other traffic retain the stock dialer.
 	if dest.Network != xnet.Network_TCP && dest.Network != xnet.Network_UDP {

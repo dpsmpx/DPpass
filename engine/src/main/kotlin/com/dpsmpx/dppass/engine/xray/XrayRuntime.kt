@@ -198,6 +198,8 @@ internal object XrayJni {
 
     @JvmStatic external fun nativeTraffic(): LongArray?
 
+    @JvmStatic external fun nativePassiveQuality(): LongArray?
+
     @JvmStatic external fun nativeProbeDns(target: ByteArray, timeoutMillis: Int): ByteArray
 
     @JvmStatic external fun nativeSpeedTest(target: ByteArray, pings: Int, maxBytes: Long, maxTimeMillis: Int, timeoutMillis: Int): ByteArray
@@ -395,6 +397,9 @@ class JniXrayRuntime private constructor() : XrayRuntime {
 
     companion object {
         const val LIBRARY: String = "dppassxray"
+
+        /** Passive mean TCP RTT and RTTVAR in microseconds; negative means unavailable. */
+        fun passiveQuality(): LongArray? = XrayJni.nativePassiveQuality()?.takeIf { it.size == 2 && it[0] > 0 && it[1] >= 0 }
 
         /**
          * Select Alpine as one strategy authority after its daemon is ready.
