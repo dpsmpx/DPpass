@@ -105,16 +105,16 @@ class DptsScriptTest {
             val host = if (id in setOf("api_ipv4_sweep","sni_control",
                 "tls_versions","h3_api")) "youtubei.googleapis.com"
                 else "www.youtube.com"
-            val result = DptsScript.compile("dpts 1\\nhost $host\\nsuite $id")
+            val result = DptsScript.compile("dpts 1\nhost $host\nsuite $id")
             assertEquals(id, result.suite)
             assertTrue(result.probes.isEmpty())
         }
         for (script in listOf(
-            "dpts 1\\nhost youtubei.googleapis.com\\nsuite android_exec",
-            "dpts 1\\nhost www.youtube.com\\nsuite h3_api",
-            "dpts 1\\nhost www.youtube.com\\nsuite site_https\\nhttps",
-            "dpts 1\\nhost www.youtube.com\\nhttps\\nsuite site_https",
-            "dpts 1\\nhost youtubei.googleapis.com\\nsuite tls_versions\\nsuite tls_versions",
+            "dpts 1\nhost youtubei.googleapis.com\nsuite android_exec",
+            "dpts 1\nhost www.youtube.com\nsuite h3_api",
+            "dpts 1\nhost www.youtube.com\nsuite site_https\nhttps",
+            "dpts 1\nhost www.youtube.com\nhttps\nsuite site_https",
+            "dpts 1\nhost youtubei.googleapis.com\nsuite tls_versions\nsuite tls_versions",
         )) {
             assertFailsWith<DptsCompileException>(script) {
                 DptsScript.compile(script)
