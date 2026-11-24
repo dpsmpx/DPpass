@@ -34,6 +34,7 @@ on:
       - feature/dppass-0.8.3
       - release/dppass-v0.8.3-rc1
       - release/dppass-v0.8.3-rc2
+      - release/dppass-v0.8.3-rc3
   workflow_dispatch:
 
 concurrency:
@@ -76,7 +77,7 @@ jobs:
         working-directory: tools/xray
         run: go test ./zapret2 ./bridge ./cmd/zapret2-alpine
       - name: Alpine process-layout and activation/adaptive-selection JVM tests
-        run: ./gradlew --no-daemon --console=plain :engine:test :connection:test :app:testDebugUnitTest
+        run: ./gradlew --no-daemon --console=plain :engine:test :connection:test :tunnel:test :app:testDebugUnitTest
       - name: Build ARM64 app with actual Alpine minirootfs and PRoot
         run: ./gradlew --no-daemon --console=plain :app:assembleDebug -Pdppass.alpine=true -Pdppass.nativeAbis=arm64-v8a
       - name: Verify PRoot executables, PTY JNI and Alpine rootfs packaged
@@ -204,7 +205,7 @@ jobs:
   publish-release:
     name: Publish tested Alpine APK to Releases
     needs: alpine-android
-    if: github.ref == 'refs/heads/feature/zapret2-alpine-terminal' || github.ref == 'refs/heads/release/zapret2-v0.7.56-neural-auto' || github.ref == 'refs/heads/release/zapret2-v0.7.57-param-auto' || github.ref == 'refs/heads/release/zapret2-v0.7.58-learning' || github.ref == 'refs/heads/release/zapret2-v0.7.59-api-diagnostics' || github.ref == 'refs/heads/release/zapret2-v0.7.60-doh-comparison' || github.ref == 'refs/heads/release/zapret2-v0.7.61-ip-tls-quic' || github.ref == 'refs/heads/release/zapret2-v0.7.62-controls-h2' || github.ref == 'refs/heads/release/zapret2-v0.7.63-http3-api' || github.ref == 'refs/heads/release/zapret2-v0.7.64-h3-google-controls' || github.ref == 'refs/heads/release/zapret2-v0.7.65-quic-reply-headers' || github.ref == 'refs/heads/release/zapret2-v0.7.66-quic-v1-v2-compare' || github.ref == 'refs/heads/release/zapret2-v0.7.67-quic-v1-repeatability' || github.ref == 'refs/heads/release/zapret2-v0.7.68-universal-auto-health' || github.ref == 'refs/heads/release/zapret2-v0.7.69-site-strategy-search' || github.ref == 'refs/heads/release/zapret2-v0.7.70-youtube-host-fallback' || github.ref == 'refs/heads/release/zapret2-v0.7.71-http-transport-fix' || github.ref == 'refs/heads/release/zapret2-v0.7.72-youtube-api-ip-h2-sweep' || github.ref == 'refs/heads/release/zapret2-v0.7.73-youtube-same-ip-sni-control' || github.ref == 'refs/heads/release/zapret2-v0.7.74-youtube-api-tls-version-control' || github.ref == 'refs/heads/release/dpts-v0.8.0-alpha1' || github.ref == 'refs/heads/release/dpts-v0.8.1-unified' || github.ref == 'refs/heads/release/dpts-v0.8.2' || github.ref == 'refs/heads/release/dppass-v0.8.3-rc1' || github.ref == 'refs/heads/release/dppass-v0.8.3-rc2'
+    if: github.ref == 'refs/heads/feature/zapret2-alpine-terminal' || github.ref == 'refs/heads/release/zapret2-v0.7.56-neural-auto' || github.ref == 'refs/heads/release/zapret2-v0.7.57-param-auto' || github.ref == 'refs/heads/release/zapret2-v0.7.58-learning' || github.ref == 'refs/heads/release/zapret2-v0.7.59-api-diagnostics' || github.ref == 'refs/heads/release/zapret2-v0.7.60-doh-comparison' || github.ref == 'refs/heads/release/zapret2-v0.7.61-ip-tls-quic' || github.ref == 'refs/heads/release/zapret2-v0.7.62-controls-h2' || github.ref == 'refs/heads/release/zapret2-v0.7.63-http3-api' || github.ref == 'refs/heads/release/zapret2-v0.7.64-h3-google-controls' || github.ref == 'refs/heads/release/zapret2-v0.7.65-quic-reply-headers' || github.ref == 'refs/heads/release/zapret2-v0.7.66-quic-v1-v2-compare' || github.ref == 'refs/heads/release/zapret2-v0.7.67-quic-v1-repeatability' || github.ref == 'refs/heads/release/zapret2-v0.7.68-universal-auto-health' || github.ref == 'refs/heads/release/zapret2-v0.7.69-site-strategy-search' || github.ref == 'refs/heads/release/zapret2-v0.7.70-youtube-host-fallback' || github.ref == 'refs/heads/release/zapret2-v0.7.71-http-transport-fix' || github.ref == 'refs/heads/release/zapret2-v0.7.72-youtube-api-ip-h2-sweep' || github.ref == 'refs/heads/release/zapret2-v0.7.73-youtube-same-ip-sni-control' || github.ref == 'refs/heads/release/zapret2-v0.7.74-youtube-api-tls-version-control' || github.ref == 'refs/heads/release/dpts-v0.8.0-alpha1' || github.ref == 'refs/heads/release/dpts-v0.8.1-unified' || github.ref == 'refs/heads/release/dpts-v0.8.2' || github.ref == 'refs/heads/release/dppass-v0.8.3-rc1' || github.ref == 'refs/heads/release/dppass-v0.8.3-rc2' || github.ref == 'refs/heads/release/dppass-v0.8.3-rc3'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -231,7 +232,7 @@ jobs:
             exit 1
           fi
           short="${GITHUB_SHA:0:12}"
-          if [[ "$GITHUB_REF_NAME" != "release/dpts-v0.8.2" && "$GITHUB_REF_NAME" != "release/dppass-v0.8.3-rc1" && "$GITHUB_REF_NAME" != "release/dppass-v0.8.3-rc2" ]]; then
+          if [[ "$GITHUB_REF_NAME" != "release/dpts-v0.8.2" && "$GITHUB_REF_NAME" != "release/dppass-v0.8.3-rc1" && "$GITHUB_REF_NAME" != "release/dppass-v0.8.3-rc2" && "$GITHUB_REF_NAME" != "release/dppass-v0.8.3-rc3" ]]; then
             cp -- "${apks[0]}" "release-assets/DPpass-Zapret2-Alpine-${short}-arm64-v8a-debug.apk"
           fi
           mapfile -d '' -t signed < <(find release-signed-input -type f -name '*.apk' -print0)
@@ -321,6 +322,13 @@ jobs:
             title="DPpass 0.8.3 RC2 — dashboard and ByeDPI startup"
             notes="$RUNNER_TEMP/dppass-083-rc2-notes.md"
             printf '%s\n' 'DPpass 0.8.3-rc.2, versionCode 158. Signed ARM64 APK, same package and signer. Compact dashboard, local SOCKS startup stages, native authenticated SOCKS smoke test, bounded plain-media retry and monotonic neural snapshot guard. Root requires executable su; full no-root upstream nfqws2 is unavailable. Physical acceptance and YouTube content access remain unverified.' > "$notes"
+          fi
+          if [[ "$GITHUB_REF_NAME" == "release/dppass-v0.8.3-rc3" ]]; then
+            tag=v0.8.3-rc.3
+            flags=(--prerelease --latest=false)
+            title="DPpass 0.8.3 RC3 — local route and DNS"
+            notes="$RUNNER_TEMP/dppass-083-rc3-notes.md"
+            printf '%s\n' 'DPpass 0.8.3-rc.3, versionCode 159. Signed ARM64 APK, same package and signer. Explicit TUN DNS route despite LAN bypass; reconnect local engines when DNS settings change; IPv4-only DNS for mobile local sessions, IPv6 still captured; separate backend and terminal-route counters; fixed Google DNS/HTTPS dispatcher control (not Android TUN). No claim of working YouTube or repaired physical path until device tests.' > "$notes"
           fi
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             target="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq '.targetCommitish')"
