@@ -283,3 +283,24 @@ func TestNetworkConfigurationResetsGenerationButKeepsModelAndTargets(t *testing.
     if err:=ConfigureZapret2NeuralNetwork("WIFI");err!=nil {t.Fatal(err)}
     if !bytes.Equal(before,ExportZapret2NeuralModel()) {t.Fatal("handoff modified saved weights")}
 }
+
+func TestModernModelNormalizesAbsentSparseMap(t *testing.T) {
+    defer ConfigureZapret2NeuralModel(nil)
+    raw:=generatedSparseTestModel(t,100000,16)
+    for _,replacement:=range []string{"", ",\"sparse\":null"} {
+        fixture:=bytes.Replace(raw,[]byte(",\"sparse\":{}"),[]byte(replacement),1)
+        if bytes.Equal(raw,fixture) {t.Fatal("fixture missing sparse field")}
+        w,err:=parseAdaptiveNN(fixture)
+        if err!=nil || w.Sparse==nil || len(w.Sparse)!=0 {t.Fatal("empty sparse map not normalized",err)}
+        canonical,err:=json.Marshal(w)
+        if err!=nil || !bytes.Contains(canonical,[]byte("\"sparse\":{}")) {t.Fatal("invalid normalized serialization",err)}
+        if err:=ConfigureZapret2NeuralModel(fixture);err!=nil {t.Fatal(err)}
+        zapret2Neural.mu.Lock()
+        zapret2Neural.weights.Sparse["0"]=0.125
+        zapret2Neural.dirty=true
+        zapret2Neural.mu.Unlock()
+        exported:=ExportZapret2NeuralModel()
+        persisted,err:=parseAdaptiveNN(exported)
+        if err!=nil || persisted.Sparse["0"]!=0.125 {t.Fatal("sparse snapshot lost",err)}
+    }
+}

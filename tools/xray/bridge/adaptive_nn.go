@@ -160,6 +160,10 @@ func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
             len(w.Sparse) > adaptiveNNMaxSparse {
             return nil, errors.New("invalid parameter budget")
         }
+        // Legacy or interrupted serializers may omit an empty sparse map.
+        // Normalize it before installing the model: a nil map cannot be
+        // written by the existing model update path.
+        if w.Sparse==nil {w.Sparse=make(map[string]float64)}
         capacity := w.Parameters - nnDenseCount(&w)
         for key, n := range w.Sparse {
             i, err := strconv.ParseInt(key, 10, 64)
