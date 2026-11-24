@@ -413,3 +413,26 @@ func TestCancelledZeroByteTCPAndUDPCloseDoNotDemotePreferred(t *testing.T) {
         }
     }
 }
+
+func TestCapabilityFilteredSelectorDoesNotInventBaseline(t *testing.T) {
+    a := &adaptiveSelector{entries:make(map[string]*adaptiveEntry)}
+    if got,_:=a.chooseLive("example.test",nil); got!="" { t.Fatal("empty executor invented method",got) }
+    for i:=0;i<8;i++ {
+        if got,_:=a.chooseLive("example.test",[]string{"split"});got!="split" {
+            t.Fatal("unregistered method",got)
+        }
+    }
+    if got,_:=a.chooseLive("",[]string{"split"});got!="split" { t.Fatal(got) }
+}
+
+func TestSocketCapabilitiesPreserveCurrentCandidates(t *testing.T) {
+    wantTLS:=[]string{"split-1","split","fake-3","fake-5","disorder","tlsrec-split","pass"}
+    wantHTTP:=[]string{"split-1","split","fake-3","fake-5","disorder","pass"}
+    wantQUIC:=[]string{"fake-3","fake-5","pass"}
+    for _,p:=range []struct{got,want []string}{
+        {adaptiveCandidates,wantTLS},{adaptiveHTTPCandidates,wantHTTP},{adaptiveQuicCandidates,wantQUIC},
+    }{
+        if len(p.got)!=len(p.want){t.Fatal(p.got)}
+        for i:=range p.want {if p.got[i]!=p.want[i]{t.Fatal(p.got)}}
+    }
+}

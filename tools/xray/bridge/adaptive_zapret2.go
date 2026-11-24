@@ -16,10 +16,29 @@ import (
     "unicode"
 )
 
-// The shared catalog preserves the legacy rotation and model output ABI.
-var adaptiveCandidates = localdpi.Candidates(localdpi.TLS)
-var adaptiveHTTPCandidates = localdpi.Candidates(localdpi.HTTP)
-var adaptiveQuicCandidates = localdpi.Candidates(localdpi.QUIC)
+// Explicitly register the existing protected socket executor. The catalog
+// is not a promise of support by any executor; future catalog entries do
+// not automatically become candidates in this path.
+var socketCapabilities = newSocketCapabilities()
+var adaptiveCandidates = socketCapabilities.Candidates(localdpi.TLS)
+var adaptiveHTTPCandidates = socketCapabilities.Candidates(localdpi.HTTP)
+var adaptiveQuicCandidates = socketCapabilities.Candidates(localdpi.QUIC)
+
+func newSocketCapabilities() localdpi.Capabilities {
+    entries := []localdpi.Support{}
+    for _, id := range []string{"split-1","split","fake-3","fake-5","disorder","tlsrec-split","pass"} {
+        entries = append(entries, localdpi.Support{Transport:localdpi.TLS,MethodID:id})
+    }
+    for _, id := range []string{"split-1","split","fake-3","fake-5","disorder","pass"} {
+        entries = append(entries, localdpi.Support{Transport:localdpi.HTTP,MethodID:id})
+    }
+    for _, id := range []string{"fake-3","fake-5","pass"} {
+        entries = append(entries, localdpi.Support{Transport:localdpi.QUIC,MethodID:id})
+    }
+    caps, err := localdpi.NewCapabilities(localdpi.VPNSocket,false,entries)
+    if err != nil { panic("invalid compiled socket capabilities: "+err.Error()) }
+    return caps
+}
 // 128 KiB of actual downstream traffic is stronger evidence than the
 // small JSON/HTML metadata which can load even while media/CDN stalls.
 const adaptivePayloadThreshold = 128 * 1024
@@ -212,6 +231,12 @@ func (a *adaptiveSelector) choosePolicy(host string, candidates []string, direct
     host = canonicalAdaptiveKey(host)
     a.mu.Lock()
     defer a.mu.Unlock()
+    // A future executor may advertise no candidates, or no direct baseline.
+    // Do not synthesize an unsupported method or divide by zero.
+    if len(candidates)==0 { return "",a.generation }
+    hasPass := false
+    for _,candidate:=range candidates { if candidate=="pass" { hasPass=true;break } }
+    directFirst = directFirst && hasPass
     if host == "" { if directFirst { return "pass", a.generation }; return candidates[0], a.generation }
     if len(a.entries) >= adaptiveMaxHosts {
         a.entries = make(map[string]*adaptiveEntry)
