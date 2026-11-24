@@ -329,3 +329,18 @@ func TestSameIPGoogleSNIControlGrammarAndNoAutoTraining(t *testing.T) {
         t.Fatal("SNI comparator must not contribute any site_apply evidence")
     }
 }
+
+func TestSiteSearchMayRecordOnlyRegularOptimizerTrials(t *testing.T) {
+    for _,kind:=range []string{"http","quic"} {
+        if !siteSearchMayRecord(kind) {
+            t.Fatalf("real optimizer sample kind rejected: %s",kind)
+        }
+    }
+    for _,kind:=range []string{
+        "sweep_h1","sweep_h2","sni_control","site_prepare","site_apply","",
+    } {
+        if siteSearchMayRecord(kind) {
+            t.Fatalf("diagnostic data could leak into AUTO: %s",kind)
+        }
+    }
+}
