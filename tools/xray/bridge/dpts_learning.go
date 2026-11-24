@@ -8,8 +8,8 @@ import (
     "strings"
 )
 
-// TrainZapret2NeuralFromDPTS updates only the existing MLP's TLS/network
-// contextual head. Kotlin independently checks 3/3 verified HTML responses
+// TrainZapret2NeuralFromDPTS updates a separate verified HTML calibration
+// for this exact service and network, never the passive transport MLP. Kotlin independently checks 3/3 verified HTML responses
 // on each of two same-pinned public IPv4 addresses (same HTTP/1.1 or HTTP/2 protocol) against a failed plain
 // baseline. No raw host, IP, URL, cookie or body is ever accepted here.
 // This cannot directly pin a strategy; live circuit breakers remain active.
@@ -51,21 +51,24 @@ func TrainZapret2NeuralFromDPTS(network, methodCSV string) error {
     if w==nil || !nnModern(w) {
         return errors.New("current local contextual neural model is not installed")
     }
-    ctx:=nnContext("www.youtube.com",false)
-    if ctx<0 || ctx>=len(w.ContextBias) {
-        return errors.New("invalid DPTS neural context")
+    ctx:=nnContext("www.youtube.com",false)/3
+    if ctx<0 || ctx>=3 { return errors.New("invalid DPTS neural context") }
+    if len(w.VerifiedHTMLBias)==0 {
+        w.VerifiedHTMLBias=make([][]float64,3)
+        for i:=range w.VerifiedHTMLBias { w.VerifiedHTMLBias[i]=make([]float64,6) }
+        w.VerifiedHTMLObservations=make([]int,3)
     }
     for _,idx:=range indices {
-        logit,_:=nnForward(w,"www.youtube.com",idx,false)
+        logit:=w.VerifiedHTMLBias[ctx][idx]
         prob:=1/(1+math.Exp(-math.Max(-12,math.Min(12,logit))))
         // Conservative supervised positive-label update. Content proof
         // shows only a bounded HTML GET, NOT authenticated feed or video.
         // No negative reward is inferred from ClientHello timeouts.
         delta:=0.02*(1-prob)
-        w.ContextBias[ctx][idx]=nnClamp(w.ContextBias[ctx][idx]+delta)
+        w.VerifiedHTMLBias[ctx][idx]=nnClamp(w.VerifiedHTMLBias[ctx][idx]+delta)
         if w.Observations<1_000_000_000 {w.Observations++}
-        if w.ContextObservations[ctx]<1_000_000_000 {
-            w.ContextObservations[ctx]++
+        if w.VerifiedHTMLObservations[ctx]<1_000_000_000 {
+            w.VerifiedHTMLObservations[ctx]++
         }
     }
     zapret2Neural.dirty=true

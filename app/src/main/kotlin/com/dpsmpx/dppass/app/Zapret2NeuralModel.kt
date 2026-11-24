@@ -164,6 +164,18 @@ object Zapret2NeuralModel {
                     valid(context.getJSONArray(i), kind.outputs) &&
                         counts.getLong(i) in 0L..1_000_000_000L
                 }) return@runCatching false
+            // The optional, fixed 3×6 HTML calibration is separate from the
+            // legacy MLP parameter budget. Older snapshots need no migration.
+            if (obj.has("verified_html_bias") || obj.has("verified_html_observations")) {
+                if (kind != Kind.STRATEGY) return@runCatching false
+                val html = obj.getJSONArray("verified_html_bias")
+                val htmlCounts = obj.getJSONArray("verified_html_observations")
+                if (html.length() != 3 || htmlCounts.length() != 3 ||
+                    !(0 until 3).all { i ->
+                        valid(html.getJSONArray(i), 6) &&
+                            htmlCounts.getLong(i) in 0L..1_000_000_000L
+                    }) return@runCatching false
+            }
             val sparse = obj.getJSONObject("sparse")
             if (sparse.length() > MAX_SPARSE_ENTRIES) return@runCatching false
             val capacity = budget - used

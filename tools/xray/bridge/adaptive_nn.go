@@ -45,6 +45,10 @@ type adaptiveNNWeights struct {
     OutputBias []float64 `json:"output_bias"`
     ContextBias [][]float64 `json:"context_bias,omitempty"`
     ContextObservations []int `json:"context_observations,omitempty"`
+    // Optional fixed-size verified HTML calibration, separate from the
+    // historically mixed passive transport MLP and its sparse parameter budget.
+    VerifiedHTMLBias [][]float64 `json:"verified_html_bias,omitempty"`
+    VerifiedHTMLObservations []int `json:"verified_html_observations,omitempty"`
     Sparse map[string]float64 `json:"sparse"`
     Observations int `json:"observations,omitempty"`
 }
@@ -129,6 +133,17 @@ func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
                 if !validNNNumber(n) { return nil, errors.New("invalid contextual weight") }
             }
         }
+        if len(w.VerifiedHTMLBias) != 0 || len(w.VerifiedHTMLObservations) != 0 {
+            if len(w.VerifiedHTMLBias) != 3 || len(w.VerifiedHTMLObservations) != 3 {
+                return nil, errors.New("invalid HTML calibration dimensions")
+            }
+            for i, row := range w.VerifiedHTMLBias {
+                if len(row) != 6 || w.VerifiedHTMLObservations[i] < 0 || w.VerifiedHTMLObservations[i] > 1_000_000_000 {
+                    return nil, errors.New("invalid HTML calibration")
+                }
+                for _, n := range row { if !validNNNumber(n) { return nil, errors.New("invalid HTML weight") } }
+            }
+        }
         if w.Parameters < nnDenseCount(&w) || w.Parameters > adaptiveNNMaxParameters ||
             len(w.Sparse) > adaptiveNNMaxSparse {
             return nil, errors.New("invalid parameter budget")
@@ -140,7 +155,7 @@ func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
                 !validNNNumber(n) { return nil, errors.New("invalid sparse slot") }
         }
     } else if deep > 0 || len(w.DeepBias) != 0 || len(w.ContextBias) != 0 ||
-        w.Parameters != 0 || w.Seed != "" || len(w.Sparse) > 0 {
+        w.Parameters != 0 || w.Seed != "" || len(w.Sparse) > 0 || len(w.VerifiedHTMLBias) != 0 || len(w.VerifiedHTMLObservations) != 0 {
         return nil, errors.New("legacy model has modern parameters")
     }
     for i, row := range w.Hidden {
@@ -332,6 +347,11 @@ func (n *adaptiveNeural) rank(host string, candidates []string, usage map[string
         idx := nnCandidateIndex(tag, quic)
         if idx < 0 { continue }
         score, _ := nnForward(n.weights, host, idx, quic)
+        // This signal proves only a bounded HTML GET for this exact service.
+        // It cannot bias unrelated sites, QUIC, plain HTTP or API responses.
+        if host == "www.youtube.com" && !quic && idx < 6 && len(n.weights.VerifiedHTMLBias) == 3 {
+            score += n.weights.VerifiedHTMLBias[nnContext(host,false)/3][idx]
+        }
         // Explore uncertain candidates, not just a random neural prior.
         score -= math.Min(float64(usage[tag]), 20) * 0.14
         if score > bestScore { best, bestScore = tag, score }
