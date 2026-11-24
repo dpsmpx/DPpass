@@ -73,15 +73,10 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
             "cd " + quote(ROOT),
             command + " > " + quote(ROOT + "/nfqws.log") + " 2>&1 &",
             "pid=$!",
+            "echo \"\$pid\" > " + quote(ROOT + "/pid"),
             "sleep 1",
             "kill -0 \"\$pid\"",
-            "echo \"\$pid\" > " + quote(ROOT + "/pid"),
-            // Listener first, firewall second. Queue bypass prevents a traffic blackout.
-            "iptables -t mangle -I OUTPUT " + TCP,
-            *(if (rootQuic) arrayOf("iptables -t mangle -I OUTPUT " + UDP) else emptyArray()),
-            "if command -v ip6tables >/dev/null 2>&1; then " +
-                "ip6tables -t mangle -I OUTPUT " + TCP +
-                (if (rootQuic) "; ip6tables -t mangle -I OUTPUT " + UDP else "") + "; fi",
+
         )
         // A root-owned watchdog removes our NFQUEUE hooks after force-stop or
         // process crash. An Android app cannot rely on onDestroy in that case.
@@ -97,11 +92,19 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
                 quote(ROOT + "/watchdog.log") + " 2>&1 &",
             "echo \"\$!\" > " + quote(ROOT + "/watch.pid"),
         )
+        parts += listOf(
+            // Listener first, firewall second. Queue bypass prevents a traffic blackout.
+            "iptables -t mangle -I OUTPUT " + TCP,
+            *(if (rootQuic) arrayOf("iptables -t mangle -I OUTPUT " + UDP) else emptyArray()),
+            "if command -v ip6tables >/dev/null 2>&1; then " +
+                "ip6tables -t mangle -I OUTPUT " + TCP +
+                (if (rootQuic) "; ip6tables -t mangle -I OUTPUT " + UDP else "") + "; fi",
+        )
         return parts.joinToString("\n")
     }
 
     private fun cleanup(stopWatch: Boolean = true): String = (
-        listOf("set +e") +
+        listOf("set +e", "iptables -t mangle -S OUTPUT >/dev/null || exit 1") +
             (if (stopWatch) listOf(
                 "if test -f " + quote(ROOT + "/watch.pid") + "; then kill \"$(cat " +
                     quote(ROOT + "/watch.pid") + ")\" 2>/dev/null; rm -f " +
@@ -109,14 +112,14 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
             ) else emptyList()) +
             listOf(
         "while iptables -t mangle -C OUTPUT " + TCP +
-            " 2>/dev/null; do iptables -t mangle -D OUTPUT " + TCP + " || break; done",
+            " 2>/dev/null; do iptables -t mangle -D OUTPUT " + TCP + " || exit 1; done",
         "while iptables -t mangle -C OUTPUT " + UDP +
-            " 2>/dev/null; do iptables -t mangle -D OUTPUT " + UDP + " || break; done",
+            " 2>/dev/null; do iptables -t mangle -D OUTPUT " + UDP + " || exit 1; done",
         "if command -v ip6tables >/dev/null 2>&1; then " +
             "while ip6tables -t mangle -C OUTPUT " + TCP +
-            " 2>/dev/null; do ip6tables -t mangle -D OUTPUT " + TCP + " || break; done; " +
+            " 2>/dev/null; do ip6tables -t mangle -D OUTPUT " + TCP + " || exit 1; done; " +
             "while ip6tables -t mangle -C OUTPUT " + UDP +
-            " 2>/dev/null; do ip6tables -t mangle -D OUTPUT " + UDP + " || break; done; fi",
+            " 2>/dev/null; do ip6tables -t mangle -D OUTPUT " + UDP + " || exit 1; done; fi",
         "if test -f " + quote(ROOT + "/pid") + "; then kill \"$(cat " +
             quote(ROOT + "/pid") + ")\" 2>/dev/null; rm -f " + quote(ROOT + "/pid") + "; fi",
         )).joinToString("\n")

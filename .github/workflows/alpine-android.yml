@@ -312,7 +312,7 @@ jobs:
             flags=(--prerelease --latest=false)
             title="DPpass 0.8.3 RC1 — ARM64 signed device test"
             notes="$RUNNER_TEMP/dppass-083-notes.md"
-            printf '%s\n' 'DPpass 0.8.3, versionCode 157. Signed ARM64 release APK, package com.dpsmpx.dppass, same direct-distribution certificate. Includes original Zapret2 root NFQUEUE, compatible no-root Xray/Alpine adapter, original ByeDPI v0.17.3 with a local SOCKS authentication patch for VpnService, and IPv4 transparent root TCP. Full upstream nfqws2 is unavailable without NFQUEUE/root. Root ByeDPI UDP and IPv6 transparent redirection are not implemented. Real Android and provider network tests are pending. No debug APK attached.' > "$notes"
+            printf '%s\n' 'DPpass 0.8.3, versionCode 157. Signed ARM64 release APK, package com.dpsmpx.dppass, same direct-distribution certificate. Includes original Zapret2 root NFQUEUE, compatible no-root Xray/Alpine adapter, original ByeDPI v0.17.3 with a local SOCKS authentication patch for VpnService, and IPv4 and optional IPv6 transparent root TCP. Full upstream nfqws2 is unavailable without NFQUEUE/root. Root ByeDPI UDP transparent redirection is not implemented; IPv6 TCP requires IPv6 NAT support. Real Android and provider network tests are pending. No debug APK attached.' > "$notes"
           fi
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             target="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq '.targetCommitish')"

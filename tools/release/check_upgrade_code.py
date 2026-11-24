@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 GRADLE = "app/build.gradle.kts"
-TAG = re.compile(r"^v\d+\.\d+\.\d+(?:-alpha\.\d+)?$")
+TAG = re.compile(r"^v\d+\.\d+\.\d+(?:-(?:alpha|rc)\.\d+)?$")
 ALPINE_TAG = re.compile(r"^zapret2-alpine-[0-9a-f]{12}$")
 
 

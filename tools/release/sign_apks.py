@@ -153,7 +153,7 @@ def version_name(allow_prerelease=False, allow_stable=False):
     if not m:
         fail("в app/build.gradle.kts нет versionName")
     version = m.group(1)
-    prerelease = bool(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+", version))
+    prerelease = bool(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-(?:alpha|rc)\.[0-9]+", version))
     stable = bool(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version))
     if not version.endswith("-dev") and not (allow_prerelease and prerelease) and not (allow_stable and stable):
         fail(f"versionName {version}: непроверенный ключ — только -dev; alpha/release требует закреплённый сертификат")
