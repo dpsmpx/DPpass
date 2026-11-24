@@ -226,8 +226,9 @@ internal object XrayJni {
     @JvmStatic external fun nativeSetZapret2NeuralModel(model: ByteArray): ByteArray
 
     /** Coarse physical network class only: MOBILE, WIFI, OTHER. */
+    @JvmStatic external fun nativeDPTSGeneration(): Long
     @JvmStatic external fun nativeTrainZapret2NeuralFromDPTS(
-        network: ByteArray, methods: ByteArray): ByteArray
+        network: ByteArray, methods: ByteArray, generation: Long): ByteArray
     @JvmStatic external fun nativeSnapshotZapret2NeuralModel(): ByteArray
     @JvmStatic external fun nativeAckZapret2NeuralModel(snapshot: ByteArray): ByteArray
 
@@ -438,9 +439,11 @@ class JniXrayRuntime private constructor() : XrayRuntime {
 
         /** Only changed numeric weights, no hostnames/traffic, from the local Go model. */
         /** Update live contextual MLP only with independently validated DPTS proof. */
-        fun trainZapret2NeuralFromDPTS(network: String, methods: List<String>): XrayResult =
+        fun dptsGeneration(): Long = XrayJni.nativeDPTSGeneration()
+
+        fun trainZapret2NeuralFromDPTS(network: String, methods: List<String>, generation: Long): XrayResult =
             XrayJni.decode(XrayJni.nativeTrainZapret2NeuralFromDPTS(
-                network.encodeToByteArray(), methods.joinToString(",").encodeToByteArray()))
+                network.encodeToByteArray(), methods.joinToString(",").encodeToByteArray(), generation))
 
         fun snapshotZapret2NeuralModel(): ByteArray? =
             XrayJni.nativeSnapshotZapret2NeuralModel().takeIf { it.isNotEmpty() }

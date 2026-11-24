@@ -214,10 +214,15 @@ func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeSetZapret2NeuralModel(env 
     return statusOf(env, bridge.ConfigureZapret2NeuralModel(bytesOf(env, model)))
 }
 
+//export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeDPTSGeneration
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeDPTSGeneration(_ *C.JNIEnv, _ C.jclass) C.jlong {
+    return C.jlong(bridge.DPTSGeneration())
+}
+
 //export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeTrainZapret2NeuralFromDPTS
-func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeTrainZapret2NeuralFromDPTS(env *C.JNIEnv, _ C.jclass, network C.jbyteArray, methods C.jbyteArray) C.jbyteArray {
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeTrainZapret2NeuralFromDPTS(env *C.JNIEnv, _ C.jclass, network C.jbyteArray, methods C.jbyteArray, generation C.jlong) C.jbyteArray {
     return statusOf(env, bridge.TrainZapret2NeuralFromDPTS(
-        string(bytesOf(env, network)), string(bytesOf(env, methods))))
+        string(bytesOf(env, network)), string(bytesOf(env, methods)), int64(generation)))
 }
 
 //export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeAckZapret2NeuralModel

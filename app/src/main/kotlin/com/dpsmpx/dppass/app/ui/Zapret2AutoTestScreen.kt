@@ -135,6 +135,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     private var lastDptsPlan: DptsPlan? = null
     private var lastDptsRows: List<Zapret2GoogleAttempt> = emptyList()
     private var lastDptsNetwork: String? = null
+    private var lastDptsGeneration: Long? = null
+    private var lastDptsNetworkHandle: Long? = null
     private var lastTrainingSubmitted = false
     private val progress = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
         max = TOTAL
@@ -211,6 +213,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         lastDptsPlan = null
         lastDptsRows = emptyList()
         lastDptsNetwork = null
+        lastDptsGeneration = null
+        lastDptsNetworkHandle = null
         // Persist only the user's editable script, never probe results or IPs.
         context.getSharedPreferences("dpts_editor", Context.MODE_PRIVATE).edit()
             .putString("source", dptsEditor.text.toString()).apply()
@@ -287,6 +291,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         lastDptsPlan = null
         lastDptsRows = emptyList()
         lastDptsNetwork = null
+        lastDptsGeneration = null
+        lastDptsNetworkHandle = null
         lastTrainingSubmitted = false
         dptsTrainButton.isEnabled = false
         statusText.text = context.getString(R.string.dpts_script_loaded)
@@ -342,9 +348,13 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         if (job?.isActive == true || lastTrainingSubmitted) return
         val plan = lastDptsPlan
         val network = lastDptsNetwork
-        if (plan == null || network == null ||
+        val generation = lastDptsGeneration
+        val handle = lastDptsNetworkHandle
+        val underlying = NetworkCheck.underlying(context)
+        if (plan == null || network == null || generation == null || handle == null ||
             !ready(TunnelState.status.value) ||
-            NetworkCheck.underlying(context).type.toString() != network) {
+            underlying.type.toString() != network || underlying.network?.networkHandle != handle ||
+            runCatching { JniXrayRuntime.dptsGeneration() }.getOrNull() != generation) {
             statusText.text = context.getString(R.string.dpts_train_no_run)
             appendTrainingLog("not_applied reason=no_matching_completed_run")
             return
@@ -376,7 +386,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             }
         }
         val trained = runCatching {
-            JniXrayRuntime.trainZapret2NeuralFromDPTS(network, candidates)
+            JniXrayRuntime.trainZapret2NeuralFromDPTS(network, candidates, generation)
         }.getOrNull()
         if (trained != XrayResult.Ok) {
             statusText.text = context.getString(R.string.dpts_train_model_error)
@@ -1528,13 +1538,28 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         lastDptsPlan = null
         lastDptsRows = emptyList()
         lastDptsNetwork = null
+        lastDptsGeneration = null
+        lastDptsNetworkHandle = null
         lastTrainingSubmitted = false
         dptsTrainButton.isEnabled = false
         if (plan.suite != null) {
             launchScriptSuite(plan)
             return
         }
-        val network = NetworkCheck.underlying(context).type.toString()
+        val underlying = NetworkCheck.underlying(context)
+        val network = underlying.type.toString()
+        val handle = underlying.network?.networkHandle
+        val generation = runCatching { JniXrayRuntime.dptsGeneration() }.getOrNull()
+        if (handle == null || generation == null || generation < 0) {
+            statusText.text = context.getString(R.string.dpts_train_no_run)
+            return
+        }
+        fun sameSession(): Boolean {
+            val current = NetworkCheck.underlying(context)
+            return ready(TunnelState.status.value) && current.type.toString() == network &&
+                current.network?.networkHandle == handle &&
+                runCatching { JniXrayRuntime.dptsGeneration() }.getOrNull() == generation
+        }
         val allButtons = listOf(runButton, dnsButton, matrixButton, h3Button,
             siteButton, siteQuicButton, youtubeHomeButton, youtubeApiButton,
             youtubeThumbnailButton, youtubeApiSweepButton, apiSniControlButton,
@@ -1574,8 +1599,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 var expired = false
                 for ((index, probe) in plan.probes.withIndex()) {
                     ensureActive()
-                    if (!ready(TunnelState.status.value) ||
-                        NetworkCheck.underlying(context).type.toString() != network ||
+                    if (!sameSession() ||
                         SystemClock.elapsedRealtime() - preparedAt >=
                             minOf(Zapret2SiteSearch.TTL_MS - probe.timeoutMs,
                                 DptsScript.MAX_BUDGET_MS + DNS_TIMEOUT_MILLIS)) {
@@ -1600,7 +1624,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                         response, probe.target)
                     progress.progress = rows.size
                 }
-                if (expired || rows.size != plan.probes.size) {
+                if (expired || rows.size != plan.probes.size || !sameSession()) {
                     statusText.text = context.getString(R.string.dpts_stopped)
                     resultText.text = "DPTS stopped: network changed, " +
                         "native target rejected, or test expired. " +
@@ -1612,6 +1636,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 lastDptsPlan = plan
                 lastDptsRows = rows.toList()
                 lastDptsNetwork = network
+                lastDptsGeneration = generation
+                lastDptsNetworkHandle = handle
                 resultText.text = report
                 resultText.visibility = View.VISIBLE
                 val copied = try {

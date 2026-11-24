@@ -14,7 +14,9 @@ import (
 // on each of two same-pinned public IPv4 addresses (same HTTP/1.1 or HTTP/2 protocol) against a failed plain
 // baseline. No raw host, IP, URL, cookie or body is ever accepted here.
 // This cannot directly pin a strategy; live circuit breakers remain active.
-func TrainZapret2NeuralFromDPTS(network, methodCSV string) error {
+func DPTSGeneration() int64 { return int64(zapret2Auto.generationSnapshot()) }
+
+func TrainZapret2NeuralFromDPTS(network, methodCSV string, generation int64) error {
     networkID:=int32(0)
     switch network {
     case "MOBILE":networkID=1
@@ -40,6 +42,13 @@ func TrainZapret2NeuralFromDPTS(network, methodCSV string) error {
             return errors.New("unknown or unsupported DPTS neural method")
         }
         indices=append(indices,idx)
+    }
+    // Match the selector -> neural lock order already used for passive
+    // learning. A reset cannot interleave with a verified calibration.
+    zapret2Auto.mu.Lock()
+    defer zapret2Auto.mu.Unlock()
+    if generation<0 || uint64(generation)!=zapret2Auto.generation {
+        return errors.New("DPTS session generation changed")
     }
     zapret2Neural.mu.Lock()
     defer zapret2Neural.mu.Unlock()

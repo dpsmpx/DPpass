@@ -19,7 +19,7 @@ func TestDPTSNeuralRejectsNonVerifiedOrForeignSamples(t *testing.T) {
         {"WIFI","fake-5"},
         {"OTHER","fake-5"},
     } {
-        if err:=TrainZapret2NeuralFromDPTS(tc.network,tc.methods);err==nil {
+        if err:=TrainZapret2NeuralFromDPTS(tc.network,tc.methods,DPTSGeneration());err==nil {
             t.Fatalf("invalid training admission for %q/%q",tc.network,tc.methods)
         }
     }
@@ -31,7 +31,7 @@ func TestDPTSVerifiedHTMLDoesNotTrainPassiveTransportHead(t *testing.T) {
     if err:=ConfigureZapret2NeuralNetwork("MOBILE");err!=nil {t.Fatal(err)}
     if err:=ConfigureZapret2NeuralModel(generatedSparseTestModel(t,100000,16));err!=nil {t.Fatal(err)}
     old:=zapret2Neural.weights.ContextBias[0][5]
-    if err:=TrainZapret2NeuralFromDPTS("MOBILE","tlsrec-split");err!=nil {t.Fatal(err)}
+    if err:=TrainZapret2NeuralFromDPTS("MOBILE","tlsrec-split",DPTSGeneration());err!=nil {t.Fatal(err)}
     snapshot:=ExportZapret2NeuralModel()
     w,err:=parseAdaptiveNN(snapshot)
     if err!=nil {t.Fatal(err)}
@@ -46,12 +46,26 @@ func TestDPTSNetworkChangeRejectsStaleTrainingWithoutDirtyingModel(t *testing.T)
     if err:=ConfigureZapret2NeuralModel(generatedSparseTestModel(t,100000,16));err!=nil {t.Fatal(err)}
     if err:=ConfigureZapret2NeuralNetwork("MOBILE");err!=nil {t.Fatal(err)}
     if err:=ConfigureZapret2NeuralNetwork("WIFI");err!=nil {t.Fatal(err)}
-    if err:=TrainZapret2NeuralFromDPTS("MOBILE","tlsrec-split");err==nil {t.Fatal("stale context admitted")}
+    if err:=TrainZapret2NeuralFromDPTS("MOBILE","tlsrec-split",DPTSGeneration());err==nil {t.Fatal("stale context admitted")}
     if len(ExportZapret2NeuralModel())!=0 {t.Fatal("stale context dirtied model")}
-    if err:=TrainZapret2NeuralFromDPTS("WIFI","tlsrec-split");err!=nil {t.Fatal(err)}
+    if err:=TrainZapret2NeuralFromDPTS("WIFI","tlsrec-split",DPTSGeneration());err!=nil {t.Fatal(err)}
     w,err:=parseAdaptiveNN(ExportZapret2NeuralModel())
     if err!=nil {t.Fatal(err)}
     if w.VerifiedHTMLObservations[0]!=0 || w.VerifiedHTMLObservations[1]!=1 || w.VerifiedHTMLObservations[2]!=0 {
         t.Fatal("wrong calibration context",w.VerifiedHTMLObservations)
     }
+}
+
+func TestDPTSSameCategoryResetRejectsOldGeneration(t *testing.T) {
+    defer ConfigureZapret2NeuralModel(nil)
+    defer ConfigureZapret2NeuralNetwork("UNKNOWN")
+    if err:=ConfigureZapret2NeuralModel(generatedSparseTestModel(t,100000,16));err!=nil {t.Fatal(err)}
+    if err:=ConfigureZapret2NeuralNetwork("MOBILE");err!=nil {t.Fatal(err)}
+    old:=DPTSGeneration()
+    ResetZapret2AdaptiveLearning()
+    if DPTSGeneration()==old {t.Fatal("reset did not advance generation")}
+    if err:=TrainZapret2NeuralFromDPTS("MOBILE","tlsrec-split",old);err==nil {t.Fatal("stale proof accepted")}
+    if err:=TrainZapret2NeuralFromDPTS("MOBILE","tlsrec-split",-1);err==nil {t.Fatal("invalid generation accepted")}
+    if len(ExportZapret2NeuralModel())!=0 {t.Fatal("stale proof dirtied model")}
+    if err:=TrainZapret2NeuralFromDPTS("MOBILE","tlsrec-split",DPTSGeneration());err!=nil {t.Fatal(err)}
 }
