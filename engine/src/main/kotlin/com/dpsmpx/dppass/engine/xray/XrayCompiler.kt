@@ -214,7 +214,7 @@ class XrayCompiler(
                 plan.desync != null -> XrayBackend.TAG_DIRECT
                 else -> XrayBackend.TAG_BLOCK // retain D-73 default for regular serverless
             },
-            forceQuicTcp = plan.forceQuicTcp,
+            forceQuicTcp = plan.forceQuicTcp && (plan.desync != DesyncTrick.Auto || plan.splitSites.isEmpty),
             catchAllHttps = plan.catchAllHttps && plan.desync != null && !plan.splitRest,
             catchAllQuic = plan.catchAllHttps &&
                 (plan.desync is DesyncTrick.Fake || plan.desync == DesyncTrick.Auto) &&

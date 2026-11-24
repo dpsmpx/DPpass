@@ -179,6 +179,16 @@ func (a *adaptiveSelector) chooseFrom(host string, candidates []string) string {
 // Previous-network connections may close after a network reset. The captured
 // generation prevents their late evidence changing the new network's winner.
 func (a *adaptiveSelector) chooseWithGeneration(host string, candidates []string) (string, uint64) {
+    return a.choosePolicy(host, candidates, false)
+}
+
+// Live traffic starts with the untouched transport. A received reply can
+// retain this baseline without pretending that application content worked.
+func (a *adaptiveSelector) chooseLive(host string, candidates []string) (string, uint64) {
+    return a.choosePolicy(host, candidates, true)
+}
+
+func (a *adaptiveSelector) choosePolicy(host string, candidates []string, directFirst bool) (string, uint64) {
     host = canonicalAdaptiveHost(host)
     a.mu.Lock()
     defer a.mu.Unlock()
@@ -224,11 +234,19 @@ func (a *adaptiveSelector) chooseWithGeneration(host string, candidates []string
             }
         }
     }
+    if directFirst && e.index == 0 && !blocked("pass") {
+        e.index++
+        if e.usage == nil { e.usage = make(map[string]int) }
+        e.usage["pass"]++
+        return "pass", a.generation
+    }
     // Preserve established candidate ordering and the plain baseline
     // unless an independent timeout-based circuit breaker is active.
-    tag := candidates[e.index%len(candidates)]
+    index := e.index
+    if directFirst && index > 0 { index-- }
+    tag := candidates[index%len(candidates)]
     for offset := 0; offset < len(candidates); offset++ {
-        choice := candidates[(e.index+offset)%len(candidates)]
+        choice := candidates[(index+offset)%len(candidates)]
         if !blocked(choice) {
             tag = choice
             break
@@ -247,6 +265,20 @@ func (a *adaptiveSelector) chooseWithGeneration(host string, candidates []string
     if e.usage == nil { e.usage = make(map[string]int) }
     if e.usage[tag] < 100 { e.usage[tag]++ }
     return tag, a.generation
+}
+
+// First real TCP reply is reachability only. Never train the MLP here.
+func (a *adaptiveSelector) retainPlainReply(host string, generation uint64) {
+    a.mu.Lock()
+    defer a.mu.Unlock()
+    if a.generation != generation { return }
+    e := a.entries[canonicalAdaptiveHost(host)]
+    if e == nil { return }
+    e.preferred = "pass"
+    e.probeSeeded = false
+    e.weakFailures = 0
+    delete(e.stalls, "pass")
+    delete(e.cooldown, "pass")
 }
 
 func (a *adaptiveSelector) observe(host, strategy string, payloadBytes int64) {
@@ -327,6 +359,7 @@ func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int
         e.weakFailures = 0
         e.smallResponses = nil
     } else if e.preferred == strategy {
+        if strategy == "pass" && payloadBytes > 0 { e.weakFailures = 0; return }
         // A verified HTML probe earns a *temporary* preference. Its
         // successful 8 KiB page sample must not be misclassified as a
         // failure merely because the media-oriented default is 12 KiB.

@@ -333,3 +333,17 @@ func TestUniversalAUTOQUICRealReadTimeoutIsCountedOnceOnClose(t *testing.T) {
         t.Fatalf("QUIC cooldown did not skip fake-3: %s",got)
     }
 }
+
+func TestLiveStartsPlainAndKeepsTransportReachabilityWithoutGlobalProof(t *testing.T) {
+    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry)}
+    host := "healthy.example.org"
+    choice, generation := a.chooseLive(host, adaptiveCandidates[:])
+    if choice != "pass" { t.Fatal(choice) }
+    a.retainPlainReply(host, generation)
+    a.observeTracked(host, "pass", 256, generation)
+    if got, _ := a.chooseLive(host, adaptiveCandidates[:]); got != "pass" { t.Fatal(got) }
+    if got, _ := a.chooseLive("udp:"+host, adaptiveQuicCandidates[:]); got != "pass" { t.Fatal(got) }
+    a.observeStallTracked(host, "pass", generation)
+    a.observeStallTracked(host, "pass", generation)
+    if got, _ := a.chooseLive(host, adaptiveCandidates[:]); got == "pass" { t.Fatal("stalled plain must allow alternatives") }
+}

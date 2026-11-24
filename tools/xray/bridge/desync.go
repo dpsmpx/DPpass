@@ -244,6 +244,8 @@ func (c *desyncConn) Read(b []byte) (int, error) {
             zapret2Stage.tcpFirstReply.Add(1)
             if isTLSAlertRecordHeader(b[:n]) {
                 zapret2Stage.tcpFirstTLSAlert.Add(1)
+            } else if pick := c.adaptiveSelection.Load(); pick != nil && pick.strategy == "pass" {
+                zapret2Auto.retainPlainReply(pick.host, pick.generation)
             }
         }
         total := c.received.Add(int64(n))
@@ -387,9 +389,9 @@ func (c *desyncConn) desyncFirst(b []byte) (int, error) {
         var choice string
         var generation uint64
         if zapret2.IsTLSClientHelloPrefix(b) {
-            choice, generation = zapret2Auto.chooseTracked(c.host)
+            choice, generation = zapret2Auto.chooseLive(c.host, adaptiveCandidates[:])
         } else {
-            choice, generation = zapret2Auto.chooseHTTPTracked(c.host)
+            choice, generation = zapret2Auto.chooseLive("http:"+c.host, adaptiveHTTPCandidates[:])
         }
         resolved, ok, err := parseDesyncTag(zapret2.TagPrefix + choice)
         if !ok || err != nil || resolved.kind == desyncAuto {
@@ -397,7 +399,9 @@ func (c *desyncConn) desyncFirst(b []byte) (int, error) {
             return 0, c.plannerErr
         }
         c.mode = resolved
-        c.adaptiveSelection.Store(&adaptivePick{host: c.host, strategy: choice, generation: generation})
+        key := c.host
+        if !zapret2.IsTLSClientHelloPrefix(b) { key = "http:"+key }
+        c.adaptiveSelection.Store(&adaptivePick{host: key, strategy: choice, generation: generation})
     }
     // Strategy decisions and offsets still come from the shared Go planner,
     // including Alpine over its app-private Unix socket.
@@ -760,7 +764,7 @@ func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
         // Apply one chosen TTL for this UDP flow, including retransmitted
         // Initials; no silent fallback to unmodified QUIC on injection error.
         if c.adaptiveSelection.Load() == nil {
-            choice, generation := zapret2Auto.chooseQUICTracked(c.host)
+            choice, generation := zapret2Auto.chooseLive("udp:"+c.host, adaptiveQuicCandidates[:])
             resolved, ok, err := parseDesyncTag(zapret2.TagPrefix + choice)
             if !ok || err != nil || resolved.kind != desyncFake && resolved.kind != desyncPass {
                 c.plannerErr = fmt.Errorf("adaptive QUIC strategy rejected: %v", err)

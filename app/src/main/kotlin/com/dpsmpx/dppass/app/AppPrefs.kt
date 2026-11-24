@@ -65,7 +65,7 @@ class AppPrefs(context: Context) {
 
     /** Локальный VPN: включать TCP/443 без распознанного домена (ECH/IP-only CDN). */
     var zapret2VpnCatchAllHttps: Boolean
-        get() = prefs.getBoolean(ZAPRET2_VPN_CATCH_ALL_HTTPS, true)
+        get() = prefs.getBoolean(ZAPRET2_VPN_CATCH_ALL_HTTPS, false)
         set(value) { prefs.edit().putBoolean(ZAPRET2_VPN_CATCH_ALL_HTTPS, value).apply() }
 
     /** Сервер, выбранный пользователем (D-34); null — «автоматически» (D-15). */
