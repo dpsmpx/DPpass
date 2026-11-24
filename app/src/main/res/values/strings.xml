@@ -912,4 +912,11 @@
     <string name="zapret2_youtube_api_sni_control_note">A certificate-verified control for www.google.com is sent to each of the same eight public API IPv4 addresses, alongside the original youtubei.googleapis.com SNI. A separate Google DoH control checks the network. This only compares TLS reachability, never uses unverified certificates, never changes AUTO, and does not guarantee a usable YouTube API.</string>
     <string name="zapret2_youtube_api_tls_version_button">Compare TLS 1.2 / 1.3 for YouTube API (diagnostic)</string>
     <string name="zapret2_youtube_api_tls_version_note">Strict certificate-verified TLS1.2 versus TLS1.3, API and Google SNI on the same two public API IPv4 addresses. This is an opt-in transport test (24 bounded sockets) and never changes AUTO, routing, DNS, accounts or YouTube login.</string>
+    <string name="dpts_title">DPTest Script (DPTS/1)</string>
+    <string name="dpts_note">Paste or edit a local diagnostic script, then run it through protected bounded probes. Scripts cannot modify AUTO, DNS or routes. Learn observe exports redacted evidence only; model weights do not change.</string>
+    <string name="dpts_script_hint">dpts 1\nhost youtubei.googleapis.com\nhttps protocols=h1 methods=plain ips=2 attempts=3 timeout_ms=5000</string>
+    <string name="dpts_load_preset">Load selected DPTS preset</string>
+    <string name="dpts_run_script">Validate and run DPTS</string>
+    <string name="dpts_stopped">DPTS stopped: network changed or diagnostic expired</string>
+    <string name="dpts_copied">DPTS complete. Redacted log automatically copied.</string>
 </resources>
