@@ -272,4 +272,47 @@ class Zapret2SiteSearchTest {
         assertFalse(partial.contains("поддерживает гипотезу зависимости от SNI"))
     }
 
+    @Test fun tlsVersionControlsRemainOnTwoAPIIndicesAndThreeAttempts() {
+        assertEquals("site_tls12_api_ip00_a1_:youtubei.googleapis.com",
+            Zapret2SiteSearch.tlsVersionTrial(0, 1, 12, false))
+        assertEquals("site_tls13_google_ip01_a3_:youtubei.googleapis.com",
+            Zapret2SiteSearch.tlsVersionTrial(1, 3, 13, true))
+        for (ip in listOf(-1, 2, 8)) {
+            assertTrue(runCatching {
+                Zapret2SiteSearch.tlsVersionTrial(ip, 1, 12, false)
+            }.isFailure)
+        }
+        assertTrue(runCatching {
+            Zapret2SiteSearch.tlsVersionTrial(0, 1, 11, false)
+        }.isFailure)
+        assertTrue(runCatching {
+            Zapret2SiteSearch.tlsVersionTrial(0, 4, 13, true)
+        }.isFailure)
+    }
+
+    @Test fun tlsVersionReportRequiresMatchedThreeOfThreeEvidence() {
+        val prep = Zapret2GoogleProbe.fromWire(
+            "v3\tdns_ready\t200\t0\t100\t0\t0\t6f706c12\t8\t0\tdns\tnone\t-".encodeToByteArray())
+        val rejected = Zapret2GoogleProbe.fromWire(
+            "v3\ttimeout_tls_no_reply\t0\t0\t5000\t0\t0\t6f706c12\t8\t0\th1\tclienthello_sent\t-".encodeToByteArray())
+        val accepted = Zapret2GoogleProbe.fromWire(
+            "v3\thttp_reachable\t200\t60\t860\t0\t0\t6f706c12\t8\t0\th1\ttls_verified\thttp/1.1".encodeToByteArray())
+        val rows = (1..3).flatMap { attempt ->
+            listOf(
+                Zapret2GoogleAttempt("plain", attempt, rejected,
+                    Zapret2SiteSearch.tlsVersionTrial(0, attempt, 12, false)),
+                Zapret2GoogleAttempt("plain", attempt, accepted,
+                    Zapret2SiteSearch.tlsVersionTrial(0, attempt, 12, true)),
+            )
+        }
+        val full = Zapret2SiteSearch.tlsVersionReport("MOBILE", prep, rows, 1)
+        assertTrue(full.contains("TLS1.2: API TLS/HTTP=0/3; Google TLS/HTTP=3/3"))
+        assertTrue(full.contains("Стабильное различие по имени TLS"))
+        assertTrue(full.contains("AUTO: not_applied"))
+        assertFalse(full.contains("/youtubei/"))
+        val incomplete = Zapret2SiteSearch.tlsVersionReport(
+            "MOBILE", prep, rows.dropLast(1), 1)
+        assertFalse(incomplete.contains("Стабильное различие по имени TLS"))
+    }
+
 }
