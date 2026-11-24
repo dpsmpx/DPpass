@@ -39,3 +39,19 @@ func TestDPTSVerifiedHTMLDoesNotTrainPassiveTransportHead(t *testing.T) {
     if w.VerifiedHTMLBias[0][5]<=0 || w.VerifiedHTMLObservations[0]!=1 {t.Fatal("missing HTML calibration")}
     if w.VerifiedHTMLObservations[1]!=0 || w.VerifiedHTMLObservations[2]!=0 {t.Fatal("cross-network training")}
 }
+
+func TestDPTSNetworkChangeRejectsStaleTrainingWithoutDirtyingModel(t *testing.T) {
+    defer ConfigureZapret2NeuralModel(nil)
+    defer ConfigureZapret2NeuralNetwork("UNKNOWN")
+    if err:=ConfigureZapret2NeuralModel(generatedSparseTestModel(t,100000,16));err!=nil {t.Fatal(err)}
+    if err:=ConfigureZapret2NeuralNetwork("MOBILE");err!=nil {t.Fatal(err)}
+    if err:=ConfigureZapret2NeuralNetwork("WIFI");err!=nil {t.Fatal(err)}
+    if err:=TrainZapret2NeuralFromDPTS("MOBILE","tlsrec-split");err==nil {t.Fatal("stale context admitted")}
+    if len(ExportZapret2NeuralModel())!=0 {t.Fatal("stale context dirtied model")}
+    if err:=TrainZapret2NeuralFromDPTS("WIFI","tlsrec-split");err!=nil {t.Fatal(err)}
+    w,err:=parseAdaptiveNN(ExportZapret2NeuralModel())
+    if err!=nil {t.Fatal(err)}
+    if w.VerifiedHTMLObservations[0]!=0 || w.VerifiedHTMLObservations[1]!=1 || w.VerifiedHTMLObservations[2]!=0 {
+        t.Fatal("wrong calibration context",w.VerifiedHTMLObservations)
+    }
+}

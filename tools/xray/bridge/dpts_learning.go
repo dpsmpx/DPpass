@@ -43,6 +43,11 @@ func TrainZapret2NeuralFromDPTS(network, methodCSV string) error {
     }
     zapret2Neural.mu.Lock()
     defer zapret2Neural.mu.Unlock()
+    // The initial check is only an early rejection. Recheck under the
+    // same lock as network configuration before changing any weights.
+    if zapret2NeuralNetwork.Load()!=networkID {
+        return errors.New("network context changed before DPTS training")
+    }
     w:=zapret2Neural.weights
     if w==nil || !nnModern(w) {
         return errors.New("current local contextual neural model is not installed")

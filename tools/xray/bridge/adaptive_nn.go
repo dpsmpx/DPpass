@@ -65,12 +65,19 @@ var zapret2Neural adaptiveNeural
 var zapret2NeuralNetwork atomic.Int32
 
 func ConfigureZapret2NeuralNetwork(kind string) error {
+    var category int32
     switch kind {
-    case "MOBILE": zapret2NeuralNetwork.Store(1)
-    case "WIFI": zapret2NeuralNetwork.Store(2)
-    case "OTHER", "UNKNOWN": zapret2NeuralNetwork.Store(0)
+    case "MOBILE": category=1
+    case "WIFI": category=2
+    case "OTHER", "UNKNOWN": category=0
     default: return errors.New("invalid underlying network class")
     }
+    // Rank, learn and explicit DPTS calibration hold this lock. Changing
+    // category between feature extraction, context index and sparse-slot
+    // calculation would mix two different networks in one observation.
+    zapret2Neural.mu.Lock()
+    zapret2NeuralNetwork.Store(category)
+    zapret2Neural.mu.Unlock()
     return nil
 }
 
