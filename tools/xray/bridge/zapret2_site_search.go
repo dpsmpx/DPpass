@@ -379,8 +379,10 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     if err!=nil {
         result.Outcome="dial_failed"
         if ctx.Err()!=nil {result.Outcome="timeout_dial"}
-        siteSearchRecord(inst,request.host,gen,request.index,request.attempt,
-            result.Protocol,strategy,result.Outcome,0)
+        if request.kind=="http" || request.kind=="quic" {
+            siteSearchRecord(inst,request.host,gen,request.index,request.attempt,
+                result.Protocol,strategy,result.Outcome,0)
+        }
         return finish(result)
     }
     defer conn.Close()
