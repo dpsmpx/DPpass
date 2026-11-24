@@ -312,3 +312,7 @@ CI e651b46: Go #45472368110 и Android #45472351978 завершены успе�
 ## A4/A5 — общий переносимый TLS encoder
 
 CI 65d5bb4: Go #45477752383 (включая race detector) и Android #45477739873 завершены успешно. В localdpi вынесены существующий portable Go encoder TLS records и единая проверка complete record length, используемая encoder, planner и integrity validator. Входные данные проверяются до slicing; старые функции остаются compatibility delegates. Алгоритм, формат плана, методы AUTO и индексы модели не расширены. Тесты проверяют границы, отдельный буфер, неизменность входа и сохранность хвоста. Это перенос собственного общего кода, не импорт нового upstream метода. CI ожидается.
+
+## A4 — общий контракт Go/C TLS encoding
+
+Native wrapper теперь до выделения output проверяет CompleteTLSClientHelloRecordLen и offset через localdpi; после C вызова проверяет PreservesTLSRecords, прежде чем отдавать результат. Оригинальный C wrapper и upstream source неизменны; native cap 65536, tagged dispatch, Go reference fallback при отказе и семантика счётчиков сохранены. Добавлен сравнительный тест всех offsets 0..65 на одном record, malformed fixtures, cap и неизменность input. Проверка output не означает прикладной успех и не подтверждает эквивалентность остальных upstream методов. Обычный release не включает C, физическая проверка native APK и новый CI ещё ожидаются.
