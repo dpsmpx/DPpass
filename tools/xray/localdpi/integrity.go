@@ -9,11 +9,8 @@ import (
 // differs only in the record headers. It is a read-only integrity check,
 // not a TLS handshake validator. No sockets or payload retention.
 func PreservesTLSRecords(original, rewritten []byte, cut int) bool {
-    if !IsTLSClientHelloPrefix(original) || len(rewritten)!=len(original)+5 {return false}
-    recordLen:=int(binary.BigEndian.Uint16(original[3:5]))
-    if recordLen<12 || recordLen>16384 || recordLen>len(original)-5 {return false}
-    helloLen:=int(original[6])<<16|int(original[7])<<8|int(original[8])
-    if helloLen==0 || helloLen>recordLen-4 {return false}
+    recordLen,ok:=CompleteTLSClientHelloRecordLen(original)
+    if !ok || len(rewritten)!=len(original)+5 {return false}
     if cut<=9 || cut>=5+recordLen {return false}
     firstLen:=cut-5
     secondLen:=recordLen-firstLen
