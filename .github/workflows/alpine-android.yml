@@ -60,6 +60,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: tools/xray/go.mod
+          cache-dependency-path: tools/xray/go.sum
+      - name: Preflight Android upgrade version before expensive builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/release/check_upgrade_code.py
       - name: Check JNI local package allowlist and Gradle inputs
         run: python3 tools/xray/check_native_inputs.py && python3 tools/xray/native.py check-packages
       - name: Use pinned direct Gradle distribution
