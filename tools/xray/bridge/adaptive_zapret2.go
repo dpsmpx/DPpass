@@ -61,6 +61,26 @@ type adaptivePick struct {
     generation uint64
 }
 
+// Existing socket observations are scoped by the same protocol key as
+// selection. This gate is for the current VPN executor only; future ROOT
+// adapters must carry an explicit executor identity and their own state.
+// The selector checks the captured generation under its lock.
+func socketEvidenceAdmissible(pick *adaptivePick, evidence localdpi.Evidence) bool {
+    if pick == nil || pick.host == "" { return false }
+    transport := localdpi.TLS
+    if strings.HasPrefix(pick.host,"http:") { transport=localdpi.HTTP }
+    if strings.HasPrefix(pick.host,"udp:") { transport=localdpi.QUIC }
+    if !socketCapabilities.Allows(transport,pick.strategy) { return false }
+    switch evidence.Kind {
+    case localdpi.Downstream:
+        return evidence.Bytes > 0
+    case localdpi.FirstReplyTimeout:
+        return evidence.Bytes == 0
+    default:
+        return false
+    }
+}
+
 type adaptiveEntry struct {
     index int
     preferred string

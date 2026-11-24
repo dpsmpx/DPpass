@@ -3,6 +3,7 @@
 package bridge
 
 import (
+    "github.com/dpsmpx/dppass/tools/xray/localdpi"
     "net"
     "strconv"
     "testing"
@@ -435,4 +436,29 @@ func TestSocketCapabilitiesPreserveCurrentCandidates(t *testing.T) {
         if len(p.got)!=len(p.want){t.Fatal(p.got)}
         for i:=range p.want {if p.got[i]!=p.want[i]{t.Fatal(p.got)}}
     }
+}
+
+func TestSocketObservationCapabilityGate(t *testing.T) {
+    down := localdpi.Evidence{Kind:localdpi.Downstream,Bytes:1024}
+    timeout := localdpi.Evidence{Kind:localdpi.FirstReplyTimeout}
+    for _,tc:=range []struct{
+        host,method string
+        evidence localdpi.Evidence
+        want bool
+    }{
+        {"example.test","tlsrec-split",down,true},
+        {"http:example.test","tlsrec-split",down,false},
+        {"udp:example.test","split",timeout,false},
+        {"udp:example.test","fake-5",timeout,true},
+        {"example.test","unknown",down,false},
+        {"example.test","pass",localdpi.Evidence{Kind:localdpi.Cancelled},false},
+        {"example.test","pass",localdpi.Evidence{Kind:localdpi.VerifiedContent,Bytes:1024},false},
+        {"example.test","pass",localdpi.Evidence{Kind:localdpi.Downstream},false},
+        {"example.test","pass",localdpi.Evidence{Kind:localdpi.FirstReplyTimeout,Bytes:1},false},
+        {"","pass",down,false},
+    } {
+        pick:=&adaptivePick{host:tc.host,strategy:tc.method}
+        if got:=socketEvidenceAdmissible(pick,tc.evidence);got!=tc.want {t.Fatalf("%+v got %v",tc,got)}
+    }
+    if socketEvidenceAdmissible(nil,down) {t.Fatal("nil pick admitted")}
 }

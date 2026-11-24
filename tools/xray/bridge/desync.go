@@ -270,7 +270,7 @@ func (c *desyncConn) Read(b []byte) (int, error) {
             if selected := c.adaptiveSelection.Load(); selected != nil {
                 // Learn from long-lived HTTP/2/QUIC streams before Close.
                 c.observed.Do(func() {
-                    zapret2Auto.observeTracked(selected.host, selected.strategy, total, selected.generation)
+                    recordLocalSocketEvidence(selected, localdpi.SocketClose(total))
                 })
             }
         }
@@ -294,6 +294,7 @@ func (c *desyncConn) Read(b []byte) (int, error) {
 // Both socket transports feed the same evidence contract. A transport
 // reply is not verified application content; ordinary closes are neutral.
 func recordLocalSocketEvidence(pick *adaptivePick, evidence localdpi.Evidence) {
+    if !socketEvidenceAdmissible(pick, evidence) { return }
     switch evidence.Kind {
     case localdpi.Downstream:
         zapret2Auto.observeTracked(pick.host, pick.strategy, evidence.Bytes, pick.generation)
@@ -735,7 +736,7 @@ func (c *desyncUDPConn) Read(b []byte) (int, error) {
         if total >= adaptivePayloadThreshold {
             if selected := c.adaptiveSelection.Load(); selected != nil {
                 c.observed.Do(func() {
-                    zapret2Auto.observeTracked(selected.host, selected.strategy, total, selected.generation)
+                    recordLocalSocketEvidence(selected, localdpi.SocketClose(total))
                 })
             }
         }
