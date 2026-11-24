@@ -70,6 +70,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         context, R.string.zapret2_youtube_api_button, Ui.Style.OUTLINE, R.drawable.ic_speed)
     private val youtubeThumbnailButton: Button = Ui.button(
         context, R.string.zapret2_youtube_thumbnail_button, Ui.Style.OUTLINE, R.drawable.ic_speed)
+    private val youtubeApiSweepButton: Button = Ui.button(
+        context, R.string.zapret2_youtube_api_sweep_button, Ui.Style.OUTLINE, R.drawable.ic_speed)
     private val progress = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
         max = TOTAL
         visibility = View.GONE
@@ -112,6 +114,11 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             siteInput.setText("i.ytimg.com")
             startSiteSearch(quic = false)
         } }, Ui.matchWidth())
+        addView(youtubeApiSweepButton.apply { setOnClickListener {
+            startYoutubeApiSweep()
+        } }, Ui.matchWidth())
+        addView(Ui.text(context, R.style.Text_DPpass_Caption,
+            context.getString(R.string.zapret2_youtube_api_sweep_note)), Ui.matchWidth())
         addView(siteButton.apply { setOnClickListener { startSiteSearch(quic = false) } },
             Ui.matchWidth())
         addView(siteQuicButton.apply { setOnClickListener { startSiteSearch(quic = true) } },
@@ -142,6 +149,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         youtubeHomeButton.isEnabled = ready(status)
         youtubeApiButton.isEnabled = ready(status)
         youtubeThumbnailButton.isEnabled = ready(status)
+        youtubeApiSweepButton.isEnabled = ready(status)
         if (!ready(status)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
         }
@@ -180,6 +188,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         youtubeHomeButton.isEnabled = false
         youtubeApiButton.isEnabled = false
         youtubeThumbnailButton.isEnabled = false
+        youtubeApiSweepButton.isEnabled = false
         progress.max = total
         progress.progress = 0
         progress.visibility = View.VISIBLE
@@ -260,6 +269,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 youtubeHomeButton.isEnabled = ready(TunnelState.status.value)
                 youtubeApiButton.isEnabled = ready(TunnelState.status.value)
                 youtubeThumbnailButton.isEnabled = ready(TunnelState.status.value)
+                youtubeApiSweepButton.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
@@ -286,6 +296,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         youtubeHomeButton.isEnabled = false
         youtubeApiButton.isEnabled = false
         youtubeThumbnailButton.isEnabled = false
+        youtubeApiSweepButton.isEnabled = false
         progress.visibility = View.VISIBLE
         progress.max = Zapret2ProbeCatalog.matrixProviders.size
         progress.progress = 0
@@ -386,6 +397,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 youtubeHomeButton.isEnabled = ready(TunnelState.status.value)
                 youtubeApiButton.isEnabled = ready(TunnelState.status.value)
                 youtubeThumbnailButton.isEnabled = ready(TunnelState.status.value)
+                youtubeApiSweepButton.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
@@ -417,6 +429,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         youtubeHomeButton.isEnabled = false
         youtubeApiButton.isEnabled = false
         youtubeThumbnailButton.isEnabled = false
+        youtubeApiSweepButton.isEnabled = false
         progress.max = 1
         progress.progress = 0
         progress.visibility = View.VISIBLE
@@ -611,6 +624,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 youtubeHomeButton.isEnabled = ready(TunnelState.status.value)
                 youtubeApiButton.isEnabled = ready(TunnelState.status.value)
                 youtubeThumbnailButton.isEnabled = ready(TunnelState.status.value)
+                youtubeApiSweepButton.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
@@ -648,6 +662,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         youtubeHomeButton.isEnabled = false
         youtubeApiButton.isEnabled = false
         youtubeThumbnailButton.isEnabled = false
+        youtubeApiSweepButton.isEnabled = false
         siteInput.isEnabled = false
         progress.visibility = View.VISIBLE
         progress.progress = 0
@@ -769,6 +784,164 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 youtubeHomeButton.isEnabled = ready(TunnelState.status.value)
                 youtubeApiButton.isEnabled = ready(TunnelState.status.value)
                 youtubeThumbnailButton.isEnabled = ready(TunnelState.status.value)
+                youtubeApiSweepButton.isEnabled = ready(TunnelState.status.value)
+            }
+        }
+    }
+
+    /**
+     * Negative API-specific differential diagnosis. Unlike siteSearch(),
+     * this covers up to eight authenticated DoH A records and compares
+     * H1 and H2 ALPN on the exact same SNI/IP. It never invokes site_apply,
+     * never stores an IP, and cannot teach AUTO from a one-off success.
+     */
+    private fun startYoutubeApiSweep() {
+        if (job?.isActive == true) return
+        if (!ready(TunnelState.status.value)) {
+            statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
+            host.toast(statusText.text)
+            return
+        }
+        val network = NetworkCheck.underlying(context).type.toString()
+        runButton.isEnabled = false
+        dnsButton.isEnabled = false
+        matrixButton.isEnabled = false
+        h3Button.isEnabled = false
+        siteButton.isEnabled = false
+        siteQuicButton.isEnabled = false
+        youtubeHomeButton.isEnabled = false
+        youtubeApiButton.isEnabled = false
+        youtubeThumbnailButton.isEnabled = false
+        youtubeApiSweepButton.isEnabled = false
+        siteInput.isEnabled = false
+        resultText.visibility = View.GONE
+        progress.visibility = View.VISIBLE
+        progress.progress = 0
+        statusText.text = "DoH · ${Zapret2SiteSearch.YOUTUBE_API_HOST}"
+        job = host.scope.launch {
+            try {
+                val prepared = try {
+                    withContext(Dispatchers.IO) {
+                        JniXrayRuntime.probeZapret2Google("plain",
+                            Zapret2SiteSearch.prepare(Zapret2SiteSearch.YOUTUBE_API_HOST),
+                            DNS_TIMEOUT_MILLIS)
+                    }
+                } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
+                ensureActive()
+                if (prepared.outcome != "dns_ready" || prepared.dnsAnswers < 1) {
+                    statusText.text = context.getString(R.string.zapret2_site_search_dns_fail) +
+                        " (${prepared.outcome})"
+                    resultText.text = statusText.text
+                    resultText.visibility = View.VISIBLE
+                    return@launch
+                }
+                val ipCount = prepared.dnsAnswers.coerceAtMost(Zapret2SiteSearch.MAX_SWEEP_IPS)
+                val profiles = Zapret2SiteSearch.apiSweepProfiles
+                val startedAt = SystemClock.elapsedRealtime()
+                val rows = mutableListOf<Zapret2GoogleAttempt>()
+                val total = ipCount * profiles.size
+                progress.max = total + 4 // at most two confirmed candidates receive two repeats
+                var invalid = false
+                scan@ for (ip in 0 until ipCount) {
+                    for ((proto, method) in profiles) {
+                        ensureActive()
+                        if (!ready(TunnelState.status.value) ||
+                            NetworkCheck.underlying(context).type.toString() != network ||
+                            SystemClock.elapsedRealtime() - startedAt >=
+                                Zapret2SiteSearch.TTL_MS - API_SWEEP_TIMEOUT_MILLIS) {
+                            invalid = true
+                            break@scan
+                        }
+                        val target = Zapret2SiteSearch.apiSweepTrial(ip, 1, proto)
+                        statusText.text = "API IPv4 #$ip · $proto / $method · ${rows.size}/$total"
+                        val response = try {
+                            withContext(Dispatchers.IO) {
+                                JniXrayRuntime.probeZapret2Google(
+                                    method, target, API_SWEEP_TIMEOUT_MILLIS)
+                            }
+                        } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
+                        ensureActive()
+                        rows += Zapret2GoogleAttempt(method, 1, response, target)
+                        progress.progress = rows.size
+                        if (response.outcome == "dns_not_prepared" ||
+                            response.outcome == "engine_off") {
+                            invalid = true
+                            break@scan
+                        }
+                    }
+                }
+                if (invalid || rows.size != total) {
+                    statusText.text = context.getString(R.string.zapret2_site_search_expired)
+                    resultText.text = statusText.text
+                    resultText.visibility = View.VISIBLE
+                    return@launch
+                }
+                // Confirm up to two transport-positive IP/protocol/method
+                // tuples using independent connections. This is evidence
+                // only and never passes through AUTO's commit interface.
+                val candidates = rows.filter {
+                    it.result.tlsStage == "tls_verified" &&
+                        it.result.httpStatus in 200..499
+                }.take(2).toList()
+                repeatScan@ for (candidate in candidates) {
+                    for (attempt in 2..Zapret2SiteSearch.ATTEMPTS) {
+                        ensureActive()
+                        if (!ready(TunnelState.status.value) ||
+                            NetworkCheck.underlying(context).type.toString() != network ||
+                            SystemClock.elapsedRealtime() - startedAt >=
+                                Zapret2SiteSearch.TTL_MS - API_SWEEP_TIMEOUT_MILLIS) {
+                            break@repeatScan
+                        }
+                        val target = Zapret2SiteSearch.apiSweepTrial(
+                            candidate.result.ipIndex, attempt, candidate.result.protocol)
+                        statusText.text = "API IPv4 #${candidate.result.ipIndex} · " +
+                            "${candidate.result.protocol} / ${candidate.strategy} · $attempt/3"
+                        val response = try {
+                            withContext(Dispatchers.IO) {
+                                JniXrayRuntime.probeZapret2Google(
+                                    candidate.strategy, target, API_SWEEP_TIMEOUT_MILLIS)
+                            }
+                        } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
+                        ensureActive()
+                        rows += Zapret2GoogleAttempt(candidate.strategy, attempt,
+                            response, target)
+                        progress.progress = rows.size
+                        if (response.outcome == "dns_not_prepared" ||
+                            response.outcome == "engine_off") break@repeatScan
+                    }
+                }
+                val report = Zapret2SiteSearch.apiSweepReport(
+                    network, prepared, rows, ipCount)
+                resultText.text = report
+                resultText.visibility = View.VISIBLE
+                val copied = try {
+                    context.getSystemService(ClipboardManager::class.java)?.let {
+                        it.setPrimaryClip(ClipData.newPlainText(
+                            "DPpass API IP/H2 sweep", report))
+                        true
+                    } ?: false
+                } catch (_: SecurityException) { false }
+                  catch (_: IllegalStateException) { false }
+                statusText.text = context.getString(if (copied)
+                    R.string.zapret2_autotest_done
+                    else R.string.zapret2_autotest_copy_failed)
+                host.toast(statusText.text)
+            } catch (_: CancellationException) {
+                statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
+                throw CancellationException("API IPv4/H2 sweep cancelled")
+            } finally {
+                job = null
+                siteInput.isEnabled = true
+                runButton.isEnabled = ready(TunnelState.status.value)
+                dnsButton.isEnabled = ready(TunnelState.status.value)
+                matrixButton.isEnabled = ready(TunnelState.status.value)
+                h3Button.isEnabled = ready(TunnelState.status.value)
+                siteButton.isEnabled = ready(TunnelState.status.value)
+                siteQuicButton.isEnabled = ready(TunnelState.status.value)
+                youtubeHomeButton.isEnabled = ready(TunnelState.status.value)
+                youtubeApiButton.isEnabled = ready(TunnelState.status.value)
+                youtubeThumbnailButton.isEnabled = ready(TunnelState.status.value)
+                youtubeApiSweepButton.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
@@ -780,6 +953,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         const val MATRIX_TIMEOUT_MILLIS = 5_000
         const val H3_TIMEOUT_MILLIS = 8_000
         const val SITE_TIMEOUT_MILLIS = 6_000
+        const val API_SWEEP_TIMEOUT_MILLIS = 5_000
         val TOTAL: Int = Zapret2ProbeCatalog.targets.size *
             Zapret2ProbeCatalog.strategies.size * REPEATS
     }
