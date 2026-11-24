@@ -266,3 +266,7 @@ ConfigureZapret2NeuralNetwork теперь одновременно меняет
 ## CI — исправление cgo export DPTS
 
 Go CI #45455952840 успешно прошёл, Android CI #45455937319 упал на полной opt-in JNI компоновке: cgo сгенерировал два C-параметра с именем _ из nativeDPTSGeneration. Исправлено имя первого параметра на env, как в остальных JNI функциях. Типы, сигнатура Kotlin, формат модели и логика поколения не меняются. Добавлен ранний check_cgo_exports.py с fixtures для повторных blank parameters и multiline declarations, подключён к обеим CI; JNI и guard добавлены в path filters Go regression. Guard проверяет текущий стиль деклараций, не заменяет фактическую cgo компиляцию. Новый CI ожидается.
+
+## A3/A5 — общие read-only recognizers
+
+Обе CI b1e1373 завершены успешно: Go #45456621186, Android #45456602245, включая экспериментальный APK. Перенесены существующие чистые Go recognizers TLS ClientHello, TLS SNI, HTTP Host и QUIC Initial из zapret2 в localdpi без изменения алгоритмов; прежние публичные функции zapret2 делегируют. Пакет переносим, не открывает сокеты и не требует ROOT. Добавлены контрактные тесты. Это общая библиотека распознавания, не импорт нового upstream метода и не доказательство ROOT поддержки. Следующий шаг — проверка границ TLS парсера.

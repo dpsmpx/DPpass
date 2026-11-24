@@ -1,0 +1,132 @@
+package localdpi
+
+// Read-only protocol recognition shared by the local planner and future
+// executors. This package has no socket or privilege dependencies. A
+// recognition hint is not a verified handshake or application response.
+import (
+    "bytes"
+    "encoding/binary"
+)
+
+// Minimal QUIC v1/v2 long-header Initial recognizer. Packet length >= 1200
+// (RFC 9000) guards against DNS or other random UDP, and the version/type
+// check avoids injecting the dummy on unsupported long-header variants.
+func IsQUICInitial(b []byte) bool {
+	if len(b) < 1200 || b[0]&0xc0 != 0xc0 {
+		return false
+	}
+	version := binary.BigEndian.Uint32(b[1:5])
+	kind := (b[0] >> 4) & 3
+	return (version == 0x00000001 && kind == 0) ||
+		(version == 0x6b3343cf && kind == 1)
+}
+
+// IsTLSClientHelloPrefix checks the TLS record and handshake headers without
+// requiring a readable SNI. It is intentionally narrow; random HTTP/2 and
+// arbitrary TCP payloads must pass unmodified.
+func IsTLSClientHelloPrefix(b []byte) bool {
+	return len(b) >= 9 && b[0] == 22 && b[1] == 3 && b[2] <= 4 &&
+		b[5] == 1 && binary.BigEndian.Uint16(b[3:5]) >= 4
+}
+
+// FirstHostRange accepts TLS SNI or an HTTP/1.x Host header.
+func FirstHostRange(b []byte) (start, end int, ok bool) {
+	if s, e, yes := SNIRange(b); yes {
+		return s, e, true
+	}
+	return HTTPHostRange(b)
+}
+
+// Host header is only recognized in a complete HTTP/1.x request, avoiding
+// accidental manipulation of arbitrary TCP streams or partial headers.
+func HTTPHostRange(b []byte) (start, end int, ok bool) {
+	if len(b) < 22 || len(b) > 16*1024 {
+		return 0, 0, false
+	}
+	firstLine := bytes.Index(b, []byte("\r\n"))
+	headersEnd := bytes.Index(b, []byte("\r\n\r\n"))
+	if firstLine <= 0 || headersEnd <= firstLine || !bytes.Contains(b[:firstLine], []byte(" HTTP/1.")) {
+		return 0, 0, false
+	}
+	method := b[:firstLine]
+	valid := false
+	for _, m := range [][]byte{[]byte("GET "), []byte("POST "), []byte("HEAD "), []byte("PUT "), []byte("PATCH "), []byte("DELETE "), []byte("OPTIONS ")} {
+		if bytes.HasPrefix(method, m) {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return 0, 0, false
+	}
+	for p := firstLine + 2; p < headersEnd; {
+		rel := bytes.Index(b[p:headersEnd+2], []byte("\r\n"))
+		if rel < 0 { return 0, 0, false }
+		lineEnd := p + rel
+		colon := bytes.IndexByte(b[p:lineEnd], ':')
+		if colon > 0 && bytes.EqualFold(b[p:p+colon], []byte("Host")) {
+			a := p + colon + 1
+			for a < lineEnd && (b[a] == ' ' || b[a] == '\t') { a++ }
+			e := lineEnd
+			for e > a && (b[e-1] == ' ' || b[e-1] == '\t') { e-- }
+			if e-a == 0 || e-a > 255 || bytes.IndexAny(b[a:e], " \t\r\n") >= 0 {
+				return 0, 0, false
+			}
+			return a, e, true
+		}
+		p = lineEnd + 2
+	}
+	return 0, 0, false
+}
+
+// SNIRange — где в записи TLS лежит имя сервера (server_name): [start, end)
+// байтов имени. ok — это начало ClientHello, и имя целиком в [b].
+func SNIRange(b []byte) (start, end int, ok bool) {
+	// Запись TLS: тип 22 (handshake), версия, длина; затем сообщение 1 (ClientHello).
+	if len(b) < 5+4 || b[0] != 22 || b[5] != 1 {
+		return 0, 0, false
+	}
+	p := 5 + 4 // заголовок записи и сообщения
+	p += 2 + 32 // версия и случайное
+	if p+1 > len(b) {
+		return 0, 0, false
+	}
+	p += 1 + int(b[p]) // session id
+	if p+2 > len(b) {
+		return 0, 0, false
+	}
+	p += 2 + int(binary.BigEndian.Uint16(b[p:])) // наборы шифров
+	if p+1 > len(b) {
+		return 0, 0, false
+	}
+	p += 1 + int(b[p]) // методы сжатия
+	if p+2 > len(b) {
+		return 0, 0, false
+	}
+	extEnd := p + 2 + int(binary.BigEndian.Uint16(b[p:]))
+	p += 2
+	if extEnd > len(b) {
+		extEnd = len(b)
+	}
+	for p+4 <= extEnd {
+		typ := binary.BigEndian.Uint16(b[p:])
+		size := int(binary.BigEndian.Uint16(b[p+2:]))
+		body := p + 4
+		if body+size > len(b) {
+			return 0, 0, false
+		}
+		if typ == 0 { // server_name: список, первый — host_name
+			if size < 5 || b[body+2] != 0 {
+				return 0, 0, false
+			}
+			n := int(binary.BigEndian.Uint16(b[body+3:]))
+			s := body + 5
+			if n == 0 || s+n > body+size {
+				return 0, 0, false
+			}
+			return s, s + n, true
+		}
+		p = body + size
+	}
+	return 0, 0, false
+}
