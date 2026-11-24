@@ -8,7 +8,7 @@ import kotlin.test.assertFailsWith
 
 class DPTestScriptTest {
     @Test fun allShippedPresetsCompileWithFiniteBudget() {
-        assertEquals(8, DPTestPresets.examples.size)
+        assertEquals(9, DPTestPresets.examples.size)
         assertEquals(21, DPTestScript.tcpMethods.size)
         assertTrue("fake-1" in DPTestScript.tcpMethods)
         assertTrue("fake-16" in DPTestScript.tcpMethods)
@@ -97,7 +97,7 @@ class DPTestScriptTest {
     }
 
     @Test fun explicitTrainingIsOptInAndRequiresThreeByThreeH1Evidence() {
-        val p = DPTestScript.parse(DPTestPresets.examples.values.last())
+        val p = DPTestScript.parse(DPTestPresets.examples.getValue("08 · Обучение (строгие 3/3)"))
         assertEquals("tlsrec-split", p.scenarios.single().trainingMethod)
         val bad = p.source.replace("attempts 3", "attempts 2")
         assertFailsWith<IllegalArgumentException> { DPTestScript.parse(bad) }
