@@ -198,7 +198,7 @@ func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2
     // An explicit, validated public-host search is a separate protocol
     // from the legacy hardcoded YouTube/Google targets. It is never
     // reachable by ordinary routing, redirects or Android system DNS.
-    if strings.HasPrefix(targetID,"site_") {
+    if strings.HasPrefix(targetID,"site_") || strings.HasPrefix(targetID,"dpts_") {
         return probeSiteSearchHTTPS(strategy,targetID,timeout)
     }
     started := time.Now()
