@@ -164,6 +164,12 @@ func siteSearchReady(inst *core.Instance, host string, gen uint64) (*siteSearchR
     copied.trials=nil
     return &copied,true
 }
+// Shared admission guard: diagnostic H1/H2 and same-IP SNI controls
+// are never samples for the strict 3/3 native AUTO selection.
+func siteSearchMayRecord(kind string) bool {
+    return kind=="http" || kind=="quic"
+}
+
 func siteSearchRecord(inst *core.Instance, host string, gen uint64,
     index,attempt int, proto,strategy string, outcome string, elapsed int64) {
     siteSearchState.Lock()
@@ -379,7 +385,7 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     if err!=nil {
         result.Outcome="dial_failed"
         if ctx.Err()!=nil {result.Outcome="timeout_dial"}
-        if request.kind=="http" || request.kind=="quic" {
+        if siteSearchMayRecord(request.kind) {
             siteSearchRecord(inst,request.host,gen,request.index,request.attempt,
                 result.Protocol,strategy,result.Outcome,0)
         }
@@ -410,7 +416,7 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     // QUIC TLS is a transport diagnostic only. This never auto-pins an
     // IP shared between unrelated hosts; only 3/3 HTTP evidence can
     // teach the exact-host TCP AUTO selector by explicit apply.
-    if request.kind=="http" || request.kind=="quic" {
+    if siteSearchMayRecord(request.kind) {
         siteSearchRecord(inst,request.host,gen,request.index,request.attempt,
             result.Protocol,strategy,checked.Outcome,checked.Elapsed.Milliseconds())
     }
