@@ -96,7 +96,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         maxLines = 15
         filters = arrayOf(InputFilter.LengthFilter(DptsScript.MAX_SOURCE_LENGTH))
         setText(context.getSharedPreferences("dpts_editor", Context.MODE_PRIVATE)
-            .getString("source", null) ?: DptsPresets.scripts.values.first())
+            .getString("source", null) ?: DptsPresets.scripts.getValue("YouTube · homepage"))
         contentDescription = context.getString(R.string.dpts_script_hint)
     }
     private val dptsPresets = DptsPresets.scripts.keys.toMutableList()
