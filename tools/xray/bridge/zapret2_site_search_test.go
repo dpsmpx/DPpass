@@ -397,3 +397,56 @@ func TestHTTPVersionProbeRejectsUnknownTLSVersion(t *testing.T) {
         t.Fatalf("unexpected invalid-version result: %q",result.Outcome)
     }
 }
+
+func TestDPTSNativePublicHostProtectedProbeGrammarAndNoAuto(t *testing.T) {
+    for _,probe:=range []struct{prefix,kind string}{
+        {"site_script_h1_ip","script_h1"},
+        {"site_script_h2_ip","script_h2"},
+        {"site_script_tls12_ip","script_tls12"},
+        {"site_script_tls13_ip","script_tls13"},
+        {"site_script_quic_ip","script_quic"},
+    } {
+        for ip:=0;ip<siteSweepMaxIPs;ip++ {
+            for attempt:=1;attempt<=siteSearchAttempts;attempt++ {
+                id:=fmt.Sprintf("%s%02d_a%d_:youtubei.googleapis.com",
+                    probe.prefix,ip,attempt)
+                r,ok:=parseSiteSearchRequest(id)
+                if !ok || r.kind!=probe.kind || r.index!=ip ||
+                    r.attempt!=attempt || r.host!="youtubei.googleapis.com" {
+                    t.Fatalf("bad script request: %s %#v %t",id,r,ok)
+                }
+                if siteSearchMayRecord(r.kind) {
+                    t.Fatalf("DPTS diagnostic reached native AUTO: %s",id)
+                }
+            }
+        }
+    }
+    for _,id:=range []string{
+        "site_script_h1_ip08_a1_:youtubei.googleapis.com",
+        "site_script_h1_ip99_a1_:youtubei.googleapis.com",
+        "site_script_h2_ip00_a4_:youtubei.googleapis.com",
+        "site_script_tls13_ip00_a0_:youtubei.googleapis.com",
+        "site_script_quic_ip00_a1_:localhost",
+        "site_script_h1_ip00_a1_:127.0.0.1",
+        "site_script_h1_ip00_a1_:192.168.0.1",
+        "site_script_h1_ip00_a1_:private.example",
+        "site_script_h1_ip00_a1_:youtubei.googleapis.com/path",
+        "site_script_h2_ip00_a1_:https://www.google.com",
+        "site_script_h2_ip00_a1_:www.google.com:444",
+        "site_script_h1_ip00_a1_:www.google.com?token=x",
+        "site_script_h1_ip00_a1_:user@www.google.com",
+    } {
+        if _,ok:=parseSiteSearchRequest(id);ok {
+            t.Fatalf("unsafe DPTS target accepted: %s",id)
+        }
+    }
+}
+
+func TestDPTSProbesCannotPromoteSiteSearchWeights(t *testing.T) {
+    host:="youtubei.googleapis.com"
+    inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1","8.8.8.8"})
+    if siteSearchCommit(inst,host,"plain",gen) ||
+       siteSearchCommit(inst,host,"tlsrec-split",gen) {
+        t.Fatal("script-only observations cannot be accepted for AUTO")
+    }
+}
