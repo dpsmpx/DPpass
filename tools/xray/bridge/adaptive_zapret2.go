@@ -64,21 +64,31 @@ const adaptiveStallCooldown = 90 * time.Second
 // Published atomically from a first Write and observed by concurrent Close.
 type adaptivePick struct {
     host string
-    strategy string
-    generation uint64
+    flow localdpi.FlowIdentity
 }
 
-// Existing socket observations are scoped by the same protocol key as
-// selection. This gate is for the current VPN executor only; future ROOT
-// adapters must carry an explicit executor identity and their own state.
-// The selector checks the captured generation under its lock.
+// The immutable flow identity is captured when the transport selects a
+// method, not reconstructed later from an observation. The existing
+// selector still checks network generation under its lock.
+func newSocketPick(host, method string, generation uint64, transport localdpi.Transport) *adaptivePick {
+    return &adaptivePick{host:host,flow:localdpi.FlowIdentity{
+        Executor:localdpi.VPNSocket,Generation:generation,Transport:transport,MethodID:method,
+    }}
+}
+
+func socketPickAdmissible(pick *adaptivePick) bool {
+    if pick==nil || pick.host=="" {return false}
+    // The legacy selector's protocol namespace must agree with the
+    // explicit identity; never use a TLS observation as HTTP or QUIC.
+    transport:=localdpi.TLS
+    if strings.HasPrefix(pick.host,"http:") {transport=localdpi.HTTP}
+    if strings.HasPrefix(pick.host,"udp:") {transport=localdpi.QUIC}
+    return transport==pick.flow.Transport &&
+        localExecutors.Admit(pick.flow,localdpi.VPNSocket,pick.flow.Generation)
+}
+
 func socketEvidenceAdmissible(pick *adaptivePick, evidence localdpi.Evidence) bool {
-    if pick == nil || pick.host == "" { return false }
-    transport := localdpi.TLS
-    if strings.HasPrefix(pick.host,"http:") { transport=localdpi.HTTP }
-    if strings.HasPrefix(pick.host,"udp:") { transport=localdpi.QUIC }
-    flow:=localdpi.FlowIdentity{Executor:localdpi.VPNSocket,Generation:pick.generation,Transport:transport,MethodID:pick.strategy}
-    if !localExecutors.Admit(flow,localdpi.VPNSocket,pick.generation) { return false }
+    if !socketPickAdmissible(pick) {return false}
     switch evidence.Kind {
     case localdpi.Downstream:
         return evidence.Bytes > 0

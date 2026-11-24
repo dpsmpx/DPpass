@@ -3,6 +3,7 @@
 package bridge
 
 import (
+    "strings"
     "github.com/dpsmpx/dppass/tools/xray/localdpi"
     "net"
     "strconv"
@@ -178,7 +179,7 @@ func TestAdaptiveTCPFirstReplyTimeoutNotDoubleCountedOnClose(t *testing.T) {
         // replies. No real DPI planner or external endpoint is involved.
         conn := &desyncConn{TCPConn: client, firstDone: true}
         conn.stageHelloSent.Store(true)
-        conn.adaptiveSelection.Store(&adaptivePick{host: host, strategy: strategy, generation: generation})
+        conn.adaptiveSelection.Store(newSocketPick(host,strategy,generation,localdpi.TLS))
         if err := client.SetReadDeadline(time.Now().Add(-time.Millisecond)); err != nil { t.Fatal(err) }
         if _, err := conn.Read(make([]byte, 8)); !isZapret2Timeout(err) {
             t.Fatalf("expected a timeout, got %v", err)
@@ -310,8 +311,7 @@ func TestUniversalAUTOQUICRealReadTimeoutIsCountedOnceOnClose(t *testing.T) {
         if err!=nil {receiver.Close();t.Fatal(err)}
         c:=&desyncUDPConn{UDPConn:udp,host:host,mode:desyncMode{kind:desyncAuto}}
         c.stageInitialSent.Store(true)
-        c.adaptiveSelection.Store(&adaptivePick{
-            host:"udp:"+host,strategy:strategy,generation:generation})
+        c.adaptiveSelection.Store(newSocketPick("udp:"+host,strategy,generation,localdpi.QUIC))
         if err:=udp.SetReadDeadline(time.Now().Add(-time.Millisecond));err!=nil {t.Fatal(err)}
         if _,err:=c.Read(make([]byte,2048));!isZapret2Timeout(err) {
             t.Fatalf("expected QUIC no-reply timeout, got %v",err)
@@ -395,14 +395,14 @@ func TestCancelledZeroByteTCPAndUDPCloseDoNotDemotePreferred(t *testing.T) {
         if err != nil { raw.Close(); t.Fatal(err) }
         conn := &desyncConn{TCPConn: raw, firstDone: true}
         conn.stageHelloSent.Store(true)
-        conn.adaptiveSelection.Store(&adaptivePick{host: tcpHost, strategy: tcpStrategy, generation: tcpGen})
+        conn.adaptiveSelection.Store(newSocketPick(tcpHost,tcpStrategy,tcpGen,localdpi.TLS))
         if err := conn.Close(); err != nil { peer.Close(); t.Fatal(err) }
         peer.Close()
         udp, err := net.DialUDP("udp4", nil, receiver.LocalAddr().(*net.UDPAddr))
         if err != nil { t.Fatal(err) }
         uc := &desyncUDPConn{UDPConn: udp}
         uc.stageInitialSent.Store(true)
-        uc.adaptiveSelection.Store(&adaptivePick{host: udpHost, strategy: udpStrategy, generation: udpGen})
+        uc.adaptiveSelection.Store(newSocketPick(udpHost,udpStrategy,udpGen,localdpi.QUIC))
         if err := uc.Close(); err != nil { t.Fatal(err) }
     }
     zapret2Auto.mu.Lock()
@@ -457,8 +457,21 @@ func TestSocketObservationCapabilityGate(t *testing.T) {
         {"example.test","pass",localdpi.Evidence{Kind:localdpi.FirstReplyTimeout,Bytes:1},false},
         {"","pass",down,false},
     } {
-        pick:=&adaptivePick{host:tc.host,strategy:tc.method}
+        transport:=localdpi.TLS
+        if strings.HasPrefix(tc.host,"http:") {transport=localdpi.HTTP}
+        if strings.HasPrefix(tc.host,"udp:") {transport=localdpi.QUIC}
+        pick:=newSocketPick(tc.host,tc.method,0,transport)
         if got:=socketEvidenceAdmissible(pick,tc.evidence);got!=tc.want {t.Fatalf("%+v got %v",tc,got)}
     }
     if socketEvidenceAdmissible(nil,down) {t.Fatal("nil pick admitted")}
+}
+
+func TestSocketPickIdentityCannotCrossExecutorOrProtocol(t *testing.T) {
+    evidence:=localdpi.SocketDownstream(1024)
+    wrong:=newSocketPick("http:example.test","pass",1,localdpi.TLS)
+    if socketEvidenceAdmissible(wrong,evidence) {t.Fatal("wrong protocol admitted")}
+    wrong=newSocketPick("example.test","pass",1,localdpi.TLS)
+    wrong.flow.Executor=localdpi.RootSocket
+    if socketEvidenceAdmissible(wrong,evidence) || socketPickAdmissible(wrong) {t.Fatal("root observation admitted by VPN")}
+    if !socketPickAdmissible(newSocketPick("example.test","pass",1,localdpi.TLS)) {t.Fatal("valid identity rejected")}
 }

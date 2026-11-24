@@ -261,8 +261,8 @@ func (c *desyncConn) Read(b []byte) (int, error) {
             zapret2Stage.tcpFirstReply.Add(1)
             if isTLSAlertRecordHeader(b[:n]) {
                 zapret2Stage.tcpFirstTLSAlert.Add(1)
-            } else if pick := c.adaptiveSelection.Load(); pick != nil && pick.strategy == "pass" {
-                zapret2Auto.retainPlainReply(pick.host, pick.generation)
+            } else if pick := c.adaptiveSelection.Load(); socketPickAdmissible(pick) && pick.flow.MethodID == "pass" {
+                zapret2Auto.retainPlainReply(pick.host, pick.flow.Generation)
             }
         }
         total := c.received.Add(int64(n))
@@ -297,9 +297,9 @@ func recordLocalSocketEvidence(pick *adaptivePick, evidence localdpi.Evidence) {
     if !socketEvidenceAdmissible(pick, evidence) { return }
     switch evidence.Kind {
     case localdpi.Downstream:
-        zapret2Auto.observeTracked(pick.host, pick.strategy, evidence.Bytes, pick.generation)
+        zapret2Auto.observeTracked(pick.host, pick.flow.MethodID, evidence.Bytes, pick.flow.Generation)
     case localdpi.FirstReplyTimeout:
-        zapret2Auto.observeStallTracked(pick.host, pick.strategy, pick.generation)
+        zapret2Auto.observeStallTracked(pick.host, pick.flow.MethodID, pick.flow.Generation)
     }
 }
 
@@ -416,10 +416,12 @@ func (c *desyncConn) desyncFirst(b []byte) (int, error) {
         // Avoid selecting an HTTP no-op when both protocols share a host.
         var choice string
         var generation uint64
+        transport:=localdpi.TLS
         if zapret2.IsTLSClientHelloPrefix(b) {
             key := c.host + "|" + c.TCPConn.RemoteAddr().(*net.TCPAddr).IP.String()
             choice, generation = zapret2Auto.chooseLive(key, adaptiveCandidates[:])
         } else {
+            transport=localdpi.HTTP
             key := "http:" + c.host + "|" + c.TCPConn.RemoteAddr().(*net.TCPAddr).IP.String()
             choice, generation = zapret2Auto.chooseLive(key, adaptiveHTTPCandidates[:])
         }
@@ -430,8 +432,8 @@ func (c *desyncConn) desyncFirst(b []byte) (int, error) {
         }
         c.mode = resolved
         key := c.host + "|" + c.TCPConn.RemoteAddr().(*net.TCPAddr).IP.String()
-        if !zapret2.IsTLSClientHelloPrefix(b) { key = "http:"+key }
-        c.adaptiveSelection.Store(&adaptivePick{host: key, strategy: choice, generation: generation})
+        if transport==localdpi.HTTP { key = "http:"+key }
+        c.adaptiveSelection.Store(newSocketPick(key,choice,generation,transport))
     }
     // Strategy decisions and offsets still come from the shared Go planner,
     // including Alpine over its app-private Unix socket.
@@ -728,8 +730,8 @@ func (c *desyncUDPConn) Read(b []byte) (int, error) {
     if n > 0 {
         if c.stageInitialSent.Load() && c.stageFirstReply.CompareAndSwap(false, true) {
             zapret2Stage.udpFirstReply.Add(1)
-            if pick := c.adaptiveSelection.Load(); pick != nil && pick.strategy == "pass" {
-                zapret2Auto.retainPlainReply(pick.host, pick.generation)
+            if pick := c.adaptiveSelection.Load(); socketPickAdmissible(pick) && pick.flow.MethodID == "pass" {
+                zapret2Auto.retainPlainReply(pick.host, pick.flow.Generation)
             }
         }
         total := c.received.Add(int64(n))
@@ -802,7 +804,7 @@ func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
                 return 0, c.plannerErr
             }
             c.mode = resolved
-            c.adaptiveSelection.Store(&adaptivePick{host:"udp:"+c.host, strategy:choice, generation:generation})
+            c.adaptiveSelection.Store(newSocketPick("udp:"+c.host,choice,generation,localdpi.QUIC))
         }
     }
 

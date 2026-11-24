@@ -3,6 +3,7 @@
 package bridge
 
 import (
+    "github.com/dpsmpx/dppass/tools/xray/localdpi"
     "bytes"
     "io"
     "net"
@@ -61,7 +62,7 @@ func TestTCPWriteToCountsDownloadedPayload(t *testing.T) {
     const host = "adaptive-copy-test.example.org"
     _, generation := zapret2Auto.chooseTracked(host)
     conn := &desyncConn{TCPConn: outgoing}
-    conn.adaptiveSelection.Store(&adaptivePick{host:host, strategy:"fake-5", generation:generation})
+    conn.adaptiveSelection.Store(newSocketPick(host,"fake-5",generation,localdpi.TLS))
     payload := bytes.Repeat([]byte("video-payload-"), 12000)
     sent := make(chan error, 1)
     go func() {
