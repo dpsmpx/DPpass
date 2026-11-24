@@ -3,6 +3,7 @@
 package bridge
 
 import (
+    "fmt"
     "context"
     "net"
     "errors"
@@ -15,8 +16,17 @@ import (
 func TestZapret2AllManualModesAndPrivateProbeTags(t *testing.T) {
     names := []string{"plain", "split-1", "split", "tlsrec-split",
         "fake-3", "fake-5", "disorder", "auto"}
-    if len(zapret2TestStrategies) != len(names) {
-        t.Fatalf("strategy catalog incomplete: %+v", zapret2TestStrategies)
+    if len(zapret2TestStrategies) != len(names)+14 {
+        t.Fatalf("script TTL strategy catalog incomplete: %+v", zapret2TestStrategies)
+    }
+    for ttl:=1;ttl<=16;ttl++ {
+        name:=fmt.Sprintf("fake-%d",ttl)
+        if zapret2TestStrategies[name]!="dppass:test-"+name {
+            t.Fatalf("missing protected TTL outbounds: %s",name)
+        }
+        if _,ok,err:=parseDesyncTag("dppass:exp-"+name);!ok||err!=nil {
+            t.Fatalf("underlying TTL profile missing: %s %v",name,err)
+        }
     }
     for _, name := range names {
         tag := zapret2TestStrategies[name]
