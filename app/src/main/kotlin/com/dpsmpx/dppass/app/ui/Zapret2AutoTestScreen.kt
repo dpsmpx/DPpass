@@ -2,6 +2,8 @@ package com.dpsmpx.dppass.app.ui
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
+import android.app.AlertDialog
 import android.os.SystemClock
 import android.view.View
 import android.text.InputType
@@ -24,6 +26,8 @@ import com.dpsmpx.dppass.engine.xray.Zapret2MatrixReport
 import com.dpsmpx.dppass.engine.xray.Zapret2H3Policy
 import com.dpsmpx.dppass.engine.xray.Zapret2H3Report
 import com.dpsmpx.dppass.engine.xray.Zapret2SiteSearch
+import com.dpsmpx.dppass.engine.xray.DPTestScript
+import com.dpsmpx.dppass.engine.xray.DPTestPresets
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -76,6 +80,26 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         context, R.string.zapret2_youtube_api_sni_control_button, Ui.Style.OUTLINE, R.drawable.ic_dns)
     private val apiTLSVersionButton: Button = Ui.button(
         context, R.string.zapret2_youtube_api_tls_version_button, Ui.Style.OUTLINE, R.drawable.ic_dns)
+    private val scriptInput = EditText(context).apply {
+        hint = context.getString(R.string.dpts_script_hint)
+        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        isSingleLine = false
+        minLines = 9
+        maxLines = 19
+        setHorizontallyScrolling(false)
+        setTextIsSelectable(true)
+        setText(context.getSharedPreferences("dpts", Context.MODE_PRIVATE).getString(
+            "script", DPTestPresets.examples.values.first()) ?: DPTestPresets.examples.values.first())
+    }
+    private val scriptPresetButton = Ui.button(
+        context, R.string.dpts_preset, Ui.Style.OUTLINE, R.drawable.ic_dns)
+    private val scriptValidateButton = Ui.button(
+        context, R.string.dpts_validate, Ui.Style.OUTLINE, R.drawable.ic_speed)
+    private val scriptRunButton = Ui.button(
+        context, R.string.dpts_run, Ui.Style.PRIMARY, R.drawable.ic_speed)
+    private val scriptStopButton = Ui.button(
+        context, R.string.dpts_stop, Ui.Style.OUTLINE, R.drawable.ic_dns)
     private val progress = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
         max = TOTAL
         visibility = View.GONE
@@ -139,6 +163,21 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             Ui.matchWidth())
         addView(Ui.text(context, R.style.Text_DPpass_Caption,
             context.getString(R.string.zapret2_site_search_note)), Ui.matchWidth())
+        addView(Ui.section(context, context.getString(R.string.dpts_title)),
+            Ui.matchWidth())
+        addView(Ui.text(context, R.style.Text_DPpass_Caption,
+            context.getString(R.string.dpts_note)), Ui.matchWidth())
+        addView(scriptPresetButton.apply { setOnClickListener { chooseScriptPreset() } },
+            Ui.matchWidth())
+        addView(scriptInput, Ui.matchWidth())
+        addView(scriptValidateButton.apply { setOnClickListener { previewScript() } },
+            Ui.matchWidth())
+        addView(scriptRunButton.apply { setOnClickListener { runScript() } },
+            Ui.matchWidth())
+        addView(scriptStopButton.apply {
+            isEnabled = false
+            setOnClickListener { job?.cancel() }
+        }, Ui.matchWidth())
         addView(progress, Ui.matchWidth())
         addView(statusText, Ui.matchWidth())
         addView(resultText, Ui.matchWidth())
@@ -166,6 +205,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         youtubeApiSweepButton.isEnabled = ready(status)
         apiSniControlButton.isEnabled = ready(status)
         apiTLSVersionButton.isEnabled = ready(status)
+        scriptRunButton.isEnabled = ready(status)
+        scriptStopButton.isEnabled = false
         if (!ready(status)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
         }
@@ -1272,6 +1313,189 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 youtubeApiSweepButton.isEnabled = ready(TunnelState.status.value)
                 apiSniControlButton.isEnabled = ready(TunnelState.status.value)
                 apiTLSVersionButton.isEnabled = ready(TunnelState.status.value)
+            }
+        }
+    }
+
+    private fun chooseScriptPreset() {
+        if (job?.isActive == true) return
+        val labels = DPTestPresets.examples.keys.toTypedArray()
+        AlertDialog.Builder(context)
+            .setTitle(R.string.dpts_preset)
+            .setItems(labels) { _, which ->
+                val source = DPTestPresets.examples.values.elementAt(which)
+                scriptInput.setText(source)
+                scriptInput.setSelection(source.length)
+                previewScript()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun previewScript() {
+        if (job?.isActive == true) return
+        try {
+            val program = DPTestScript.parse(scriptInput.text.toString())
+            context.getSharedPreferences("dpts", Context.MODE_PRIVATE).edit()
+                .putString("script", program.source).apply()
+            resultText.text = program.preview()
+            resultText.visibility = View.VISIBLE
+            statusText.text = context.getString(R.string.dpts_validation_ok)
+        } catch (e: IllegalArgumentException) {
+            statusText.text = context.getString(R.string.dpts_validation_error) +
+                ": " + (e.message ?: "invalid script")
+            resultText.text = statusText.text
+            resultText.visibility = View.VISIBLE
+        }
+    }
+
+    private fun setScriptBusy(busy: Boolean) {
+        val ready = ready(TunnelState.status.value)
+        scriptRunButton.isEnabled = ready && !busy
+        scriptValidateButton.isEnabled = !busy
+        scriptPresetButton.isEnabled = !busy
+        scriptStopButton.isEnabled = busy
+        scriptInput.isEnabled = !busy
+        runButton.isEnabled = ready && !busy
+        dnsButton.isEnabled = ready && !busy
+        matrixButton.isEnabled = ready && !busy
+        h3Button.isEnabled = ready && !busy
+        siteButton.isEnabled = ready && !busy
+        siteQuicButton.isEnabled = ready && !busy
+        youtubeHomeButton.isEnabled = ready && !busy
+        youtubeApiButton.isEnabled = ready && !busy
+        youtubeThumbnailButton.isEnabled = ready && !busy
+        youtubeApiSweepButton.isEnabled = ready && !busy
+        apiSniControlButton.isEnabled = ready && !busy
+        apiTLSVersionButton.isEnabled = ready && !busy
+    }
+
+    private fun copyScriptLog(report: String): Boolean = try {
+        context.getSystemService(ClipboardManager::class.java)?.let {
+            it.setPrimaryClip(ClipData.newPlainText("DPTest Script redacted log", report))
+            true
+        } ?: false
+    } catch (_: SecurityException) { false }
+      catch (_: IllegalStateException) { false }
+
+    /** Runs a fully validated and expanded immutable plan, never source code. */
+    private fun runScript() {
+        if (job?.isActive == true) return
+        val program = try {
+            DPTestScript.parse(scriptInput.text.toString())
+        } catch (e: IllegalArgumentException) {
+            statusText.text = context.getString(R.string.dpts_validation_error) +
+                ": " + (e.message ?: "invalid script")
+            resultText.text = statusText.text
+            resultText.visibility = View.VISIBLE
+            return
+        }
+        if (!ready(TunnelState.status.value)) {
+            statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
+            return
+        }
+        val network = NetworkCheck.underlying(context).type.toString()
+        context.getSharedPreferences("dpts", Context.MODE_PRIVATE).edit()
+            .putString("script", program.source).apply()
+        setScriptBusy(true)
+        progress.visibility = View.VISIBLE
+        progress.max = program.steps + program.scenarios.size * 2
+        progress.progress = 0
+        resultText.visibility = View.GONE
+        val entries = mutableListOf<DPTestScript.ReportEntry>()
+        val started = SystemClock.elapsedRealtime()
+        job = host.scope.launch {
+            var complete = true
+            var reason = "completed"
+            suspend fun nativeProbe(method: String, target: String, deadline: Int):
+                Zapret2GoogleProbe = try {
+                withContext(Dispatchers.IO) {
+                    JniXrayRuntime.probeZapret2Google(method, target, deadline)
+                }
+            } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
+
+            try {
+                suite@ for ((scenarioIndex, scenario) in program.scenarios.withIndex()) {
+                    ensureActive()
+                    if (!ready(TunnelState.status.value) ||
+                        NetworkCheck.underlying(context).type.toString() != network ||
+                        SystemClock.elapsedRealtime() - started >= DPTestScript.MAX_WALL_MS) {
+                        complete = false
+                        reason = "network_changed_or_budget_expired"
+                        break@suite
+                    }
+                    statusText.text = "DPTS · DoH · " + scenario.host
+                    val prep = nativeProbe("plain", Zapret2SiteSearch.prepare(scenario.host),
+                        DNS_TIMEOUT_MILLIS)
+                    ensureActive()
+                    entries += DPTestScript.ReportEntry(scenarioIndex, null, prep)
+                    progress.progress = progress.progress + 1
+                    if (prep.outcome != "dns_ready" || prep.dnsAnswers < scenario.ipCount) {
+                        complete = false
+                        reason = "dns_unavailable_or_not_enough_public_ipv4"
+                        break@suite
+                    }
+                    for (step in scenario.steps) {
+                        ensureActive()
+                        if (!ready(TunnelState.status.value) ||
+                            NetworkCheck.underlying(context).type.toString() != network ||
+                            SystemClock.elapsedRealtime() - started >= DPTestScript.MAX_WALL_MS) {
+                            complete = false
+                            reason = "network_changed_or_budget_expired"
+                            break@suite
+                        }
+                        statusText.text = "DPTS " + scenario.host + " · IPv4 #" +
+                            step.ipIndex + " · " + step.protocol + "/" +
+                            step.method + " · " + step.attempt + "/" + scenario.attempts
+                        val reply = nativeProbe(step.method, step.nativeTarget,
+                            scenario.timeoutMillis)
+                        ensureActive()
+                        entries += DPTestScript.ReportEntry(scenarioIndex, step, reply)
+                        progress.progress = progress.progress + 1
+                        if (reply.outcome in setOf(
+                            "dns_not_prepared", "engine_off", "invalid_target",
+                            "invalid_strategy", "invalid_timeout", "contract_error")) {
+                            complete = false
+                            reason = reply.outcome
+                            break@suite
+                        }
+                        if (scenario.stopOnVerified && DPTestScript.verified(reply)) {
+                            complete = false
+                            reason = "first_verified"
+                            break@suite
+                        }
+                    }
+                    // Only an explicitly requested user scenario can teach.
+                    // Native rechecks all original 3/3 content and baseline
+                    // evidence, independent of any text log or UI claims.
+                    scenario.trainingMethod?.let { method ->
+                        ensureActive()
+                        val result = nativeProbe(method, "dpts_train:" + scenario.host,
+                            DNS_TIMEOUT_MILLIS)
+                        entries += DPTestScript.ReportEntry(scenarioIndex, null,
+                            result, training = true)
+                        progress.progress = progress.progress + 1
+                    }
+                }
+            } catch (_: CancellationException) {
+                complete = false
+                reason = "cancelled"
+                // Always copy a partial redacted report, including the
+                // distinction between incomplete and completed tests.
+            } catch (e: Exception) {
+                complete = false
+                reason = "execution_error_" + e.javaClass.simpleName
+            } finally {
+                val report = DPTestScript.report(program, network, entries, complete) +
+                    "reason=" + reason + "\n"
+                resultText.text = report
+                resultText.visibility = View.VISIBLE
+                val copied = copyScriptLog(report)
+                statusText.text = context.getString(if (copied)
+                    R.string.dpts_copied else R.string.zapret2_autotest_copy_failed) +
+                    " (" + reason + ")"
+                setScriptBusy(false)
+                job = null
             }
         }
     }
