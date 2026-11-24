@@ -201,7 +201,7 @@ class XrayCompiler(
                 build.reject(DiagCode.CAPABILITY_FEATURE_UNSUPPORTED, "без сервера DNS-сервер «${server.id}» через туннель вести некуда", "$.dns.servers[$i]")
             }
         }
-        if (plan.byeDpiPort != null && (plan.byeDpiPort !in 1024..65535 || !plan.withTun || plan.desync != null)) {
+        if (plan.byeDpiPort != null && (plan.byeDpiPort !in 1024..65535 || !plan.withTun || plan.desync != null || plan.byeDpiToken?.matches(Regex("[0-9a-f]{48}")) != true)) {
             build.reject(DiagCode.CAPABILITY_FEATURE_UNSUPPORTED, "invalid local ByeDPI plan", "$.serverless.byedpi")
         }
         val ir = ConfigIr(name = null, profiles = emptyList(), routing = RoutingPolicy(defaultAction = RouteAction.DIRECT), dns = plan.dns)
@@ -235,7 +235,8 @@ class XrayCompiler(
                     DnsStrategy.IPV4_ONLY -> "ForceIPv4"
                     DnsStrategy.IPV6_ONLY -> "ForceIPv6"
                 }),
-                "settings" to Json.obj("address" to Json.str("127.0.0.1"), "port" to Json.num(plan.byeDpiPort)))
+                "settings" to Json.obj("address" to Json.str("127.0.0.1"), "port" to Json.num(plan.byeDpiPort),
+                    "user" to Json.str("dppass"), "pass" to Json.str(plan.byeDpiToken!!)))
         } else if (plan.desync != null) {
             // Не прокси и не внешний сервер: freedom напрямую, а dialerProxy
             // выбирает обработчик первого TCP-пакета в защищённом Go-сокете.

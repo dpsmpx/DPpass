@@ -746,7 +746,7 @@ class DPpassVpnService : VpnService() {
         val result = try {
             core.connectServerless(handle.toTunInput(), sites, settings,
                 desync = desync, forceQuicTcp = forceQuicTcp, catchAllHttps = catchAllHttps,
-                byeDpiPort = byeDpi?.port) { _, dns ->
+                byeDpiPort = byeDpi?.port, byeDpiToken = byeDpi?.token) { _, dns ->
                 withContext(Dispatchers.IO) { graph.engine.probeServerless(dns, probeTimeout) }
             }
         } catch (e: CancellationException) {

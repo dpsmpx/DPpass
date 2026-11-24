@@ -92,7 +92,7 @@ object ServerlessMode {
     )
 
     fun plan(s: ServerlessSettings, sites: SplitSites, policy: UserPolicy, desync: DesyncTrick? = null,
-        forceQuicTcp: Boolean = false, catchAllHttps: Boolean = false, byeDpiPort: Int? = null): ServerlessPlan =
+        forceQuicTcp: Boolean = false, catchAllHttps: Boolean = false, byeDpiPort: Int? = null, byeDpiToken: String? = null): ServerlessPlan =
         ServerlessPlan(dns(s, policy), sites, splitRest = s.rest == ServerlessSettings.Rest.SPLIT,
-            desync = desync, forceQuicTcp = forceQuicTcp, catchAllHttps = catchAllHttps, byeDpiPort = byeDpiPort)
+            desync = desync, forceQuicTcp = forceQuicTcp, catchAllHttps = catchAllHttps, byeDpiPort = byeDpiPort, byeDpiToken = byeDpiToken)
 }

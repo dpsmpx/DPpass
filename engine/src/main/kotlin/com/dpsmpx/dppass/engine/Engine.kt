@@ -234,6 +234,7 @@ data class ServerlessPlan(
     val catchAllHttps: Boolean = false,
     /** App-owned original ByeDPI SOCKS listener, always on loopback. */
     val byeDpiPort: Int? = null,
+    val byeDpiToken: String? = null,
 ) {
     companion object {
         /** Сеанс без сервера в `CompiledConfig.profileId`: не профиль документа — в id профиля нет двоеточий. */

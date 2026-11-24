@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from android_auth import patch
 
 REPO = "https://github.com/hufrea/byedpi.git"
 COMMIT = "7efde1b1296eaaa187b70e951894dde17527489c"
@@ -35,10 +36,11 @@ def main():
         actual = subprocess.check_output(["git", "-C", str(src), "rev-parse", "HEAD"], text=True).strip()
         if actual != COMMIT:
             raise ValueError("Unexpected ByeDPI source commit")
+        patch(src / "proxy.c")
         assets = ROOT / "app/src/main/assets/byedpi"
         assets.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(src / "LICENSE", assets / "LICENSE.txt")
-        entries = ["source=https://github.com/hufrea/byedpi/tree/" + COMMIT]
+        entries = ["source=https://github.com/hufrea/byedpi/tree/" + COMMIT, "patch=DPpass local SOCKS authentication"]
         for abi in abis:
             out = ROOT / "app/src/main/jniLibs" / abi / "libciadpi.so"
             out.parent.mkdir(parents=True, exist_ok=True)

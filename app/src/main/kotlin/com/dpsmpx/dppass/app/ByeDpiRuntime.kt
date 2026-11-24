@@ -16,6 +16,7 @@ import java.util.concurrent.TimeUnit
 /** Original ciadpi with a same-UID, private SCM_RIGHTS socket protection service. */
 internal class ByeDpiRuntime private constructor(
     val port: Int,
+    val token: String,
     private val process: java.lang.Process,
     private val bound: LocalSocket,
     private val server: LocalServerSocket,
@@ -43,6 +44,8 @@ internal class ByeDpiRuntime private constructor(
 
         fun start(vpn: VpnService): ByeDpiRuntime {
             val binary = executable(vpn)
+            val token = ByteArray(24).also { java.security.SecureRandom().nextBytes(it) }
+                .joinToString("") { "%02x".format(it.toInt() and 255) }
             val dir = File(vpn.noBackupFilesDir, "bd").apply { mkdirs() }
             val path = File(dir, "p-" + android.os.Process.myPid() + "-" + (System.nanoTime() and 0xffff).toString(16))
             check(path.absolutePath.toByteArray().size < 100 && !path.exists())
@@ -83,7 +86,7 @@ internal class ByeDpiRuntime private constructor(
                 val port = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
                 val child = ProcessBuilder(listOf(binary.absolutePath, "--ip", "127.0.0.1",
                     "--port", port.toString(), "--protect-path", path.absolutePath, "--no-domain") + strategy)
-                    .redirectErrorStream(true).start()
+                    .redirectErrorStream(true).apply { environment()["DPPASS_SOCKS_TOKEN"] = token }.start()
                 process = child
                 Thread({ runCatching { child.inputStream.use { input ->
                     val buffer = ByteArray(1024)
@@ -96,11 +99,16 @@ internal class ByeDpiRuntime private constructor(
                             check(vpn.protect(s))
                             s.connect(InetSocketAddress("127.0.0.1", port), 200)
                             s.soTimeout = 300
-                            s.getOutputStream().write(byteArrayOf(5, 1, 0))
-                            s.getInputStream().read() == 5 && s.getInputStream().read() == 0
+                            s.getOutputStream().write(byteArrayOf(5, 1, 2))
+                            val input = java.io.DataInputStream(s.getInputStream())
+                            check(input.readUnsignedByte() == 5 && input.readUnsignedByte() == 2)
+                            val user = "dppass".toByteArray()
+                            val pass = token.toByteArray()
+                            s.getOutputStream().write(byteArrayOf(1, user.size.toByte()) + user + byteArrayOf(pass.size.toByte()) + pass)
+                            input.readUnsignedByte() == 1 && input.readUnsignedByte() == 0
                         }
                     }.getOrDefault(false)
-                    if (ready) return ByeDpiRuntime(port, child, bound, listener, path)
+                    if (ready) return ByeDpiRuntime(port, token, child, bound, listener, path)
                     Thread.sleep(40)
                 }
                 error("Original ByeDPI SOCKS listener did not become ready")

@@ -1146,12 +1146,14 @@ class XrayCompilerTest {
             "local", leakProtection = false)
         val sites = SplitSites.parse("youtube.com").valueOrNull()!!
         val result = XrayCompiler().compileServerless(ServerlessPlan(dns, sites,
-            splitRest = false, byeDpiPort = 41000))
+            splitRest = false, byeDpiPort = 41000, byeDpiToken = "a".repeat(48)))
         val doc = Json.parse(result.valueOrNull()!!.payloadForEngine()) as JsonObject
         val socks = outbound(doc, XrayBackend.TAG_PROXY)
         assertEquals("socks", socks["protocol"].text)
         assertEquals("127.0.0.1", socks["settings"]["address"].text)
         assertEquals("41000", socks["settings"]["port"].text)
+        assertEquals("dppass", socks["settings"]["user"].text)
+        assertEquals("a".repeat(48), socks["settings"]["pass"].text)
         assertTrue(socks["targetStrategy"].text.startsWith("Force"))
         assertTrue(doc["outbounds"].items.none { it["tag"].text.startsWith("dppass:exp-") })
         assertEquals(XrayBackend.TAG_PROXY,
