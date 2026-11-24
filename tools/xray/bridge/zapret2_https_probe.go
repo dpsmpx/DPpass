@@ -209,6 +209,8 @@ func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2
     out := Zapret2HTTPSResult{Outcome:"invalid_strategy"}
     tag, valid := zapret2TestStrategies[strategy]
     if !valid { return out }
+    // Extended profiles are reserved for the independent DPTS grammar.
+    switch strategy { case "split-2", "fake-2", "fake-4", "fake-8": return out }
     target, valid := zapret2TestTargets[targetID]
     dohProvider := ""
     matrix := false

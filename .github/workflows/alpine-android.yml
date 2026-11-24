@@ -275,7 +275,7 @@ jobs:
           - Tests can distinguish DoH unreachability from target TLS blocking, without making unfounded claims of working feeds, videos or censorship cause.
           Development PR: https://github.com/dpsmpx/DPpass/pull/42
           EOF
-      - name: Create or update commit-specific GitHub prerelease
+      - name: Create or update GitHub release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -290,7 +290,7 @@ jobs:
             flags=(--latest)
             title="DPpass 0.8.2 — ARM64 release"
             notes="$RUNNER_TEMP/dppass-stable-notes.md"
-            printf '%s\n' 'DPpass 0.8.2, versionCode 155. Signed ARM64 APK, applicationId com.dpsmpx.dppass. The previous direct-distribution certificate is unchanged. Training result is appended to the automatically copied DPTS report. No debug APK is included. Real-device network results remain unverified.' > "$notes"
+            printf '%s\n' 'DPpass 0.8.2, versionCode 155. Signed ARM64 APK, applicationId com.dpsmpx.dppass. The previous direct-distribution certificate is unchanged. Training result is appended to the automatically copied DPTS report. Four additional native DPTS profiles are available: split-2, fake-2, fake-4, fake-8. Full upstream Zapret2/ByeDPI integration is not included. No debug APK is included. Real-device network results remain unverified.' > "$notes"
           fi
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             target="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq '.targetCommitish')"

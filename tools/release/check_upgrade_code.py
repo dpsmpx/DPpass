@@ -14,7 +14,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 GRADLE = "app/build.gradle.kts"
-TAG = re.compile(r"^v\d+\.\d+\.\d+-alpha\.\d+$")
+TAG = re.compile(r"^v\d+\.\d+\.\d+(?:-alpha\.\d+)?$")
+ALPINE_TAG = re.compile(r"^zapret2-alpine-[0-9a-f]{12}$")
+
+
+def update_candidate(rel):
+    if rel["draft"]:
+        return False
+    tag = rel["tag_name"]
+    if TAG.fullmatch(tag):
+        return True
+    return bool(ALPINE_TAG.fullmatch(tag) and any(
+        a["name"].endswith("-release-signed.apk") for a in rel.get("assets", [])))
 
 
 def version_code(source: str) -> int:
@@ -31,12 +42,12 @@ def api(path: str):
 
 def latest_published_alpha(repo: str):
     releases = api(f"repos/{repo}/releases?per_page=100")
-    published = [r for r in releases if not r["draft"] and TAG.fullmatch(r["tag_name"])]
+    published = [r for r in releases if update_candidate(r)]
     if not published:
         raise ValueError("Нет опубликованных Android alpha-релизов для сверки versionCode")
     # Сверяем несколько последних, а не только последний по времени.
     versions = []
-    for rel in published[:10]:
+    for rel in published:
         tag = rel["tag_name"]
         entry = api(f"repos/{repo}/contents/{GRADLE}?ref={tag}")
         source = base64.b64decode(entry["content"]).decode("utf-8")
@@ -48,6 +59,8 @@ def main():
     repo = os.environ.get("GITHUB_REPOSITORY", "dpsmpx/DPpass")
     local = version_code((ROOT / GRADLE).read_text(encoding="utf-8"))
     previous, tag = latest_published_alpha(repo)
+    if previous < 154:
+        previous, tag = 154, "confirmed installed DPpass 0.8.1"
     if local <= previous:
         print(f"✗ versionCode={local}: опубликованный {tag} имеет {previous}; "
               "Android отклонит обновление как downgrade. Увеличьте versionCode.")
