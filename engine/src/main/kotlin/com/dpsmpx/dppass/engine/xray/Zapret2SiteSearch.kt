@@ -216,12 +216,12 @@ object Zapret2SiteSearch {
                 it.result.ipIndex == ip && it.target.startsWith(googlePrefix) }
             val a = api.count(::tlsReached)
             val g = google.count(::tlsReached)
-            appendLine("  ip_index=$ip TLS1.$v: API TLS/HTTP=$a/${api.size};" +
+            appendLine("  ip_index=$ip TLS1.${v % 10}: API TLS/HTTP=$a/${api.size};" +
                 " Google TLS/HTTP=$g/${google.size}")
             if (api.size == ATTEMPTS && google.size == ATTEMPTS &&
                 a == 0 && g == ATTEMPTS) {
                 appendLine("  Стабильное различие по имени TLS на одном IP" +
-                    " при TLS 1.$v, но причина не установлена.")
+                    " при TLS 1.${v % 10}, но причина не установлена.")
             }
         }
         for (row in rows) {
