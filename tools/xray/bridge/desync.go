@@ -389,9 +389,11 @@ func (c *desyncConn) desyncFirst(b []byte) (int, error) {
         var choice string
         var generation uint64
         if zapret2.IsTLSClientHelloPrefix(b) {
-            choice, generation = zapret2Auto.chooseLive(c.host, adaptiveCandidates[:])
+            key := c.host + "|" + c.TCPConn.RemoteAddr().(*net.TCPAddr).IP.String()
+            choice, generation = zapret2Auto.chooseLive(key, adaptiveCandidates[:])
         } else {
-            choice, generation = zapret2Auto.chooseLive("http:"+c.host, adaptiveHTTPCandidates[:])
+            key := "http:" + c.host + "|" + c.TCPConn.RemoteAddr().(*net.TCPAddr).IP.String()
+            choice, generation = zapret2Auto.chooseLive(key, adaptiveHTTPCandidates[:])
         }
         resolved, ok, err := parseDesyncTag(zapret2.TagPrefix + choice)
         if !ok || err != nil || resolved.kind == desyncAuto {
@@ -399,7 +401,7 @@ func (c *desyncConn) desyncFirst(b []byte) (int, error) {
             return 0, c.plannerErr
         }
         c.mode = resolved
-        key := c.host
+        key := c.host + "|" + c.TCPConn.RemoteAddr().(*net.TCPAddr).IP.String()
         if !zapret2.IsTLSClientHelloPrefix(b) { key = "http:"+key }
         c.adaptiveSelection.Store(&adaptivePick{host: key, strategy: choice, generation: generation})
     }
@@ -698,6 +700,9 @@ func (c *desyncUDPConn) Read(b []byte) (int, error) {
     if n > 0 {
         if c.stageInitialSent.Load() && c.stageFirstReply.CompareAndSwap(false, true) {
             zapret2Stage.udpFirstReply.Add(1)
+            if pick := c.adaptiveSelection.Load(); pick != nil && pick.strategy == "pass" {
+                zapret2Auto.retainPlainReply(pick.host, pick.generation)
+            }
         }
         total := c.received.Add(int64(n))
         if total >= adaptivePayloadThreshold {

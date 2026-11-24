@@ -347,3 +347,14 @@ func TestLiveStartsPlainAndKeepsTransportReachabilityWithoutGlobalProof(t *testi
     a.observeStallTracked(host, "pass", generation)
     if got, _ := a.chooseLive(host, adaptiveCandidates[:]); got == "pass" { t.Fatal("stalled plain must allow alternatives") }
 }
+
+func TestLiveAddressEvidenceIsIsolated(t *testing.T) {
+    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry)}
+    one := "www.example.org|192.0.2.1"
+    two := "www.example.org|192.0.2.2"
+    _, generation := a.chooseLive(one, adaptiveCandidates[:])
+    a.retainPlainReply(one, generation)
+    a.chooseLive(two, adaptiveCandidates[:])
+    if got, _ := a.chooseLive(two, adaptiveCandidates[:]); got == "pass" { t.Fatal("other IP inherited reachability") }
+    if got, _ := a.chooseLive(one, adaptiveCandidates[:]); got != "pass" { t.Fatal("first IP lost its own evidence") }
+}

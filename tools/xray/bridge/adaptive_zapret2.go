@@ -9,6 +9,7 @@ package bridge
 import (
     "errors"
     "strings"
+    "net"
     "sync"
     "time"
     "unicode"
@@ -52,6 +53,7 @@ type adaptiveEntry struct {
     // Never inferred from QUIC handshakes or shared-IP observations.
     verifiedFallback string
     weakFailures int
+    plainReachable bool
     smallResponses map[string]int
     probeSeeded bool // eligible for smaller verified-HTML responses
     usage map[string]int // bounded per-destination cold-start exploration
@@ -101,6 +103,18 @@ func canonicalAdaptiveHost(host string) string {
         if r > unicode.MaxASCII || !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '.' || r == '-' || r == ':' || r == '[' || r == ']') { return "" }
     }
     return host
+}
+
+// A live key may contain a concrete TCP peer after |. Never persist this
+// address in neural sparse keys or reuse host-only probe evidence for it.
+func adaptiveHostOnly(key string) string { return strings.SplitN(key, "|", 2)[0] }
+func canonicalAdaptiveKey(key string) string {
+    parts := strings.SplitN(key, "|", 2)
+    host := canonicalAdaptiveHost(parts[0])
+    if host == "" || len(parts) == 1 { return host }
+    ip := net.ParseIP(parts[1])
+    if ip == nil { return "" }
+    return host + "|" + ip.String()
 }
 
 // A suffix match is allowed only at a DNS-label boundary. User overrides
@@ -189,10 +203,10 @@ func (a *adaptiveSelector) chooseLive(host string, candidates []string) (string,
 }
 
 func (a *adaptiveSelector) choosePolicy(host string, candidates []string, directFirst bool) (string, uint64) {
-    host = canonicalAdaptiveHost(host)
+    host = canonicalAdaptiveKey(host)
     a.mu.Lock()
     defer a.mu.Unlock()
-    if host == "" { return candidates[0], a.generation }
+    if host == "" { if directFirst { return "pass", a.generation }; return candidates[0], a.generation }
     if len(a.entries) >= adaptiveMaxHosts {
         a.entries = make(map[string]*adaptiveEntry)
     }
@@ -221,6 +235,7 @@ func (a *adaptiveSelector) choosePolicy(host string, candidates []string, direct
             // host and generation; no retry within an existing TCP flow.
             fallback := e.verifiedFallback
             e.preferred = ""
+            e.plainReachable = false
             e.probeSeeded = false
             e.verifiedFallback = ""
             if fallback != "" && !blocked(fallback) {
@@ -257,7 +272,7 @@ func (a *adaptiveSelector) choosePolicy(host string, candidates []string, direct
     // A local neural prior must not suppress the plain TCP baseline.
     // Always try "pass" when its deterministic turn arrives, even with MLP.
     if tag != "pass" && e.index%5 != 4 {
-        if ranked, ok := zapret2Neural.rank(host, candidates, e.usage); ok && !blocked(ranked) {
+        if ranked, ok := zapret2Neural.rank(adaptiveHostOnly(host), candidates, e.usage); ok && !blocked(ranked) {
             tag = ranked
         }
     }
@@ -272,9 +287,10 @@ func (a *adaptiveSelector) retainPlainReply(host string, generation uint64) {
     a.mu.Lock()
     defer a.mu.Unlock()
     if a.generation != generation { return }
-    e := a.entries[canonicalAdaptiveHost(host)]
+    e := a.entries[canonicalAdaptiveKey(host)]
     if e == nil { return }
     e.preferred = "pass"
+    e.plainReachable = true
     e.probeSeeded = false
     e.weakFailures = 0
     delete(e.stalls, "pass")
@@ -300,7 +316,7 @@ func (a *adaptiveSelector) observeStallTracked(host, strategy string, generation
     a.mu.Lock()
     defer a.mu.Unlock()
     if a.generation != generation { return }
-    host = canonicalAdaptiveHost(host)
+    host = canonicalAdaptiveKey(host)
     e := a.entries[host]
     if e == nil { return }
     known := false
@@ -320,6 +336,7 @@ func (a *adaptiveSelector) observeStallTracked(host, strategy string, generation
             backup := e.verifiedFallback
             e.verifiedFallback = ""
             e.preferred = ""
+            e.plainReachable = false
             e.probeSeeded = false
             e.weakFailures = 0
             e.smallResponses = nil
@@ -336,7 +353,7 @@ func (a *adaptiveSelector) observeStallTracked(host, strategy string, generation
 }
 
 func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int64) {
-    host = canonicalAdaptiveHost(host)
+    host = canonicalAdaptiveKey(host)
     e := a.entries[host]
     if e == nil { return }
     // Meaningful downstream data clears previous timeout suspicions for
@@ -349,7 +366,8 @@ func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int
     // The same observations drive the old conservative per-host pinning
     // AND, if explicitly installed, the optional global neural prior.
     // Do not train on simulated selectors used by unit tests.
-    if a == zapret2Auto { zapret2Neural.learn(host, strategy, payloadBytes) }
+    if a == zapret2Auto { zapret2Neural.learn(adaptiveHostOnly(host), strategy, payloadBytes) }
+    if e.plainReachable && e.preferred == "pass" && strategy != "pass" { return }
     if payloadBytes >= adaptivePayloadThreshold {
         // A different candidate with a full-sized downstream flow may
         // supersede the HTML hint. The SAME verified candidate should not
@@ -371,6 +389,7 @@ func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int
             e.weakFailures++
             if e.weakFailures >= 2 {
                 e.preferred = ""
+            e.plainReachable = false
                 e.probeSeeded = false
                 e.weakFailures = 0
                 e.smallResponses = nil
