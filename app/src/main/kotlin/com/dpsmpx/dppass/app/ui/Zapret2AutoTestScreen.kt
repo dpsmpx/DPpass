@@ -242,6 +242,26 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 statusText.text = context.getString(R.string.dpts_suite_unsupported)
             }
         }
+        val launched = job ?: return
+        dptsRunButton.isEnabled = false
+        dptsLoadButton.isEnabled = false
+        dptsSaveButton.isEnabled = false
+        dptsTrainButton.isEnabled = false
+        dptsStopButton.isEnabled = true
+        dptsEditor.isEnabled = false
+        dptsPresetSpinner.isEnabled = false
+        dptsNameInput.isEnabled = false
+        launched.invokeOnCompletion {
+            host.scope.launch {
+                dptsRunButton.isEnabled = ready(TunnelState.status.value)
+                dptsLoadButton.isEnabled = true
+                dptsSaveButton.isEnabled = true
+                dptsStopButton.isEnabled = false
+                dptsEditor.isEnabled = true
+                dptsPresetSpinner.isEnabled = true
+                dptsNameInput.isEnabled = true
+            }
+        }
     }
 
     private fun refreshScriptCatalog() {
