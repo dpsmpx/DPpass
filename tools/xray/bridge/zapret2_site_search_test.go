@@ -207,3 +207,40 @@ func TestSiteSearchNeverUsesUnverifiedBackup(t *testing.T) {
     zapret2Auto.mu.Unlock()
     if fallback!="" {t.Fatalf("unverified backup selected: %s",fallback)}
 }
+
+func TestSiteSearchServiceTargetsUseRealResourceNotMissingRoot(t *testing.T) {
+    image:=siteSearchHTTPTarget("i.ytimg.com")
+    if image.host!="i.ytimg.com" || image.path!="/vi/jNQXAC9IVRw/hqdefault.jpg" ||
+        image.contentKind!="jpeg" || !image.ipv4Only {
+        t.Fatalf("thumbnail must use fixed public JPEG, got %#v",image)
+    }
+    validJPEG:=append([]byte{0xff,0xd8,0xff},make([]byte,253)...)
+    if got:=classifyProbeHTTP(200,"image/jpeg",validJPEG,nil,image);got!="ok" {
+        t.Fatalf("valid thumbnail must verify content, got %s",got)
+    }
+    if got:=classifyProbeHTTP(404,"text/html",[]byte("not found"),nil,image);got=="ok" {
+        t.Fatal("404 root falsely verified as thumbnail JPEG")
+    }
+    api:=siteSearchHTTPTarget("youtubei.googleapis.com")
+    if api.path!="/youtubei/v1/browse" || api.contentKind!="http_transport" ||
+        !api.ipv4Only {t.Fatalf("API is not a bounded transport-only test: %#v",api)}
+    if got:=classifyProbeHTTP(403,"application/json",[]byte("{}"),nil,api);got!="http_reachable" {
+        t.Fatalf("authenticated API failure must be transport only, got %s",got)
+    }
+    generic:=siteSearchHTTPTarget("example.org")
+    if generic.path!="/" || generic.contentKind!="site_http" ||
+        generic.host!="example.org" {t.Fatalf("generic domain request changed: %#v",generic)}
+}
+
+func TestSiteSearchHTTPTransportOnlyDoesNotAutoPromote(t *testing.T) {
+    host:="example.org"
+    inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1"})
+    for attempt:=1;attempt<=3;attempt++ {
+        siteSearchRecord(inst,host,gen,0,attempt,"h1","plain","redirect",260)
+        siteSearchRecord(inst,host,gen,0,attempt,"h1","tlsrec-split","http_reachable",280)
+    }
+    if siteSearchCommit(inst,host,"plain",gen) ||
+        siteSearchCommit(inst,host,"tlsrec-split",gen) {
+        t.Fatal("3xx/4xx HTTP reachability must not be promoted as 2xx content")
+    }
+}
