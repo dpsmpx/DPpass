@@ -32,8 +32,8 @@ var socketPath atomic.Value
 
 func init() { socketPath.Store("") }
 
-// SetPlannerSocket selects Alpine as the only decision maker. Empty path
-// retains the same in-process shared planner on platforms without Alpine.
+// SetPlannerSocket selects Alpine for planning, except the explicitly tagged
+// native experiment. Empty path retains the in-process shared planner.
 func SetPlannerSocket(path string) error {
     if path != "" && (!strings.HasPrefix(path, "/") || len(path) > 99 || strings.Contains(path, "\x00")) {
         return errors.New("invalid Alpine planner Unix socket")
@@ -69,20 +69,6 @@ func PlanFor(tag, network string, first []byte) (Plan, error) {
     if err = dec.Decode(&reply); err != nil { return Plan{}, fmt.Errorf("Alpine strategy reply: %w", err) }
     if reply.Error != "" { return Plan{}, errors.New(reply.Error) }
     p := reply.Plan
-    if p.Network != network || p.Strategy != tag || (p.Applied && (network == "tcp" && (p.Cut < 1 || p.Cut >= len(first)))) {
-        return Plan{}, errors.New("invalid Alpine strategy decision")
-    }
-    if network == "tcp" {
-        if tag == TagPrefix+"tlsrec-split" && p.Applied &&
-            (len(p.Rewrite) != len(first)+5 || p.Cut < 9 || p.Cut >= len(p.Rewrite)-5) {
-            return Plan{}, errors.New("invalid Alpine TLS record rewrite")
-        }
-        if tag != TagPrefix+"tlsrec-split" && len(p.Rewrite) != 0 {
-            return Plan{}, errors.New("unexpected Alpine TLS rewrite")
-        }
-    }
-    if network == "udp" && p.Applied && (p.Repeats < 1 || p.Repeats > 16 || len(p.Fake) != len(first)) {
-        return Plan{}, errors.New("invalid Alpine QUIC plan")
-    }
+    if err := validatePlan(tag,network,first,p); err != nil { return Plan{},err }
     return p, nil
 }
