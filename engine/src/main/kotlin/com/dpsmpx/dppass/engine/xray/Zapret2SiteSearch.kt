@@ -190,6 +190,54 @@ object Zapret2SiteSearch {
         appendLine("IP, пути, тела ответов, сертификаты и ключи не экспортируются.")
     }
 
+
+    /** Two IPv4 addresses, 2 TLS versions, 2 certificate-verified SNI names. */
+    fun tlsVersionTrial(index: Int, attempt: Int, version: Int,
+        google: Boolean): String {
+        require(index in 0 until MAX_IPS && attempt in 1..ATTEMPTS)
+        require(version == 12 || version == 13)
+        return "site_tls${version}_" + (if (google) "google" else "api") +
+            "_ip" + index.toString().padStart(2, '0') +
+            "_a${attempt}_:${YOUTUBE_API_HOST}"
+    }
+
+    fun tlsVersionReport(network: String, prepared: Zapret2GoogleProbe,
+        rows: List<Zapret2GoogleAttempt>, ipCount: Int): String = buildString {
+        appendLine("=== DPpass — сравнение TLS 1.2 и TLS 1.3 на IP YouTube API ===")
+        appendLine("Сеть: $network; DoH: ${prepared.outcome}; IPv4=${prepared.dnsAnswers};" +
+            " fingerprint=${prepared.dnsFingerprint}")
+        appendLine("Протокол: HTTPS HTTP/1.1, plain, проверка сертификата и исходного SNI.")
+        for (ip in 0 until ipCount) for (v in listOf(12, 13)) {
+            val apiPrefix = "site_tls${v}_api_ip"
+            val googlePrefix = "site_tls${v}_google_ip"
+            val api = rows.filter {
+                it.result.ipIndex == ip && it.target.startsWith(apiPrefix) }
+            val google = rows.filter {
+                it.result.ipIndex == ip && it.target.startsWith(googlePrefix) }
+            val a = api.count(::tlsReached)
+            val g = google.count(::tlsReached)
+            appendLine("  ip_index=$ip TLS1.$v: API TLS/HTTP=$a/${api.size};" +
+                " Google TLS/HTTP=$g/${google.size}")
+            if (api.size == ATTEMPTS && google.size == ATTEMPTS &&
+                a == 0 && g == ATTEMPTS) {
+                appendLine("  Стабильное различие по имени TLS на одном IP" +
+                    " при TLS 1.$v, но причина не установлена.")
+            }
+        }
+        for (row in rows) {
+            val r = row.result
+            val version = if (row.target.startsWith("site_tls12_")) "1.2" else "1.3"
+            val hostKind = if (row.target.contains("_google_ip")) "google" else "api"
+            appendLine("  ip_index=${r.ipIndex} tls=$version sni=$hostKind" +
+                " attempt=${row.attempt} outcome=${r.outcome}" +
+                " stage=${r.tlsStage} alpn=${r.alpn} http=${r.httpStatus}" +
+                " elapsed_ms=${r.elapsedMillis}")
+        }
+        appendLine("AUTO: not_applied. Это только диагностика.")
+        appendLine("TLS-успех не подтверждает работу авторизованного API, ленты или видео.")
+        appendLine("Не экспортируются IP, приватные пути, тела, ключи и сертификаты.")
+    }
+
     data class Candidate(
         val method: String,
         val verified: Int,
