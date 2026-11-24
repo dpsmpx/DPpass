@@ -3,6 +3,7 @@
  * modifying function in this prototype. */
 #include "packet_inspect.h"
 #include "packets.h"
+#include <string.h>
 
 int dp_packet_inspect(const uint8_t *data, size_t size,
                       struct dp_packet_inspection *result)
@@ -21,4 +22,23 @@ int dp_packet_inspect(const uint8_t *data, size_t size,
         result->hint = DP_PACKET_HTTP_CANDIDATE;
     }
     return 0;
+}
+
+// The existing Go planner chooses the split; native code only encodes it.
+// Bound all lengths before invoking the upstream in-place helper.
+int dp_tls_record_split(const uint8_t *data, size_t size, size_t offset,
+                        uint8_t *output, size_t capacity)
+{
+    if (!data || !output || size < 9 || size > DP_TLS_REWRITE_MAX ||
+        capacity < size + 5 || data[0] != 22 || data[1] != 3 ||
+        data[2] > 4 || data[5] != 1) return -1;
+    size_t record = ((size_t)data[3] << 8) | data[4];
+    size_t hello = ((size_t)data[6] << 16) | ((size_t)data[7] << 8) | data[8];
+    if (record < 12 || record > 16384 || record > size - 5 ||
+        hello == 0 || hello > record - 4 || offset <= 4 ||
+        offset >= record) return -1;
+    memcpy(output, data, size);
+    // Every upstream early-return condition is excluded by the checks
+    // above; offset fits long and size fits ssize_t on supported hosts.
+    return part_tls((char *)output, size + 5, (ssize_t)size, (long)offset) == 5 ? 0 : -1;
 }

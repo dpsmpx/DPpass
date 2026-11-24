@@ -57,6 +57,28 @@ int main(void)
         assert(memcmp(copy,b,n)==0);
         free(copy); free(b);
     }
-    puts("DPpass packet inspection ABI: 8192 bounded fixtures passed");
+    /* Compare the native record encoder against the original handshake
+     * bytes, including a second record following the first. */
+    uint8_t input[522], out[527], saved[522];
+    memcpy(input,tls_data,517);
+    memcpy(input+517,"TAIL!",5);
+    memcpy(saved,input,sizeof(input));
+    for (size_t cut=5;cut<512;++cut) {
+        assert(dp_tls_record_split(input,sizeof(input),cut,out,sizeof(out))==0);
+        assert(!memcmp(input,saved,sizeof(input)));
+        assert(!memcmp(out,input,3));
+        assert((((size_t)out[3]<<8)|out[4])==cut);
+        assert(!memcmp(out+5,input+5,cut));
+        assert(!memcmp(out+5+cut,input,3));
+        assert((((size_t)out[8+cut]<<8)|out[9+cut])==512-cut);
+        assert(!memcmp(out+10+cut,input+5+cut,sizeof(input)-5-cut));
+    }
+    memset(out,0xA5,sizeof(out));
+    assert(dp_tls_record_split(input,8,5,out,sizeof(out))==-1);
+    assert(dp_tls_record_split(input,sizeof(input),4,out,sizeof(out))==-1);
+    assert(dp_tls_record_split(input,sizeof(input),512,out,sizeof(out))==-1);
+    assert(dp_tls_record_split(input,sizeof(input),10,out,sizeof(input))==-1);
+    for (size_t i=0;i<sizeof(out);++i) assert(out[i]==0xA5);
+    puts("DPpass packet inspection ABI: 8192 bounded fixtures and 507 record splits passed");
     return 0;
 }

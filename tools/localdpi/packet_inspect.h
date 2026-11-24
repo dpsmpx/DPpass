@@ -30,4 +30,13 @@ struct dp_packet_inspection {
 int dp_packet_inspect(const uint8_t *data, size_t size,
                       struct dp_packet_inspection *result);
 
+/* Copy and split a complete TLS ClientHello record at a caller-validated
+ * offset within its handshake body. Preserves handshake and trailing bytes.
+ * Returns 0 on success, -1 on rejection; writes no output on rejection.
+ * Input/output must be separate valid objects, with capacity >= size+5.
+ * This is a restricted wrapper around upstream part_tls, not a new parser. */
+#define DP_TLS_REWRITE_MAX 65536u
+int dp_tls_record_split(const uint8_t *data, size_t size, size_t offset,
+                        uint8_t *output, size_t capacity);
+
 #endif
