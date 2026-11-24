@@ -30,6 +30,7 @@ on:
       - release/zapret2-v0.7.74-youtube-api-tls-version-control
       - release/dpts-v0.8.0-alpha1
       - release/dpts-v0.8.1-unified
+      - release/dpts-v0.8.2
   workflow_dispatch:
 
 concurrency:
@@ -187,7 +188,7 @@ jobs:
   publish-release:
     name: Publish tested Alpine APK to Releases
     needs: alpine-android
-    if: github.ref == 'refs/heads/feature/zapret2-alpine-terminal' || github.ref == 'refs/heads/release/zapret2-v0.7.56-neural-auto' || github.ref == 'refs/heads/release/zapret2-v0.7.57-param-auto' || github.ref == 'refs/heads/release/zapret2-v0.7.58-learning' || github.ref == 'refs/heads/release/zapret2-v0.7.59-api-diagnostics' || github.ref == 'refs/heads/release/zapret2-v0.7.60-doh-comparison' || github.ref == 'refs/heads/release/zapret2-v0.7.61-ip-tls-quic' || github.ref == 'refs/heads/release/zapret2-v0.7.62-controls-h2' || github.ref == 'refs/heads/release/zapret2-v0.7.63-http3-api' || github.ref == 'refs/heads/release/zapret2-v0.7.64-h3-google-controls' || github.ref == 'refs/heads/release/zapret2-v0.7.65-quic-reply-headers' || github.ref == 'refs/heads/release/zapret2-v0.7.66-quic-v1-v2-compare' || github.ref == 'refs/heads/release/zapret2-v0.7.67-quic-v1-repeatability' || github.ref == 'refs/heads/release/zapret2-v0.7.68-universal-auto-health' || github.ref == 'refs/heads/release/zapret2-v0.7.69-site-strategy-search' || github.ref == 'refs/heads/release/zapret2-v0.7.70-youtube-host-fallback' || github.ref == 'refs/heads/release/zapret2-v0.7.71-http-transport-fix' || github.ref == 'refs/heads/release/zapret2-v0.7.72-youtube-api-ip-h2-sweep' || github.ref == 'refs/heads/release/zapret2-v0.7.73-youtube-same-ip-sni-control' || github.ref == 'refs/heads/release/zapret2-v0.7.74-youtube-api-tls-version-control' || github.ref == 'refs/heads/release/dpts-v0.8.0-alpha1' || github.ref == 'refs/heads/release/dpts-v0.8.1-unified'
+    if: github.ref == 'refs/heads/feature/zapret2-alpine-terminal' || github.ref == 'refs/heads/release/zapret2-v0.7.56-neural-auto' || github.ref == 'refs/heads/release/zapret2-v0.7.57-param-auto' || github.ref == 'refs/heads/release/zapret2-v0.7.58-learning' || github.ref == 'refs/heads/release/zapret2-v0.7.59-api-diagnostics' || github.ref == 'refs/heads/release/zapret2-v0.7.60-doh-comparison' || github.ref == 'refs/heads/release/zapret2-v0.7.61-ip-tls-quic' || github.ref == 'refs/heads/release/zapret2-v0.7.62-controls-h2' || github.ref == 'refs/heads/release/zapret2-v0.7.63-http3-api' || github.ref == 'refs/heads/release/zapret2-v0.7.64-h3-google-controls' || github.ref == 'refs/heads/release/zapret2-v0.7.65-quic-reply-headers' || github.ref == 'refs/heads/release/zapret2-v0.7.66-quic-v1-v2-compare' || github.ref == 'refs/heads/release/zapret2-v0.7.67-quic-v1-repeatability' || github.ref == 'refs/heads/release/zapret2-v0.7.68-universal-auto-health' || github.ref == 'refs/heads/release/zapret2-v0.7.69-site-strategy-search' || github.ref == 'refs/heads/release/zapret2-v0.7.70-youtube-host-fallback' || github.ref == 'refs/heads/release/zapret2-v0.7.71-http-transport-fix' || github.ref == 'refs/heads/release/zapret2-v0.7.72-youtube-api-ip-h2-sweep' || github.ref == 'refs/heads/release/zapret2-v0.7.73-youtube-same-ip-sni-control' || github.ref == 'refs/heads/release/zapret2-v0.7.74-youtube-api-tls-version-control' || github.ref == 'refs/heads/release/dpts-v0.8.0-alpha1' || github.ref == 'refs/heads/release/dpts-v0.8.1-unified' || github.ref == 'refs/heads/release/dpts-v0.8.2'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -214,7 +215,9 @@ jobs:
             exit 1
           fi
           short="${GITHUB_SHA:0:12}"
-          cp -- "${apks[0]}" "release-assets/DPpass-Zapret2-Alpine-${short}-arm64-v8a-debug.apk"
+          if [[ "$GITHUB_REF_NAME" != "release/dpts-v0.8.2" ]]; then
+            cp -- "${apks[0]}" "release-assets/DPpass-Zapret2-Alpine-${short}-arm64-v8a-debug.apk"
+          fi
           mapfile -d '' -t signed < <(find release-signed-input -type f -name '*.apk' -print0)
           if [[ ${#signed[@]} -ne 1 ]]; then
             echo "::error::Expected one pinned-certificate release APK"
@@ -231,8 +234,8 @@ jobs:
           Branch: ${GITHUB_REF_NAME}
           Commit: ${GITHUB_SHA}
           Actions run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
-          Android package: com.dpsmpx.dppass.alpine
-          Build: experimental Android ARM64 DEBUG + optimized RELEASE signed by pinned alpha key
+          Debug package (CI only for stable release): com.dpsmpx.dppass.alpine
+          Build: Android ARM64 optimized RELEASE signed by established direct-distribution key; separate debug variant for CI
           Release applicationId: com.dpsmpx.dppass
           Release signer SHA256: c18792812566ca4a18b518d51313515ff2d62bf8299446e99943eeb5d0630d11
           EOF
@@ -279,6 +282,16 @@ jobs:
         run: |
           set -euo pipefail
           tag="zapret2-alpine-${GITHUB_SHA:0:12}"
+          flags=(--prerelease --latest=false)
+          title="DPpass Neural AUTO ARM64 signed alpha test (${GITHUB_SHA:0:12})"
+          notes="$RUNNER_TEMP/alpine-release-notes.md"
+          if [[ "$GITHUB_REF_NAME" == "release/dpts-v0.8.2" ]]; then
+            tag=v0.8.2
+            flags=(--latest)
+            title="DPpass 0.8.2 — ARM64 release"
+            notes="$RUNNER_TEMP/dppass-stable-notes.md"
+            printf '%s\n' 'DPpass 0.8.2, versionCode 155. Signed ARM64 APK, applicationId com.dpsmpx.dppass. The previous direct-distribution certificate is unchanged. Training result is appended to the automatically copied DPTS report. No debug APK is included. Real-device network results remain unverified.' > "$notes"
+          fi
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             target="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq '.targetCommitish')"
             if [[ "$target" != "$GITHUB_SHA" ]]; then
@@ -287,9 +300,9 @@ jobs:
             fi
           else
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" --prerelease --latest=false \
-              --title "DPpass Neural AUTO ARM64 signed alpha test (${GITHUB_SHA:0:12})" \
-              --notes-file "$RUNNER_TEMP/alpine-release-notes.md"
+              --target "$GITHUB_SHA" "${flags[@]}" \
+              --title "$title" \
+              --notes-file "$notes"
           fi
           gh release upload "$tag" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url,isDraft,isPrerelease,assets
