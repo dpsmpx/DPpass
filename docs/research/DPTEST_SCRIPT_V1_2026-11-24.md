@@ -61,6 +61,7 @@ train verified METHOD only compiles with a 3-attempt H1 scenario on exactly two 
 6. QUIC v1 and v2 handshake.
 7. HTTP/3 GET and fixed anonymous YouTube browse POST.
 8. Neural training eligibility from real 3/3 verified HTML evidence.
+9. Full manually triggered fake TTL1..16 quick scan (one sample/profile/IP; not stable evidence).
 
 ## Future native capability work
 
