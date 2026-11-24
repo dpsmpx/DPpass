@@ -6,6 +6,7 @@ import com.dpsmpx.dppass.engine.DesyncTrick
 import com.dpsmpx.dppass.routing.AppPolicy
 import com.dpsmpx.dppass.routing.DnsPolicy
 import com.dpsmpx.dppass.routing.DnsRoute
+import com.dpsmpx.dppass.routing.DnsStrategy
 import com.dpsmpx.dppass.routing.DnsServer
 import com.dpsmpx.dppass.routing.DnsTransport
 import com.dpsmpx.dppass.routing.RouteAction
@@ -76,23 +77,23 @@ object ServerlessMode {
      * Защиты от утечки нет по смыслу режима: имена спрашиваются мимо
      * туннеля, и это написано у выбора DNS.
      */
-    fun dns(s: ServerlessSettings, policy: UserPolicy): DnsPolicy {
+    fun dns(s: ServerlessSettings, policy: UserPolicy, ipv4Only: Boolean = false): DnsPolicy {
         val transport = when (s.dns) {
             ServerlessSettings.Dns.DOH -> DnsTransport.Https(policy.dns.url)
             ServerlessSettings.Dns.SYSTEM -> DnsTransport.System
         }
-        return DnsPolicy(listOf(DnsServer(DNS_SERVER, transport, DnsRoute.DIRECT)), DNS_SERVER, leakProtection = false)
+        return DnsPolicy(listOf(DnsServer(DNS_SERVER, transport, DnsRoute.DIRECT)), DNS_SERVER, strategy = if (ipv4Only) DnsStrategy.IPV4_ONLY else DnsStrategy.PREFER_IPV4, leakProtection = false)
     }
 
-    fun config(s: ServerlessSettings, policy: UserPolicy): ConfigIr = ConfigIr(
+    fun config(s: ServerlessSettings, policy: UserPolicy, ipv4Only: Boolean = false): ConfigIr = ConfigIr(
         name = null,
         profiles = emptyList(),
         routing = RoutingPolicy(defaultAction = RouteAction.DIRECT, apps = apps(s, policy), bypassLan = policy.bypassLan),
-        dns = dns(s, policy),
+        dns = dns(s, policy, ipv4Only),
     )
 
     fun plan(s: ServerlessSettings, sites: SplitSites, policy: UserPolicy, desync: DesyncTrick? = null,
-        forceQuicTcp: Boolean = false, catchAllHttps: Boolean = false, byeDpiPort: Int? = null, byeDpiToken: String? = null): ServerlessPlan =
-        ServerlessPlan(dns(s, policy), sites, splitRest = s.rest == ServerlessSettings.Rest.SPLIT,
+        forceQuicTcp: Boolean = false, catchAllHttps: Boolean = false, byeDpiPort: Int? = null, byeDpiToken: String? = null, ipv4Only: Boolean = false): ServerlessPlan =
+        ServerlessPlan(dns(s, policy, ipv4Only), sites, splitRest = s.rest == ServerlessSettings.Rest.SPLIT,
             desync = desync, forceQuicTcp = forceQuicTcp, catchAllHttps = catchAllHttps, byeDpiPort = byeDpiPort, byeDpiToken = byeDpiToken)
 }

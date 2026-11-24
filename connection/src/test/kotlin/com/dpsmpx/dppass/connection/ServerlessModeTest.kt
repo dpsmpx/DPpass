@@ -50,6 +50,20 @@ class ServerlessModeTest {
     }
 
     @Test
+    fun localIpv4PolicyMatchesConfigAndPlanWithoutChangingDefault() {
+        val policy = UserPolicy()
+        for (mode in ServerlessSettings.Dns.entries) {
+            val settings = ServerlessSettings(dns = mode)
+            val config = ServerlessMode.config(settings, policy, ipv4Only = true)
+            val plan = ServerlessMode.plan(settings, sites, policy, ipv4Only = true)
+            assertEquals(com.dpsmpx.dppass.routing.DnsStrategy.IPV4_ONLY, config.dns.strategy)
+            assertEquals(config.dns, plan.dns)
+            assertEquals(com.dpsmpx.dppass.routing.DnsStrategy.PREFER_IPV4,
+                ServerlessMode.config(settings, policy).dns.strategy)
+        }
+    }
+
+    @Test
     fun configFollowsTheChoices() {
         val policy = UserPolicy(appMode = AppMode.EXCEPT, apps = setOf("com.example.bank"), dns = DnsProvider.QUAD9, bypassLan = false)
         val base = ServerlessMode.config(ServerlessSettings.DEFAULT, policy)

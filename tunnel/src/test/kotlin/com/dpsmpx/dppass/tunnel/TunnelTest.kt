@@ -39,6 +39,19 @@ class TunnelSpecBuilderTest {
     }
 
     @Test
+    fun virtualDnsIsExplicitlyRoutedDespiteLanBypass() {
+        val config = ir.copy(routing = ir.routing.copy(bypassLan = true))
+        val dnsRoute = Cidr.of(TunnelSpecBuilder.TUN_DNS4, 32)
+        for (supportsExclude in listOf(false, true)) {
+            val spec = TunnelSpecBuilder.build(config, "com.dpsmpx.dppass",
+                PlatformTraits(supportsExclude)).valueOrNull()!!
+            assertTrue(dnsRoute in spec.routes)
+            assertEquals(listOf(TunnelSpecBuilder.TUN_DNS4), spec.dnsServers)
+            assertFalse(spec.routes.any { it == Cidr.of(IpAddress.parse("172.19.0.3")!!, 32) })
+        }
+    }
+
+    @Test
     fun onlyAppsModeNeverIncludesSelf() {
         val only = ir.copy(routing = ir.routing.copy(apps = AppPolicy.OnlyApps(setOf("com.dpsmpx.dppass", "com.example.a")), rules = emptyList()))
         val spec = TunnelSpecBuilder.build(only, "com.dpsmpx.dppass", PlatformTraits(true)).valueOrNull()!!

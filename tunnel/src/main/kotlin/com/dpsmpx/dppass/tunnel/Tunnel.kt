@@ -81,7 +81,11 @@ object TunnelSpecBuilder {
         // Приложения в туннеле спрашивают DNS у внутреннего адреса; ядро перехватывает
         // запросы и отвечает по DnsPolicy (в том числе через «прямой» сервер, если так задано).
         val ipv6 = if (platform.supportsIpv6) Ipv6Mode.TUNNELED else Ipv6Mode.BLOCKED
-        return Outcome.Success(TunnelSpec(ADDRESS4, ADDRESS6, routes, excluded, listOf(TUN_DNS4), mtu, apps, ipv6))
+        // The virtual DNS IP is inside 172.16/12, which bypassLan excludes.
+        // Install an explicit /32 even on pre-33 complement routes. Longest
+        // prefix wins over the LAN exclusion; no other LAN address changes.
+        val dnsRoutes = if (ir.routing.bypassLan) routes + Cidr.of(TUN_DNS4, 32) else routes
+        return Outcome.Success(TunnelSpec(ADDRESS4, ADDRESS6, dnsRoutes, excluded, listOf(TUN_DNS4), mtu, apps, ipv6))
     }
 
     private fun withoutSelf(apps: AppPolicy, self: String): AppPolicy = when (apps) {

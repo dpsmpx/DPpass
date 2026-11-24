@@ -623,7 +623,13 @@ class DPpassVpnService : VpnService() {
     ) {
         val core = graph.core
         val name = label ?: getString(R.string.serverless_name)
-        val tunSpec = when (val spec = core.tunnelSpecFor(core.serverlessConfig(settings))) {
+        // RC3 field evidence: the local mobile adapter repeatedly dials
+        // unreachable IPv6 peers while IPv4 controls work. Do not advertise
+        // AAAA to applications in this experimental mobile mode. Keep IPv6
+        // TUN routes to avoid silently bypassing the VPN.
+        val localEngine = desync != null || useByeDpi
+        val ipv4Only = localEngine && NetworkCheck.underlying(this).type == NetworkType.MOBILE
+        val tunSpec = when (val spec = core.tunnelSpecFor(core.serverlessConfig(settings, ipv4Only))) {
             is Outcome.Failure -> {
                 fail(spec.errors.first())
                 return
@@ -749,7 +755,7 @@ class DPpassVpnService : VpnService() {
         val result = try {
             core.connectServerless(handle.toTunInput(), sites, settings,
                 desync = desync, forceQuicTcp = forceQuicTcp, catchAllHttps = catchAllHttps,
-                byeDpiPort = byeDpi?.port, byeDpiToken = byeDpi?.token) { _, dns ->
+                byeDpiPort = byeDpi?.port, byeDpiToken = byeDpi?.token, ipv4Only = ipv4Only) { _, dns ->
                 withContext(Dispatchers.IO) { graph.engine.probeServerless(dns, probeTimeout) }
             }
         } catch (e: CancellationException) {
@@ -772,6 +778,7 @@ class DPpassVpnService : VpnService() {
                 if (accepted) {
                     core.log.info("connected", "profile" to Safe(ServerlessPlan.PROFILE_ID.value),
                         "attempts" to 1, "local_desync" to (desync != null),
+                        "local_backend" to Safe(if (useByeDpi) "byedpi" else if (desync != null) "zapret2" else "serverless"),
                         "content_verified" to false,
                         "zapret2_planner" to Safe(if (desync == null) "off" else if (alpineStrategy != null) "alpine" else "in_process"))
                     progress(TunnelStatus.Connected(ServerlessPlan.PROFILE_ID, name, core.clock.nowMillis(), Clock.MONOTONIC.nowMillis()))
@@ -863,6 +870,10 @@ class DPpassVpnService : VpnService() {
             val owners = graph.owners
             var diagUp = 0L
             var diagDown = 0L
+            var localAllUp = 0L
+            var localAllDown = 0L
+            var localProxyUp = 0L
+            var localProxyDown = 0L
             // Xray desync counters are process-wide; baselines must start at
             // this VPN session, unlike per-session traffic counters.
             var diagApplied = initialCounters?.applied ?: 0L
@@ -877,6 +888,26 @@ class DPpassVpnService : VpnService() {
                 // A successful DoH probe cannot prove that YouTube feed/CDN
                 // payloads arrived. Periodic privacy-safe transport counters
                 // make "connected but feed stalls" measurable in device logs.
+                if (ticks % 30L == 0L && AppPrefs(this@DPpassVpnService).zapret2Backend in
+                    setOf(Zapret2Backend.VPN_SERVICE, Zapret2Backend.BYEDPI_VPN)) {
+                    val proxyStats = session.stats()
+                    val allStats = runCatching { JniXrayRuntime.displayTraffic() }.getOrNull()
+                    if (allStats != null) {
+                        val proxyUp = (proxyStats.uplinkBytes - localProxyUp).coerceAtLeast(0)
+                        val proxyDown = (proxyStats.downlinkBytes - localProxyDown).coerceAtLeast(0)
+                        val allUp = (allStats.uplinkBytes - localAllUp).coerceAtLeast(0)
+                        val allDown = (allStats.downlinkBytes - localAllDown).coerceAtLeast(0)
+                        core.log.info("local_path_window",
+                            "backend" to Safe(if (byeDpi != null) "byedpi" else "zapret2"),
+                            "proxy_up" to proxyUp, "proxy_down" to proxyDown,
+                            "other_up" to (allUp - proxyUp).coerceAtLeast(0),
+                            "other_down" to (allDown - proxyDown).coerceAtLeast(0))
+                        localAllUp = allStats.uplinkBytes
+                        localAllDown = allStats.downlinkBytes
+                        localProxyUp = proxyStats.uplinkBytes
+                        localProxyDown = proxyStats.downlinkBytes
+                    }
+                }
                 if (ticks % 30L == 0L && AppPrefs(this@DPpassVpnService).zapret2Backend == Zapret2Backend.VPN_SERVICE) {
                     val stats = session.stats()
                     val probes = graph.engine.desyncCounters()

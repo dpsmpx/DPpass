@@ -611,7 +611,9 @@ class SettingsScreen(host: Host) : Screen(host) {
         host.prefs.serverless = next
         val core = host.graph?.core
         core?.log?.info("serverless_set", "rest" to Safe(next.rest.wire), "dns" to Safe(next.dns.wire), "apps" to Safe(next.apps.wire))
-        if (core?.activation?.state?.activeConfig == null) host.reconnectIfBusy()
+        if (core?.activation?.state?.activeConfig == null ||
+            host.prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE ||
+            host.prefs.zapret2Backend == Zapret2Backend.BYEDPI_VPN) host.reconnectIfBusy()
         host.changed()
     }
 

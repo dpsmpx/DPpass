@@ -516,7 +516,8 @@ class DPpassCore(
         activation.state.activeConfig == null && !relaySelected && ServerlessMode.useful(sites, settings)
 
     /** Конфигурация режима без сервера — для TUN и «Проверить маршрут». */
-    fun serverlessConfig(settings: ServerlessSettings): ConfigIr = ServerlessMode.config(settings, userPolicy.currentOrDefault())
+    fun serverlessConfig(settings: ServerlessSettings, ipv4Only: Boolean = false): ConfigIr =
+        ServerlessMode.config(settings, userPolicy.currentOrDefault(), ipv4Only)
 
     /**
      * Подключение без сервера (D-73): компиляция, проверка ядром, запуск и
@@ -535,9 +536,10 @@ class DPpassCore(
         catchAllHttps: Boolean = false,
         byeDpiPort: Int? = null,
         byeDpiToken: String? = null,
+        ipv4Only: Boolean = false,
         check: suspend (EngineSession, DnsPolicy) -> Outcome<Unit>,
     ): Outcome<EngineSession> {
-        val plan = ServerlessMode.plan(settings, sites, userPolicy.currentOrDefault(), desync, forceQuicTcp, catchAllHttps, byeDpiPort, byeDpiToken)
+        val plan = ServerlessMode.plan(settings, sites, userPolicy.currentOrDefault(), desync, forceQuicTcp, catchAllHttps, byeDpiPort, byeDpiToken, ipv4Only)
         log.info(
             "serverless",
             "rest" to Safe(settings.rest.wire),
@@ -545,6 +547,8 @@ class DPpassCore(
             "apps" to Safe(settings.apps.wire),
             "n" to sites.size,
             "local_desync" to Safe(desync?.label ?: "off"),
+            "local_backend" to Safe(if (byeDpiPort != null) "byedpi" else if (desync != null) "zapret2" else "serverless"),
+            "dns_ipv4_only" to ipv4Only,
             "quic_force_tcp" to forceQuicTcp,
             "https_unmatched" to catchAllHttps,
         )
