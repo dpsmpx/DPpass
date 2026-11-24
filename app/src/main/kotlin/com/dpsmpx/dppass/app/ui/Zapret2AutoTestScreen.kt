@@ -174,7 +174,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     override fun onShown() {
         if (!started) {
             started = true
-            statusText.text = context.getString(R.string.zapret2_autotest_choose)
+            refreshScriptCatalog()
+            statusText.text = context.getString(R.string.dpts_choose_script)
             render(TunnelState.status.value)
         }
     }
@@ -195,6 +196,10 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         apiTLSVersionButton.isEnabled = ready(status)
         dptsRunButton.isEnabled = ready(status)
         dptsLoadButton.isEnabled = true
+        dptsSaveButton.isEnabled = true
+        dptsTrainButton.isEnabled = ready(status) && !lastTrainingSubmitted &&
+            lastDptsPlan != null
+        dptsStopButton.isEnabled = false
         if (!ready(status)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
         }
@@ -203,6 +208,9 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     override fun onHidden() {
         job?.cancel()
         job = null
+        lastDptsPlan = null
+        lastDptsRows = emptyList()
+        lastDptsNetwork = null
         // Persist only the user's editable script, never probe results or IPs.
         context.getSharedPreferences("dpts_editor", Context.MODE_PRIVATE).edit()
             .putString("source", dptsEditor.text.toString()).apply()
