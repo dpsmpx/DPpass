@@ -84,6 +84,19 @@ func FuzzCommonHostRanges(f *testing.F) {
         for _,parse:=range []func([]byte)(int,int,bool){SNIRange,HTTPHostRange,FirstHostRange} {
             s,e,ok:=parse(b)
             if ok && (s<0 || e<=s || e>len(b)) {t.Fatalf("invalid range %d:%d for %d",s,e,len(b))}
+            if !ok && (s!=0 || e!=0) {t.Fatal("rejected input returned a range")}
+            s2,e2,ok2:=parse(b)
+            if s!=s2 || e!=e2 || ok!=ok2 {t.Fatal("non-deterministic recognition")}
+        }
+        if _,e,ok:=HTTPHostRange(b);ok {
+            limit:=bytes.Index(b,[]byte("\r\n\r\n"))
+            if limit<0 || e>limit {t.Fatal("HTTP Host extends beyond header block")}
+        }
+        if _,e,ok:=SNIRange(b);ok {
+            if len(b)<9 {t.Fatal("TLS host without handshake header")}
+            recordEnd:=5+int(binary.BigEndian.Uint16(b[3:5]))
+            helloEnd:=9+(int(b[6])<<16|int(b[7])<<8|int(b[8]))
+            if e>recordEnd || e>helloEnd {t.Fatal("TLS hostname extends beyond first record or handshake")}
         }
         if !bytes.Equal(b,before) {t.Fatal("read-only parser mutated input")}
     })
