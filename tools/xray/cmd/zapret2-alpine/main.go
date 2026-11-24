@@ -33,17 +33,19 @@ func serve(path string) error {
     if err != nil { return err }
     defer listener.Close()
     defer os.Remove(path)
+    gate := newConnectionGate(maxPlannerConnections)
     for {
         conn, err := listener.Accept()
         if err != nil { return err }
-        go func(c net.Conn) {
-            defer c.Close()
-            _ = c.SetDeadline(time.Now().Add(3*time.Second))
-            req, err := zapret2.ReadRequest(c)
-            if err != nil { return }
-            _ = json.NewEncoder(c).Encode(request(req))
-        }(conn)
+        gate.start(conn, handleConnection)
     }
+}
+
+func handleConnection(c net.Conn) {
+    if err:=c.SetDeadline(time.Now().Add(3*time.Second));err!=nil {return}
+    req,err:=zapret2.ReadRequest(c)
+    if err!=nil {return}
+    _ = json.NewEncoder(c).Encode(request(req))
 }
 
 func main() {
