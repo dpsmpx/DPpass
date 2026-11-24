@@ -857,7 +857,7 @@
     <string name="zapret2_autotest_choose">Choose the full HTTPS test or the shorter 16-request encrypted-DNS comparison.</string>
     <string name="zapret2_dns_compare_note">Optional 16-probe check: compare encrypted DNS A answers from Cloudflare, Google and Quad9 by their pinned IPv4 DoH endpoints. Tests the YouTube API host with verified TLS using two previously promising TCP modes. No DNS settings, app routing, or subscriptions change; no actual video/feed success is implied.</string>
     <string name="zapret2_dns_compare_button">Compare DNS: Cloudflare / Google / Quad9 (YouTube API TLS, 16 probes)</string>
-    <string name="zapret2_autotest_title">Zapret2 · Check Google and YouTube</string>
+    <string name="zapret2_autotest_title">Script Testing</string>
     <string name="zapret2_autotest_subtitle">One tap: 6 HTTPS targets × 8 TCP modes × 2 attempts; copy the full result</string>
     <string name="zapret2_autotest_note">Uses the active VPN without changing its strategy: 96 HTTPS/HTTP1.1 attempts, including a fixed Google search request and YouTube API transport over configured DNS versus an IPv4-only private test. Timeouts identify the failed stage (TCP, TLS, HTTP). Search HTML does not prove usable results; API HTTP 4xx does not prove app feed or video playback. Results are copied when finished.</string>
     <string name="zapret2_autotest_again">Run all tests again</string>
@@ -919,4 +919,21 @@
     <string name="dpts_run_script">Validate and run DPTS</string>
     <string name="dpts_stopped">DPTS stopped: network changed or diagnostic expired</string>
     <string name="dpts_copied">DPTS complete. Redacted log automatically copied.</string>
+    <string name="dpts_unified_note">One script editor for all protected diagnostics. Choose a preset or paste/edit your own DPTS/1 text; save drafts, run, stop, and train the installed local strategy neural model only after strong, repeated verified HTML evidence. The report auto-copies.</string>
+    <string name="dpts_name_hint">Script name for saving</string>
+    <string name="dpts_save_script">Save script</string>
+    <string name="dpts_train_network">Train neural model from completed script</string>
+    <string name="dpts_stop_script">Stop script</string>
+    <string name="dpts_choose_script">Select a preset or paste a DPTS/1 script.</string>
+    <string name="dpts_script_loaded">Script loaded into editor.</string>
+    <string name="dpts_invalid_save">Enter a script name (1–80 chars) and some text.</string>
+    <string name="dpts_save_limit">30 saved scripts maximum.</string>
+    <string name="dpts_script_saved">Script saved locally.</string>
+    <string name="dpts_suite_unsupported">This built-in suite is not supported.</string>
+    <string name="dpts_train_no_run">Run a complete direct DPTS matrix first on this network.</string>
+    <string name="dpts_train_no_evidence">No training: 3/3 verified YouTube HTML on two IPs versus failed plain baseline required. API TLS timeouts and HTTP 4xx are not success.</string>
+    <string name="dpts_train_model_error">Local strategy neural model could not be initialized or trained.</string>
+    <string name="dpts_train_save_error">Neural model updated in memory, but snapshot could not be stored. No duplicate training will be performed.</string>
+    <string name="dpts_train_success">Local strategy neural trained and saved for: %1$s (verified HTML, not guaranteed video).</string>
+    <string name="dpts_train_ack_error">Model snapshot stored, but the native acknowledgement failed.</string>
 </resources>
