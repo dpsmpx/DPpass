@@ -3,6 +3,7 @@
 package bridge
 
 import (
+    "context"
     "fmt"
     "testing"
     "time"
@@ -342,5 +343,57 @@ func TestSiteSearchMayRecordOnlyRegularOptimizerTrials(t *testing.T) {
         if siteSearchMayRecord(kind) {
             t.Fatalf("diagnostic data could leak into AUTO: %s",kind)
         }
+    }
+}
+
+func TestYouTubeAPITLSVersionControlGrammarAndNoAUTO(t *testing.T) {
+    host:="youtubei.googleapis.com"
+    for _,version:=range []string{"12","13"} {
+        for _,sni:=range []string{"api","google"} {
+            for ip:=0;ip<siteSearchMaxIPs;ip++ {
+                for attempt:=1;attempt<=siteSearchAttempts;attempt++ {
+                    kind:="tls"+version+"_"+sni
+                    id:=fmt.Sprintf("site_%s_ip%02d_a%d_:%s",kind,ip,attempt,host)
+                    r,ok:=parseSiteSearchRequest(id)
+                    if !ok || r.kind!=kind || r.host!=host ||
+                        r.index!=ip || r.attempt!=attempt {
+                        t.Fatalf("invalid accepted version probe: %s %#v %t",id,r,ok)
+                    }
+                    if siteSearchMayRecord(r.kind) {
+                        t.Fatalf("version diagnostic must not change AUTO: %s",id)
+                    }
+                }
+            }
+        }
+    }
+    for _,id:=range []string{
+        "site_tls12_api_ip02_a1_:youtubei.googleapis.com",
+        "site_tls13_google_ip08_a1_:youtubei.googleapis.com",
+        "site_tls12_google_ip00_a0_:youtubei.googleapis.com",
+        "site_tls13_api_ip01_a4_:youtubei.googleapis.com",
+        "site_tls12_api_ip00_a1_:www.youtube.com",
+        "site_tls13_google_ip00_a1_:www.google.com",
+        "site_tls11_api_ip00_a1_:youtubei.googleapis.com",
+        "site_tls12_api_ip00_a1_:youtubei.googleapis.com/x",
+    } {
+        if _,ok:=parseSiteSearchRequest(id);ok {
+            t.Fatalf("unsafe version probe accepted: %q",id)
+        }
+    }
+    inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1","8.8.8.8"})
+    if siteSearchCommit(inst,host,"plain",gen) ||
+        siteSearchCommit(inst,host,"tlsrec-split",gen) {
+        t.Fatal("version-only diagnostics must not produce site apply evidence")
+    }
+}
+
+func TestHTTPVersionProbeRejectsUnknownTLSVersion(t *testing.T) {
+    target:=zapret2TestTarget{
+        host:"youtubei.googleapis.com",path:"/youtubei/v1/browse",
+        contentKind:"http_transport",ipv4Only:true,
+    }
+    result:=matrixHTTPWithVersion(context.Background(),nil,target,"h1",0x0101)
+    if result.Outcome!="invalid_tls_version" {
+        t.Fatalf("unexpected invalid-version result: %q",result.Outcome)
     }
 }
