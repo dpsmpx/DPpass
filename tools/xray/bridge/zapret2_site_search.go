@@ -98,6 +98,16 @@ func parseSiteSearchRequest(target string) (siteSearchRequest,bool) {
     if kind=="site_prepare"||kind=="site_apply" {return r,true}
     var prefix string
     switch {
+    case strings.HasPrefix(kind,"site_script_h1_ip"):
+        prefix="site_script_h1_ip";r.kind="script_h1"
+    case strings.HasPrefix(kind,"site_script_h2_ip"):
+        prefix="site_script_h2_ip";r.kind="script_h2"
+    case strings.HasPrefix(kind,"site_script_tls12_ip"):
+        prefix="site_script_tls12_ip";r.kind="script_tls12"
+    case strings.HasPrefix(kind,"site_script_tls13_ip"):
+        prefix="site_script_tls13_ip";r.kind="script_tls13"
+    case strings.HasPrefix(kind,"site_script_quic_ip"):
+        prefix="site_script_quic_ip";r.kind="script_quic"
     case strings.HasPrefix(kind,"site_tls12_api_ip"):
         if host!="youtubei.googleapis.com" {return siteSearchRequest{},false}
         prefix="site_tls12_api_ip"
@@ -141,7 +151,9 @@ func parseSiteSearchRequest(target string) (siteSearchRequest,bool) {
     index,err:=strconv.Atoi(rest[:2])
     limit:=siteSearchMaxIPs
     if r.kind=="sweep_h1" || r.kind=="sweep_h2" ||
-        r.kind=="sni_control" {limit=siteSweepMaxIPs}
+        r.kind=="sni_control" || strings.HasPrefix(r.kind,"script_") {
+        limit=siteSweepMaxIPs
+    }
     if err!=nil || index<0 || index>=limit {return siteSearchRequest{},false}
     r.index=index
     r.attempt=int(rest[4]-'0')
@@ -378,6 +390,18 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     } else if request.kind=="quic" {
         for _,m:=range siteSearchQUICMethods {if m==strategy {allowed=true}}
         result.Protocol="quic"
+    } else if strings.HasPrefix(request.kind,"script_") {
+        // The DPTS parser compiles a bounded matrix into this fixed
+        // grammar. Native independently validates host, index, repeat,
+        // private-IP protection, strategies, TLS and transport. Script
+        // data is NEVER eligible for live AUTO promotion or neural training.
+        if request.kind=="script_quic" {
+            for _,m:=range siteSearchQUICMethods {if m==strategy {allowed=true}}
+            result.Protocol="quic"
+        } else {
+            for _,m:=range siteSearchMethods {if m==strategy {allowed=true}}
+            if request.kind=="script_h2" {result.Protocol="h2"} else {result.Protocol="h1"}
+        }
     } else if request.kind=="tls12_api" || request.kind=="tls13_api" ||
         request.kind=="tls12_google" || request.kind=="tls13_google" {
         // Only plain is admitted: TLS version is the ONLY new variable.
@@ -400,7 +424,9 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     result.IPIndex=request.index
     ip:=preparedRun.answer.ips[request.index] // public only; never sent in report
     network:=xnet.Network_TCP
-    if request.kind=="quic" {network=xnet.Network_UDP}
+    if request.kind=="quic" || request.kind=="script_quic" {
+        network=xnet.Network_UDP
+    }
     dest:=xnet.Destination{Network:network,
         Address:xnet.ParseAddress(ip),Port:443}
     conn,err:=core.Dial(session.SetForcedOutboundTagToContext(ctx,tag+"-ipv4"),inst,dest)
@@ -429,8 +455,12 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
             contentKind:"http_transport",ipv4Only:true}
     }
     var checked Zapret2HTTPSResult
-    if request.kind=="quic" {
+    if request.kind=="quic" || request.kind=="script_quic" {
         checked=matrixQUIC(ctx,conn,ip,request.host,quic.Version1)
+    }else if request.kind=="script_tls12" {
+        checked=matrixHTTPWithVersion(ctx,conn,target,"h1",0x0303)
+    }else if request.kind=="script_tls13" {
+        checked=matrixHTTPWithVersion(ctx,conn,target,"h1",0x0304)
     }else if request.kind=="tls12_api" || request.kind=="tls12_google" {
         checked=matrixHTTPWithVersion(ctx,conn,target,"h1",0x0303) // TLS 1.2
     }else if request.kind=="tls13_api" || request.kind=="tls13_google" {
