@@ -119,7 +119,7 @@ object Zapret2NeuralModel {
 
     /** Independent bounded validation before storage, then repeated in Go. */
     fun verify(raw: ByteArray, kind: Kind): Boolean {
-        if (raw.isEmpty() || raw.size > MAX_BYTES) return false
+        if (!ModelJsonPreflight.accepts(raw, MAX_BYTES)) return false
         return runCatching {
             val obj = JSONObject(raw.decodeToString())
             val format = obj.getString("format")

@@ -380,3 +380,7 @@ ModelNumericFields removes JSONObject numeric coercions in storage validation fo
 ## A6 — native JSON structural preflight
 
 Перед типизированной Go загрузкой модели добавлена bounded token validation: точные top-level keys, запрет duplicate keys (включая sparse), null внутри массивов/вложенных объектов, невалидного UTF-8, trailing data и глубины >4. Top-level null для совместимых необязательных полей по-прежнему допускается; существующий typed validator проверяет схему и размеры. Regression fixtures для v2/v3 и неоднозначных JSON. Дополнительный проход по файлу до 1 MiB, производительность на устройстве ещё не измерена. Android JSON parser не заменён; полная parity не заявляется. Предыдущий Go CI #45507077086 успешен, Android #45507068800 был в работе. Новый CI ожидается.
+
+## A6 — Android JSON structural preflight
+
+Введён чистый Kotlin bounded scanner без новых зависимостей, до JSONObject для обеих локальных моделей. Проверяет UTF-8, JSON grammar, exact top-level keys, duplicate decoded keys, depth <=4, nested null, отсутствие trailing data. Typed verifier сохраняет проверку размеров/значений. JVM fixtures для допустимых структур и malformed JSON (включая escaped duplicate keys, comments, numbers, commas). Это структурный preflight, не полный доказанный эквивалент Go/Android schema validation. Дополнительный проход по файлу до 1 MiB; измерение latency и физические тесты открыты. Форматы и вычислительные алгоритмы прежние. Предыдущий Go/Windows #45507656827 успешен; Android #45507645693 при старте выполнялся. Новый CI ожидается.
