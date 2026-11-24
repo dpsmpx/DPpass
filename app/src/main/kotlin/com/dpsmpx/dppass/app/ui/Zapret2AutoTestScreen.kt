@@ -1483,12 +1483,24 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         }
         context.getSharedPreferences("dpts_editor", Context.MODE_PRIVATE).edit()
             .putString("source", source).apply()
+        lastDptsPlan = null
+        lastDptsRows = emptyList()
+        lastDptsNetwork = null
+        lastTrainingSubmitted = false
+        dptsTrainButton.isEnabled = false
+        if (plan.suite != null) {
+            launchScriptSuite(plan)
+            return
+        }
         val network = NetworkCheck.underlying(context).type.toString()
         val allButtons = listOf(runButton, dnsButton, matrixButton, h3Button,
             siteButton, siteQuicButton, youtubeHomeButton, youtubeApiButton,
             youtubeThumbnailButton, youtubeApiSweepButton, apiSniControlButton,
-            apiTLSVersionButton, dptsLoadButton, dptsRunButton)
+            apiTLSVersionButton, dptsLoadButton, dptsRunButton,
+            dptsSaveButton, dptsTrainButton)
         allButtons.forEach { it.isEnabled = false }
+        dptsStopButton.isEnabled = true
+        dptsNameInput.isEnabled = false
         dptsEditor.isEnabled = false
         dptsPresetSpinner.isEnabled = false
         siteInput.isEnabled = false
@@ -1555,6 +1567,9 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     return@launch
                 }
                 val report = DptsScript.report(plan, network, prepared, rows)
+                lastDptsPlan = plan
+                lastDptsRows = rows.toList()
+                lastDptsNetwork = network
                 resultText.text = report
                 resultText.visibility = View.VISIBLE
                 val copied = try {
@@ -1573,13 +1588,19 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             } finally {
                 job = null
                 dptsEditor.isEnabled = true
+                dptsNameInput.isEnabled = true
                 dptsPresetSpinner.isEnabled = true
+                dptsStopButton.isEnabled = false
                 dptsLoadButton.isEnabled = true
                 siteInput.isEnabled = true
                 val connected = ready(TunnelState.status.value)
-                allButtons.filter { it !== dptsLoadButton }.forEach {
-                    it.isEnabled = connected
-                }
+                allButtons.filter {
+                    it !== dptsLoadButton && it !== dptsSaveButton &&
+                        it !== dptsTrainButton
+                }.forEach { it.isEnabled = connected }
+                dptsSaveButton.isEnabled = true
+                dptsTrainButton.isEnabled = connected &&
+                    lastDptsPlan != null && !lastTrainingSubmitted
             }
         }
     }
