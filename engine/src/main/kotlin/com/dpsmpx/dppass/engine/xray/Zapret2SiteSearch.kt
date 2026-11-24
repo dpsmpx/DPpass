@@ -13,6 +13,14 @@ import java.util.Locale
 object Zapret2SiteSearch {
     const val ATTEMPTS = 3
     const val MAX_IPS = 2
+    const val MAX_SWEEP_IPS = 8
+    const val YOUTUBE_API_HOST = "youtubei.googleapis.com"
+    // Fast one-attempt, all-IP diagnostics. H2 varies TLS ALPN while
+    // preserving SNI, certificate validation, hostname and test outbounds.
+    val apiSweepProfiles = listOf(
+        "h1" to "plain", "h1" to "tlsrec-split",
+        "h2" to "plain", "h2" to "tlsrec-split", "h2" to "fake-5",
+    )
     const val TTL_MS = 5 * 60 * 1000L
     val tcpMethods = listOf(
         "plain", "split-1", "split", "tlsrec-split", "fake-3", "fake-5", "disorder"
@@ -55,6 +63,51 @@ object Zapret2SiteSearch {
         require(ipIndex in 0 until MAX_IPS && attempt in 1..ATTEMPTS)
         return (if (quic) "site_quic_ip" else "site_ip") +
             ipIndex.toString().padStart(2, '0') + "_a" + attempt + "_:" + host
+    }
+
+    fun apiSweepTrial(index: Int, attempt: Int, protocol: String): String {
+        require(index in 0 until MAX_SWEEP_IPS && attempt in 1..ATTEMPTS)
+        require(protocol == "h1" || protocol == "h2")
+        return "site_sweep_${protocol}_ip" + index.toString().padStart(2, '0') +
+            "_a${attempt}_:${YOUTUBE_API_HOST}"
+    }
+
+    /** All-IP samples are diagnostic-only, never eligible for an AUTO commit. */
+    fun apiSweepReport(
+        network: String, prepared: Zapret2GoogleProbe,
+        rows: List<Zapret2GoogleAttempt>, ipCount: Int,
+    ): String = buildString {
+        appendLine("=== DPpass — YouTube API, 8 IPv4 / HTTPS H1-H2 ===")
+        appendLine("Сеть: $network; цель: $YOUTUBE_API_HOST")
+        appendLine("DoH: ${prepared.outcome}; IPv4=${prepared.dnsAnswers}; fingerprint=${prepared.dnsFingerprint}")
+        appendLine("Проверены $ipCount IPv4, максимум 5 профилей на IP. Основной проход: 1 соединение на профиль.")
+        appendLine("Дополнительные повторы выполняются максимум для двух успешных профилей/IP; это не AUTO.")
+        for ((proto, method) in apiSweepProfiles) {
+            val group = rows.filter { it.strategy == method && it.result.protocol == proto }
+            val tls = group.count { it.result.tlsStage == "tls_verified" &&
+                it.result.alpn == (if (proto == "h2") "h2" else "http/1.1") }
+            val http = group.count {
+                it.result.tlsStage == "tls_verified" && it.result.httpStatus in 200..499 &&
+                it.result.outcome in setOf("http_reachable", "ok", "redirect")
+            }
+            appendLine("  $proto / $method: TLS $tls/${group.size}, HTTP $http/${group.size}")
+        }
+        for (row in rows) {
+            val r = row.result
+            appendLine("  ip_index=${r.ipIndex} protocol=${r.protocol} method=${row.strategy}" +
+                " attempt=${row.attempt} outcome=${r.outcome}" +
+                " stage=${r.tlsStage} alpn=${r.alpn} http=${r.httpStatus}" +
+                " elapsed_ms=${r.elapsedMillis}")
+        }
+        val anyHTTP = rows.any { it.result.tlsStage == "tls_verified" &&
+            it.result.httpStatus in 200..499 }
+        appendLine(if (anyHTTP)
+            "Итог: получен хотя бы один HTTPS-ответ. Разовые успехи требуют повторения и не доказывают работу ленты."
+            else
+            "Итог: ни один проверенный профиль/IP не вернул HTTP-ответ. Это не доказывает причину отказа.")
+        appendLine("AUTO: not_applied (диагностика; не влияет на маршрут или обучение).")
+        appendLine("HTTP/2 TLS/ALPN — не доказательство API POST, авторизации или видео.")
+        appendLine("Результаты не содержат IP-адресов, URL-путей, тел, ключей или cookies.")
     }
 
     data class Candidate(
