@@ -1151,7 +1151,7 @@ class XrayCompilerTest {
         val socks = outbound(doc, XrayBackend.TAG_PROXY)
         assertEquals("socks", socks["protocol"].text)
         assertEquals("127.0.0.1", socks["settings"]["address"].text)
-        assertEquals("41000", socks["settings"]["port"].text)
+        assertEquals(41000, socks["settings"]["port"].int)
         assertEquals("dppass", socks["settings"]["user"].text)
         assertEquals("a".repeat(48), socks["settings"]["pass"].text)
         assertTrue(socks["targetStrategy"].text.startsWith("Force"))
