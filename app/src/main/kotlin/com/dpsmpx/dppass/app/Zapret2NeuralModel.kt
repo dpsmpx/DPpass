@@ -213,9 +213,8 @@ object Zapret2NeuralModel {
     fun readVerified(context: Context, kind: Kind = Kind.STRATEGY): ByteArray? =
         synchronized(storageGuard) {
             val source = file(context, kind)
-            if (!source.isFile || source.length() !in 1L..MAX_BYTES.toLong()) return@synchronized null
             runCatching {
-                val raw = source.readBytes().takeIf { verify(it, kind) }
+                val raw = ModelSnapshotFile.readBounded(source, MAX_BYTES)?.takeIf { verify(it, kind) }
                     ?: return@runCatching null
                 val modern = migrateLegacy(kind, raw)
                 if (!modern.contentEquals(raw)) {

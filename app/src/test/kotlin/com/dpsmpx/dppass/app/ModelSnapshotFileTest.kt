@@ -41,4 +41,23 @@ class ModelSnapshotFileTest {
             root.deleteRecursively()
         }
     }
+    @Test
+    fun boundedReadRejectsMissingEmptyOversizedAndNonRegularFiles() {
+        val root = Files.createTempDirectory("model-read-test").toFile()
+        try {
+            val file = File(root, "model.json")
+            kotlin.test.assertNull(ModelSnapshotFile.readBounded(file, 16))
+            kotlin.test.assertNull(ModelSnapshotFile.readBounded(root, 16))
+            file.writeBytes(byteArrayOf())
+            kotlin.test.assertNull(ModelSnapshotFile.readBounded(file, 16))
+            val exact = ByteArray(16) { it.toByte() }
+            file.writeBytes(exact)
+            assertContentEquals(exact, ModelSnapshotFile.readBounded(file, 16))
+            file.writeBytes(ByteArray(17))
+            kotlin.test.assertNull(ModelSnapshotFile.readBounded(file, 16))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
 }
