@@ -265,6 +265,16 @@ object Zapret2NeuralModel {
             write(context, kind, raw)
         }
 
+    /** Reject stale local computations even when model dimensions match.
+     * The expected bytes must be the exact snapshot used by the caller.
+     */
+    internal fun storeIfUnchanged(
+        context: Context, kind: Kind, expected: ByteArray, raw: ByteArray,
+    ): Boolean = synchronized(storageGuard) {
+        if (!verify(raw, kind)) return@synchronized false
+        ModelSnapshotFile.replaceIfUnchanged(file(context, kind), expected, raw, MAX_BYTES)
+    }
+
     fun generate(context: Context, kind: Kind, hidden: Int): Result<ByteArray> = runCatching {
         build(kind, hidden).also { check(store(context, kind, it)) }
     }

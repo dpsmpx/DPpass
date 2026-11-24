@@ -352,3 +352,7 @@ CI edc5475: Go/Linux/Windows #45487666353 и Android #45487647430 успешны
 ## A6 — ограниченное чтение модели с диска
 
 CI 878b771 #45490108916 и #45490085490 успешны. ModelSnapshotFile.readBounded проверяет фактический объём чтения, максимум 1 MiB для обоих существующих моделей, а не только длину файла до readBytes. Отказ при пустом/необычном пути, слишком большом файле и I/O ошибке; формат, model validation и generation policy прежние. JVM fixtures проверяют exact limit и отказ. Нет гарантии защиты от внешнего процесса с доступом к app-private storage. CI нового шага ожидается.
+
+## A6 — compare-and-replace снимков
+
+Добавлен общий ModelSnapshotFile.replaceIfUnchanged и locked Zapret2NeuralModel.storeIfUnchanged: проверка exact bytes исходного snapshot непосредственно перед заменой под существующей storageGuard. Для SERVER observe закрывается race между чтением модели, вычислением и сохранением (новая/удалённая/обновлённая модель не перезаписывается stale результатом). Не меняются формулы, фильтрация, порядок серверов или формат. JNI strategy snapshot path не меняется. JVM fixtures проверяют успешную замену, stale, удаление, cap. Межпроцессная блокировка не добавлена. CI и физические испытания ожидаются.

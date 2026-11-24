@@ -60,4 +60,26 @@ class ModelSnapshotFileTest {
         }
     }
 
+    @Test
+    fun staleSnapshotCannotOverwriteNewOrDeletedFile() {
+        val root = Files.createTempDirectory("model-cas-test").toFile()
+        try {
+            val file = File(root, "model.json")
+            val original = byteArrayOf(1, 2)
+            val replacement = byteArrayOf(3, 4)
+            val stale = byteArrayOf(5, 6)
+            assertTrue(ModelSnapshotFile.replace(file, original))
+            assertTrue(ModelSnapshotFile.replaceIfUnchanged(file, original, replacement, 16))
+            assertFalse(ModelSnapshotFile.replaceIfUnchanged(file, original, stale, 16))
+            assertContentEquals(replacement, file.readBytes())
+            assertFalse(ModelSnapshotFile.replaceIfUnchanged(file, replacement, ByteArray(17), 16))
+            assertContentEquals(replacement, file.readBytes())
+            assertTrue(file.delete())
+            assertFalse(ModelSnapshotFile.replaceIfUnchanged(file, replacement, stale, 16))
+            assertFalse(file.exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
 }

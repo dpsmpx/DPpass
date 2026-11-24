@@ -318,12 +318,9 @@ object ServerAutoModel {
             model.put("observations", (model.optInt("observations", 0) + learned).coerceAtMost(100000))
             // Revalidate and atomically persist only the numeric model,
             // not the server IDs or training examples.
-            val persisted = if (modern(model))
-                Zapret2NeuralModel.storeLearnedSnapshot(context,
-                    Zapret2NeuralModel.Kind.SERVER, model.toString().encodeToByteArray())
-            else
-                Zapret2NeuralModel.store(context,
-                    Zapret2NeuralModel.Kind.SERVER, model.toString().encodeToByteArray())
+            val persisted = Zapret2NeuralModel.storeIfUnchanged(
+                context, Zapret2NeuralModel.Kind.SERVER, raw, model.toString().encodeToByteArray(),
+            )
             core.log.info("server_auto_learning",
                 "trained" to learned,
                 "observations" to model.getInt("observations"),

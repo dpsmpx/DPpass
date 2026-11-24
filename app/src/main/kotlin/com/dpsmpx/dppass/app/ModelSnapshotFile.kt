@@ -35,6 +35,15 @@ internal object ModelSnapshotFile {
         }
     }
 
+    /** Compare exact stored bytes while the caller holds the storage lock.
+     * No cross-process locking is implied.
+     */
+    fun replaceIfUnchanged(dest: File, expected: ByteArray, raw: ByteArray, maxBytes: Int): Boolean {
+        if (raw.isEmpty() || raw.size > maxBytes) return false
+        val current = readBounded(dest, maxBytes) ?: return false
+        return current.contentEquals(expected) && replace(dest, raw)
+    }
+
     fun replace(dest: File, raw: ByteArray): Boolean {
         val dir = dest.parentFile ?: return false
         var pending: File? = null
