@@ -1487,6 +1487,13 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     // evidence, independent of any text log or UI claims.
                     scenario.trainingMethod?.let { method ->
                         ensureActive()
+                        if (!ready(TunnelState.status.value) ||
+                            NetworkCheck.underlying(context).type.toString() != network ||
+                            SystemClock.elapsedRealtime() - started >= DPTestScript.MAX_WALL_MS) {
+                            complete = false
+                            reason = "training_skipped_network_or_budget"
+                            return@launch
+                        }
                         val result = nativeProbe(method, "dpts_train:" + scenario.host,
                             DNS_TIMEOUT_MILLIS)
                         entries += DPTestScript.ReportEntry(scenarioIndex, null,
