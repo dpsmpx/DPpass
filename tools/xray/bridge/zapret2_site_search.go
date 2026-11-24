@@ -235,6 +235,84 @@ func siteSearchRecord(inst *core.Instance, host string, gen uint64,
     trial.elapsed[slot]=elapsed
 }
 
+// The script evidence store is independent of the normal site_apply store.
+// A malicious or incomplete pasted script therefore cannot commit AUTO.
+func siteScriptRecord(inst *core.Instance,host string,gen uint64,
+    index,attempt int,strategy,outcome string,elapsed int64) {
+    siteSearchState.Lock()
+    defer siteSearchState.Unlock()
+    r:=siteSearchState.current
+    if r==nil || r.instance!=inst || r.generation!=gen || r.host!=host ||
+        time.Since(r.prepared)>=siteSearchTTL {return}
+    if index<0||index>=len(r.answer.ips)||attempt<1||attempt>siteSearchAttempts {return}
+    key:=strconv.Itoa(index)+"|"+strategy
+    trial:=r.scriptTrials[key]
+    if trial==nil {trial=&siteSearchTrial{};r.scriptTrials[key]=trial}
+    slot:=attempt-1
+    if trial.received[slot] {return}
+    trial.received[slot]=true
+    trial.good[slot]=outcome=="ok"
+    trial.elapsed[slot]=elapsed
+}
+
+func scriptEvidence(r *siteSearchRun,index int,strategy string) (int,bool) {
+    t:=r.scriptTrials[strconv.Itoa(index)+"|"+strategy]
+    if t==nil {return 0,false}
+    success:=0
+    for k:=0;k<siteSearchAttempts;k++ {
+        if !t.received[k] {return 0,false}
+        if t.good[k] {success++}
+    }
+    return success,true
+}
+
+// User must explicitly request neural=verified. A single TLS handshake,
+// HTTP 4xx, 2/3, CDN transport-only reply or simulated outcome is never
+// sufficient. A non-plain candidate must pass content validation on every
+// selected IP while the plain baseline fails on the SAME IPs.
+func siteScriptTrain(inst *core.Instance,host,strategy string,gen uint64) string {
+    if strategy=="plain" || nnCandidateIndex(strategy,false)<0 {
+        return "invalid_strategy"
+    }
+    siteSearchState.Lock()
+    r:=siteSearchState.current
+    if r==nil || r.instance!=inst || r.generation!=gen || r.host!=host ||
+        time.Since(r.prepared)>=siteSearchTTL {
+        siteSearchState.Unlock()
+        return "dns_not_prepared"
+    }
+    if r.scriptTrained[strategy] {
+        siteSearchState.Unlock()
+        return "neural_already_trained"
+    }
+    count:=len(r.answer.ips)
+    if count>siteSearchMaxIPs {count=siteSearchMaxIPs}
+    if count==0 {
+        siteSearchState.Unlock()
+        return "neural_no_evidence"
+    }
+    for ip:=0;ip<count;ip++ {
+        baseline,baselineDone:=scriptEvidence(r,ip,"plain")
+        winner,winnerDone:=scriptEvidence(r,ip,strategy)
+        if !baselineDone || !winnerDone ||
+            baseline!=0 || winner!=siteSearchAttempts {
+            siteSearchState.Unlock()
+            return "neural_no_evidence"
+        }
+    }
+    // Prevent duplicate commits in the same prepared-network generation.
+    r.scriptTrained[strategy]=true
+    siteSearchState.Unlock()
+    if !zapret2Neural.learnVerifiedDiagnostic(host,strategy) {
+        // Missing weights must not be represented as a successful update.
+        siteSearchState.Lock()
+        if siteSearchState.current==r {delete(r.scriptTrained,strategy)}
+        siteSearchState.Unlock()
+        return "neural_unavailable"
+    }
+    return "neural_trained"
+}
+
 func siteSearchTrialGood(r *siteSearchRun,index int,proto,strategy string) (int,bool,int64) {
     t:=r.trials[strconv.Itoa(index)+"|"+proto+"|"+strategy]
     if t==nil {return 0,false,0}
