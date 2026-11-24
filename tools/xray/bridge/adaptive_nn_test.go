@@ -327,3 +327,26 @@ func TestNeuralAcknowledgementRejectsReplacedCleanModel(t *testing.T) {
     if len(ExportZapret2NeuralModel())!=0 {t.Fatal("stale acknowledgement changed clean state")}
     if err:=AcknowledgeZapret2NeuralModel(next);err!=nil {t.Fatal("matching clean snapshot rejected",err)}
 }
+
+func TestLegacyModelRejectsInvalidObservationMetadata(t *testing.T) {
+    raw:=generatedTestModel(t,32)
+    w,err:=parseAdaptiveNN(raw)
+    if err!=nil {t.Fatal(err)}
+    w.Observations=42
+    valid,err:=json.Marshal(w)
+    if err!=nil {t.Fatal(err)}
+    parsed,err:=parseAdaptiveNN(valid)
+    if err!=nil || parsed.Observations!=42 {t.Fatal("valid legacy count lost",err)}
+    for _,change:=range []func(*adaptiveNNWeights){
+        func(w *adaptiveNNWeights){w.Observations=-1},
+        func(w *adaptiveNNWeights){w.Observations=1_000_000_001},
+        func(w *adaptiveNNWeights){w.ContextObservations=[]int{1}},
+    } {
+        candidate,err:=parseAdaptiveNN(valid)
+        if err!=nil {t.Fatal(err)}
+        change(candidate)
+        bad,err:=json.Marshal(candidate)
+        if err!=nil {t.Fatal(err)}
+        if _,err:=parseAdaptiveNN(bad);err==nil {t.Fatal("invalid legacy observation metadata accepted")}
+    }
+}

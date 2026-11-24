@@ -171,6 +171,7 @@ func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
                 !validNNNumber(n) { return nil, errors.New("invalid sparse slot") }
         }
     } else if deep > 0 || len(w.DeepBias) != 0 || len(w.ContextBias) != 0 ||
+        len(w.ContextObservations) != 0 || w.Observations < 0 || w.Observations > 1_000_000_000 ||
         w.Parameters != 0 || w.Seed != "" || len(w.Sparse) > 0 || len(w.VerifiedHTMLBias) != 0 || len(w.VerifiedHTMLObservations) != 0 {
         return nil, errors.New("legacy model has modern parameters")
     }

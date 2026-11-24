@@ -368,3 +368,7 @@ Go AcknowledgeZapret2NeuralModel проверяет совпадение тек�
 ## A6 — exact-base compare-and-replace JNI snapshots
 
 CI 03a37e4: Linux/Windows #45493697178 и Android #45493685159 успешны. Strategy persistence теперь требует exact expected bytes до native export и повторно проверяет их под storageGuard перед replacement. Подключены оба известных call sites — периодический/финальный flush сервиса и DPTS save. Metadata guard сохранён; race с другим сохранением или регенерацией отклоняет запись, ACK не отправляется, pending native update остаётся доступен для следующего flush. Добавлен JVM fixture с равными counters и разными weights. Это in-process CAS, не полный revision protocol; возможна безопасная потеря текущей попытки сохранения при конфликте, cross-process locking и физическая проверка остаются открыты. Форматы и вычислительные алгоритмы не меняются. CI ожидается.
+
+## A6 — legacy observation metadata validation
+
+Go validator v2 теперь отклоняет отрицательные/выходящие за 1e9 глобальные observation counts и непустые modern-only context_observations. Валидный legacy count сохраняется; пустые/отсутствующие поля по-прежнему допустимы. Добавлены synthetic unit fixtures; изменение только в проверке некорректных метаданных, формат/индексы/алгоритмы неизменны. CI ожидается.
