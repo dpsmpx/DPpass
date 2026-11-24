@@ -20,6 +20,16 @@ object Zapret2ProbeCatalog {
         "auto",
     )
 
+    /**
+     * Extra bounded TTL profiles for the user-pasted script runner only.
+     * The legacy seven-method AUTO and one-tap scan are intentionally
+     * unchanged. These are REAL backed Xray protected strategy tags.
+     */
+    val scriptAdditionalStrategies: List<String> = (1..16)
+        .map { "fake-" + it }
+        .filterNot { it in strategies }
+    val allTestStrategies: List<String> = strategies + scriptAdditionalStrategies
+
     /** Dedicated test ingress; routes through the real protected exp dialer. */
     /** Fixed safe HTTPS destinations; no user-provided URL or redirect chain. */
     val targets: List<String> = listOf(
@@ -61,11 +71,11 @@ object Zapret2ProbeCatalog {
     }
 
     fun tag(strategy: String): String? =
-        if (strategy !in strategies) null
+        if (strategy !in allTestStrategies) null
         else if (strategy == "plain") PLAIN_TAG
         else "dppass:test-$strategy"
 
     fun experimentTag(strategy: String): String? =
-        if (strategy == "plain" || strategy !in strategies) null
+        if (strategy == "plain" || strategy !in allTestStrategies) null
         else "dppass:exp-$strategy"
 }
