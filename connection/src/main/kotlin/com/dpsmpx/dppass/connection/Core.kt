@@ -533,9 +533,10 @@ class DPpassCore(
         desync: DesyncTrick? = null,
         forceQuicTcp: Boolean = false,
         catchAllHttps: Boolean = false,
+        byeDpiPort: Int? = null,
         check: suspend (EngineSession, DnsPolicy) -> Outcome<Unit>,
     ): Outcome<EngineSession> {
-        val plan = ServerlessMode.plan(settings, sites, userPolicy.currentOrDefault(), desync, forceQuicTcp, catchAllHttps)
+        val plan = ServerlessMode.plan(settings, sites, userPolicy.currentOrDefault(), desync, forceQuicTcp, catchAllHttps, byeDpiPort)
         log.info(
             "serverless",
             "rest" to Safe(settings.rest.wire),

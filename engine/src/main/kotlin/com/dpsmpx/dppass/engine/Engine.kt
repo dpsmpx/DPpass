@@ -232,6 +232,8 @@ data class ServerlessPlan(
     val forceQuicTcp: Boolean = false,
     /** Локальный Android VPN: без распознанного домена направлять TCP 443 через DPI-dialer. */
     val catchAllHttps: Boolean = false,
+    /** App-owned original ByeDPI SOCKS listener, always on loopback. */
+    val byeDpiPort: Int? = null,
 ) {
     companion object {
         /** Сеанс без сервера в `CompiledConfig.profileId`: не профиль документа — в id профиля нет двоеточий. */

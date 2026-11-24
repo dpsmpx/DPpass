@@ -201,6 +201,9 @@ class XrayCompiler(
                 build.reject(DiagCode.CAPABILITY_FEATURE_UNSUPPORTED, "без сервера DNS-сервер «${server.id}» через туннель вести некуда", "$.dns.servers[$i]")
             }
         }
+        if (plan.byeDpiPort != null && (plan.byeDpiPort !in 1024..65535 || !plan.withTun || plan.desync != null)) {
+            build.reject(DiagCode.CAPABILITY_FEATURE_UNSUPPORTED, "invalid local ByeDPI plan", "$.serverless.byedpi")
+        }
         val ir = ConfigIr(name = null, profiles = emptyList(), routing = RoutingPolicy(defaultAction = RouteAction.DIRECT), dns = plan.dns)
         val dns = build.dns(plan.dns)
         val routing = build.routing(
@@ -210,6 +213,7 @@ class XrayCompiler(
             // hostlist: forward QUIC directly. Only fake-ttl has UDP decoys.
             splitQuicTag = when {
                 plan.forceQuicTcp -> XrayBackend.TAG_BLOCK
+                plan.byeDpiPort != null -> XrayBackend.TAG_PROXY
                 plan.desync is DesyncTrick.Fake || plan.desync == DesyncTrick.Auto -> XrayBackend.TAG_PROXY
                 plan.desync != null -> XrayBackend.TAG_DIRECT
                 else -> XrayBackend.TAG_BLOCK // retain D-73 default for regular serverless
@@ -221,7 +225,10 @@ class XrayCompiler(
                 !plan.forceQuicTcp && !plan.splitRest,
         )
         if (problems.any { it.isError }) return Outcome.Failure(problems)
-        val split = if (plan.desync != null) {
+        val split = if (plan.byeDpiPort != null) {
+            Json.obj("tag" to Json.str(XrayBackend.TAG_PROXY), "protocol" to Json.str("socks"),
+                "settings" to Json.obj("address" to Json.str("127.0.0.1"), "port" to Json.num(plan.byeDpiPort)))
+        } else if (plan.desync != null) {
             // Не прокси и не внешний сервер: freedom напрямую, а dialerProxy
             // выбирает обработчик первого TCP-пакета в защищённом Go-сокете.
             // DNS-стратегия сохраняется: не позволяем системный DNS fallback.

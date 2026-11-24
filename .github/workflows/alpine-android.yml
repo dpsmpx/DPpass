@@ -66,6 +66,8 @@ jobs:
           test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0" "ndk;30.0.16248370" "cmake;3.22.1"
+      - name: Build pinned original ByeDPI for Android ARM64
+        run: python3 tools/byedpi/build_android.py --ndk "$ANDROID_HOME/ndk/30.0.16248370" --abis arm64-v8a
       - name: Verify pinned Zapret2 assets
         run: python3 tools/zapret2/vendor.py
       - name: Portable Zapret2 strategy and Xray bridge Go tests

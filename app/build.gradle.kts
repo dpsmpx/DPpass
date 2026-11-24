@@ -143,7 +143,8 @@ android {
             keepDebugSymbols += "**/libdppassxray.so"
             // PRoot is an ELF executable shipped as libproot.so; Android must
             // extract it to nativeLibraryDir so execve can run it (API 29+).
-            if (alpineEnabled) useLegacyPackaging = true
+            useLegacyPackaging = true
+            keepDebugSymbols += "**/libciadpi.so"
 
         }
     }
