@@ -41,51 +41,64 @@ func FirstHostRange(b []byte) (start, end int, ok bool) {
 // or HTTP/1.1 header block. Ambiguous or malformed framing is rejected.
 // It does not interpret request bodies or validate authority resolution.
 func HTTPHostRange(b []byte) (start,end int,ok bool) {
-    if len(b)<22 || len(b)>16*1024 {return 0,0,false}
+    field,ok:=httpHostField(b)
+    if !ok {return 0,0,false}
+    return field.valueStart,field.valueEnd,true
+}
+
+type hostField struct {
+    nameStart int
+    valueStart int
+    valueEnd int
+}
+
+// Shared strict parser records offsets only; it never retains input.
+func httpHostField(b []byte) (field hostField,ok bool) {
+    if len(b)<22 || len(b)>16*1024 {return hostField{},false}
     firstLine:=bytes.Index(b,[]byte("\r\n"))
     headersEnd:=bytes.Index(b,[]byte("\r\n\r\n"))
-    if firstLine<=0 || headersEnd<=firstLine {return 0,0,false}
+    if firstLine<=0 || headersEnd<=firstLine {return hostField{},false}
     fields:=bytes.Split(b[:firstLine],[]byte(" "))
     if len(fields)!=3 || len(fields[1])==0 ||
         !(bytes.Equal(fields[2],[]byte("HTTP/1.0")) || bytes.Equal(fields[2],[]byte("HTTP/1.1"))) {
-        return 0,0,false
+        return hostField{},false
     }
     switch string(fields[0]) {
     case "GET","POST","HEAD","PUT","PATCH","DELETE","OPTIONS":
-    default: return 0,0,false
+    default: return hostField{},false
     }
     for _,v:=range fields[1] {
-        if v<=32 || v==127 {return 0,0,false}
+        if v<=32 || v==127 {return hostField{},false}
     }
     found:=false
     for p:=firstLine+2;p<headersEnd; {
         rel:=bytes.Index(b[p:headersEnd+2],[]byte("\r\n"))
-        if rel<0 {return 0,0,false}
+        if rel<0 {return hostField{},false}
         lineEnd:=p+rel
         colon:=bytes.IndexByte(b[p:lineEnd],':')
-        if colon<=0 {return 0,0,false}
+        if colon<=0 {return hostField{},false}
         for _,v:=range b[p:p+colon] {
-            if !httpFieldToken(v) {return 0,0,false}
+            if !httpFieldToken(v) {return hostField{},false}
         }
         value:=b[p+colon+1:lineEnd]
         for _,v:=range value {
-            if (v<32 && v!='\t') || v==127 {return 0,0,false}
+            if (v<32 && v!='\t') || v==127 {return hostField{},false}
         }
         if bytes.EqualFold(b[p:p+colon],[]byte("Host")) {
-            if found {return 0,0,false}
+            if found {return hostField{},false}
             a,e:=p+colon+1,lineEnd
             for a<e && (b[a]==' ' || b[a]=='\t') {a++}
             for e>a && (b[e-1]==' ' || b[e-1]=='\t') {e--}
-            if e-a==0 || e-a>255 {return 0,0,false}
+            if e-a==0 || e-a>255 {return hostField{},false}
             for _,v:=range b[a:e] {
-                if v<=32 || v>=127 || v==',' {return 0,0,false}
+                if v<=32 || v>=127 || v==',' {return hostField{},false}
             }
-            start,end,found=a,e,true
+            field,found=hostField{nameStart:p,valueStart:a,valueEnd:e},true
         }
         p=lineEnd+2
     }
-    if !found {return 0,0,false}
-    return start,end,true
+    if !found {return hostField{},false}
+    return field,true
 }
 
 func httpFieldToken(v byte) bool {

@@ -332,3 +332,7 @@ CI 39ba827: Go/Linux и новый Windows job #45482033792 успешны; Andr
 ## A4 — автоматический native parity gate
 
 Go/Linux CI запускает отдельный 20-секундный fuzz target FuzzNativeRecordParity (2 workers), затем три race-enabled прогона tagged native package. Все прежние sanitizer, portable fuzz, regression, Windows и Android checks сохранены. Новый native gate ограничен synthetic fixtures и тестовой средой; нет включения новых методов или публикации APK. Первый результат ожидается.
+
+## A4/A5 — общий HTTP field contract
+
+CI f6c7752 #45485442050 и #45485430911 успешны (native fuzz 2 115 034 вызова, portable fuzz 2 137 516, PASS). Существующий строгий HTTP parser вынесен во внутренний httpHostField, возвращающий offsets имени и значения единственного Host. HTTPHostRange остаётся совместимым делегатом с теми же правилами. Проверены case-insensitive Host, OWS, IPv6/port, body и дубли. Это подготовка общего интерфейса для семантически сохраняющих HTTP операций; небезопасный legacy parser не используется, методы и модель не расширены. CI ожидается.
