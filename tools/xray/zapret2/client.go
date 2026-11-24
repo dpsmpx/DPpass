@@ -3,11 +3,9 @@
 package zapret2
 
 import (
-    "bufio"
     "encoding/json"
     "errors"
     "fmt"
-    "io"
     "net"
     "strings"
     "sync/atomic"
@@ -67,10 +65,8 @@ func PlanFor(tag, network string, first []byte) (Plan, error) {
     }
     // Reject unknown protocol output and oversized responses instead of
     // accepting a truncated, malformed or foreign planner reply.
-    dec := json.NewDecoder(io.LimitReader(bufio.NewReader(conn), 96*1024))
-    dec.DisallowUnknownFields()
-    var reply Response
-    if err = dec.Decode(&reply); err != nil { return Plan{}, fmt.Errorf("Alpine strategy reply: %w", err) }
+    reply,err:=readResponse(conn)
+    if err!=nil {return Plan{},fmt.Errorf("Alpine strategy reply: %w",err)}
     if reply.Error != "" { return Plan{}, errors.New(reply.Error) }
     p := reply.Plan
     if err := validatePlan(tag,network,first,p); err != nil { return Plan{},err }

@@ -40,3 +40,20 @@ func ReadRequest(r io.Reader) (Request,error) {
     }
     return req,nil
 }
+
+func readResponse(r io.Reader) (Response,error) {
+    var resp Response
+    if err:=readFrame(r,MaxResponseFrame,&resp);err!=nil {return Response{},err}
+    if resp.Error!="" {
+        if resp.Plan.Strategy!="" || resp.Plan.Network!="" || resp.Plan.Applied ||
+            resp.Plan.Cut!=0 || resp.Plan.TTL!=0 || resp.Plan.Repeats!=0 ||
+            len(resp.Plan.Fake)!=0 || len(resp.Plan.Rewrite)!=0 || resp.Plan.Reason!="" {
+            return Response{},errors.New("planner returned both error and plan")
+        }
+        return resp,nil
+    }
+    if resp.Plan.Strategy=="" || resp.Plan.Network=="" {
+        return Response{},errors.New("missing planner response metadata")
+    }
+    return resp,nil
+}
