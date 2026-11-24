@@ -47,6 +47,13 @@ abstract class XrayNativeTask : DefaultTask() {
     @get:Input
     abstract val abis: ListProperty<String>
 
+    @get:Input
+    abstract val experimentalLocalDpiNative: Property<Boolean>
+
+    init {
+        experimentalLocalDpiNative.convention(false)
+    }
+
     @get:Internal
     abstract val sdkDirectory: DirectoryProperty
 
@@ -61,7 +68,7 @@ abstract class XrayNativeTask : DefaultTask() {
         val out = outputDir.get().asFile
         out.deleteRecursively()
         out.mkdirs()
-        val only = abiArgs(abis.get())
+        val only = abiArgs(abis.get()) + if (experimentalLocalDpiNative.get()) listOf("--experimental-localdpi-native") else emptyList()
         exec.exec {
             commandLine(listOf("python3", script.get().asFile.path, "android", "--out", out.path) + only)
             environment("ANDROID_HOME", sdkDirectory.get().asFile.path)

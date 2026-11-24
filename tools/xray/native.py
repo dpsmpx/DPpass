@@ -503,7 +503,7 @@ def main(argv):
     a.add_argument("--out", required=True, help="каталог: <ABI>/libdppassxray.so")
     a.add_argument("--abi", action="append", choices=sorted(ABIS), help="ABI (по умолчанию — все три)")
     a.add_argument("--experimental-localdpi-native", action="store_true",
-                   help="только отдельная CI-проверка JNI с C-модулем, не штатный APK")
+                   help="экспериментальная JNI с C-модулем для отдельной debug-сборки")
     args = ap.parse_args(argv)
     try:
         if args.cmd == "check-packages":

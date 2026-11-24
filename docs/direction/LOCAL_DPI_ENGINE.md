@@ -225,3 +225,7 @@ Read и Close существующего TCP/UDP исполнителя тепе
 ## A3 — реестр в рабочем socket AUTO
 
 Go CI #45445499727 успешно прошёл; Android CI #45445482934 подтвердил экспериментальную полную JNI-компоновку ARM64. В текущем шаге единый ExecutorSet подключён к формированию списков AUTO и допуску socket evidence; зарегистрирован только существующий VPNSocket. Поколение по-прежнему проверяется в selector под lock; ROOT не регистрируется без реального исполнителя. Порядок и ABI модели сохранены.
+
+## A4.5 — отдельный Android debug APK
+
+Добавлен opt-in Gradle property dppass.localDpiNativeDebug=true (требует Alpine). Только debug variant получает экспериментальный JNI с C-кодировщиком; release всегда использует штатный режим. Отдельный applicationId com.dpsmpx.dppass.alpine.localdpi не заменяет основной установленный APK или обычный Alpine debug. Gradle отслеживает tag и исходники C/Go, APK содержит полный MIT LICENSE и источник модуля. CI после загрузки обычных APK собирает отдельный debug artifact только в рабочей ветке, сверяет identity, лицензию, отличие JNI и неизменность reference assets. Это подготовка к физической проверке; не доказывает, что C encoder используется при внешнем Alpine planner, не включает ROOT и не удаляет ciadpi/nfqws2. Новый CI ожидается.

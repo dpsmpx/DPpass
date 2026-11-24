@@ -229,6 +229,28 @@ jobs:
           compression-level: 0
           retention-days: 21
 
+      - name: Build separately installable native local DPI debug APK
+        if: github.ref == 'refs/heads/feature/dppass-0.8.3'
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline="$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)"
+          cp "$baseline" "$RUNNER_TEMP/localdpi-baseline.apk"
+          bash tools/ci/gradle-resolution-retry.sh :app:assembleDebug -Pdppass.alpine=true -Pdppass.nativeAbis=arm64-v8a -Pdppass.localDpiNativeDebug=true
+          apk="$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.dpsmpx.dppass.alpine.localdpi'"
+          mkdir -p "$RUNNER_TEMP/localdpi-debug-apk"
+          cp "$apk" "$RUNNER_TEMP/localdpi-debug-apk/DPpass-localdpi-native-arm64-debug.apk"
+          python3 tools/localdpi/check_debug_apk.py "$RUNNER_TEMP/localdpi-baseline.apk" "$RUNNER_TEMP/localdpi-debug-apk/DPpass-localdpi-native-arm64-debug.apk"
+      - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/feature/dppass-0.8.3'
+        with:
+          name: DPpass-LocalDPI-native-ARM64-debug
+          path: ${{ runner.temp }}/localdpi-debug-apk/*.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 21
+
   publish-release:
     name: Publish tested Alpine APK to Releases
     needs: alpine-android

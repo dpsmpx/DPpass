@@ -17,6 +17,10 @@ plugins {
  * Use -Pdppass.alpine=true to build the ARM64 Linux console; regular APKs stay unchanged.
  */
 val alpineEnabled = providers.gradleProperty("dppass.alpine").map(String::toBoolean).getOrElse(false)
+// Debug-only, separate install identity. Never changes the official release.
+val localDpiNativeDebug = providers.gradleProperty("dppass.localDpiNativeDebug")
+    .map { it.toBooleanStrict() }.getOrElse(false)
+require(!localDpiNativeDebug || alpineEnabled) { "localDpiNativeDebug requires dppass.alpine=true" }
 
 
 // Личность устанавливаемого приложения (D-47). Пространство имён кода —
@@ -95,8 +99,8 @@ android {
             // the stable DPpass app rather than requiring an uninstall (and
             // loss of app-private user data) due to the debug certificate.
             if (alpineEnabled) {
-                applicationIdSuffix = ".alpine"
-                manifestPlaceholders["appLabel"] = "DPpass Alpine (test)"
+                applicationIdSuffix = if (localDpiNativeDebug) ".alpine.localdpi" else ".alpine"
+                manifestPlaceholders["appLabel"] = if (localDpiNativeDebug) "DPpass Local DPI (test)" else "DPpass Alpine (test)"
             }
         }
         release {
@@ -199,6 +203,20 @@ androidComponents {
                 // Экспорт JNI сверяется с external fun объекта XrayJni.
                 rootProject.layout.projectDirectory.file("engine/src/main/kotlin/com/dpsmpx/dppass/engine/xray/XrayRuntime.kt"),
             )
+            val experimental = localDpiNativeDebug && variant.buildType == "debug"
+            experimentalLocalDpiNative.set(experimental)
+            if (experimental) {
+                sources.from(
+                    xray.dir("localdpi/native").asFileTree.matching {
+                        include("*.go", "*.c")
+                        exclude("*_test.go")
+                    },
+                    rootProject.fileTree("tools/localdpi") {
+                        include("packet_inspect.c", "packet_inspect.h", "vendor/byedpi/packets.c",
+                            "vendor/byedpi/packets.h", "vendor/byedpi/LICENSE")
+                    },
+                )
+            }
             script.set(xray.file("native.py"))
             ndkVersion.set(libs.versions.android.ndk)
             // Только эти ABI (D-88): сборка в Termux — -Pdppass.nativeAbis=arm64-v8a; без свойства — все три.
@@ -210,6 +228,9 @@ androidComponents {
             sdkDirectory.set(androidComponents.sdkComponents.sdkDirectory)
         }
         variant.sources.jniLibs?.addGeneratedSourceDirectory(task, XrayNativeTask::outputDir)
+        if (localDpiNativeDebug && variant.buildType == "debug") {
+            variant.sources.assets?.addStaticSourceDirectory(rootProject.file("tools/localdpi/notice-assets").path)
+        }
 
         // Набор геоданных (D-27): своим сборщиком из источников каталога, в
         // assets/geodata/ — сжатыми; на устройстве — перенос со сверкой SHA-256.
