@@ -886,7 +886,7 @@
     <string name="zapret2_autotest_choose">Выберите полный HTTPS-тест или отдельное сравнение зашифрованных DNS (16 проб).</string>
     <string name="zapret2_dns_compare_note">Отдельная проверка из 16 попыток: сравнение зашифрованных DNS-ответов Cloudflare, Google и Quad9 через закреплённые IPv4-адреса DoH. Два TCP-метода проверяют TLS для адресов YouTube API. Настройки DNS, маршрутизация приложений и подписки не меняются; загрузка ленты и видео не проверяется.</string>
     <string name="zapret2_dns_compare_button">Сравнить DNS: Cloudflare / Google / Quad9 (TLS YouTube API, 16 проб)</string>
-    <string name="zapret2_autotest_title">Zapret2 · диагностика Google и YouTube</string>
+    <string name="zapret2_autotest_title">Тестирование скриптами</string>
     <string name="zapret2_autotest_subtitle">Одна кнопка: 6 HTTPS-целей × 8 TCP-режимов × 2 попытки; полный отчёт в буфер обмена</string>
     <string name="zapret2_autotest_note">Тест через работающий VPN, не меняющий обычную стратегию: 96 HTTPS/HTTP1.1 попыток. Проверяет отдельный фиксированный поисковый запрос Google, а YouTube API — через DNS текущих настроек и отдельный исходящий только IPv4. Для тайм-аутов указывается этап (TCP, TLS, HTTP). HTML не доказывает полноценные результаты поиска, а HTTP 4xx от API — загрузку ленты и видео. Отчёт копируется по завершении.</string>
     <string name="zapret2_autotest_again">Запустить все тесты заново</string>
@@ -948,4 +948,21 @@
     <string name="dpts_run_script">Проверить и запустить DPTS</string>
     <string name="dpts_stopped">DPTS остановлен: сеть изменилась или срок теста истёк</string>
     <string name="dpts_copied">DPTS завершён. Журнал автоматически скопирован.</string>
+    <string name="dpts_unified_note">Единый редактор защищённых диагностик. Выбери пресет или вставь/измени скрипт DPTS/1, сохрани, запусти, останови или обучи локальную нейросеть только после повторных подтверждённых HTTPS-ответов. Журнал копируется автоматически.</string>
+    <string name="dpts_name_hint">Название скрипта для сохранения</string>
+    <string name="dpts_save_script">Сохранить скрипт</string>
+    <string name="dpts_train_network">Обучить нейросеть на результатах</string>
+    <string name="dpts_stop_script">Остановить скрипт</string>
+    <string name="dpts_choose_script">Выбери пресет либо вставь сценарий DPTS/1.</string>
+    <string name="dpts_script_loaded">Скрипт загружен в редактор.</string>
+    <string name="dpts_invalid_save">Укажи название (1–80 символов) и текст сценария.</string>
+    <string name="dpts_save_limit">Максимум 30 сохранённых сценариев.</string>
+    <string name="dpts_script_saved">Сценарий сохранён локально.</string>
+    <string name="dpts_suite_unsupported">Этот встроенный сценарий не поддерживается.</string>
+    <string name="dpts_train_no_run">Сначала полностью выполни прямой DPTS-тест на этой сети.</string>
+    <string name="dpts_train_no_evidence">Обучение не выполнено: нужны 3/3 подтверждённых HTML-ответов на двух IP при отказе plain. Тайм-ауты API и HTTP 4xx не считаются успехом.</string>
+    <string name="dpts_train_model_error">Не удалось создать или обучить локальную нейросеть стратегий.</string>
+    <string name="dpts_train_save_error">Нейросеть обновлена в памяти, но снимок не сохранился. Повторное обучение запрещено.</string>
+    <string name="dpts_train_success">Нейросеть стратегий обучена и сохранена: %1$s (HTML подтверждён, видео не проверено).</string>
+    <string name="dpts_train_ack_error">Снимок нейросети сохранён, но подтверждение ядра не удалось.</string>
 </resources>
