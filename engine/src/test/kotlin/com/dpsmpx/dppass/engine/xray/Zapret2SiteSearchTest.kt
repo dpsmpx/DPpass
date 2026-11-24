@@ -190,4 +190,44 @@ class Zapret2SiteSearchTest {
             .candidates.first().transportStable)
     }
 
+    @Test fun apiSweepOnlyAllowsEightKnownAPIAddressesAndH1H2() {
+        assertEquals("site_sweep_h1_ip00_a1_:youtubei.googleapis.com",
+            Zapret2SiteSearch.apiSweepTrial(0, 1, "h1"))
+        assertEquals("site_sweep_h2_ip07_a3_:youtubei.googleapis.com",
+            Zapret2SiteSearch.apiSweepTrial(7, 3, "h2"))
+        for (bad in listOf(-1, 8, 99)) {
+            assertTrue(runCatching {
+                Zapret2SiteSearch.apiSweepTrial(bad, 1, "h1")
+            }.isFailure)
+        }
+        assertTrue(runCatching {
+            Zapret2SiteSearch.apiSweepTrial(0, 4, "h1")
+        }.isFailure)
+        assertTrue(runCatching {
+            Zapret2SiteSearch.apiSweepTrial(0, 1, "quic")
+        }.isFailure)
+        assertEquals(5, Zapret2SiteSearch.apiSweepProfiles.size)
+    }
+
+    @Test fun apiSweepReportNeverClaimsWorkingAPIOrAppliesAuto() {
+        val prepared = Zapret2GoogleProbe.fromWire(
+            "v3\tdns_ready\t200\t0\t120\t0\t0\t6f706c12\t8\t0\tdns\tnone\t-".encodeToByteArray())
+        val failed = Zapret2GoogleAttempt("plain", 1,
+            Zapret2GoogleProbe.fromWire(
+                "v3\ttimeout_tls_no_reply\t0\t0\t5000\t0\t0\t6f706c12\t8\t0\th1\tclienthello_sent\t-".encodeToByteArray()),
+            Zapret2SiteSearch.apiSweepTrial(0, 1, "h1"))
+        val h2 = Zapret2GoogleAttempt("tlsrec-split", 1,
+            Zapret2GoogleProbe.fromWire(
+                "v3\thttp_reachable\t403\t80\t400\t0\t0\t6f706c12\t8\t4\th2\ttls_verified\th2".encodeToByteArray()),
+            Zapret2SiteSearch.apiSweepTrial(4, 1, "h2"))
+        val report = Zapret2SiteSearch.apiSweepReport("MOBILE", prepared,
+            listOf(failed, h2), 8)
+        assertTrue(report.contains("ip_index=4"))
+        assertTrue(report.contains("HTTP 1/1"))
+        assertTrue(report.contains("AUTO: not_applied"))
+        assertTrue(report.contains("не доказывают работу ленты"))
+        assertFalse(report.contains("8.8.8.8"))
+        assertFalse(report.contains("/youtubei/v1/"))
+    }
+
 }
