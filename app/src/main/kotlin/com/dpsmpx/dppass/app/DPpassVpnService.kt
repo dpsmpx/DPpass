@@ -744,8 +744,19 @@ class DPpassVpnService : VpnService() {
             when (val configured = JniXrayRuntime.configureZapret2NeuralModel(modelBytes ?: ByteArray(0))) {
                 is XrayResult.Failed -> core.log.warning("zapret2_neural_model_rejected",
                     "reason" to Safe("invalid_model"))
-                else -> core.log.info("zapret2_neural_model",
-                    "installed" to (modelBytes != null), "mode" to Safe("local_only"))
+                else -> {
+                    core.log.info("zapret2_neural_model",
+                        "installed" to (modelBytes != null), "mode" to Safe("local_only"))
+                    // Distinguish a persisted empty model from a lost or rejected one.
+                    if (modelBytes != null) runCatching {
+                        val loaded = org.json.JSONObject(modelBytes.decodeToString())
+                        core.log.info("zapret2_neural_loaded",
+                            "observations" to loaded.optInt("observations", 0),
+                            "sparse" to (loaded.optJSONObject("sparse")?.length() ?: 0),
+                            "parameters" to loaded.optLong("parameters", 0),
+                            "bytes" to modelBytes.size)
+                    }
+                }
             }
         }
         core.log.info("tunnel_up", "routes" to tunSpec.routes.size, "apps" to Safe(tunSpec.apps::class.simpleName ?: "?"))
@@ -1545,6 +1556,7 @@ class DPpassVpnService : VpnService() {
         byeDpiWatch = null
         rootWatch?.cancel()
         rootWatch = null
+        val hadStrategySession = zapret2FinalState != null
         stopObservers()
         state.withLock {
             sessionRegime = null
@@ -1572,7 +1584,19 @@ class DPpassVpnService : VpnService() {
         }
         rootZapret2 = null
         // NonCancellable acceptance мог зарегистрировать наблюдателей после первой отмены.
+        val lateStrategySession = zapret2FinalState != null
         stopObservers()
+        // The first flush precedes EngineSession.stop(). Closing active flows
+        // may produce additional observations; the Go model outlives Xray Stop.
+        // Persist again before a reconnect can reload the disk snapshot.
+        if (hadStrategySession || lateStrategySession) {
+            withContext(NonCancellable + Dispatchers.IO) {
+                runCatching { persistStrategyLearning() }.onFailure {
+                    DeviceLog.log.warning("zapret2_neural_persist_failed",
+                        "reason" to Safe("post_stop_flush_failed"))
+                }
+            }
+        }
         // establish мог завершиться после отмены: fd уже принадлежит владельцу.
         // Явная остановка закрывает его после завершения подключения; restart сохраняет блокировку.
         if (!keepTunnel) tunnel.close()
