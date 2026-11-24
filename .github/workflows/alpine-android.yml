@@ -312,7 +312,7 @@ jobs:
             flags=(--prerelease --latest=false)
             title="DPpass 0.8.3-rc.1 — original ByeDPI ARM64"
             notes="$RUNNER_TEMP/dppass-083-notes.md"
-            printf '%s\n' 'DPpass 0.8.3-rc.1, versionCode 157. Signed ARM64 APK with the established direct-distribution identity. Adds original ByeDPI 0.17.3 protected VPN SOCKS and IPv4 TCP root transparent modes. Original Zapret2 root retained; non-root Zapret2 remains the compatible DPpass planner, not full upstream NFQUEUE. Root ByeDPI does not intercept UDP/IPv6. Physical device acceptance and actual site access are unverified. See docs/releases/0.8.3-rc.1.md.' > "$notes"
+            printf '%s\n' 'DPpass 0.8.3-rc.1, versionCode 157. Signed ARM64 APK with the established direct-distribution identity. Adds original ByeDPI 0.17.3 protected VPN SOCKS and TCP root transparent modes (IPv6 when supported). Original Zapret2 root retained; non-root Zapret2 remains the compatible DPpass planner, not full upstream NFQUEUE. Root ByeDPI does not intercept UDP; IPv6 requires kernel NAT support. Physical device acceptance and actual site access are unverified. See docs/releases/0.8.3-rc.1.md.' > "$notes"
           fi
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             target="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq '.targetCommitish')"

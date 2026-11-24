@@ -940,6 +940,6 @@
     <string name="dpts_train_save_error">Neural model updated in memory, but snapshot could not be stored. No duplicate training will be performed.</string>
     <string name="dpts_train_success">Local strategy neural trained and saved for: %1$s (verified HTML, not guaranteed video).</string>
     <string name="dpts_train_ack_error">Model snapshot stored, but the native acknowledgement failed.</string>
-    <string name="byedpi_root">ByeDPI · root (IPv4 TCP transparent)</string>
+    <string name="byedpi_root">ByeDPI · root (TCP transparent, IPv6 if supported)</string>
     <string name="byedpi_vpn">ByeDPI · VpnService (original SOCKS)</string>
 </resources>
