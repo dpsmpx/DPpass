@@ -34,6 +34,9 @@ jobs:
           cache-dependency-path: tools/xray/go.sum
       - name: Compile and test pinned ByeDPI packet module on host
         run: bash tools/localdpi/check_byedpi_packets.sh
+      - name: Compare Go and native TLS encoders
+        working-directory: tools/xray
+        run: CGO_ENABLED=1 go test -a -count=1 -tags localdpi_native ./localdpi/native ./zapret2
       - name: Run protected TCP/QUIC AUTO, planner and Alpine tests
         working-directory: tools/xray
         run: go test -count=1 ./localdpi ./bridge ./zapret2 ./cmd/zapret2-alpine

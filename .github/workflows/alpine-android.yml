@@ -74,6 +74,14 @@ jobs:
           "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0" "ndk;30.0.16248370" "cmake;3.22.1"
       - name: Build pinned original ByeDPI for Android ARM64
         run: python3 tools/byedpi/build_android.py --ndk "$ANDROID_HOME/ndk/30.0.16248370" --abis arm64-v8a
+      - name: Cross-link opt-in native DPI library for Android ARM64
+        working-directory: tools/xray
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CC="$ANDROID_HOME/ndk/30.0.16248370/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang"
+          GOOS=android GOARCH=arm64 CGO_ENABLED=1 go test -a -tags localdpi_native -c -o "$RUNNER_TEMP/localdpi-native-android.test" ./localdpi/native
+          file "$RUNNER_TEMP/localdpi-native-android.test"
       - name: Verify pinned Zapret2 assets
         run: python3 tools/zapret2/vendor.py
       - name: Portable Zapret2 strategy and Xray bridge Go tests
