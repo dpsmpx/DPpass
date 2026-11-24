@@ -8,6 +8,7 @@ on:
     paths:
       - 'tools/xray/bridge/**'
       - 'tools/xray/zapret2/**'
+      - 'tools/xray/localdpi/**'
       - 'tools/xray/cmd/zapret2-alpine/**'
       - 'tools/xray/go.mod'
       - 'tools/xray/go.sum'
@@ -32,4 +33,4 @@ jobs:
           cache-dependency-path: tools/xray/go.sum
       - name: Run protected TCP/QUIC AUTO, planner and Alpine tests
         working-directory: tools/xray
-        run: go test -count=1 ./bridge ./zapret2 ./cmd/zapret2-alpine
+        run: go test -count=1 ./localdpi ./bridge ./zapret2 ./cmd/zapret2-alpine

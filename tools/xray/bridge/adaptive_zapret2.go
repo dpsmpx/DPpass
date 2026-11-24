@@ -7,6 +7,7 @@ package bridge
 // TLS ServerHello by itself is not evidence of working video delivery.
 // Selected domains are kept in memory; no visited URL or plaintext is logged.
 import (
+    "github.com/dpsmpx/dppass/tools/xray/localdpi"
     "errors"
     "strings"
     "net"
@@ -15,14 +16,10 @@ import (
     "unicode"
 )
 
-// Keep the five established TCP techniques, then lossless TLS-record splitting.
-// An unmodified TCP baseline is the final AUTO candidate for unfiltered networks.
-var adaptiveCandidates = [...]string{"split-1", "split", "fake-3", "fake-5", "disorder", "tlsrec-split", "pass"}
-// HTTP/1 cannot use TLS-record splitting, but can use the plain baseline.
-var adaptiveHTTPCandidates = [...]string{"split-1", "split", "fake-3", "fake-5", "disorder", "pass"}
-// After the existing fake-3/fake-5 attempts, test ordinary QUIC instead
-// of assuming that a random-ciphertext Initial always deceives the DPI.
-var adaptiveQuicCandidates = [...]string{"fake-3", "fake-5", "pass"}
+// The shared catalog preserves the legacy rotation and model output ABI.
+var adaptiveCandidates = localdpi.Candidates(localdpi.TLS)
+var adaptiveHTTPCandidates = localdpi.Candidates(localdpi.HTTP)
+var adaptiveQuicCandidates = localdpi.Candidates(localdpi.QUIC)
 // 128 KiB of actual downstream traffic is stronger evidence than the
 // small JSON/HTML metadata which can load even while media/CDN stalls.
 const adaptivePayloadThreshold = 128 * 1024

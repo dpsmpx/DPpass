@@ -3,6 +3,7 @@
 package zapret2
 
 import (
+    "github.com/dpsmpx/dppass/tools/xray/localdpi"
     "fmt"
     "strconv"
     "strings"
@@ -53,5 +54,5 @@ func ParseTag(tag string) (Mode, bool, error) {
 }
 
 func Profiles() []string {
-    return []string{"fake-3", "fake-5", "disorder", "split", "split-1", "tlsrec-split"}
+    return localdpi.LegacyProfiles()
 }

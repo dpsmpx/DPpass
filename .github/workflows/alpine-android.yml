@@ -78,7 +78,7 @@ jobs:
         run: python3 tools/zapret2/vendor.py
       - name: Portable Zapret2 strategy and Xray bridge Go tests
         working-directory: tools/xray
-        run: go test ./zapret2 ./bridge ./cmd/zapret2-alpine
+        run: go test ./localdpi ./zapret2 ./bridge ./cmd/zapret2-alpine
       - name: Alpine process-layout and activation/adaptive-selection JVM tests
         run: ./gradlew --no-daemon --console=plain :engine:test :connection:test :tunnel:test :app:testDebugUnitTest
       - name: Build ARM64 app with actual Alpine minirootfs and PRoot

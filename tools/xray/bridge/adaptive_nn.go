@@ -7,6 +7,7 @@ package bridge
 // 100 million floats in RAM. Contextual heads learn separately per
 // mobile/Wi-Fi/other and TLS/HTTP/QUIC. No destinations are persisted.
 import (
+    "github.com/dpsmpx/dppass/tools/xray/localdpi"
     "bytes"
     "crypto/sha256"
     "encoding/json"
@@ -239,18 +240,9 @@ func AcknowledgeZapret2NeuralModel(saved []byte) error {
 }
 
 func nnCandidateIndex(tag string, quic bool) int {
-    if quic {
-        for i, candidate := range adaptiveQuicCandidates {
-            if tag == candidate { return 6 + i }
-        }
-        return -1
-    }
-    for i, candidate := range adaptiveCandidates {
-        // The plain TCP pass candidate is not a neural output class.
-        if i >= 6 { break }
-        if tag == candidate { return i }
-    }
-    return -1
+    transport := localdpi.TLS
+    if quic { transport = localdpi.QUIC }
+    return localdpi.NeuralIndex(tag, transport)
 }
 
 func nnFeatures(host string, quic bool) [adaptiveNNInput]float64 {
