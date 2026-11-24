@@ -364,3 +364,7 @@ CI 62e8a38: Go/Linux/Windows #45492057470 и Android #45492042269 успешны
 ## A6 — точное подтверждение сохранения после замены модели
 
 Go AcknowledgeZapret2NeuralModel проверяет совпадение текущей сериализации со snapshot даже при dirty=false. Раньше stale ACK после замены чистой модели возвращал success без проверки. Сохранена идемпотентность ACK для тех же байтов; stale ACK не меняет состояние модели. Добавлен regression test замены seed и повторного ACK. Нет изменения формата, индексов, обучения или выбора методов. CI и физическая проверка ожидаются.
+
+## A6 — exact-base compare-and-replace JNI snapshots
+
+CI 03a37e4: Linux/Windows #45493697178 и Android #45493685159 успешны. Strategy persistence теперь требует exact expected bytes до native export и повторно проверяет их под storageGuard перед replacement. Подключены оба известных call sites — периодический/финальный flush сервиса и DPTS save. Metadata guard сохранён; race с другим сохранением или регенерацией отклоняет запись, ACK не отправляется, pending native update остаётся доступен для следующего flush. Добавлен JVM fixture с равными counters и разными weights. Это in-process CAS, не полный revision protocol; возможна безопасная потеря текущей попытки сохранения при конфликте, cross-process locking и физическая проверка остаются открыты. Форматы и вычислительные алгоритмы не меняются. CI ожидается.

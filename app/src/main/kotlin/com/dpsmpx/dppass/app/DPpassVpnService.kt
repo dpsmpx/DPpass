@@ -1519,7 +1519,7 @@ class DPpassVpnService : VpnService() {
             }
             return
         }
-        if (!Zapret2NeuralModel.storeLearnedSnapshot(this, kind, snapshot)) {
+        if (!Zapret2NeuralModel.storeLearnedSnapshot(this, kind, snapshot, current)) {
             DeviceLog.log.warning("zapret2_neural_persist_failed",
                 "reason" to Safe("stale_or_disk_write_failed"))
             return

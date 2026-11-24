@@ -82,4 +82,21 @@ class ModelSnapshotFileTest {
         }
     }
 
+    @Test
+    fun equalCounterSnapshotsStillRequireExactBaseBytes() {
+        val root = Files.createTempDirectory("model-equal-counters").toFile()
+        try {
+            val file = File(root, "model.json")
+            val base = """{"observations":20,"weight":0}""".encodeToByteArray()
+            val newer = """{"observations":20,"weight":1}""".encodeToByteArray()
+            val stale = """{"observations":20,"weight":2}""".encodeToByteArray()
+            assertTrue(ModelSnapshotFile.replace(file, base))
+            assertTrue(ModelSnapshotFile.replaceIfUnchanged(file, base, newer, 128))
+            assertFalse(ModelSnapshotFile.replaceIfUnchanged(file, base, stale, 128))
+            assertContentEquals(newer, file.readBytes())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
 }

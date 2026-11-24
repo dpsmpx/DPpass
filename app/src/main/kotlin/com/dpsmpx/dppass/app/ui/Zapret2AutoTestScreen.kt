@@ -397,11 +397,12 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         // training twice even if durable storage fails.
         lastTrainingSubmitted = true
         dptsTrainButton.isEnabled = false
+        val expected = Zapret2NeuralModel.readVerified(context, kind)
         val snapshot = runCatching {
             JniXrayRuntime.snapshotZapret2NeuralModel()
         }.getOrNull()
-        val stored = snapshot != null &&
-            Zapret2NeuralModel.storeLearnedSnapshot(context, kind, snapshot)
+        val stored = expected != null && snapshot != null &&
+            Zapret2NeuralModel.storeLearnedSnapshot(context, kind, snapshot, expected)
         if (!stored) {
             statusText.text = context.getString(R.string.dpts_train_save_error)
             appendTrainingLog("updated_in_memory snapshot_not_saved")

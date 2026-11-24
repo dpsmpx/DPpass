@@ -268,17 +268,19 @@ object Zapret2NeuralModel {
      * JNI snapshots must not overwrite a user-regenerated model. The seed
      * identifies the immutable architecture, whereas learned weights differ.
      */
-    fun storeLearnedSnapshot(context: Context, kind: Kind, raw: ByteArray): Boolean =
-        synchronized(storageGuard) {
+    fun storeLearnedSnapshot(
+        context: Context, kind: Kind, raw: ByteArray, expected: ByteArray,
+    ): Boolean = synchronized(storageGuard) {
             if (!verify(raw, kind)) return@synchronized false
             val now = readVerified(context, kind) ?: return@synchronized false
+            if (!now.contentEquals(expected)) return@synchronized false
             val latest = JSONObject(now.decodeToString())
             val snapshot = JSONObject(raw.decodeToString())
             if (latest.optString("format") != kind.format ||
                 snapshot.optString("format") != kind.format ||
                 !stamp(latest).canReplaceWith(stamp(snapshot)))
                 return@synchronized false
-            write(context, kind, raw)
+            ModelSnapshotFile.replaceIfUnchanged(file(context, kind), expected, raw, MAX_BYTES)
         }
 
     /** Reject stale local computations even when model dimensions match.
