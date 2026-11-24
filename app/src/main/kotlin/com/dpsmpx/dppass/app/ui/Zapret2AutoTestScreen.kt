@@ -1324,6 +1324,136 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         }
     }
 
+
+    /**
+     * DPTS executes a statically validated, deterministic matrix through
+     * the existing protected Xray diagnostic adapter. No script-controlled
+     * URLs, sockets, code execution, application routes or AUTO commits.
+     */
+    private fun startDptsScript() {
+        if (job?.isActive == true) return
+        if (!ready(TunnelState.status.value)) {
+            statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
+            host.toast(statusText.text)
+            return
+        }
+        val source = dptsEditor.text.toString()
+        val plan = try {
+            DptsScript.compile(source)
+        } catch (e: DptsCompileException) {
+            statusText.text = e.message ?: "Invalid DPTS script"
+            resultText.text = statusText.text
+            resultText.visibility = View.VISIBLE
+            return
+        } catch (e: IllegalArgumentException) {
+            statusText.text = e.message ?: "Invalid DPTS script"
+            resultText.text = statusText.text
+            resultText.visibility = View.VISIBLE
+            return
+        }
+        context.getSharedPreferences("dpts_editor", Context.MODE_PRIVATE).edit()
+            .putString("source", source).apply()
+        val network = NetworkCheck.underlying(context).type.toString()
+        val allButtons = listOf(runButton, dnsButton, matrixButton, h3Button,
+            siteButton, siteQuicButton, youtubeHomeButton, youtubeApiButton,
+            youtubeThumbnailButton, youtubeApiSweepButton, apiSniControlButton,
+            apiTLSVersionButton, dptsLoadButton, dptsRunButton)
+        allButtons.forEach { it.isEnabled = false }
+        dptsEditor.isEnabled = false
+        dptsPresetSpinner.isEnabled = false
+        siteInput.isEnabled = false
+        progress.visibility = View.VISIBLE
+        progress.max = plan.probes.size
+        progress.progress = 0
+        resultText.visibility = View.GONE
+        statusText.text = "DPTS: DoH · ${plan.host}"
+        job = host.scope.launch {
+            try {
+                val prepared = try {
+                    withContext(Dispatchers.IO) {
+                        JniXrayRuntime.probeZapret2Google("plain",
+                            Zapret2SiteSearch.prepare(plan.host), DNS_TIMEOUT_MILLIS)
+                    }
+                } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
+                ensureActive()
+                val requiredIPs = (plan.probes.maxOfOrNull { it.ipIndex } ?: 0) + 1
+                if (prepared.outcome != "dns_ready" ||
+                    prepared.dnsAnswers < requiredIPs) {
+                    statusText.text = "DPTS: DoH ${prepared.outcome}, " +
+                        "${prepared.dnsAnswers}/$requiredIPs IPv4"
+                    resultText.text = statusText.text
+                    resultText.visibility = View.VISIBLE
+                    return@launch
+                }
+                val preparedAt = SystemClock.elapsedRealtime()
+                val rows = mutableListOf<Zapret2GoogleAttempt>()
+                var expired = false
+                for ((index, probe) in plan.probes.withIndex()) {
+                    ensureActive()
+                    if (!ready(TunnelState.status.value) ||
+                        NetworkCheck.underlying(context).type.toString() != network ||
+                        SystemClock.elapsedRealtime() - preparedAt >=
+                            minOf(Zapret2SiteSearch.TTL_MS - probe.timeoutMs,
+                                DptsScript.MAX_BUDGET_MS + DNS_TIMEOUT_MILLIS)) {
+                        expired = true
+                        break
+                    }
+                    statusText.text = "DPTS: ${plan.title} · ${index + 1}/${plan.probes.size}" +
+                        " · ${probe.phase}/${probe.method} IPv4 #${probe.ipIndex}"
+                    val response = try {
+                        withContext(Dispatchers.IO) {
+                            JniXrayRuntime.probeZapret2Google(
+                                probe.method, probe.target, probe.timeoutMs)
+                        }
+                    } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
+                    ensureActive()
+                    if (response.outcome in setOf("engine_off", "dns_not_prepared",
+                            "invalid_target", "invalid_strategy", "invalid_index")) {
+                        expired = true
+                        break
+                    }
+                    rows += Zapret2GoogleAttempt(probe.method, probe.attempt,
+                        response, probe.target)
+                    progress.progress = rows.size
+                }
+                if (expired || rows.size != plan.probes.size) {
+                    statusText.text = context.getString(R.string.dpts_stopped)
+                    resultText.text = "DPTS stopped: network changed, " +
+                        "native target rejected, or test expired. " +
+                        "Partial diagnostics are never submitted as complete."
+                    resultText.visibility = View.VISIBLE
+                    return@launch
+                }
+                val report = DptsScript.report(plan, network, prepared, rows)
+                resultText.text = report
+                resultText.visibility = View.VISIBLE
+                val copied = try {
+                    context.getSystemService(ClipboardManager::class.java)?.let {
+                        it.setPrimaryClip(ClipData.newPlainText("DPpass DPTS", report))
+                        true
+                    } ?: false
+                } catch (_: SecurityException) { false }
+                  catch (_: IllegalStateException) { false }
+                statusText.text = context.getString(if (copied)
+                    R.string.dpts_copied else R.string.zapret2_autotest_copy_failed)
+                host.toast(statusText.text)
+            } catch (_: CancellationException) {
+                statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
+                throw CancellationException("DPTS interrupted")
+            } finally {
+                job = null
+                dptsEditor.isEnabled = true
+                dptsPresetSpinner.isEnabled = true
+                dptsLoadButton.isEnabled = true
+                siteInput.isEnabled = true
+                val connected = ready(TunnelState.status.value)
+                allButtons.filter { it !== dptsLoadButton }.forEach {
+                    it.isEnabled = connected
+                }
+            }
+        }
+    }
+
     private companion object {
         const val REPEATS = 2
         const val TIMEOUT_MILLIS = 8_000
