@@ -242,19 +242,8 @@ object Zapret2NeuralModel {
     fun isInstalled(context: Context, kind: Kind = Kind.STRATEGY) =
         readVerified(context, kind) != null
 
-    private fun write(context: Context, kind: Kind, raw: ByteArray): Boolean {
-        val dest = file(context, kind)
-        val dir = dest.parentFile ?: return false
-        if (!dir.isDirectory && !dir.mkdirs()) return false
-        val temp = File(dir, kind.filename + ".pending")
-        return try {
-            temp.writeBytes(raw)
-            if (!temp.renameTo(dest)) error("Atomic replace failed")
-            true
-        } finally {
-            temp.delete()
-        }
-    }
+    private fun write(context: Context, kind: Kind, raw: ByteArray): Boolean =
+        ModelSnapshotFile.replace(file(context, kind), raw)
 
     fun store(context: Context, kind: Kind, raw: ByteArray): Boolean =
         synchronized(storageGuard) { verify(raw, kind) && write(context, kind, raw) }
