@@ -132,4 +132,62 @@ class Zapret2SiteSearchTest {
         assertTrue(report.contains("Протокол: HTTPS"))
         assertTrue(report.contains("AUTO"))
     }
+    private fun transportResponse(host: String, ip: Int, attempt: Int,
+        method: String, status: Int): Zapret2GoogleAttempt {
+        val outcome = if (status in 300..399) "redirect" else "http_reachable"
+        return Zapret2GoogleAttempt(method, attempt,
+            Zapret2GoogleProbe(
+                outcome = outcome, httpStatus = status, bodyBytes = 220,
+                elapsedMillis = 270, appliedDelta = 0, skippedDelta = 0,
+                dnsFingerprint = "cafebab0", dnsAnswers = 2,
+                ipIndex = ip, protocol = "h1",
+                tlsStage = "tls_verified", alpn = "http/1.1"),
+            Zapret2SiteSearch.trial(host, ip, attempt, false))
+    }
+
+    @Test fun root404ProvesTransportButNeverAutoPromotes() {
+        val host = "i.ytimg.com"
+        val rows = buildList {
+            for (ip in 0..1) for (attempt in 1..3)
+                for (method in Zapret2SiteSearch.tcpMethods)
+                    add(transportResponse(host, ip, attempt, method, 404))
+        }
+        val rec = Zapret2SiteSearch.recommend(host, 2, rows, false)
+        assertEquals("plain", rec.method)
+        assertFalse(rec.baselineStable)
+        assertFalse(rec.readyToApply)
+        assertEquals(0, rec.candidates.first().verified)
+        assertEquals(6, rec.candidates.first().transportVerified)
+        assertTrue(rec.candidates.first().transportStable)
+        assertTrue(rec.label.contains("AUTO не изменён"))
+        val prepared = Zapret2GoogleProbe.fromWire(
+            "v3\tdns_ready\t200\t0\t120\t0\t0\tcafebab0\t2\t0\tdns\tnone\t-".encodeToByteArray())
+        val report = Zapret2SiteSearch.report(host, "MOBILE", false, prepared,
+            rows, rec)
+        assertTrue(report.contains("http_transport=6/6"))
+        assertTrue(report.contains("AUTO: not_applied"))
+    }
+
+    @Test fun root301IsNotAFailedTlsHandshakeOrUsefulContent() {
+        val host = "google.com"
+        val rows = (1..3).map {
+            transportResponse(host, 0, it, "plain", 301)
+        }
+        val rec = Zapret2SiteSearch.recommend(host, 1, rows, false)
+        assertEquals("plain", rec.method)
+        assertFalse(rec.readyToApply)
+        assertFalse(rec.baselineStable)
+        assertEquals(3, rec.candidates.first().transportVerified)
+        assertEquals(0, rec.candidates.first().verified)
+    }
+
+    @Test fun missingOrDuplicateTransportSamplesNeverLookStable() {
+        val host = "example.net"
+        val rows = (1..3).map { transportResponse(host, 0, it, "plain", 404) }
+        assertFalse(Zapret2SiteSearch.recommend(host, 1, rows.dropLast(1), false)
+            .candidates.first().transportStable)
+        assertFalse(Zapret2SiteSearch.recommend(host, 1, rows + rows[0], false)
+            .candidates.first().transportStable)
+    }
+
 }
