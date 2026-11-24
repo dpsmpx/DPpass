@@ -993,7 +993,11 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 // Cross-module data-class getters are not eligible for a
                 // Kotlin smart cast inside withContext's coroutine lambda.
                 val selectedMethod = selection.method
-                val commit = if (!quic && selectedMethod != null &&
+                // Migrated DPTS suites are diagnostic-only. Applying a
+                // script to the live AUTO selector requires a separate
+                // explicitly reviewed capability, not an implicit old-button
+                // side effect. Neural training uses its own gated action.
+                val commit = if (false && !quic && selectedMethod != null &&
                     (selection.readyToApply || selection.baselineStable)) {
                     try {
                         withContext(Dispatchers.IO) {
