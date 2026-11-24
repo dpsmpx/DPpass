@@ -110,6 +110,79 @@ object Zapret2SiteSearch {
         appendLine("Результаты не содержат IP-адресов, URL-путей, тел, ключей или cookies.")
     }
 
+
+    /**
+     * Fixed SNI differential on the same eight API A addresses.
+     * The peer still uses the original certificate-verified host identity
+     * and this request can never feed the native AUTO selector.
+     */
+    fun sameIpControlTrial(index: Int, attempt: Int): String {
+        require(index in 0 until MAX_SWEEP_IPS && attempt in 1..ATTEMPTS)
+        return "site_sni_google_ip" + index.toString().padStart(2, '0') +
+            "_a${attempt}_:${YOUTUBE_API_HOST}"
+    }
+
+    private fun tlsReached(row: Zapret2GoogleAttempt): Boolean =
+        row.result.tlsStage == "tls_verified" &&
+            row.result.alpn == "http/1.1" &&
+            row.result.httpStatus in 200..499 &&
+            row.result.outcome in setOf("ok", "http_reachable", "redirect")
+
+    fun sameIpControlReport(
+        network: String, prepared: Zapret2GoogleProbe,
+        ownControl: Zapret2GoogleProbe?, ownPrepared: Zapret2GoogleProbe?,
+        rows: List<Zapret2GoogleAttempt>, ipCount: Int,
+    ): String = buildString {
+        appendLine("=== DPpass — TLS/SNI контроль на тех же IP YouTube API ===")
+        appendLine("Сеть: $network; API: $YOUTUBE_API_HOST; контроль: www.google.com")
+        appendLine("DoH API: ${prepared.outcome}; IPv4=${prepared.dnsAnswers}; fingerprint=${prepared.dnsFingerprint}")
+        appendLine("Независимый Google DoH контроль: ${ownPrepared?.outcome ?: "not_run"};" +
+            " TLS=${ownControl?.tlsStage ?: "-"}; HTTP=${ownControl?.httpStatus ?: 0};" +
+            " outcome=${ownControl?.outcome ?: "not_run"}")
+        appendLine("Проверены $ipCount IP API из одного A-набора с разными SNI/Host;" +
+            " сертификат проверяется для каждого имени.")
+        var controlGood = 0
+        var apiGood = 0
+        var matched = 0
+        for (ip in 0 until ipCount) {
+            val api = rows.filter {
+                it.result.ipIndex == ip && it.target.startsWith("site_sweep_h1_ip") &&
+                    it.strategy == "plain" }
+            val control = rows.filter {
+                it.result.ipIndex == ip && it.target.startsWith("site_sni_google_ip") &&
+                    it.strategy == "plain" }
+            val apiOk = api.count(::tlsReached)
+            val controlOk = control.count(::tlsReached)
+            if (apiOk > 0) apiGood++
+            if (controlOk > 0) controlGood++
+            if (api.isNotEmpty() && control.isNotEmpty()) matched++
+            appendLine("  ip_index=$ip API TLS/HTTP=$apiOk/${api.size};" +
+                " Google same-IP TLS/HTTP=$controlOk/${control.size};" +
+                " Google 3/3=${control.size == ATTEMPTS && controlOk == ATTEMPTS}")
+        }
+        for (row in rows) {
+            val r = row.result
+            val identity = if (row.target.startsWith("site_sni_google_ip"))
+                "google_control" else "youtube_api"
+            appendLine("  ip_index=${r.ipIndex} sni=$identity attempt=${row.attempt}" +
+                " outcome=${r.outcome} stage=${r.tlsStage} alpn=${r.alpn}" +
+                " http=${r.httpStatus} elapsed_ms=${r.elapsedMillis}")
+        }
+        appendLine("Итог: API дал HTTP-ответ хотя бы на одном IP: ${apiGood>0};" +
+            " контроль www.google.com ответил на ${controlGood}/$matched IP.")
+        if (rows.any { it.target.startsWith("site_sni_google_ip") &&
+                it.attempt == 3 && tlsReached(it) }) {
+            appendLine("Стабильный Google TLS на том же IP при отсутствии API TLS" +
+                " поддерживает гипотезу зависимости от SNI, но не доказывает DPI.")
+        } else {
+            appendLine("Отсутствие ответа Google на IP API не исключает блокировку SNI:" +
+                " один IP может не обслуживать это имя.")
+        }
+        appendLine("AUTO: not_applied. Контроль ничего не переключает и не обучает.")
+        appendLine("Сравнение SNI не подтверждает работу YouTube API POST/ленты/видео.")
+        appendLine("IP, пути, тела ответов, сертификаты и ключи не экспортируются.")
+    }
+
     data class Candidate(
         val method: String,
         val verified: Int,
