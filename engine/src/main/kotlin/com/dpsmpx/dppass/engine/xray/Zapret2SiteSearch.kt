@@ -170,8 +170,15 @@ object Zapret2SiteSearch {
         }
         appendLine("Итог: API дал HTTP-ответ хотя бы на одном IP: ${apiGood>0};" +
             " контроль www.google.com ответил на ${controlGood}/$matched IP.")
-        if (rows.any { it.target.startsWith("site_sni_google_ip") &&
-                it.attempt == 3 && tlsReached(it) }) {
+        val stableSniContrast = (0 until ipCount).any { ip ->
+            val api = rows.filter { it.result.ipIndex == ip &&
+                it.target.startsWith("site_sweep_h1_ip") }
+            val google = rows.filter { it.result.ipIndex == ip &&
+                it.target.startsWith("site_sni_google_ip") }
+            api.size == ATTEMPTS && google.size == ATTEMPTS &&
+                api.none(::tlsReached) && google.all(::tlsReached)
+        }
+        if (stableSniContrast) {
             appendLine("Стабильный Google TLS на том же IP при отсутствии API TLS" +
                 " поддерживает гипотезу зависимости от SNI, но не доказывает DPI.")
         } else {
