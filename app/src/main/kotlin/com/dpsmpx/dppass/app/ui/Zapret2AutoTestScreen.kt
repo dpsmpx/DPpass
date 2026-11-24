@@ -220,6 +220,144 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         host.prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE &&
             status is TunnelStatus.Connected && status.profileId == ServerlessPlan.PROFILE_ID
 
+    /** The former one-off diagnostic buttons now exist only as DPTS suite presets. */
+    private fun launchScriptSuite(plan: DptsPlan) {
+        when (plan.suite) {
+            "google_youtube" -> start()
+            "dns_compare" -> start(dnsComparison = true)
+            "ip_matrix" -> startMatrix()
+            "h3_api" -> startH3()
+            "site_https" -> {
+                siteInput.setText(plan.host)
+                startSiteSearch(quic = false)
+            }
+            "site_quic" -> {
+                siteInput.setText(plan.host)
+                startSiteSearch(quic = true)
+            }
+            "api_ipv4_sweep" -> startYoutubeApiSweep()
+            "sni_control" -> startSameIpSniControl()
+            "tls_versions" -> startTLSVersionControl()
+            else -> {
+                statusText.text = context.getString(R.string.dpts_suite_unsupported)
+            }
+        }
+    }
+
+    private fun refreshScriptCatalog() {
+        val chosen = dptsPresetSpinner.selectedItem?.toString()
+        dptsPresets.clear()
+        dptsPresets.addAll(DptsPresets.scripts.keys)
+        dptsPresets.addAll(personalScripts.keys.sorted().map { "Мой: $it" })
+        dptsPresetSpinner.adapter = ArrayAdapter(context,
+            android.R.layout.simple_spinner_item, dptsPresets).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        dptsPresetSpinner.setSelection(dptsPresets.indexOf(chosen).coerceAtLeast(0))
+    }
+
+    private fun loadSelectedScript() {
+        if (job?.isActive == true) return
+        val name = dptsPresetSpinner.selectedItem?.toString() ?: return
+        val savedName = name.removePrefix("Мой: ")
+        val script = DptsPresets.scripts[name] ?: personalScripts[savedName]
+            ?: return
+        dptsNameInput.setText(savedName)
+        dptsEditor.setText(script)
+        lastDptsPlan = null
+        lastDptsRows = emptyList()
+        lastDptsNetwork = null
+        lastTrainingSubmitted = false
+        dptsTrainButton.isEnabled = false
+        statusText.text = context.getString(R.string.dpts_script_loaded)
+    }
+
+    private fun saveCurrentScript() {
+        if (job?.isActive == true) return
+        val name = dptsNameInput.text.toString().trim()
+        val source = dptsEditor.text.toString()
+        if (name.isEmpty() || name.length > 80 || source.isBlank() ||
+            source.length > DptsScript.MAX_SOURCE_LENGTH ||
+            name.any { it.code < 32 }) {
+            statusText.text = context.getString(R.string.dpts_invalid_save)
+            return
+        }
+        if (name !in personalScripts && personalScripts.size >= 30) {
+            statusText.text = context.getString(R.string.dpts_save_limit)
+            return
+        }
+        // Drafts may be saved before they compile; no source is executed
+        // during save/load and the runner always checks the complete grammar.
+        personalScripts[name] = source
+        context.getSharedPreferences("dpts_saved_scripts", Context.MODE_PRIVATE)
+            .edit().putString("script.$name", source).apply()
+        refreshScriptCatalog()
+        dptsPresetSpinner.setSelection(dptsPresets.indexOf("Мой: $name")
+            .coerceAtLeast(0))
+        statusText.text = context.getString(R.string.dpts_script_saved)
+    }
+
+    /**
+     * Training is opt-in and supervised by native evidence, never by the
+     * script itself: 3/3 independent verified YouTube HTML responses on
+     * two identical pinned IPs for the candidate, versus a failing plain.
+     * HTTP 4xx/TLS handshake alone (as in the 0/32 API log) is ineligible.
+     */
+    private fun trainFromLastScript() {
+        if (job?.isActive == true || lastTrainingSubmitted) return
+        val plan = lastDptsPlan
+        val network = lastDptsNetwork
+        if (plan == null || network == null ||
+            !ready(TunnelState.status.value) ||
+            NetworkCheck.underlying(context).type.toString() != network) {
+            statusText.text = context.getString(R.string.dpts_train_no_run)
+            return
+        }
+        val candidates = DptsLearning.confirmedWinners(plan, lastDptsRows)
+        if (candidates.isEmpty()) {
+            statusText.text = context.getString(R.string.dpts_train_no_evidence)
+            return
+        }
+        val kind = Zapret2NeuralModel.Kind.STRATEGY
+        // Generate once if the user has not created a local strategy model.
+        val installed = Zapret2NeuralModel.readVerified(context, kind)
+        if (installed == null) {
+            val generated = Zapret2NeuralModel.generate(context, kind,
+                Zapret2NeuralModel.DEFAULT_HIDDEN).getOrNull()
+            if (generated == null ||
+                JniXrayRuntime.configureZapret2NeuralModel(generated) != XrayResult.Ok) {
+                statusText.text = context.getString(R.string.dpts_train_model_error)
+                return
+            }
+        }
+        val trained = runCatching {
+            JniXrayRuntime.trainZapret2NeuralFromDPTS(network, candidates)
+        }.getOrNull()
+        if (trained != XrayResult.Ok) {
+            statusText.text = context.getString(R.string.dpts_train_model_error)
+            return
+        }
+        // The native head is already updated; prevent a second click from
+        // training twice even if durable storage fails.
+        lastTrainingSubmitted = true
+        dptsTrainButton.isEnabled = false
+        val snapshot = runCatching {
+            JniXrayRuntime.snapshotZapret2NeuralModel()
+        }.getOrNull()
+        val stored = snapshot != null &&
+            Zapret2NeuralModel.storeLearnedSnapshot(context, kind, snapshot)
+        if (!stored) {
+            statusText.text = context.getString(R.string.dpts_train_save_error)
+            return
+        }
+        val ack = runCatching {
+            JniXrayRuntime.acknowledgeZapret2NeuralModel(snapshot!!)
+        }.getOrNull()
+        statusText.text = if (ack == XrayResult.Ok)
+            context.getString(R.string.dpts_train_success, candidates.joinToString(", "))
+        else context.getString(R.string.dpts_train_ack_error)
+    }
+
     private fun start(dnsComparison: Boolean = false) {
         if (job?.isActive == true) return
         if (!ready(TunnelState.status.value)) {
