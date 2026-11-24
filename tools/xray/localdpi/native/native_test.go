@@ -60,3 +60,26 @@ func TestNativeAndPortableShareRecordContract(t *testing.T) {
     }
     if _,ok:=SplitTLSRecord(make([]byte,maxRewrite+1),5);ok {t.Fatal("native allocation cap bypassed")}
 }
+
+func TestNativeInspectionIsOnlyAHint(t *testing.T) {
+    for _,tc:=range []struct{first []byte; hint Hint; strict bool}{
+        {nil,Unknown,false},
+        {[]byte("unrecognized"),Unknown,false},
+        {[]byte{22,3,3,0,4,1},TLSCandidate,false},
+        {[]byte{22,3,3,0,4,1,0,0,0},TLSCandidate,true},
+        {[]byte("GET / HTTP/1.1\r\nHost: example.test\r\n\r\n"),HTTPCandidate,true},
+        {[]byte("GET / HTTP/1.1\r\nHost: \r\n\r\n"),HTTPCandidate,false},
+        {[]byte("GET / HTTP/1.1\r\nHost: a.test\r\nHost: b.test\r\n\r\n"),HTTPCandidate,false},
+    } {
+        original:=bytes.Clone(tc.first)
+        hint,ok:=Inspect(tc.first)
+        if !ok || hint!=tc.hint {t.Fatal("unexpected hint",hint,ok)}
+        _,_,host:=localdpi.HTTPHostRange(tc.first)
+        strict:=host || localdpi.IsTLSClientHelloPrefix(tc.first)
+        if strict!=tc.strict {t.Fatal("common recognition changed")}
+        if !bytes.Equal(original,tc.first) {t.Fatal("inspection mutated input")}
+    }
+    if hint,ok:=Inspect(make([]byte,MaxInspect+1));ok || hint!=Unknown {
+        t.Fatal("oversize native inspection accepted")
+    }
+}

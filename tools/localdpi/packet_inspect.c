@@ -1,6 +1,6 @@
-/* DPpass-owned, deliberately narrow wrapper around read-only ByeDPI
- * predicates. No untrusted input reaches the legacy Host parser or any
- * modifying function in this prototype. */
+/* DPpass-owned narrow wrapper around read-only ByeDPI predicates and
+ * the explicitly bounded TLS record encoder. The legacy Host parser
+ * and HTTP mutation functions remain inaccessible through this ABI. */
 #include "packet_inspect.h"
 #include "packets.h"
 #include <string.h>

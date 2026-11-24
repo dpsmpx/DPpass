@@ -316,3 +316,7 @@ CI 65d5bb4: Go #45477752383 (включая race detector) и Android #454777398
 ## A4 — общий контракт Go/C TLS encoding
 
 Native wrapper теперь до выделения output проверяет CompleteTLSClientHelloRecordLen и offset через localdpi; после C вызова проверяет PreservesTLSRecords, прежде чем отдавать результат. Оригинальный C wrapper и upstream source неизменны; native cap 65536, tagged dispatch, Go reference fallback при отказе и семантика счётчиков сохранены. Добавлен сравнительный тест всех offsets 0..65 на одном record, malformed fixtures, cap и неизменность input. Проверка output не означает прикладной успех и не подтверждает эквивалентность остальных upstream методов. Обычный release не включает C, физическая проверка native APK и новый CI ещё ожидаются.
+
+## A4 — read-only native recognition ABI
+
+Go CI #45480239158 и Android CI #45480224398 для b251833 успешно завершены. Existing C dp_packet_inspect подключён к экспериментальному Go native package: фиксированная Hint enum, проверка ABI version/reserved, cap 16384, отсутствие borrowed pointers. Default stub явно сообщает unavailable. Тесты демонстрируют, что C hint шире Go recognition (короткий TLS, пустой/повторный Host) и не заменяет его. В рабочем planner/selector Inspect не вызывается; это лабораторный интерфейс для сопоставления, не дополнительный метод AUTO. Upstream parse_http/mod_http не подключены. CI нового шага ожидается.
