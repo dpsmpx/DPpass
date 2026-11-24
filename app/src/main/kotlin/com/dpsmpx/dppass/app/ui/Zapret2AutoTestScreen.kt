@@ -1215,7 +1215,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                                 }
                                 val target = Zapret2SiteSearch.tlsVersionTrial(
                                     ip, attempt, version, google)
-                                statusText.text = "IPv4 #$ip · TLS 1.$version · " +
+                                statusText.text = "IPv4 #$ip · TLS 1.${version % 10} · " +
                                     (if (google) "Google" else "YouTube API") +
                                     " · $attempt/3"
                                 val response = probe(target, TLS_VERSION_TIMEOUT_MILLIS)
