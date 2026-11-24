@@ -40,7 +40,7 @@ h1, h2, tls12, tls13; google-h1, google-h2, google-tls12, google-tls13 (same pin
 
 ## Available protected test outbounds
 
-TCP: plain, split-1, split, tlsrec-split, fake-3, fake-5, disorder.
+TCP: plain, split-1, split, tlsrec-split, disorder, plus **fake-1 through fake-16** (actual protected TTL variants; 21 total TCP methods available to scripts). The legacy one-click and AUTO lists remain unchanged.
 UDP: plain, fake-3, fake-5.
 
 These names refer to the currently implemented DPpass Alpine/Xray protected experimental outbounds. A similar name in Zapret, Zapret2 or ByeDPI is NOT proof of packet-level equivalence.
