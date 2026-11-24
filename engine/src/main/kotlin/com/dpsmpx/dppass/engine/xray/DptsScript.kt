@@ -384,6 +384,7 @@ object DptsPresets {
             dpts 1
             name YouTube homepage verified HTTPS
             host www.youtube.com
+            learn observe
             https protocols=h1,h2 methods=plain,tlsrec-split ips=2 attempts=3 timeout_ms=5000
         """.trimIndent(),
         "YouTube API · QUIC handshake" to """
