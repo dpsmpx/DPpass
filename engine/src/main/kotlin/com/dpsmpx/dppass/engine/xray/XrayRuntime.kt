@@ -199,6 +199,7 @@ internal object XrayJni {
     @JvmStatic external fun nativeTraffic(): LongArray?
 
     @JvmStatic external fun nativePassiveQuality(): LongArray?
+    @JvmStatic external fun nativeDisplayTraffic(): LongArray?
 
     @JvmStatic external fun nativeProbeDns(target: ByteArray, timeoutMillis: Int): ByteArray
 
@@ -397,6 +398,11 @@ class JniXrayRuntime private constructor() : XrayRuntime {
 
     companion object {
         const val LIBRARY: String = "dppassxray"
+
+        /** Separate dashboard counters; does not change provider usage accounting. */
+        fun displayTraffic(): TrafficStats? = XrayJni.nativeDisplayTraffic()?.takeIf { it.size == 2 }?.let {
+            TrafficStats(uplinkBytes = it[0], downlinkBytes = it[1])
+        }
 
         /** Passive mean TCP RTT and RTTVAR in microseconds; negative means unavailable. */
         fun passiveQuality(): LongArray? = XrayJni.nativePassiveQuality()?.takeIf { it.size == 2 && it[0] > 0 && it[1] >= 0 }

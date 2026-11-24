@@ -291,6 +291,13 @@ func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeTraffic(env *C.JNIEnv, _ C
 	return C.dppass_new_longs(env, C.jlong(up), C.jlong(down))
 }
 
+//export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeDisplayTraffic
+func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativeDisplayTraffic(env *C.JNIEnv, _ C.jclass) C.jlongArray {
+    up, down, ok := bridge.DisplayTraffic()
+    if !ok { return 0 }
+    return C.dppass_new_longs(env, C.jlong(up), C.jlong(down))
+}
+
 //export Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativePassiveQuality
 func Java_com_dpsmpx_dppass_engine_xray_XrayJni_nativePassiveQuality(env *C.JNIEnv, _ C.jclass) C.jlongArray {
 	rtt, variation := bridge.PassiveQuality()

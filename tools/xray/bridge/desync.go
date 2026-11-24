@@ -139,7 +139,19 @@ type desyncDialer struct {
 
 func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Destination, sockopt *internet.SocketConfig) (net.Conn, error) {
 	generation := passiveQualityGeneration()
+    ip := net.ParseIP(dest.Address.String())
+    var routeGeneration uint64
+    localExperimental := false
+    if dest.Network == xnet.Network_TCP && isIPv6Peer(ip) {
+        obs := session.OutboundsFromContext(ctx)
+        if len(obs) > 0 { _, localExperimental, _ = parseDesyncTag(obs[len(obs)-1].Tag) }
+        if localExperimental {
+            routeGeneration = zapret2Auto.generationSnapshot()
+            if liveIPv6.skip(ip, routeGeneration, time.Now()) { return nil, syscall.ENETUNREACH }
+        }
+    }
 	conn, err := d.base.Dial(ctx, src, dest, sockopt)
+    if localExperimental { liveIPv6.result(ip, routeGeneration, time.Now(), err) }
 	if err != nil {
         // Count failed experimental dials, never ordinary Xray or DoH sockets.
         if dest.Network == xnet.Network_TCP {

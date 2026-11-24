@@ -42,6 +42,18 @@ class TrafficMeterTest {
     }
 
     @Test
+    fun averagedTrafficUsesMeasuredBytesAndResets() {
+        val m = TrafficMeter(5_000)
+        fun sample(up: Long, down: Long, time: Long) =
+            m.sample(com.dpsmpx.dppass.engine.TrafficStats(up, down), time)
+        sample(0, 0, 0)
+        sample(1000, 2000, 1000)
+        assertEquals(Traffic(1000, 6000, 500, 3000), sample(1000, 6000, 2000))
+        m.reset()
+        assertEquals(Traffic(10, 20, 0, 0), sample(10, 20, 3000))
+    }
+
+    @Test
     fun notificationUpdatesEveryTwoSecondsOnlyWithScreenOn() {
         val pace = NotificationPace()
         // Десять секунд с включённым экраном — пять обновлений, через раз: раз в 2 с.

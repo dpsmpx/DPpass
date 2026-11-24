@@ -235,6 +235,22 @@ func Traffic() (up, down int64, ok bool) {
 	return uplink.Value(), downlink.Value(), true
 }
 
+// DisplayTraffic aggregates terminal user-data outbounds for the home screen.
+// The existing proxy-only Traffic accounting and subscription usage remain
+// unchanged. Internal dialer/diagnostic/DNS outbounds are not added twice.
+func DisplayTraffic() (up, down int64, ok bool) {
+    mu.Lock()
+    defer mu.Unlock()
+    if current == nil { return 0, 0, false }
+    sm, _ := current.GetFeature(stats.ManagerType()).(stats.Manager)
+    if sm == nil { return 0, 0, false }
+    for _, tag := range []string{"proxy", "direct", "dppass:direct-split", "dppass:direct-share"} {
+        if c := sm.GetCounter("outbound>>>"+tag+">>>traffic>>>uplink"); c != nil { up += c.Value() }
+        if c := sm.GetCounter("outbound>>>"+tag+">>>traffic>>>downlink"); c != nil { down += c.Value() }
+    }
+    return up, down, true
+}
+
 // build разбирает JSON, собирает конфигурацию и применяет политику моста.
 func build(config []byte) (*core.Config, *tunInbound, error) {
 	if len(config) == 0 {

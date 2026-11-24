@@ -872,7 +872,8 @@ class DPpassVpnService : VpnService() {
                     if (qualityTick++ % 2 == 0) {
                         quality = runCatching { JniXrayRuntime.passiveQuality() }.getOrNull()
                     }
-                    val traffic = meter.sample(session.stats(), Clock.MONOTONIC.nowMillis()).copy(
+                    val displayStats = runCatching { JniXrayRuntime.displayTraffic() }.getOrNull() ?: session.stats()
+                    val traffic = meter.sample(displayStats, Clock.MONOTONIC.nowMillis()).copy(
                         pingMicros = quality?.get(0), jitterMicros = quality?.get(1))
                     TunnelState.traffic(traffic)
                     if (notify) (TunnelState.status.value as? TunnelStatus.Connected)?.let { startInForeground(it, traffic) }
