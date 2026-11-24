@@ -47,13 +47,8 @@ jobs:
         run: CGO_ENABLED=1 go test -a -count=1 -tags localdpi_native ./localdpi/native ./zapret2
       - name: Fuzz shared read-only protocol recognition
         working-directory: tools/xray
-        run: go test -run='^
-        working-directory: tools/xray
-        run: go test -count=1 ./localdpi ./bridge ./zapret2 ./cmd/zapret2-alpine
- -fuzz='^FuzzCommonHostRanges
-        working-directory: tools/xray
-        run: go test -count=1 ./localdpi ./bridge ./zapret2 ./cmd/zapret2-alpine
- -fuzztime=20s -parallel=2 ./localdpi
+        run: |
+          go test -run='^$' -fuzz='^FuzzCommonHostRanges$' -fuzztime=20s -parallel=2 ./localdpi
       - name: Run protected TCP/QUIC AUTO, planner and Alpine tests
         working-directory: tools/xray
         run: go test -count=1 ./localdpi ./bridge ./zapret2 ./cmd/zapret2-alpine
