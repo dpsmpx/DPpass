@@ -5,7 +5,6 @@
 package main
 
 import (
-    "bufio"
     "encoding/json"
     "errors"
     "fmt"
@@ -40,11 +39,8 @@ func serve(path string) error {
         go func(c net.Conn) {
             defer c.Close()
             _ = c.SetDeadline(time.Now().Add(3*time.Second))
-            reader := bufio.NewReaderSize(c, 40*1024)
-            line, err := reader.ReadBytes('\n')
-            if err != nil || len(line) > 48*1024 { return }
-            var req zapret2.Request
-            if json.Unmarshal(line, &req) != nil { return }
+            req, err := zapret2.ReadRequest(c)
+            if err != nil { return }
             _ = json.NewEncoder(c).Encode(request(req))
         }(conn)
     }
