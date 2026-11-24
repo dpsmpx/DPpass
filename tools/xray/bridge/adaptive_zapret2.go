@@ -20,9 +20,16 @@ import (
 // is not a promise of support by any executor; future catalog entries do
 // not automatically become candidates in this path.
 var socketCapabilities = newSocketCapabilities()
-var adaptiveCandidates = socketCapabilities.Candidates(localdpi.TLS)
-var adaptiveHTTPCandidates = socketCapabilities.Candidates(localdpi.HTTP)
-var adaptiveQuicCandidates = socketCapabilities.Candidates(localdpi.QUIC)
+var localExecutors = newLocalExecutors()
+var adaptiveCandidates = localExecutors.Candidates(localdpi.VPNSocket,localdpi.TLS)
+var adaptiveHTTPCandidates = localExecutors.Candidates(localdpi.VPNSocket,localdpi.HTTP)
+var adaptiveQuicCandidates = localExecutors.Candidates(localdpi.VPNSocket,localdpi.QUIC)
+
+func newLocalExecutors() localdpi.ExecutorSet {
+    set,err:=localdpi.NewExecutorSet(socketCapabilities)
+    if err!=nil {panic("invalid executor registry: "+err.Error())}
+    return set
+}
 
 func newSocketCapabilities() localdpi.Capabilities {
     entries := []localdpi.Support{}
@@ -70,7 +77,8 @@ func socketEvidenceAdmissible(pick *adaptivePick, evidence localdpi.Evidence) bo
     transport := localdpi.TLS
     if strings.HasPrefix(pick.host,"http:") { transport=localdpi.HTTP }
     if strings.HasPrefix(pick.host,"udp:") { transport=localdpi.QUIC }
-    if !socketCapabilities.Allows(transport,pick.strategy) { return false }
+    flow:=localdpi.FlowIdentity{Executor:localdpi.VPNSocket,Generation:pick.generation,Transport:transport,MethodID:pick.strategy}
+    if !localExecutors.Admit(flow,localdpi.VPNSocket,pick.generation) { return false }
     switch evidence.Kind {
     case localdpi.Downstream:
         return evidence.Bytes > 0
