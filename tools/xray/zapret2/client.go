@@ -51,9 +51,13 @@ func PlanFor(tag, network string, first []byte) (Plan, error) {
     // The explicitly tagged test build owns this one encoder in-process.
     // This is a predetermined dispatch rule, not a fallback after an IPC
     // failure. All other selected Alpine methods still fail closed.
-    if localNativePlan(tag,network) { return BuildPlan(tag,network,first) }
     path := PlannerSocket()
-    if path == "" { return BuildPlan(tag, network, first) }
+    if localNativePlan(tag,network) || path=="" {
+        p,err:=BuildPlan(tag,network,first)
+        if err!=nil {return Plan{},err}
+        if err:=validatePlan(tag,network,first,p);err!=nil {return Plan{},err}
+        return p,nil
+    }
     conn, err := net.DialTimeout("unix", path, 300*time.Millisecond)
     if err != nil { return Plan{}, fmt.Errorf("Alpine strategy daemon unavailable: %w", err) }
     defer conn.Close()
