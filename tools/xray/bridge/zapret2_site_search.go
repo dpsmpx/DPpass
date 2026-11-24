@@ -494,7 +494,8 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
         switch request.kind {
         case "script_h1","script_h2","script_t12","script_t13",
              "script_g12","script_g13","script_gh1","script_gh2":
-            for _,m:=range siteSearchMethods {if m==strategy {allowed=true}}
+            _,allowed=zapret2TestStrategies[strategy]
+            if strategy=="auto" {allowed=false}
             if request.kind=="script_h2" || request.kind=="script_gh2" {
                 result.Protocol="h2"
             } else {result.Protocol="h1"}
