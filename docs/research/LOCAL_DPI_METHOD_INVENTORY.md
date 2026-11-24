@@ -75,3 +75,19 @@
 Хостовые fixtures проверяют ограниченный набор распознавания/разбора
 HTTP и TLS. Это не полное сопоставление алгоритмов и не аудит безопасности;
 подключение к реальному трафику запрещено до проверки границ и fuzzing.
+
+## A2 — границы нативных компонентов Zapret2
+
+Просмотрены заголовки закреплённого v1.0.7 (tree 038c97e5819df10f8e8c22a2f1fffe57f2f7379b), Makefile и начало checksum.c; ByeDPI proxy.h/conev.h. Это карта зависимостей, не завершённый построчный аудит.
+
+| Модуль | Связи и решение |
+|---|---|
+| nfq2/protocol.h | helpers.h; большой набор протоколов и позиционных маркеров. Отдельный кандидат после проверки реализации protocol.c и зависимостей. |
+| nfq2/desync.h | darkmagic.h, IP/TCP структуры; интерфейс пакетного исполнителя, не эквивалент VpnService socket. |
+| nfq2/conntrack.h | protocol, darkmagic, packet_queue, uthash, ограниченное reassembly. Не переносить весь conntrack в socket path. |
+| nfq2/lua.h | Lua/LuaJIT, pools, conntrack, darkmagic. Не переносить как независимый алгоритм. |
+| nfq2/Makefile | Linux/Android: zlib, netfilter_queue, nfnetlink, mnl, libm, Lua/LuaJIT; Android также liblog. Windows использует WinDivert; лицензии и происхождение зависимостей отдельно. |
+| nfq2/checksum.c | Комментарий в do_csum указывает Linux source code. Не импортировать до установления точного происхождения/лицензии; общий MIT проекта не решает этот вопрос. |
+| ByeDPI proxy.h / conev.h | SOCKS, event loop, epoll/poll/WSAPoll, управление fd и буферами. Не дублировать существующий Xray lifecycle; отделять методы от транспорта. |
+
+ROOT остаётся отдельной границей привилегий. Проверка согласия не доказывает доступность NFQUEUE, raw socket, IPv6 NAT или разрешение SELinux. До регистрации ROOT возможностей нужны отдельные runtime probes и физические испытания. Импорт новых файлов Zapret2 этим шагом не выполнялся.

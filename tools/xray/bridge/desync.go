@@ -270,7 +270,7 @@ func (c *desyncConn) Read(b []byte) (int, error) {
             if selected := c.adaptiveSelection.Load(); selected != nil {
                 // Learn from long-lived HTTP/2/QUIC streams before Close.
                 c.observed.Do(func() {
-                    recordLocalSocketEvidence(selected, localdpi.SocketClose(total))
+                    recordLocalSocketEvidence(selected, localdpi.SocketDownstream(total))
                 })
             }
         }
@@ -736,7 +736,7 @@ func (c *desyncUDPConn) Read(b []byte) (int, error) {
         if total >= adaptivePayloadThreshold {
             if selected := c.adaptiveSelection.Load(); selected != nil {
                 c.observed.Do(func() {
-                    recordLocalSocketEvidence(selected, localdpi.SocketClose(total))
+                    recordLocalSocketEvidence(selected, localdpi.SocketDownstream(total))
                 })
             }
         }

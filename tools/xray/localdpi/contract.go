@@ -108,8 +108,15 @@ type Evidence struct {
     Bytes int64
 }
 
-func SocketClose(received int64) Evidence {
+// SocketDownstream is a read-side transport observation. It does not
+// claim verified content, even for a large number of received bytes.
+func SocketDownstream(received int64) Evidence {
     if received > 0 { return Evidence{Kind:Downstream, Bytes:received} }
+    return Evidence{Kind:Unknown}
+}
+
+func SocketClose(received int64) Evidence {
+    if received > 0 { return SocketDownstream(received) }
     if received == 0 { return Evidence{Kind:Cancelled} }
     return Evidence{Kind:Unknown}
 }
