@@ -230,4 +230,46 @@ class Zapret2SiteSearchTest {
         assertFalse(report.contains("/youtubei/v1/"))
     }
 
+    @Test fun sameIpControlTargetsOnlyEightPublicAPIIndices() {
+        assertEquals("site_sni_google_ip00_a1_:youtubei.googleapis.com",
+            Zapret2SiteSearch.sameIpControlTrial(0, 1))
+        assertEquals("site_sni_google_ip07_a3_:youtubei.googleapis.com",
+            Zapret2SiteSearch.sameIpControlTrial(7, 3))
+        for (index in listOf(-1, 8, 99)) {
+            assertTrue(runCatching {
+                Zapret2SiteSearch.sameIpControlTrial(index, 1)
+            }.isFailure)
+        }
+        assertTrue(runCatching {
+            Zapret2SiteSearch.sameIpControlTrial(1, 4)
+        }.isFailure)
+    }
+
+    @Test fun sameIpControlNeedsMatchedIndependentThreeOfThreeForSniHypothesis() {
+        val prepared = Zapret2GoogleProbe.fromWire(
+            "v3\tdns_ready\t200\t0\t120\t0\t0\t6f706c12\t8\t0\tdns\tnone\t-".encodeToByteArray())
+        val failed = Zapret2GoogleProbe.fromWire(
+            "v3\ttimeout_tls_no_reply\t0\t0\t5000\t0\t0\t6f706c12\t8\t0\th1\tclienthello_sent\t-".encodeToByteArray())
+        val passed = Zapret2GoogleProbe.fromWire(
+            "v3\thttp_reachable\t301\t80\t400\t0\t0\t6f706c12\t8\t0\th1\ttls_verified\thttp/1.1".encodeToByteArray())
+        val rows = (1..3).flatMap { attempt ->
+            listOf(
+                Zapret2GoogleAttempt("plain", attempt, failed,
+                    Zapret2SiteSearch.apiSweepTrial(0, attempt, "h1")),
+                Zapret2GoogleAttempt("plain", attempt, passed,
+                    Zapret2SiteSearch.sameIpControlTrial(0, attempt)),
+            )
+        }
+        val report = Zapret2SiteSearch.sameIpControlReport(
+            "MOBILE", prepared, passed, prepared, rows, 1)
+        assertTrue(report.contains("Google 3/3=true"))
+        assertTrue(report.contains("поддерживает гипотезу зависимости от SNI"))
+        assertTrue(report.contains("AUTO: not_applied"))
+        assertFalse(report.contains("8.8.8.8"))
+        assertFalse(report.contains("/youtubei/"))
+        val partial = Zapret2SiteSearch.sameIpControlReport(
+            "MOBILE", prepared, passed, prepared, rows.dropLast(1), 1)
+        assertFalse(partial.contains("поддерживает гипотезу зависимости от SNI"))
+    }
+
 }
