@@ -49,7 +49,7 @@ Upstream techniques such as multisplit, multidisorder, fakedsplit, fakeddisorder
 
 ## Neural learning
 
-train verified METHOD only compiles with a 3-attempt H1 scenario on <=2 IPs, both baseline plain and the specific non-plain candidate included. Native Go records script observations separately from site_apply AUTO evidence. Training is accepted only if all baseline independent content checks are 0/3 while all candidate content checks are 3/3 on every selected IP. A TLS-only handshake, 4xx API response, repeat overwrite, or incomplete probe can never teach. A success teaches a bounded positive 0.7 content label to the local contextual MLP; it does NOT invent downstream video traffic or switch production routing. If no model is installed, return neural_unavailable. Model storage continues through existing local model persistence.
+train verified METHOD only compiles with a 3-attempt H1 scenario on exactly two pinned IP indices, both baseline plain and the specific non-plain candidate included. Native Go records script observations separately from site_apply AUTO evidence. Training is accepted only if all baseline independent content checks are 0/3 while all candidate content checks are 3/3 on every selected IP. A TLS-only handshake, 4xx API response, repeat overwrite, or incomplete probe can never teach. A success teaches a bounded positive 0.7 content label to the local contextual MLP; it does NOT invent downstream video traffic or switch production routing. If no model is installed, return neural_unavailable. Model storage continues through existing local model persistence.
 
 ## Presets
 
