@@ -4,6 +4,7 @@ package zapret2
 
 import (
     "bytes"
+    "path/filepath"
     "testing"
     "github.com/dpsmpx/dppass/tools/xray/localdpi/native"
 )
@@ -25,4 +26,19 @@ func TestNativeTLSRecordEncoderMatchesPortable(t *testing.T) {
             if !ok || actualCut!=cut || !bytes.Equal(actual,want) {t.Fatal("planner parity")}
         }
     }
+}
+
+func TestTaggedTLSPlanUsesNativeWithoutPlannerIPC(t *testing.T) {
+    previous:=PlannerSocket()
+    t.Cleanup(func(){_ = SetPlannerSocket(previous)})
+    if err:=SetPlannerSocket(filepath.Join(t.TempDir(),"missing.sock"));err!=nil {t.Fatal(err)}
+    first:=tlsClientHelloFixture(t,"example.test")
+    before,fallbackBefore:=NativeTLSRecordStats()
+    p,err:=PlanFor(TagPrefix+"tlsrec-split","tcp",first)
+    if err!=nil || !p.Applied || len(p.Rewrite)!=len(first)+5 {t.Fatalf("native plan: %+v %v",p,err)}
+    after,fallbackAfter:=NativeTLSRecordStats()
+    if after!=before+1 || fallbackAfter!=fallbackBefore {t.Fatalf("native encoder not used: %d/%d -> %d/%d",before,fallbackBefore,after,fallbackAfter)}
+    if _,err:=PlanFor(TagPrefix+"split-1","tcp",first);err==nil {t.Fatal("other method silently replaced failed Alpine planner")}
+    if _,err:=PlanFor(TagPrefix+"tlsrec-split","udp",first);err==nil {t.Fatal("wrong transport selected local encoder")}
+    if _,err:=PlanFor(TagPrefix+"tlsrec-split","tcp",make([]byte,MaxFirst+1));err==nil {t.Fatal("oversize bypassed guard")}
 }

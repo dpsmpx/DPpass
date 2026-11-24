@@ -31,22 +31,27 @@ class Zapret2Stages private constructor(private val counters: LongArray) {
     val tcpDialUnreachableV4: Long get() = counters[18]
     val tcpDialUnreachableV6: Long get() = counters[19]
     val tcpDialUnreachableUnknown: Long get() = counters[20]
+    /** v3: generated native TLS plans, not transmitted data or content. */
+    val nativeTlsEncoded: Long get() = counters[21]
+    val nativeTlsReferenceFallback: Long get() = counters[22]
 
     /** Subtract per-session or per-window baseline, never returning negatives. */
     fun delta(previous: Zapret2Stages): Zapret2Stages =
         Zapret2Stages(LongArray(COUNT) { index -> (counters[index] - previous.counters[index]).coerceAtLeast(0L) })
 
     companion object {
-        private const val VERSION = 2
-        private const val COUNT = 21
+        private const val VERSION = 3
+        private const val COUNT = 23
+        private const val V2_COUNT = 21
         private const val OLD_COUNT = 15
 
-        /** Backwards-compatible with 15-counter v1; reject truncated v2. */
+        /** Backwards-compatible with v1 and v2; reject truncated or unknown versions. */
         fun fromWire(wire: ByteArray?): Zapret2Stages? {
             if (wire == null || wire.isEmpty()) return null
             val version = wire[0].toInt()
             val count = when (version) {
                 1 -> OLD_COUNT
+                2 -> V2_COUNT
                 VERSION -> COUNT
                 else -> return null
             }

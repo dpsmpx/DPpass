@@ -885,7 +885,9 @@ class DPpassVpnService : VpnService() {
             "quic_initial_sent" to s.udpInitialSent,
             "quic_initial_failed" to s.udpInitialFailed,
             "udp_first_reply" to s.udpFirstReply,
-            "udp_closed_no_reply" to s.udpClosedNoReply)
+            "udp_closed_no_reply" to s.udpClosedNoReply,
+            "native_tls_encoded" to s.nativeTlsEncoded,
+            "native_tls_reference_fallback" to s.nativeTlsReferenceFallback)
     }
 
     private fun localPathSample(session: EngineSession): LocalPathSample? = runCatching {

@@ -229,3 +229,7 @@ Go CI #45445499727 успешно прошёл; Android CI #45445482934 подт
 ## A4.5 — отдельный Android debug APK
 
 Добавлен opt-in Gradle property dppass.localDpiNativeDebug=true (требует Alpine). Только debug variant получает экспериментальный JNI с C-кодировщиком; release всегда использует штатный режим. Отдельный applicationId com.dpsmpx.dppass.alpine.localdpi не заменяет основной установленный APK или обычный Alpine debug. Gradle отслеживает tag и исходники C/Go, APK содержит полный MIT LICENSE и источник модуля. CI после загрузки обычных APK собирает отдельный debug artifact только в рабочей ветке, сверяет identity, лицензию, отличие JNI и неизменность reference assets. Это подготовка к физической проверке; не доказывает, что C encoder используется при внешнем Alpine planner, не включает ROOT и не удаляет ciadpi/nfqws2. Новый CI ожидается.
+
+## A4.6 — явная диспетчеризация нативного TLS-метода
+
+Только сборка localdpi_native+cgo использует встроенный кодировщик для уже существующего TCP tlsrec-split даже при выбранном Alpine planner. Это заранее определённая маршрутизация одного метода, не fallback после отказа IPC. Остальные методы и штатный APK сохраняют прежнюю логику fail-closed. Счётчики v3 native_tls_encoded / native_tls_reference_fallback отражают генерацию планов, не отправку и не доступность контента; v1/v2 читаются без изменения старых индексов. Добавлены тесты tagged/default dispatch, отсутствующего IPC, несовместимого транспорта, размера и декодирования v3. ROOT и полная интеграция Zapret2 не выполнены. Физический результат ожидается.

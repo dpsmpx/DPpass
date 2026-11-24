@@ -10,6 +10,7 @@ import (
     "net"
     "sync/atomic"
     "syscall"
+    "github.com/dpsmpx/dppass/tools/xray/zapret2"
 )
 
 var zapret2Stage struct {
@@ -39,12 +40,14 @@ var zapret2Stage struct {
     udpClosedNoReply atomic.Int64
 }
 
-// Zapret2Stages v2: first fifteen values keep their original indexes,
-// then six address-family counters. DNS/DoH and app outcomes remain unknown.
+// Zapret2Stages v3: first fifteen values keep their original indexes,
+// then six address-family counters and two native TLS plan counters.
+// DNS/DoH and app outcomes remain unknown.
 // Per-family OK and unreachable totals must match corresponding aggregate
 // totals except traffic from older libraries (the entire process shares one).
-func Zapret2Stages() [21]int64 {
-    return [21]int64{
+func Zapret2Stages() [23]int64 {
+    encoded,fallback:=zapret2.NativeTLSRecordStats()
+    return [23]int64{
         zapret2Stage.tcpDialOK.Load(),
         zapret2Stage.tcpDialTimeout.Load(),
         zapret2Stage.tcpDialRefused.Load(),
@@ -66,6 +69,8 @@ func Zapret2Stages() [21]int64 {
         zapret2Stage.tcpDialUnreachableV4.Load(),
         zapret2Stage.tcpDialUnreachableV6.Load(),
         zapret2Stage.tcpDialUnreachableUnknown.Load(),
+        encoded,
+        fallback,
     }
 }
 

@@ -48,6 +48,10 @@ func PlannerSocket() string { return socketPath.Load().(string) }
 // process has been selected but is down: a silent bypass would be unsafe.
 func PlanFor(tag, network string, first []byte) (Plan, error) {
     if len(first) > MaxFirst { return Plan{}, errors.New("first packet too large") }
+    // The explicitly tagged test build owns this one encoder in-process.
+    // This is a predetermined dispatch rule, not a fallback after an IPC
+    // failure. All other selected Alpine methods still fail closed.
+    if localNativePlan(tag,network) { return BuildPlan(tag,network,first) }
     path := PlannerSocket()
     if path == "" { return BuildPlan(tag, network, first) }
     conn, err := net.DialTimeout("unix", path, 300*time.Millisecond)

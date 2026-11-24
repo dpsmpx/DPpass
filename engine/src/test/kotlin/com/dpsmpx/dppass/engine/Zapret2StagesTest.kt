@@ -48,6 +48,21 @@ class Zapret2StagesTest {
         assertNull(Zapret2Stages.fromWire(wire(*LongArray(15), version = 2)))
     }
 
+    @Test fun v3ReportsNativePlansWithoutChangingOldCounters() {
+        val values = LongArray(23)
+        values[0] = 9
+        values[21] = 7
+        values[22] = 2
+        val stats = Zapret2Stages.fromWire(wire(*values, version = 3))!!
+        val old = Zapret2Stages.fromWire(wire(*LongArray(21), version = 2))!!
+        assertEquals(9L, stats.tcpDialOk)
+        assertEquals(7L, stats.nativeTlsEncoded)
+        assertEquals(2L, stats.nativeTlsReferenceFallback)
+        assertEquals(0L, old.nativeTlsEncoded)
+        assertEquals(7L, stats.delta(old).nativeTlsEncoded)
+        assertNull(Zapret2Stages.fromWire(wire(*LongArray(21), version = 3)))
+    }
+
     @Test fun malformedCountersAreNotTreatedAsHealthyZeroes() {
         assertNull(Zapret2Stages.fromWire(null))
         assertNull(Zapret2Stages.fromWire(byteArrayOf(1)))
