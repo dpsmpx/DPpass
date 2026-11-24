@@ -941,4 +941,14 @@
     <string name="zapret2_youtube_api_sni_control_note">С теми же восемью публичными IPv4 API сравниваются TLS-запросы к youtubei.googleapis.com и www.google.com с проверкой сертификата каждого имени. Отдельный контроль через Google DoH проверяет общую связь. Этот тест не меняет AUTO и не подтверждает работу ленты YouTube.</string>
     <string name="zapret2_youtube_api_tls_version_button">Сравнить TLS 1.2 и 1.3 для YouTube API (диагностика)</string>
     <string name="zapret2_youtube_api_tls_version_note">Сравнение TLS 1.2 и TLS 1.3 с проверкой сертификата для API и Google на двух одинаковых публичных IPv4 API. По запросу пользователя, 24 ограниченных соединения; не изменяет AUTO, DNS, маршруты, аккаунты или вход в YouTube.</string>
+    <string name="dpts_title">DPTest Script · сценарии диагностики</string>
+    <string name="dpts_note">Вставьте сценарий DPTest Script 1 или выберите пресет. Все проверки ограничены, соединения защищены, сертификаты проверяются. Нереализованные методы Zapret/ByeDPI отвергаются, а не имитируются. Обезличенный журнал автоматически копируется. Обучение нейросети доступно только по независимым подтверждениям 3/3 и не меняет AUTO.</string>
+    <string name="dpts_script_hint">dptest 1\nscenario youtubei.googleapis.com\nips 2\nattempts 3\nmethods plain\nprotocols h1</string>
+    <string name="dpts_preset">Выбрать пресет</string>
+    <string name="dpts_validate">Проверить сценарий</string>
+    <string name="dpts_run">Запустить сценарий</string>
+    <string name="dpts_stop">Отменить сценарий</string>
+    <string name="dpts_validation_ok">Сценарий проверен. Можно запускать.</string>
+    <string name="dpts_validation_error">Ошибка сценария</string>
+    <string name="dpts_copied">Журнал диагностики скопирован</string>
 </resources>
