@@ -134,7 +134,7 @@ def run(cmd, env, what):
 
 # Локальные пакеты, из которых собирается библиотека: их и только их видит
 # задача Gradle xrayNative<Вариант> (app/build.gradle.kts, входы).
-LIBRARY_PACKAGES = {"jni", "bridge", "zapret2"}
+LIBRARY_PACKAGES = {"jni", "bridge", "zapret2", "localdpi"}
 
 
 def check_library_packages(env):
@@ -483,6 +483,7 @@ def _remove_header(lib):
 def main(argv):
     ap = argparse.ArgumentParser(prog="native.py", description="Сборка libdppassxray (D-25)")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("check-packages", help="проверить локальные зависимости JNI до сборки")
     h = sub.add_parser("host", help="go vet, go test и библиотека для JVM хоста")
     h.add_argument("--race", action="store_true", help="go test ещё и с -race")
     d = sub.add_parser("desktop", help="библиотека для оболочки Linux (D-74)")
@@ -495,6 +496,10 @@ def main(argv):
     a.add_argument("--abi", action="append", choices=sorted(ABIS), help="ABI (по умолчанию — все три)")
     args = ap.parse_args(argv)
     try:
+        if args.cmd == "check-packages":
+            check_library_packages(base_env())
+            print("✓ локальные зависимости JNI соответствуют LIBRARY_PACKAGES")
+            return 0
         if args.cmd == "host":
             return host(args.race)
         if args.cmd == "desktop":

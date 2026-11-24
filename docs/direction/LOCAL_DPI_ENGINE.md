@@ -177,3 +177,15 @@ ByeDPI C wrapper. В обычной сборке используется пре
 вне Go package. Тест Android cross-link не запускается на устройстве.
 Новые CI результаты ожидаются; переключатель рабочего AUTO не менялся.
 Перед включением в дистрибутив обязательны MIT notices и проверка APK.
+
+## A4.3 — исправление сборочной регрессии
+
+[CI #45434755899](https://github.com/dpsmpx/DPpass/actions/runs/45434755899)
+успешно прошёл host sanitizer, Go/C parity и Go regression.
+[Android CI #45434738988](https://github.com/dpsmpx/DPpass/actions/runs/45434738988)
+упал на :app:xrayNativeDebug: новый production package localdpi не был
+в LIBRARY_PACKAGES и входах Gradle. Исправлены allowlist, входы Android,
+Linux desktop и Alpine planner; добавлена ранняя проверка фактических
+JNI зависимостей и Gradle inputs в оба CI. Экспериментальный native tag
+не включён в штатную сборку; отдельный пакет localdpi/native не добавлен
+в production allowlist. Повторная сборка ожидается.

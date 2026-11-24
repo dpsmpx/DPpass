@@ -60,6 +60,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: tools/xray/go.mod
+      - name: Check JNI local package allowlist and Gradle inputs
+        run: python3 tools/xray/check_native_inputs.py && python3 tools/xray/native.py check-packages
       - name: Use pinned direct Gradle distribution
         run: sed -i 's@services.gradle.org/distributions@downloads.gradle.org/distributions@' gradle/wrapper/gradle-wrapper.properties
       - name: Install Android SDK, NDK and CMake for PRoot/JNI

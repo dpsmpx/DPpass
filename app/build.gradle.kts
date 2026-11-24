@@ -188,11 +188,11 @@ androidComponents {
             description = "libdppassxray.so для ${variant.name}: tools/xray/native.py android"
             val xray = rootProject.layout.projectDirectory.dir("tools/xray")
             sources.from(
-                // Только то, из чего собирается библиотека: пакеты jni и bridge
+                // Только то, из чего собирается библиотека: jni, bridge, zapret2, localdpi
                 // (другие локальные native.py не пускает), модули и сборщик. Тесты
                 // Go в неё не входят — их правка не пересобирает ядро трёх ABI.
                 xray.asFileTree.matching {
-                    include("jni/**/*.go", "bridge/**/*.go", "zapret2/**/*.go", "go.mod", "go.sum", "native.py", "goenv.py")
+                    include("jni/**/*.go", "bridge/**/*.go", "zapret2/**/*.go", "localdpi/*.go", "go.mod", "go.sum", "native.py", "goenv.py")
                     exclude("**/*_test.go")
                 },
                 rootProject.layout.projectDirectory.file("gradle/libs.versions.toml"),
@@ -260,6 +260,7 @@ if (alpineEnabled) {
         val pin = "4d3f80afaebd447c5591a63a73bde380a149fe8b2d85488cafabb2ff97551f50"
         inputs.files(builder, compat, rootProject.file("tools/xray/go.mod"), rootProject.file("tools/xray/go.sum"))
         inputs.files(rootProject.fileTree("tools/xray/zapret2") { include("**/*.go"); exclude("**/*_test.go") })
+        inputs.files(rootProject.fileTree("tools/xray/localdpi") { include("*.go"); exclude("*_test.go") })
         inputs.files(rootProject.fileTree("tools/xray/cmd/zapret2-alpine") { include("**/*.go") })
         inputs.property("rootfs-url", url)
         inputs.property("rootfs-sha256", pin)

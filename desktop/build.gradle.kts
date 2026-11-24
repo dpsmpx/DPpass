@@ -56,7 +56,7 @@ val xrayNative = tasks.register<Exec>("xrayNativeDesktop") {
     val out = layout.buildDirectory.dir("xray-native")
     inputs.files(
         xray.asFileTree.matching {
-            include("jni/**/*.go", "bridge/**/*.go", "go.mod", "go.sum", "native.py", "goenv.py")
+            include("jni/**/*.go", "bridge/**/*.go", "zapret2/**/*.go", "localdpi/*.go", "go.mod", "go.sum", "native.py", "goenv.py")
             exclude("**/*_test.go")
         },
         rootProject.layout.projectDirectory.file("engine/src/main/kotlin/com/dpsmpx/dppass/engine/xray/XrayRuntime.kt"),

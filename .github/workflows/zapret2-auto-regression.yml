@@ -13,6 +13,9 @@ on:
       - 'tools/xray/cmd/zapret2-alpine/**'
       - 'tools/xray/go.mod'
       - 'tools/xray/go.sum'
+      - 'tools/xray/native.py'
+      - 'app/build.gradle.kts'
+      - 'desktop/build.gradle.kts'
       - '.github/workflows/zapret2-auto-regression.yml'
 
 permissions:
@@ -32,6 +35,8 @@ jobs:
         with:
           go-version-file: tools/xray/go.mod
           cache-dependency-path: tools/xray/go.sum
+      - name: Check JNI local package allowlist and Gradle inputs
+        run: python3 tools/xray/check_native_inputs.py && python3 tools/xray/native.py check-packages
       - name: Compile and test pinned ByeDPI packet module on host
         run: bash tools/localdpi/check_byedpi_packets.sh
       - name: Compare Go and native TLS encoders
