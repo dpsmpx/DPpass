@@ -291,12 +291,29 @@ func matrixTLSFailure(err error, ctx context.Context, observed *matrixTLSConn) s
 }
 
 func matrixHTTP(ctx context.Context,raw net.Conn,target zapret2TestTarget,proto string) Zapret2HTTPSResult {
+    return matrixHTTPWithVersion(ctx,raw,target,proto,0)
+}
+
+// A nonzero forcedVersion narrows BOTH MinVersion and MaxVersion for a
+// strictly opt-in, isolated API-versus-Google same-IP diagnostic. The
+// existing production and matrix paths retain their default TLS range.
+func matrixHTTPWithVersion(ctx context.Context,raw net.Conn,target zapret2TestTarget,
+    proto string,forcedVersion uint16) Zapret2HTTPSResult {
     out:=Zapret2HTTPSResult{Outcome:"tls_failed",TLSStage:"tcp_connected",ALPN:"-"}
     observed:=&matrixTLSConn{Conn:raw}
     alpns:=[]string{"http/1.1"}
     if proto=="h2" {alpns=[]string{"h2"}}
-    tc:=tls.Client(observed,&tls.Config{
-        ServerName:target.host,RootCAs:probeRoots,MinVersion:tls.VersionTLS12,NextProtos:alpns})
+    tlsConfig:=&tls.Config{
+        ServerName:target.host,RootCAs:probeRoots,MinVersion:tls.VersionTLS12,NextProtos:alpns}
+    if forcedVersion!=0 {
+        if forcedVersion!=tls.VersionTLS12 && forcedVersion!=tls.VersionTLS13 {
+            out.Outcome="invalid_tls_version"
+            return out
+        }
+        tlsConfig.MinVersion=forcedVersion
+        tlsConfig.MaxVersion=forcedVersion
+    }
+    tc:=tls.Client(observed,tlsConfig)
     defer tc.Close()
     if err:=tc.HandshakeContext(ctx);err!=nil {
         out.TLSStage=observed.phase()
