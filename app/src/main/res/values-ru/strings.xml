@@ -937,4 +937,6 @@
     <string name="zapret2_youtube_thumbnail_button">Проверить HTTPS CDN миниатюр YouTube</string>
     <string name="zapret2_youtube_api_sweep_button">Проверить все IPv4 API / HTTP2 (диагностика)</string>
     <string name="zapret2_youtube_api_sweep_note">Проверяет до восьми IPv4 youtubei.googleapis.com из защищённого Google DoH, сравнивая TLS/HTTP1.1 и HTTP/2 с существующими методами. Только диагностика: не меняет AUTO, не раскрывает адреса и не подтверждает работу API POST или видео.</string>
+    <string name="zapret2_youtube_api_sni_control_button">Сравнить SNI API и Google на тех же IPv4 (диагностика)</string>
+    <string name="zapret2_youtube_api_sni_control_note">С теми же восемью публичными IPv4 API сравниваются TLS-запросы к youtubei.googleapis.com и www.google.com с проверкой сертификата каждого имени. Отдельный контроль через Google DoH проверяет общую связь. Этот тест не меняет AUTO и не подтверждает работу ленты YouTube.</string>
 </resources>
