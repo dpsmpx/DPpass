@@ -351,9 +351,25 @@ func (n *adaptiveNeural) learn(host, candidate string, downstream int64) {
     reward := 0.0
     if downstream >= adaptivePayloadThreshold { reward = 1 }
     if downstream >= adaptiveSmallResponseThreshold && downstream < adaptivePayloadThreshold { reward = 0.7 }
+    n.learnReward(host,candidate,reward)
+}
+
+// A local, opt-in script can submit a bounded positive *content-verified*
+// label only after the native Go runner independently observed 3/3 valid
+// responses and 3/3 baseline failures on each selected public IP.
+// This deliberately uses a 0.7 label, not a fabricated downstream byte count.
+func (n *adaptiveNeural) learnVerifiedDiagnostic(host,candidate string) bool {
+    return n.learnReward(host,candidate,0.7)
+}
+
+func (n *adaptiveNeural) learnReward(host,candidate string,reward float64) bool {
+    if reward<0 || reward>1 {return false}
+    quic:=strings.HasPrefix(host,"udp:")
+    idx:=nnCandidateIndex(candidate,quic)
+    if idx<0 {return false}
     n.mu.Lock()
     defer n.mu.Unlock()
-    if n.weights == nil { return }
+    if n.weights == nil { return false }
     w := n.weights
     logit, hidden := nnForward(w, host, idx, quic)
     prob := 1 / (1 + math.Exp(-math.Max(-12, math.Min(12, logit))))
@@ -391,6 +407,7 @@ func (n *adaptiveNeural) learn(host, candidate string, downstream int64) {
         }
     }
     n.dirty = true
+    return true
 }
 
 func hasSparseKey(m map[string]float64, key string) bool { _, ok := m[key]; return ok }
