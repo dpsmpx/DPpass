@@ -323,6 +323,20 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
      * two identical pinned IPs for the candidate, versus a failing plain.
      * HTTP 4xx/TLS handshake alone (as in the 0/32 API log) is ineligible.
      */
+    private fun appendTrainingLog(event: String) {
+        // Training is a separate explicit user action after the completed
+        // report. Keep its outcome in the same automatically copied log.
+        val previous = resultText.text.toString().take(64_000)
+        val updated = previous + "\nTRAINING: " + event + "\n"
+        resultText.text = updated
+        resultText.visibility = View.VISIBLE
+        try {
+            context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(
+                ClipData.newPlainText("DPpass DPTS + training", updated))
+        } catch (_: SecurityException) { }
+          catch (_: IllegalStateException) { }
+    }
+
     private fun trainFromLastScript() {
         if (job?.isActive == true || lastTrainingSubmitted) return
         val plan = lastDptsPlan
@@ -331,11 +345,13 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             !ready(TunnelState.status.value) ||
             NetworkCheck.underlying(context).type.toString() != network) {
             statusText.text = context.getString(R.string.dpts_train_no_run)
+            appendTrainingLog("not_applied reason=no_matching_completed_run")
             return
         }
         val candidates = DptsLearning.confirmedWinners(plan, lastDptsRows)
         if (candidates.isEmpty()) {
             statusText.text = context.getString(R.string.dpts_train_no_evidence)
+            appendTrainingLog("not_applied reason=no_verified_3_of_3_content_on_two_ips")
             return
         }
         val kind = Zapret2NeuralModel.Kind.STRATEGY
@@ -347,6 +363,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             if (generated == null ||
                 JniXrayRuntime.configureZapret2NeuralModel(generated) != XrayResult.Ok) {
                 statusText.text = context.getString(R.string.dpts_train_model_error)
+                appendTrainingLog("not_applied reason=local_model_unavailable")
                 return
             }
         }
@@ -355,6 +372,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         }.getOrNull()
         if (trained != XrayResult.Ok) {
             statusText.text = context.getString(R.string.dpts_train_model_error)
+            appendTrainingLog("not_applied reason=native_training_rejected")
             return
         }
         // The native head is already updated; prevent a second click from
@@ -368,14 +386,20 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             Zapret2NeuralModel.storeLearnedSnapshot(context, kind, snapshot)
         if (!stored) {
             statusText.text = context.getString(R.string.dpts_train_save_error)
+            appendTrainingLog("updated_in_memory snapshot_not_saved")
             return
         }
         val ack = runCatching {
             JniXrayRuntime.acknowledgeZapret2NeuralModel(snapshot!!)
         }.getOrNull()
-        statusText.text = if (ack == XrayResult.Ok)
+        val persisted = ack == XrayResult.Ok
+        statusText.text = if (persisted)
             context.getString(R.string.dpts_train_success, candidates.joinToString(", "))
         else context.getString(R.string.dpts_train_ack_error)
+        appendTrainingLog(if (persisted)
+            "local_mlp_context_updated persisted=true eligible_methods=" +
+                candidates.joinToString(",")
+            else "local_mlp_context_updated snapshot_persisted_ack_failed")
     }
 
     private fun start(dnsComparison: Boolean = false) {
