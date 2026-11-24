@@ -245,6 +245,7 @@ func siteScriptRecord(inst *core.Instance,host string,gen uint64,
     if r==nil || r.instance!=inst || r.generation!=gen || r.host!=host ||
         time.Since(r.prepared)>=siteSearchTTL {return}
     if index<0||index>=len(r.answer.ips)||attempt<1||attempt>siteSearchAttempts {return}
+    if r.scriptTrials==nil {r.scriptTrials=make(map[string]*siteSearchTrial)}
     key:=strconv.Itoa(index)+"|"+strategy
     trial:=r.scriptTrials[key]
     if trial==nil {trial=&siteSearchTrial{};r.scriptTrials[key]=trial}
@@ -281,6 +282,7 @@ func siteScriptTrain(inst *core.Instance,host,strategy string,gen uint64) string
         siteSearchState.Unlock()
         return "dns_not_prepared"
     }
+    if r.scriptTrained==nil {r.scriptTrained=make(map[string]bool)}
     if r.scriptTrained[strategy] {
         siteSearchState.Unlock()
         return "neural_already_trained"
