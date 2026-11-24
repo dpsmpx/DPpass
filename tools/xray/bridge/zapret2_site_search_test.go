@@ -3,6 +3,7 @@
 package bridge
 
 import (
+    "fmt"
     "testing"
     "time"
 
@@ -242,5 +243,56 @@ func TestSiteSearchHTTPTransportOnlyDoesNotAutoPromote(t *testing.T) {
     if siteSearchCommit(inst,host,"plain",gen) ||
         siteSearchCommit(inst,host,"tlsrec-split",gen) {
         t.Fatal("3xx/4xx HTTP reachability must not be promoted as 2xx content")
+    }
+}
+
+func TestAPISweepEightIPv4H1H2GrammarAndIsolation(t *testing.T) {
+    for _,mode:=range []struct{prefix,kind string}{
+        {"site_sweep_h1_ip","sweep_h1"},
+        {"site_sweep_h2_ip","sweep_h2"},
+    } {
+        for ip:=0;ip<siteSweepMaxIPs;ip++ {
+            for attempt:=1;attempt<=siteSearchAttempts;attempt++ {
+                target:=fmt.Sprintf("%s%02d_a%d_:youtubei.googleapis.com",
+                    mode.prefix,ip,attempt)
+                r,ok:=parseSiteSearchRequest(target)
+                if !ok || r.kind!=mode.kind || r.index!=ip ||
+                    r.attempt!=attempt || r.host!="youtubei.googleapis.com" {
+                    t.Fatalf("unexpected API sweep parse: %s %#v %t",target,r,ok)
+                }
+                if r.kind=="http" || r.kind=="quic" {
+                    t.Fatal("sweep must not enter siteSearchRecord / AUTO evidence")
+                }
+            }
+        }
+    }
+    for _,target:=range []string{
+        "site_sweep_h1_ip08_a1_:youtubei.googleapis.com",
+        "site_sweep_h2_ip99_a1_:youtubei.googleapis.com",
+        "site_sweep_h2_ip07_a4_:youtubei.googleapis.com",
+        "site_sweep_h2_ip07_a0_:youtubei.googleapis.com",
+        "site_sweep_h2_ip00_a1_:www.youtube.com",
+        "site_sweep_h1_ip00_a1_:example.org",
+        "site_sweep_h1_ip00_a1_:127.0.0.1",
+        "site_sweep_h1_ip00_a1_:youtubei.googleapis.com/path",
+        "site_ip02_a1_:youtubei.googleapis.com", // original AUTO search stays capped at 2
+    } {
+        if _,ok:=parseSiteSearchRequest(target);ok {
+            t.Fatalf("unsafe or out-of-scope target allowed: %s",target)
+        }
+    }
+}
+
+func TestAPISweepTransportResultsDoNotProvideAUTOCandidate(t *testing.T) {
+    host:="youtubei.googleapis.com"
+    inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1","8.8.8.8"})
+    // Unlike site_ipXX, the site_sweep request type does NOT record any
+    // of these diagnostics. Even completed H2 transport cannot be an
+    // input to native site_apply for an H1 strategy.
+    r,ok:=parseSiteSearchRequest("site_sweep_h2_ip01_a1_:"+host)
+    if !ok || r.kind!="sweep_h2" {t.Fatalf("bad sweep request: %#v",r)}
+    if siteSearchCommit(inst,host,"tlsrec-split",gen) ||
+        siteSearchCommit(inst,host,"plain",gen) {
+        t.Fatal("diagnostic-only sweep must never promote missing 3/3 H1 evidence")
     }
 }
