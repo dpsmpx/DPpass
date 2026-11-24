@@ -244,6 +244,23 @@ func siteSearchCommit(inst *core.Instance,host,method string,gen uint64) bool {
     return true
 }
 
+// Fixed public resource probes prevent false negative GET / responses on
+// media CDNs. The API test is deliberately transport-only: unauthenticated
+// GET cannot prove a YouTube app browse/feed API POST.
+func siteSearchHTTPTarget(host string) zapret2TestTarget {
+    switch host {
+    case "i.ytimg.com":
+        target:=zapret2TestTargets["youtube_thumbnail"]
+        target.ipv4Only=true
+        return target
+    case "youtubei.googleapis.com":
+        return zapret2TestTargets["youtube_api_ipv4"]
+    default:
+        return zapret2TestTarget{host:host,path:"/",
+            contentKind:"site_http",ipv4Only:true}
+    }
+}
+
 func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret2HTTPSResult {
     started:=time.Now()
     result:=Zapret2HTTPSResult{Outcome:"invalid_target",DnsFingerprint:"-",
@@ -340,8 +357,12 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     done:=make(chan struct{})
     defer close(done)
     go func(){select {case <-ctx.Done():_=conn.Close();case <-done:}}()
-    target:=zapret2TestTarget{host:request.host,path:"/",
-        contentKind:"site_http",ipv4Only:true}
+    // A root URL is not a valid resource on every HTTPS service:
+    // i.ytimg.com GET / normally replies 404; google.com may return 301.
+    // Reuse the pinned public thumbnail from the existing fixed target
+    // catalog, and the unauthenticated transport-only YouTube API path.
+    // Never pass arbitrary user-controlled paths, credentials or cookies.
+    target:=siteSearchHTTPTarget(request.host)
     var checked Zapret2HTTPSResult
     if request.kind=="quic" {
         checked=matrixQUIC(ctx,conn,ip,request.host,quic.Version1)
