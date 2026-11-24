@@ -941,4 +941,11 @@
     <string name="zapret2_youtube_api_sni_control_note">С теми же восемью публичными IPv4 API сравниваются TLS-запросы к youtubei.googleapis.com и www.google.com с проверкой сертификата каждого имени. Отдельный контроль через Google DoH проверяет общую связь. Этот тест не меняет AUTO и не подтверждает работу ленты YouTube.</string>
     <string name="zapret2_youtube_api_tls_version_button">Сравнить TLS 1.2 и 1.3 для YouTube API (диагностика)</string>
     <string name="zapret2_youtube_api_tls_version_note">Сравнение TLS 1.2 и TLS 1.3 с проверкой сертификата для API и Google на двух одинаковых публичных IPv4 API. По запросу пользователя, 24 ограниченных соединения; не изменяет AUTO, DNS, маршруты, аккаунты или вход в YouTube.</string>
+    <string name="dpts_title">DPTest Script (DPTS/1)</string>
+    <string name="dpts_note">Вставьте или измените сценарий диагностики. Команды выполняют только ограниченные защищённые проверки, не меняют AUTO, DNS или маршруты. Режим learn observe экспортирует результаты, но не изменяет веса нейросети.</string>
+    <string name="dpts_script_hint">dpts 1\nhost youtubei.googleapis.com\nhttps protocols=h1 methods=plain ips=2 attempts=3 timeout_ms=5000</string>
+    <string name="dpts_load_preset">Загрузить выбранный пресет DPTS</string>
+    <string name="dpts_run_script">Проверить и запустить DPTS</string>
+    <string name="dpts_stopped">DPTS остановлен: сеть изменилась или срок теста истёк</string>
+    <string name="dpts_copied">DPTS завершён. Журнал автоматически скопирован.</string>
 </resources>
