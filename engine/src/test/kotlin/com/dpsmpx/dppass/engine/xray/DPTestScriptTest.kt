@@ -9,6 +9,11 @@ import kotlin.test.assertFailsWith
 class DPTestScriptTest {
     @Test fun allShippedPresetsCompileWithFiniteBudget() {
         assertEquals(8, DPTestPresets.examples.size)
+        assertEquals(21, DPTestScript.tcpMethods.size)
+        assertTrue("fake-1" in DPTestScript.tcpMethods)
+        assertTrue("fake-16" in DPTestScript.tcpMethods)
+        assertFalse("fake-17" in DPTestScript.tcpMethods)
+        assertFalse("fake-7" in DPTestScript.neuralMethods)
         for ((name, script) in DPTestPresets.examples) {
             val plan = DPTestScript.parse(script)
             assertTrue(plan.steps in 1..DPTestScript.MAX_PROBES, name)
@@ -99,6 +104,11 @@ class DPTestScriptTest {
         assertFailsWith<IllegalArgumentException> {
             DPTestScript.parse(p.source.replace(
                 "methods plain,tlsrec-split", "methods tlsrec-split"))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            DPTestScript.parse(p.source.replace(
+                "methods plain,tlsrec-split", "methods plain,fake-7")
+                .replace("train verified tlsrec-split", "train verified fake-7"))
         }
     }
 
