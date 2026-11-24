@@ -239,3 +239,23 @@ func TestNeuralSnapshotAcknowledgementPreservesConcurrentNewLearning(t *testing.
     }
     if err:=AcknowledgeZapret2NeuralModel(nil);err==nil {t.Fatal("empty ACK accepted")}
 }
+
+func TestNeuralRejectsUnsupportedTransportWithoutMutatingModel(t *testing.T) {
+    defer ConfigureZapret2NeuralModel(nil)
+    if err:=ConfigureZapret2NeuralModel(generatedSparseTestModel(t,100000,16));err!=nil {t.Fatal(err)}
+    for _,tc:=range []struct{host,method string}{
+        {"http:example.test","tlsrec-split"},
+        {"udp:example.test","split"},
+        {"example.test","unknown"},
+        {"example.test","pass"},
+    } {
+        if got,ok:=zapret2Neural.rank(tc.host,[]string{tc.method},nil);ok || got!="" {
+            t.Fatalf("rank accepted incompatible method: %+v %s",tc,got)
+        }
+        zapret2Neural.learn(tc.host,tc.method,adaptivePayloadThreshold)
+    }
+    if len(ExportZapret2NeuralModel())!=0 {t.Fatal("incompatible method trained model")}
+    if got,ok:=zapret2Neural.rank("http:example.test",[]string{"split"},nil);!ok || got!="split" {t.Fatal("valid legacy HTTP method lost",got)}
+    zapret2Neural.learn("http:example.test","split",adaptivePayloadThreshold)
+    if len(ExportZapret2NeuralModel())==0 {t.Fatal("compatible method failed to train")}
+}

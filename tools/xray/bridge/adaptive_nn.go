@@ -26,7 +26,7 @@ const (
     adaptiveNNInput = 8
     adaptiveNNMinHidden = 8
     adaptiveNNMaxHidden = 1024
-    adaptiveNNOutput = 9 // 6 TCP + 3 QUIC; TCP pass rotates without neural weights
+    adaptiveNNOutput = localdpi.LegacyModelOutputs // existing v2/v3 output ABI
     adaptiveNNContexts = 9
     adaptiveNNMaxDeep = 512
     adaptiveNNMaxParameters int64 = 1_000_000_000
@@ -139,7 +139,7 @@ func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
                 return nil, errors.New("invalid HTML calibration dimensions")
             }
             for i, row := range w.VerifiedHTMLBias {
-                if len(row) != 6 || w.VerifiedHTMLObservations[i] < 0 || w.VerifiedHTMLObservations[i] > 1_000_000_000 {
+                if len(row) != localdpi.LegacyTCPOutputs || w.VerifiedHTMLObservations[i] < 0 || w.VerifiedHTMLObservations[i] > 1_000_000_000 {
                     return nil, errors.New("invalid HTML calibration")
                 }
                 for _, n := range row { if !validNNNumber(n) { return nil, errors.New("invalid HTML weight") } }
@@ -245,6 +245,14 @@ func nnCandidateIndex(tag string, quic bool) int {
     return localdpi.NeuralIndex(tag, transport)
 }
 
+// The legacy output indices are shared across TLS/HTTP, but the set of
+// valid methods is not. Keep the persisted model layout unchanged.
+func nnHostTransport(host string) localdpi.Transport {
+    if strings.HasPrefix(host,"udp:") {return localdpi.QUIC}
+    if strings.HasPrefix(host,"http:") {return localdpi.HTTP}
+    return localdpi.TLS
+}
+
 func nnFeatures(host string, quic bool) [adaptiveNNInput]float64 {
     var f [adaptiveNNInput]float64
     raw := host
@@ -336,12 +344,12 @@ func (n *adaptiveNeural) rank(host string, candidates []string, usage map[string
     best := ""
     bestScore := math.Inf(-1)
     for _, tag := range candidates {
-        idx := nnCandidateIndex(tag, quic)
+        idx := localdpi.NeuralIndex(tag,nnHostTransport(host))
         if idx < 0 { continue }
         score, _ := nnForward(n.weights, host, idx, quic)
         // This signal proves only a bounded HTML GET for this exact service.
         // It cannot bias unrelated sites, QUIC, plain HTTP or API responses.
-        if host == "www.youtube.com" && !quic && idx < 6 && len(n.weights.VerifiedHTMLBias) == 3 {
+        if host == "www.youtube.com" && !quic && idx < localdpi.LegacyTCPOutputs && len(n.weights.VerifiedHTMLBias) == 3 {
             score += n.weights.VerifiedHTMLBias[nnContext(host,false)/3][idx]
         }
         // Explore uncertain candidates, not just a random neural prior.
@@ -358,7 +366,7 @@ func (n *adaptiveNeural) learn(host, candidate string, downstream int64) {
     // that video/content is usable.
     if downstream > 0 && downstream < adaptiveSmallResponseThreshold { return }
     quic := strings.HasPrefix(host, "udp:")
-    idx := nnCandidateIndex(candidate, quic)
+    idx := localdpi.NeuralIndex(candidate,nnHostTransport(host))
     if idx < 0 { return }
     reward := 0.0
     if downstream >= adaptivePayloadThreshold { reward = 1 }

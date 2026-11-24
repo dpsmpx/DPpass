@@ -3,6 +3,7 @@
 package bridge
 
 import (
+    "github.com/dpsmpx/dppass/tools/xray/localdpi"
     "errors"
     "math"
     "strings"
@@ -24,7 +25,7 @@ func TrainZapret2NeuralFromDPTS(network, methodCSV string) error {
         return errors.New("network context changed before DPTS training")
     }
     methods:=strings.Split(methodCSV,",")
-    if len(methods)<1 || len(methods)>6 {
+    if len(methods)<1 || len(methods)>localdpi.LegacyTCPOutputs {
         return errors.New("invalid DPTS neural method count")
     }
     seen:=make(map[string]struct{},len(methods))
@@ -34,13 +35,8 @@ func TrainZapret2NeuralFromDPTS(network, methodCSV string) error {
             return errors.New("duplicate DPTS neural method")
         }
         seen[method]=struct{}{}
-        allowed:=false
-        for _,m:=range []string{"split-1","split","fake-3","fake-5",
-            "disorder","tlsrec-split"} {
-            if method==m {allowed=true;break}
-        }
-        idx:=nnCandidateIndex(method,false)
-        if !allowed || idx<0 || idx>=6 {
+        idx:=localdpi.LegacyHTMLIndex(method)
+        if idx<0 || !socketCapabilities.Allows(localdpi.TLS,method) {
             return errors.New("unknown or unsupported DPTS neural method")
         }
         indices=append(indices,idx)
@@ -55,7 +51,7 @@ func TrainZapret2NeuralFromDPTS(network, methodCSV string) error {
     if ctx<0 || ctx>=3 { return errors.New("invalid DPTS neural context") }
     if len(w.VerifiedHTMLBias)==0 {
         w.VerifiedHTMLBias=make([][]float64,3)
-        for i:=range w.VerifiedHTMLBias { w.VerifiedHTMLBias[i]=make([]float64,6) }
+        for i:=range w.VerifiedHTMLBias { w.VerifiedHTMLBias[i]=make([]float64,localdpi.LegacyTCPOutputs) }
         w.VerifiedHTMLObservations=make([]int,3)
     }
     for _,idx:=range indices {

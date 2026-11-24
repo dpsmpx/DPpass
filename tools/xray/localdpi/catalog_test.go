@@ -44,3 +44,26 @@ func TestCatalogUniqueAndImmutable(t *testing.T) {
     first[0]="changed"
     if Candidates(TLS)[0]!="split-1" { t.Fatal("mutable shared catalog") }
 }
+
+func TestLegacyModelLayoutHasNoUnmappedOrDuplicateSlots(t *testing.T) {
+    if LegacyModelABI!=1 || LegacyTCPOutputs!=6 || LegacyQUICOutputs!=3 || LegacyModelOutputs!=9 {
+        t.Fatal("legacy model ABI changed")
+    }
+    seen:=make(map[int]string)
+    for _,transport:=range []Transport{TLS,QUIC} {
+        for _,id:=range Candidates(transport) {
+            idx:=NeuralIndex(id,transport)
+            if idx<0 {continue}
+            if idx>=LegacyModelOutputs {t.Fatal("index outside legacy model",id,idx)}
+            if _,exists:=seen[idx];exists {t.Fatal("duplicate legacy index",idx)}
+            seen[idx]=id
+        }
+    }
+    if len(seen)!=LegacyModelOutputs {t.Fatal("incomplete model layout",seen)}
+    for _,id:=range []string{"pass","plain","fake-2","split-2","unknown"} {
+        if LegacyHTMLIndex(id)!=-1 {t.Fatal("invalid calibration slot",id)}
+    }
+    for _,id:=range Candidates(TLS) {
+        if id!="pass" && LegacyHTMLIndex(id)!=NeuralIndex(id,TLS) {t.Fatal(id)}
+    }
+}

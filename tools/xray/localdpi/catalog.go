@@ -4,6 +4,15 @@ package localdpi
 
 import "sort"
 
+// LegacyModelABI is the fixed output layout accepted by v2/v3 models.
+// New trainable methods must use an explicit migration, not reuse a slot.
+const (
+    LegacyModelABI = 1
+    LegacyTCPOutputs = 6
+    LegacyQUICOutputs = 3
+    LegacyModelOutputs = LegacyTCPOutputs + LegacyQUICOutputs
+)
+
 type Transport uint8
 
 const (
@@ -80,4 +89,12 @@ func LegacyProfiles() []string {
     out := make([]string, 0, len(selected))
     for _, m := range selected { out = append(out, m.id) }
     return out
+}
+
+// LegacyHTMLIndex admits only the original HTTPS calibration outputs.
+// A diagnostic-only profile or baseline has no calibration slot.
+func LegacyHTMLIndex(id string) int {
+    idx:=NeuralIndex(id,TLS)
+    if idx<0 || idx>=LegacyTCPOutputs {return -1}
+    return idx
 }
