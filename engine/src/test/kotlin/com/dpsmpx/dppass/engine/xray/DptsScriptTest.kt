@@ -8,11 +8,11 @@ import kotlin.test.assertTrue
 
 class DptsScriptTest {
     @Test fun allBundledPresetsCompileToBoundedPublicTargets() {
-        assertEquals(8, DptsPresets.scripts.size)
+        assertEquals(17, DptsPresets.scripts.size)
         for ((name, script) in DptsPresets.scripts) {
             val plan = DptsScript.compile(script)
             assertEquals(name.isNotBlank(), plan.title.isNotBlank())
-            assertTrue(plan.probes.size in 1..DptsScript.MAX_PROBES)
+            assertTrue(plan.suite != null || plan.probes.size in 1..DptsScript.MAX_PROBES)
             assertTrue(plan.budgetMs <= DptsScript.MAX_BUDGET_MS)
             assertEquals(plan.host, Zapret2SiteSearch.normalizedHost(plan.host))
             for (probe in plan.probes) {
@@ -96,6 +96,30 @@ class DptsScriptTest {
         assertEquals(24, tls.probes.size)
         assertTrue(tls.probes.any { it.target.startsWith("site_script_tls12_ip") })
         assertTrue(tls.probes.any { it.target.startsWith("site_tls13_google_ip") })
+    }
+
+    @Test fun migratedLegacySuiteIsNotExecutableCode() {
+        assertEquals(DptsScript.suites, DptsPresets.scripts.values
+            .map { DptsScript.compile(it).suite }.filterNotNull().toSet())
+        for (id in DptsScript.suites) {
+            val host = if (id in setOf("api_ipv4_sweep","sni_control",
+                "tls_versions","h3_api")) "youtubei.googleapis.com"
+                else "www.youtube.com"
+            val result = DptsScript.compile("dpts 1\\nhost $host\\nsuite $id")
+            assertEquals(id, result.suite)
+            assertTrue(result.probes.isEmpty())
+        }
+        for (script in listOf(
+            "dpts 1\\nhost youtubei.googleapis.com\\nsuite android_exec",
+            "dpts 1\\nhost www.youtube.com\\nsuite h3_api",
+            "dpts 1\\nhost www.youtube.com\\nsuite site_https\\nhttps",
+            "dpts 1\\nhost www.youtube.com\\nhttps\\nsuite site_https",
+            "dpts 1\\nhost youtubei.googleapis.com\\nsuite tls_versions\\nsuite tls_versions",
+        )) {
+            assertFailsWith<DptsCompileException>(script) {
+                DptsScript.compile(script)
+            }
+        }
     }
 
     @Test fun unicodeHostUsesCanonicalPunycode() {
