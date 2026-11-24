@@ -42,6 +42,8 @@ data class Zapret2GoogleProbe(
             "doh_timeout_body",
             "dns_ready", "dns_not_prepared", "invalid_index",
             "auto_applied", "auto_no_winner",
+            "neural_trained", "neural_no_evidence", "neural_unavailable",
+            "neural_already_trained", "invalid_tls_version",
             "timeout_tls_no_reply", "timeout_tls_after_reply", "tls_alert",
             "tls_eof_no_reply", "tls_eof_after_reply",
             "tls_reset_no_reply", "tls_reset_after_reply",
