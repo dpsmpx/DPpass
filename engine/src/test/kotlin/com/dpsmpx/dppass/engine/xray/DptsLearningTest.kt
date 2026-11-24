@@ -23,9 +23,9 @@ class DptsLearningTest {
             bodyBytes = if (good) 256 else 0,
             elapsedMillis = if (good) 260 else 5000,
             appliedDelta = 0, skippedDelta = 0, dnsFingerprint = "sample",
-            dnsAnswers = 8, ipIndex = spec.ipIndex, protocol = "h1",
+            dnsAnswers = 8, ipIndex = spec.ipIndex, protocol = spec.protocol,
             tlsStage = if (good) "tls_verified" else "clienthello_sent",
-            alpn = if (good) "http/1.1" else "-"
+            alpn = if (!good) "-" else if (spec.protocol == "h2") "h2" else "http/1.1"
         )
         Zapret2GoogleAttempt(spec.method, spec.attempt, result, spec.target)
     }
@@ -58,6 +58,22 @@ class DptsLearningTest {
             "youtubei.googleapis.com"))
         assertTrue(DptsLearning.confirmedWinners(api,
             observations(api)).isEmpty())
+    }
+
+    @Test fun http2ProofAndPartialAddressEvidenceStaySeparate() {
+        val plan = DptsScript.compile(source.replace("protocols=h1", "protocols=h2"))
+        val rows = observations(plan)
+        assertEquals(listOf("tlsrec-split"), DptsLearning.confirmedWinners(plan, rows))
+        val partial = rows.mapIndexed { i, row ->
+            if (plan.probes[i].ipIndex == 0 && row.strategy != "plain")
+                row.copy(result = row.result.copy(outcome = "timeout_tls_no_reply", tlsStage = "clienthello_sent",
+                    httpStatus = 0, bodyBytes = 0, alpn = "-"))
+            else row
+        }
+        val evidence = DptsLearning.analyze(plan, partial)
+        assertEquals("verified_single_ip_only", evidence.reason)
+        assertEquals(listOf(DptsLearning.AddressProof(1, "h2", "tlsrec-split")), evidence.addressProofs)
+        assertTrue(evidence.winners.isEmpty())
     }
 
     @Test fun explicitLegacySuiteCannotTrainFromScript() {

@@ -835,9 +835,9 @@
     <string name="zapret2_auto_target_removed">Auto-selection disabled for new connections to this destination</string>
     <string name="zapret2_auto_target_error">Could not update automatic strategy selection</string>
     <string name="zapret2_vpn_fallback_title">VpnService · обрабатывать HTTPS/QUIC без определения домена</string>
-    <string name="zapret2_vpn_fallback_note">В мобильной сети YouTube может обращаться к CDN по IP или использовать TLS ECH: тогда домен не виден в VPN. Включено по умолчанию: TCP/443 направляется через локальный DPI-приём даже при непустом списке; при отключённом «QUIC → TCP» и стратегии Fake также обрабатывается неизвестный QUIC UDP/443. Это может затронуть другие HTTPS-сайты. Выключите, чтобы строго ограничить обработку списком.</string>
+    <string name="zapret2_vpn_fallback_note">В мобильной сети YouTube может обращаться к CDN по IP или использовать TLS ECH: тогда домен не виден в VPN. При включении TCP/443 направляется через локальный DPI-приём даже при непустом списке; при отключённом «QUIC → TCP» и стратегии Fake также обрабатывается неизвестный QUIC UDP/443. Это может затронуть другие HTTPS-сайты. Выключите, чтобы строго ограничить обработку списком.</string>
     <string name="zapret2_vpn_force_tcp_title">VpnService · QUIC → TCP</string>
-    <string name="zapret2_auto_quic_blocked_note">Automatic selection currently tests TCP only: QUIC → TCP blocks UDP/443. To compare QUIC fake-3/fake-5 strategies, turn off the switch above. Your manual setting is preserved.</string>
+    <string name="zapret2_auto_quic_blocked_note">QUIC → TCP blocks UDP/443 for selected domains, or all domains when the list is empty. Disable it to allow QUIC trials.</string>
     <string name="zapret2_vpn_force_tcp_note">Для видео и CDN: блокировать UDP 443 внутри VPN, чтобы приложения попробовали TLS по TCP. Не все приложения поддерживают такой переход; DNS и другой UDP остаются доступны. Можно отключить для сравнения.</string>
     <string name="alpine_title">Alpine Linux terminal</string>
     <string name="alpine_settings_note">Optional in-app PRoot environment. Fake root is not Android root; does not route VPN traffic.</string>
@@ -931,7 +931,11 @@
     <string name="dpts_script_saved">Script saved locally.</string>
     <string name="dpts_suite_unsupported">This built-in suite is not supported.</string>
     <string name="dpts_train_no_run">Run a complete direct DPTS matrix first on this network.</string>
-    <string name="dpts_train_no_evidence">No training: 3/3 verified YouTube HTML on two IPs versus failed plain baseline required. API TLS timeouts and HTTP 4xx are not success.</string>
+    <string name="dpts_train_no_evidence">No global training: three verified HTML replies per IP on at least two IPs with the same HTTP protocol and failed plain baselines are required.</string>
+    <string name="dpts_train_disabled">Learning is disabled in this script. The report is diagnostic only.</string>
+    <string name="dpts_train_partial">Verified on one IP only. Address-scoped evidence retained in the report, not used as a global training label.</string>
+    <string name="dpts_train_transport_only">Transport verified, but not HTML content. No positive application label was applied.</string>
+    <string name="dpts_train_no_transport">No verified TLS or QUIC transport. No positive training label was applied.</string>
     <string name="dpts_train_model_error">Local strategy neural model could not be initialized or trained.</string>
     <string name="dpts_train_save_error">Neural model updated in memory, but snapshot could not be stored. No duplicate training will be performed.</string>
     <string name="dpts_train_success">Local strategy neural trained and saved for: %1$s (verified HTML, not guaranteed video).</string>

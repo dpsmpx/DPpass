@@ -10,7 +10,7 @@ import (
 
 // TrainZapret2NeuralFromDPTS updates only the existing MLP's TLS/network
 // contextual head. Kotlin independently checks 3/3 verified HTML responses
-// on each of two same-pinned public IPv4 addresses against a failed plain
+// on each of two same-pinned public IPv4 addresses (same HTTP/1.1 or HTTP/2 protocol) against a failed plain
 // baseline. No raw host, IP, URL, cookie or body is ever accepted here.
 // This cannot directly pin a strategy; live circuit breakers remain active.
 func TrainZapret2NeuralFromDPTS(network, methodCSV string) error {

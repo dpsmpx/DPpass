@@ -349,10 +349,17 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             appendTrainingLog("not_applied reason=no_matching_completed_run")
             return
         }
-        val candidates = DptsLearning.confirmedWinners(plan, lastDptsRows)
+        val evidence = DptsLearning.analyze(plan, lastDptsRows)
+        val candidates = evidence.winners
         if (candidates.isEmpty()) {
-            statusText.text = context.getString(R.string.dpts_train_no_evidence)
-            appendTrainingLog("not_applied reason=no_verified_3_of_3_content_on_two_ips")
+            statusText.text = context.getString(when (evidence.reason) {
+                "learning_disabled_in_script" -> R.string.dpts_train_disabled
+                "verified_single_ip_only" -> R.string.dpts_train_partial
+                "transport_only_not_content" -> R.string.dpts_train_transport_only
+                "no_verified_transport" -> R.string.dpts_train_no_transport
+                else -> R.string.dpts_train_no_evidence
+            })
+            appendTrainingLog("not_applied reason=" + evidence.reason + " " + evidence.report())
             return
         }
         val kind = Zapret2NeuralModel.Kind.STRATEGY
@@ -399,7 +406,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         else context.getString(R.string.dpts_train_ack_error)
         appendTrainingLog(if (persisted)
             "local_mlp_context_updated persisted=true eligible_methods=" +
-                candidates.joinToString(",")
+                candidates.joinToString(",") + " " + evidence.report()
             else "local_mlp_context_updated snapshot_persisted_ack_failed")
     }
 

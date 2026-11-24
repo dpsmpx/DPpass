@@ -864,9 +864,9 @@
     <string name="zapret2_auto_target_removed">Автоподбор отключён для новых соединений с этим адресом</string>
     <string name="zapret2_auto_target_error">Не удалось обновить автоподбор для адреса</string>
     <string name="zapret2_vpn_fallback_title">VpnService · обрабатывать HTTPS/QUIC без определения домена</string>
-    <string name="zapret2_vpn_fallback_note">В мобильной сети YouTube может обращаться к CDN по IP или использовать TLS ECH. Включено по умолчанию: TCP/443 направляется через локальный DPI-приём даже при непустом списке; при отключённом «QUIC → TCP» и стратегии Fake также обрабатывается неизвестный QUIC UDP/443. Это может затронуть другие HTTPS-сайты. Выключите, чтобы строго ограничить обработку списком.</string>
+    <string name="zapret2_vpn_fallback_note">В мобильной сети YouTube может обращаться к CDN по IP или использовать TLS ECH. При включении TCP/443 направляется через локальный DPI-приём даже при непустом списке; при отключённом «QUIC → TCP» и стратегии Fake также обрабатывается неизвестный QUIC UDP/443. Это может затронуть другие HTTPS-сайты. Выключите, чтобы строго ограничить обработку списком.</string>
     <string name="zapret2_vpn_force_tcp_title">VpnService · QUIC → TCP</string>
-    <string name="zapret2_auto_quic_blocked_note">Автоподбор сейчас проверяет только TCP: «QUIC → TCP» блокирует UDP/443. Чтобы сравнить QUIC-стратегии fake-3/fake-5, выключите переключатель выше. Ручной выбор сохранится.</string>
+    <string name="zapret2_auto_quic_blocked_note">«QUIC → TCP» блокирует UDP/443 для выбранных доменов, а при пустом списке — для всех. Выключите переключатель для проверки QUIC.</string>
     <string name="zapret2_vpn_force_tcp_note">Для видео и CDN: блокировать UDP 443 внутри VPN, чтобы приложения попробовали TLS по TCP. Не все приложения поддерживают такой переход; DNS и другой UDP остаются доступны. Можно отключить для сравнения.</string>
     <string name="alpine_title">Терминал Alpine Linux</string>
     <string name="alpine_settings_note">Дополнительная Linux-среда PRoot внутри приложения. Не даёт Android root и не перехватывает трафик VPN.</string>
@@ -960,7 +960,11 @@
     <string name="dpts_script_saved">Сценарий сохранён локально.</string>
     <string name="dpts_suite_unsupported">Этот встроенный сценарий не поддерживается.</string>
     <string name="dpts_train_no_run">Сначала полностью выполни прямой DPTS-тест на этой сети.</string>
-    <string name="dpts_train_no_evidence">Обучение не выполнено: нужны 3/3 подтверждённых HTML-ответов на двух IP при отказе plain. Тайм-ауты API и HTTP 4xx не считаются успехом.</string>
+    <string name="dpts_train_no_evidence">Глобальное обучение не выполнено: нужны три подтверждённых HTML-ответа на каждом из двух IP по одному протоколу при отказе plain.</string>
+    <string name="dpts_train_disabled">Обучение отключено в скрипте. Результаты сохранены в диагностическом отчёте.</string>
+    <string name="dpts_train_partial">Успех подтверждён только на одном IP. Доказательство сохранено в отчёте, но не применено как глобальная метка обучения.</string>
+    <string name="dpts_train_transport_only">Транспорт подтверждён, HTML-содержимое — нет. Положительная метка доступности приложения не применена.</string>
+    <string name="dpts_train_no_transport">Нет подтверждённого TLS или QUIC. Положительная метка обучения не применена.</string>
     <string name="dpts_train_model_error">Не удалось создать или обучить локальную нейросеть стратегий.</string>
     <string name="dpts_train_save_error">Нейросеть обновлена в памяти, но снимок не сохранился. Повторное обучение запрещено.</string>
     <string name="dpts_train_success">Нейросеть стратегий обучена и сохранена: %1$s (HTML подтверждён, видео не проверено).</string>

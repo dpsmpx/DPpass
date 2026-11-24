@@ -1,58 +1,102 @@
 package com.dpsmpx.dppass.engine.xray
 
 /**
- * Only independently verified HTML HTTPS on the same two public IPs
- * can teach a strategy preference. API 4xx, redirects, handshake-only,
- * QUIC and cached image prefixes are NOT usable training evidence.
- *
- * A DPTS script cannot choose its own labels; only native probe results
- * collected for its finite, compiler-validated target matrix are inspected.
+ * Report transport separately from application content. Only a repeated
+ * matched YouTube HTML experiment can teach the existing global TLS head.
+ * A single working IP remains address-scoped evidence, not a host-wide label.
  */
 object DptsLearning {
-    val trainable = setOf("split-1", "split", "tlsrec-split",
-        "fake-3", "fake-5", "disorder")
+    val trainable = setOf("split-1", "split", "tlsrec-split", "fake-3", "fake-5", "disorder")
 
-    fun confirmedWinners(plan: DptsPlan, rows: List<Zapret2GoogleAttempt>): List<String> {
-        if (!plan.observeLearning || plan.suite != null ||
-            plan.host != "www.youtube.com" ||
-            rows.size != plan.probes.size || plan.probes.size > DptsScript.MAX_PROBES)
-            return emptyList()
-
-        fun on(ip: Int, method: String): List<Zapret2GoogleProbe>? {
-            val slots = (1..Zapret2SiteSearch.ATTEMPTS).map { attempt ->
-                val indices = plan.probes.indices.filter { i ->
-                    val spec = plan.probes[i]
-                    spec.ipIndex == ip && spec.attempt == attempt &&
-                        spec.phase == "https" && spec.protocol == "h1" &&
-                        spec.method == method
-                }
-                if (indices.size != 1) return null
-                val idx = indices.single()
-                val r = rows[idx]
-                if (r.methodName() != method || r.attempt != attempt ||
-                    r.target != plan.probes[idx].target ||
-                    r.result.ipIndex != ip || r.result.protocol != "h1")
-                    return null
-                r.result
-            }
-            return slots
-        }
-
-        fun proof(result: Zapret2GoogleProbe) =
-            result.outcome == "ok" && result.tlsStage == "tls_verified" &&
-                result.alpn == "http/1.1" && result.httpStatus in 200..299 &&
-                result.bodyBytes >= 128
-
-        val ipIndices = (0..1).toList()
-        if (ipIndices.any { ip ->
-                val baseline = on(ip, "plain") ?: return@any true
-                baseline.any(::proof)
-            }) return emptyList()
-
-        return trainable.filter { method ->
-            ipIndices.all { ip -> (on(ip, method) ?: return@all false).all(::proof) }
-        }
+    data class AddressProof(val ipIndex: Int, val protocol: String, val method: String)
+    data class Evidence(
+        val transportVerified: Int = 0,
+        val htmlVerified: Int = 0,
+        val addressProofs: List<AddressProof> = emptyList(),
+        val winners: List<String> = emptyList(),
+        val reason: String,
+    ) {
+        fun report(): String =
+            "transport_verified=$transportVerified html_verified=$htmlVerified address_proofs=" +
+                addressProofs.joinToString(",") { "${it.ipIndex}:${it.protocol}:${it.method}" }.ifEmpty { "-" }
     }
 
-    private fun Zapret2GoogleAttempt.methodName(): String = strategy
+    fun confirmedWinners(plan: DptsPlan, rows: List<Zapret2GoogleAttempt>): List<String> =
+        analyze(plan, rows).winners
+
+    fun analyze(plan: DptsPlan, rows: List<Zapret2GoogleAttempt>): Evidence {
+        if (plan.suite != null || rows.size != plan.probes.size ||
+            rows.isEmpty() || plan.probes.size > DptsScript.MAX_PROBES)
+            return Evidence(reason = "incomplete_or_legacy_suite")
+        val matching = rows.indices.all { i ->
+            val spec = plan.probes[i]
+            val row = rows[i]
+            row.strategy == spec.method && row.attempt == spec.attempt &&
+                row.target == spec.target && row.result.ipIndex == spec.ipIndex &&
+                row.result.protocol == spec.protocol
+        }
+        if (!matching) return Evidence(reason = "mismatched_probe_rows")
+
+        fun transport(r: Zapret2GoogleProbe): Boolean =
+            (r.tlsStage == "tls_verified" && r.alpn in setOf("http/1.1", "h2")) ||
+                (r.outcome == "quic_verified" && r.tlsStage == "quic_tls_verified" && r.alpn == "h3")
+        fun html(r: Zapret2GoogleProbe, protocol: String): Boolean =
+            r.outcome == "ok" && r.tlsStage == "tls_verified" &&
+                r.alpn == ifAlpn(protocol) && r.httpStatus in 200..299 && r.bodyBytes >= 128
+
+        val transportCount = rows.count { transport(it.result) }
+        val htmlCount = if (plan.host == "www.youtube.com")
+            rows.indices.count { i ->
+                plan.probes[i].phase == "https" && plan.probes[i].protocol in setOf("h1", "h2") &&
+                    html(rows[i].result, plan.probes[i].protocol)
+            } else 0
+        val base = Evidence(transportVerified = transportCount, htmlVerified = htmlCount, reason = "no_verified_html")
+        if (!plan.observeLearning) return base.copy(reason = "learning_disabled_in_script")
+        if (plan.host != "www.youtube.com")
+            return base.copy(reason = if (transportCount > 0) "transport_only_not_content" else "no_verified_transport")
+        val fingerprints = rows.map { it.result.dnsFingerprint }.distinct()
+        if (fingerprints.size != 1 || fingerprints.single() in setOf("", "-"))
+            return base.copy(reason = "dns_address_set_changed")
+
+        fun on(ip: Int, protocol: String, method: String): List<Zapret2GoogleProbe>? {
+            return (1..Zapret2SiteSearch.ATTEMPTS).map { attempt ->
+                val indices = plan.probes.indices.filter { i ->
+                    val p = plan.probes[i]
+                    p.ipIndex == ip && p.attempt == attempt && p.phase == "https" &&
+                        p.protocol == protocol && p.method == method
+                }
+                if (indices.size != 1) return null
+                rows[indices.single()].result
+            }
+        }
+        val proofs = mutableListOf<AddressProof>()
+        for (ip in plan.probes.map { it.ipIndex }.distinct()) {
+            for (protocol in listOf("h1", "h2")) {
+                val baseline = on(ip, protocol, "plain") ?: continue
+                // A valid plain TLS response is reachability, not failure.
+                if (baseline.any(::transport)) continue
+                if (baseline.any { it.outcome != "timeout_tls_no_reply" }) continue
+                for (method in trainable) {
+                    if (on(ip, protocol, method)?.all { html(it, protocol) } == true)
+                        proofs += AddressProof(ip, protocol, method)
+                }
+            }
+        }
+        val winners = trainable.filter { method ->
+            listOf("h1", "h2").any { protocol ->
+                proofs.filter { it.method == method && it.protocol == protocol }
+                    .map { it.ipIndex }.distinct().size >= 2
+            }
+        }
+        return base.copy(addressProofs = proofs, winners = winners,
+            reason = when {
+                winners.isNotEmpty() -> "verified_two_ips"
+                proofs.isNotEmpty() -> "verified_single_ip_only"
+                htmlCount > 0 -> "no_matched_failed_plain_and_three_repeats"
+                transportCount > 0 -> "transport_only_not_content"
+                else -> "no_verified_transport"
+            })
+    }
+
+    private fun ifAlpn(protocol: String): String = if (protocol == "h2") "h2" else "http/1.1"
 }
