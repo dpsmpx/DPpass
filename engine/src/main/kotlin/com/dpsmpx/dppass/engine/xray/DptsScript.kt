@@ -294,6 +294,60 @@ object DptsScript {
 /** Immutable editable text presets. No downloaded/executable code is loaded. */
 object DptsPresets {
     val scripts: Map<String, String> = linkedMapOf(
+        "Полный тест Google/YouTube (старый)" to """
+            dpts 1
+            name Google YouTube all fixed controls
+            host www.google.com
+            suite google_youtube
+        """.trimIndent(),
+        "Сравнение защищённых DNS" to """
+            dpts 1
+            name DoH comparison across providers
+            host youtubei.googleapis.com
+            suite dns_compare
+        """.trimIndent(),
+        "Матрица IPv4 / TLS / HTTP2 / QUIC" to """
+            dpts 1
+            name Protected transport matrix
+            host youtubei.googleapis.com
+            suite ip_matrix
+        """.trimIndent(),
+        "YouTube API · расширенный HTTP3" to """
+            dpts 1
+            name HTTP3 API controls and Google pre-post checks
+            host youtubei.googleapis.com
+            suite h3_api
+        """.trimIndent(),
+        "Поиск стратегий · HTTPS" to """
+            dpts 1
+            name Search all HTTPS methods on specified public host
+            host www.youtube.com
+            suite site_https
+        """.trimIndent(),
+        "Поиск стратегий · QUIC" to """
+            dpts 1
+            name Search QUIC methods on specified public host
+            host www.youtube.com
+            suite site_quic
+        """.trimIndent(),
+        "API · 8 IP, полная старая методика" to """
+            dpts 1
+            name Original eight-IP H1 H2 sweep and confirmations
+            host youtubei.googleapis.com
+            suite api_ipv4_sweep
+        """.trimIndent(),
+        "API · SNI, полная старая методика" to """
+            dpts 1
+            name Original same-IP SNI controls and confirmations
+            host youtubei.googleapis.com
+            suite sni_control
+        """.trimIndent(),
+        "API · TLS-версии, полная старая методика" to """
+            dpts 1
+            name Original TLS version paired controls
+            host youtubei.googleapis.com
+            suite tls_versions
+        """.trimIndent(),
         "YouTube API · 8 IPv4 H1/H2" to """
             dpts 1
             name API IPv4 H1-H2 differential
