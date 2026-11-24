@@ -390,7 +390,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             return
         }
         val ack = runCatching {
-            JniXrayRuntime.acknowledgeZapret2NeuralModel(snapshot!!)
+            JniXrayRuntime.acknowledgeZapret2NeuralModel(snapshot)
         }.getOrNull()
         val persisted = ack == XrayResult.Ok
         statusText.text = if (persisted)
