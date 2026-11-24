@@ -42,7 +42,6 @@ import com.dpsmpx.dppass.diagnostics.Diagnostic
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Safe
 import com.dpsmpx.dppass.engine.EngineSession
-import com.dpsmpx.dppass.engine.TrafficStats
 import com.dpsmpx.dppass.engine.DesyncTrick
 import com.dpsmpx.dppass.engine.Zapret2Stages
 import com.dpsmpx.dppass.engine.ServerlessPlan

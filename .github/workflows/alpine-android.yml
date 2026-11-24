@@ -36,6 +36,7 @@ on:
       - release/dppass-v0.8.3-rc2
       - release/dppass-v0.8.3-rc3
       - release/dppass-v0.8.3-rc4
+      - release/dppass-v0.8.3-rc5
   workflow_dispatch:
 
 concurrency:
@@ -206,7 +207,7 @@ jobs:
   publish-release:
     name: Publish tested Alpine APK to Releases
     needs: alpine-android
-    if: github.ref == 'refs/heads/feature/zapret2-alpine-terminal' || github.ref == 'refs/heads/release/zapret2-v0.7.56-neural-auto' || github.ref == 'refs/heads/release/zapret2-v0.7.57-param-auto' || github.ref == 'refs/heads/release/zapret2-v0.7.58-learning' || github.ref == 'refs/heads/release/zapret2-v0.7.59-api-diagnostics' || github.ref == 'refs/heads/release/zapret2-v0.7.60-doh-comparison' || github.ref == 'refs/heads/release/zapret2-v0.7.61-ip-tls-quic' || github.ref == 'refs/heads/release/zapret2-v0.7.62-controls-h2' || github.ref == 'refs/heads/release/zapret2-v0.7.63-http3-api' || github.ref == 'refs/heads/release/zapret2-v0.7.64-h3-google-controls' || github.ref == 'refs/heads/release/zapret2-v0.7.65-quic-reply-headers' || github.ref == 'refs/heads/release/zapret2-v0.7.66-quic-v1-v2-compare' || github.ref == 'refs/heads/release/zapret2-v0.7.67-quic-v1-repeatability' || github.ref == 'refs/heads/release/zapret2-v0.7.68-universal-auto-health' || github.ref == 'refs/heads/release/zapret2-v0.7.69-site-strategy-search' || github.ref == 'refs/heads/release/zapret2-v0.7.70-youtube-host-fallback' || github.ref == 'refs/heads/release/zapret2-v0.7.71-http-transport-fix' || github.ref == 'refs/heads/release/zapret2-v0.7.72-youtube-api-ip-h2-sweep' || github.ref == 'refs/heads/release/zapret2-v0.7.73-youtube-same-ip-sni-control' || github.ref == 'refs/heads/release/zapret2-v0.7.74-youtube-api-tls-version-control' || github.ref == 'refs/heads/release/dpts-v0.8.0-alpha1' || github.ref == 'refs/heads/release/dpts-v0.8.1-unified' || github.ref == 'refs/heads/release/dpts-v0.8.2' || github.ref == 'refs/heads/release/dppass-v0.8.3-rc1' || github.ref == 'refs/heads/release/dppass-v0.8.3-rc2' || github.ref == 'refs/heads/release/dppass-v0.8.3-rc3' || github.ref == 'refs/heads/release/dppass-v0.8.3-rc4'
+    if: github.ref == 'refs/heads/feature/zapret2-alpine-terminal' || github.ref == 'refs/heads/release/zapret2-v0.7.56-neural-auto' || github.ref == 'refs/heads/release/zapret2-v0.7.57-param-auto' || github.ref == 'refs/heads/release/zapret2-v0.7.58-learning' || github.ref == 'refs/heads/release/zapret2-v0.7.59-api-diagnostics' || github.ref == 'refs/heads/release/zapret2-v0.7.60-doh-comparison' || github.ref == 'refs/heads/release/zapret2-v0.7.61-ip-tls-quic' || github.ref == 'refs/heads/release/zapret2-v0.7.62-controls-h2' || github.ref == 'refs/heads/release/zapret2-v0.7.63-http3-api' || github.ref == 'refs/heads/release/zapret2-v0.7.64-h3-google-controls' || github.ref == 'refs/heads/release/zapret2-v0.7.65-quic-reply-headers' || github.ref == 'refs/heads/release/zapret2-v0.7.66-quic-v1-v2-compare' || github.ref == 'refs/heads/release/zapret2-v0.7.67-quic-v1-repeatability' || github.ref == 'refs/heads/release/zapret2-v0.7.68-universal-auto-health' || github.ref == 'refs/heads/release/zapret2-v0.7.69-site-strategy-search' || github.ref == 'refs/heads/release/zapret2-v0.7.70-youtube-host-fallback' || github.ref == 'refs/heads/release/zapret2-v0.7.71-http-transport-fix' || github.ref == 'refs/heads/release/zapret2-v0.7.72-youtube-api-ip-h2-sweep' || github.ref == 'refs/heads/release/zapret2-v0.7.73-youtube-same-ip-sni-control' || github.ref == 'refs/heads/release/zapret2-v0.7.74-youtube-api-tls-version-control' || github.ref == 'refs/heads/release/dpts-v0.8.0-alpha1' || github.ref == 'refs/heads/release/dpts-v0.8.1-unified' || github.ref == 'refs/heads/release/dpts-v0.8.2' || github.ref == 'refs/heads/release/dppass-v0.8.3-rc1' || github.ref == 'refs/heads/release/dppass-v0.8.3-rc2' || github.ref == 'refs/heads/release/dppass-v0.8.3-rc3' || github.ref == 'refs/heads/release/dppass-v0.8.3-rc4' || github.ref == 'refs/heads/release/dppass-v0.8.3-rc5'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -233,7 +234,7 @@ jobs:
             exit 1
           fi
           short="${GITHUB_SHA:0:12}"
-          if [[ "$GITHUB_REF_NAME" != "release/dpts-v0.8.2" && "$GITHUB_REF_NAME" != "release/dppass-v0.8.3-rc1" && "$GITHUB_REF_NAME" != "release/dppass-v0.8.3-rc2" && "$GITHUB_REF_NAME" != "release/dppass-v0.8.3-rc3" && "$GITHUB_REF_NAME" != "release/dppass-v0.8.3-rc4" ]]; then
+          if [[ "$GITHUB_REF_NAME" != "release/dpts-v0.8.2" && "$GITHUB_REF_NAME" != "release/dppass-v0.8.3-rc1" && "$GITHUB_REF_NAME" != "release/dppass-v0.8.3-rc2" && "$GITHUB_REF_NAME" != "release/dppass-v0.8.3-rc3" && "$GITHUB_REF_NAME" != "release/dppass-v0.8.3-rc4" && "$GITHUB_REF_NAME" != "release/dppass-v0.8.3-rc5" ]]; then
             cp -- "${apks[0]}" "release-assets/DPpass-Zapret2-Alpine-${short}-arm64-v8a-debug.apk"
           fi
           mapfile -d '' -t signed < <(find release-signed-input -type f -name '*.apk' -print0)
@@ -337,6 +338,13 @@ jobs:
             title="DPpass 0.8.3 RC4 — neural persistence diagnostics"
             notes="$RUNNER_TEMP/dppass-083-rc4-notes.md"
             printf '%s\n' 'DPpass 0.8.3-rc.4, versionCode 160. Signed ARM64 release APK, same package and signer. Additional strategy snapshot flush after engine shutdown and restored model counters in the journal. RC3 field test confirms Google Search in both no-root modes; partial YouTube functionality in ByeDPI only. RC4 persistence and network regression tests on a physical device are pending. No claim of repairing remaining service access. No debug APK attached.' > "$notes"
+          fi
+          if [[ "$GITHUB_REF_NAME" == "release/dppass-v0.8.3-rc5" ]]; then
+            tag=v0.8.3-rc.5
+            flags=(--prerelease --latest=false)
+            title="DPpass 0.8.3 RC5 — session-scoped route diagnostics"
+            notes="$RUNNER_TEMP/dppass-083-rc5-notes.md"
+            printf '%s\n' 'DPpass 0.8.3-rc.5, versionCode 161. Signed ARM64 release APK, same package and signer. Bind local diagnostics and neural network-change handling to the actual session, not the saved preference. Record post-control route windows at approximately 5, 15 and 30 seconds and final totals for both local backends. Regression tests for counter baselines and inconsistent samples. RC4 device test: 18 model observations restored; Google unstable in Zapret2; ByeDPI YouTube feed/comments/previews work, fresh media not verified. RC5 does not change live routing strategies; physical acceptance remains pending. No debug APK attached.' > "$notes"
           fi
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             target="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq '.targetCommitish')"
