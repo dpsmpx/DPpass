@@ -902,7 +902,7 @@
     <string name="zapret2_site_search_invalid">Enter a public domain without https://, port, path, local address or IP.</string>
     <string name="zapret2_site_search_dns_fail">Protected DoH did not return a usable public IPv4 for this domain. AUTO remains unchanged.</string>
     <string name="zapret2_site_search_expired">Network changed, scan was interrupted, or the five-minute address limit was reached. No AUTO selection applied.</string>
-    <string name="zapret2_youtube_hosts_note">YouTube transport stages: test homepage, API and thumbnail CDN separately. Each button runs the bounded 3/3 HTTPS optimizer for that exact hostname. These checks do not prove HTTP/2, authenticated API, or video playback.</string>
+    <string name="zapret2_youtube_hosts_note">YouTube: test homepage, anonymous API transport and a fixed public JPEG thumbnail separately. A 301/404 response proves HTTPS transport, not usable content or a DPI failure; it never triggers AUTO selection. These checks do not prove HTTP/2, authenticated API, or video playback.</string>
     <string name="zapret2_youtube_home_button">Test YouTube homepage HTTPS</string>
     <string name="zapret2_youtube_api_button">Test YouTube API HTTPS</string>
     <string name="zapret2_youtube_thumbnail_button">Test YouTube thumbnail CDN HTTPS</string>
