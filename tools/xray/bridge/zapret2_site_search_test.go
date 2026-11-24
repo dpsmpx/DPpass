@@ -472,3 +472,38 @@ func TestDPTSTrainingRequiresFullContentAndPlainBaselineFailure(t *testing.T) {
         t.Fatal("even full script batches never satisfy the regular AUTO gate")
     }
 }
+
+func TestDPTSVerifiedThreeOfThreeTrainsLocalMLPOnceWithoutAuto(t *testing.T) {
+    defer func(){ _=ConfigureZapret2NeuralModel(nil) }()
+    if err:=ConfigureZapret2NeuralModel(generatedTestModel(t,32));err!=nil {
+        t.Fatal(err)
+    }
+    host:="www.youtube.com"
+    inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1","8.8.8.8"})
+    for ip:=0;ip<2;ip++ {
+        for attempt:=1;attempt<=siteSearchAttempts;attempt++ {
+            siteScriptRecord(inst,host,gen,ip,attempt,
+                "plain","timeout_tls_no_reply",5000)
+            siteScriptRecord(inst,host,gen,ip,attempt,
+                "tlsrec-split","ok",400)
+        }
+    }
+    zapret2Neural.mu.Lock()
+    before,_:=nnForward(zapret2Neural.weights,host,5,false)
+    zapret2Neural.mu.Unlock()
+    if result:=siteScriptTrain(inst,host,"tlsrec-split",gen);
+        result!="neural_trained" {
+        t.Fatalf("complete content evidence did not teach: %s",result)
+    }
+    zapret2Neural.mu.Lock()
+    after,_:=nnForward(zapret2Neural.weights,host,5,false)
+    zapret2Neural.mu.Unlock()
+    if after<=before {t.Fatal("verified learning did not raise candidate weight")}
+    if result:=siteScriptTrain(inst,host,"tlsrec-split",gen);
+        result!="neural_already_trained" {
+        t.Fatalf("duplicate training accepted: %s",result)
+    }
+    if siteSearchCommit(inst,host,"tlsrec-split",gen) {
+        t.Fatal("script-trained model must not commit live AUTO")
+    }
+}
