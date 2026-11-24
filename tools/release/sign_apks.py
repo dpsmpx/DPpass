@@ -147,15 +147,16 @@ def package_of(tools, apk):
     return (name.group(1) if name else None), (label.group(1) if label else None)
 
 
-def version_name(allow_prerelease=False):
+def version_name(allow_prerelease=False, allow_stable=False):
     with open(GRADLE_APP, encoding="utf-8") as f:
         m = re.search(r'versionName\s*=\s*"([^"]+)"', f.read())
     if not m:
         fail("в app/build.gradle.kts нет versionName")
     version = m.group(1)
     prerelease = bool(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+", version))
-    if not version.endswith("-dev") and not (allow_prerelease and prerelease):
-        fail(f"versionName {version}: непроверенный ключ — только -dev; alpha требует закреплённый сертификат")
+    stable = bool(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version))
+    if not version.endswith("-dev") and not (allow_prerelease and prerelease) and not (allow_stable and stable):
+        fail(f"versionName {version}: непроверенный ключ — только -dev; alpha/release требует закреплённый сертификат")
     return m.group(1)
 
 
@@ -276,7 +277,9 @@ def main():
                 expected = recorded(alias)
                 if actual != expected:
                     fail(f"ключ из окружения ({actual}) — не тот, что записан в docs/PROVENANCE.md, §7 ({expected})")
-        version = version_name(allow_prerelease=bool(args.pinned_fingerprint))
+        version = version_name(allow_prerelease=bool(args.pinned_fingerprint),
+                               allow_stable=bool(args.alpine and args.pinned_fingerprint and
+                                                 expected == "c18792812566ca4a18b518d51313515ff2d62bf8299446e99943eeb5d0630d11"))
         want = STABLE_IDENTITY
         sdk = sdk_dir()
         tools = build_tools(sdk) if sdk else None
