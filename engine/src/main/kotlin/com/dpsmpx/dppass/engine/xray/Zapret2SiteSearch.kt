@@ -63,6 +63,10 @@ object Zapret2SiteSearch {
         val attempted: Int,
         val meanLatency: Long?,
         val stable: Boolean,
+        // 3xx redirects and expected 4xx API/CDN root replies prove
+        // authenticated TLS+HTTP reachability, not usable app content.
+        val transportVerified: Int = 0,
+        val transportStable: Boolean = false,
     )
     data class Recommendation(
         val method: String?,
@@ -82,16 +86,21 @@ object Zapret2SiteSearch {
         val ips = count.coerceIn(0, MAX_IPS)
         val rank = methods.map { method ->
             var successes = 0
+            var transport = 0
             var total = 0
             var latency = 0L
             var allCompleteAndStable = ips > 0
+            var allCompleteAndTransport = ips > 0
             for (ip in 0 until ips) {
                 val expected = (1..ATTEMPTS).map { number ->
                     val target = trial(host, ip, number, quic)
                     rows.filter { it.strategy == method &&
                         it.target == target && it.attempt == number }
                 }
-                if (expected.any { it.size != 1 }) allCompleteAndStable = false
+                if (expected.any { it.size != 1 }) {
+                    allCompleteAndStable = false
+                    allCompleteAndTransport = false
+                }
                 for (matched in expected) {
                     val row = matched.singleOrNull() ?: continue
                     total++
@@ -102,6 +111,16 @@ object Zapret2SiteSearch {
                     else actual.protocol == "h1" &&
                         actual.outcome == "ok" && actual.httpStatus in 200..299 &&
                         actual.bodyBytes >= 128 && actual.tlsStage == "tls_verified"
+                    // A 301 redirect or 404 at GET / is a real server
+                    // response, not a DPI failure. It must not be treated
+                    // as verified content nor train a desync preference.
+                    val reachable = if (quic) verified else
+                        actual.protocol == "h1" &&
+                        actual.tlsStage == "tls_verified" &&
+                        actual.alpn == "http/1.1" &&
+                        actual.httpStatus in 200..499 &&
+                        actual.outcome in setOf("ok", "http_reachable", "redirect")
+                    if (reachable) transport++ else allCompleteAndTransport = false
                     if (verified) {
                         successes++
                         latency += actual.elapsedMillis
@@ -110,7 +129,10 @@ object Zapret2SiteSearch {
             }
             Candidate(method, successes, total,
                 if (successes > 0) latency / successes else null,
-                allCompleteAndStable && successes == ips * ATTEMPTS)
+                allCompleteAndStable && successes == ips * ATTEMPTS,
+                transportVerified = transport,
+                transportStable = allCompleteAndTransport &&
+                    transport == ips * ATTEMPTS)
         }
         val baseline = rank.first()
         if (ips == 0) return Recommendation(null, false,
@@ -118,6 +140,11 @@ object Zapret2SiteSearch {
             rank, false)
         if (baseline.stable) return Recommendation("plain", true,
             "Исходный маршрут устойчив на всех проверенных IPv4. Изменение стратегии не требуется.",
+            rank, false)
+        if (!quic && baseline.transportStable) return Recommendation("plain", false,
+            "Обычный HTTPS без модификации получает HTTP-ответы на каждом IP. " +
+                "Ответы 301/404 подтверждают транспорт, но не полезный контент; " +
+                "AUTO не изменён и DPI-метод не нужен для этого запроса.",
             rank, false)
         // No promotion if the baseline sometimes works 2/3 at any index.
         val baselineFailuresEnough = (0 until ips).all { ip ->
@@ -167,7 +194,11 @@ object Zapret2SiteSearch {
             appendLine("Проверены максимум 2 IPv4, по 3 независимых соединения на метод; не меняем глобальные DNS/маршруты.")
             for (candidate in recommendation.candidates) {
                 appendLine("  ${candidate.method}: ${candidate.verified}/${candidate.attempted}" +
-                    " successful; stable=${candidate.stable}; mean_success_ms=${candidate.meanLatency ?: "-"}")
+                    " content_verified; stable=${candidate.stable};" +
+                    (if (quic) "" else
+                        " http_transport=${candidate.transportVerified}/${candidate.attempted};" +
+                        " transport_stable=${candidate.transportStable};") +
+                    " mean_success_ms=${candidate.meanLatency ?: "-"}")
             }
             appendLine("Точные результаты (без адресов, доменных токенов и содержимого):")
             for (entry in rows) {
