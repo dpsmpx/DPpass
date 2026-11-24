@@ -756,7 +756,23 @@ class DPpassVpnService : VpnService() {
             core.connectServerless(handle.toTunInput(), sites, settings,
                 desync = desync, forceQuicTcp = forceQuicTcp, catchAllHttps = catchAllHttps,
                 byeDpiPort = byeDpi?.port, byeDpiToken = byeDpi?.token, ipv4Only = ipv4Only) { _, dns ->
-                withContext(Dispatchers.IO) { graph.engine.probeServerless(dns, probeTimeout) }
+                withContext(Dispatchers.IO) {
+                    val health = graph.engine.probeServerless(dns, probeTimeout)
+                    if (health is Outcome.Success && localEngine) {
+                        // One bounded, public Google control, using the virtual DNS
+                        // route and regular dispatcher. No user URLs or IPs logged.
+                        runCatching { JniXrayRuntime.localRouteControl(6_000) }
+                            .onSuccess { r ->
+                                core.log.info("local_route_control",
+                                    "scope" to Safe("dispatcher_not_android_tun"),
+                                    "outcome" to r.outcome,
+                                    "stage" to Safe(if (r.outcome == com.dpsmpx.dppass.engine.xray.DnsProbeOutcome.OK) "http_200" else
+                                        r.text.takeIf { it.matches(Regex("[a-z_]{1,40}")) } ?: "unknown"),
+                                    "ms" to r.elapsedMillis, "body_bytes" to r.receivedBytes)
+                            }
+                    }
+                    health
+                }
             }
         } catch (e: CancellationException) {
             throw e
@@ -1354,6 +1370,14 @@ class DPpassVpnService : VpnService() {
     private fun onNetworkChanged(changes: NetworkChangeChecks, network: Long, from: NetworkType, to: NetworkType) {
         val core = AppGraph.core(this)
         core.log.info("network_changed", "from" to from, "to" to to)
+        val backend = AppPrefs(this).zapret2Backend
+        if ((backend == Zapret2Backend.VPN_SERVICE || backend == Zapret2Backend.BYEDPI_VPN) &&
+            from != NetworkType.NONE && to != NetworkType.NONE &&
+            (from == NetworkType.MOBILE) != (to == NetworkType.MOBILE)) {
+            // Recompile the local DNS address-family policy for the new network.
+            reconnect(this)
+            return
+        }
         retakeRegime(core, "network_changed")
         changeCheck?.cancel()
         changeCheck = scope.launch {

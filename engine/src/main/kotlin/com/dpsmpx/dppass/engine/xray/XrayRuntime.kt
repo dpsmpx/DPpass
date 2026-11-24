@@ -399,6 +399,10 @@ class JniXrayRuntime private constructor() : XrayRuntime {
     companion object {
         const val LIBRARY: String = "dppassxray"
 
+        /** Fixed public DNS + HTTPS control via the production Xray dispatcher, not Android TUN fd. */
+        fun localRouteControl(timeoutMillis: Int): DnsProbeResult =
+            XrayJni.decodeProbe(XrayJni.nativeProbeDns("local-control://google".encodeToByteArray(), timeoutMillis))
+
         /** Separate dashboard counters; does not change provider usage accounting. */
         fun displayTraffic(): TrafficStats? = XrayJni.nativeDisplayTraffic()?.takeIf { it.size == 2 }?.let {
             TrafficStats(uplinkBytes = it[0], downlinkBytes = it[1])

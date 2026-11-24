@@ -89,6 +89,7 @@ func ProbeDNS(target string, timeout time.Duration) ProbeResult {
 	if inst == nil {
 		return ProbeResult{Outcome: ProbeNotRunning, Err: errors.New("ядро не запущено")}
 	}
+	if target == localControlTarget { return probeLocalControl(inst, timeout) }
 	u, err := url.Parse(target)
 	if err != nil || timeout <= 0 {
 		return ProbeResult{Outcome: ProbeContract, Err: fmt.Errorf("цель пробы %q или время %v не поняты", target, timeout)}
