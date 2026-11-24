@@ -39,6 +39,18 @@ var zapret2TestStrategies = map[string]string{
     "auto": "dppass:test-auto",
 }
 
+// The additional TTL profiles are pre-registered in the same protected
+// Xray outbounds as the seven stable manually tested methods. Only DPTS
+// exposes them; the stable native AUTO candidate set is unchanged.
+func init() {
+    for ttl:=1;ttl<=16;ttl++ {
+        key:=fmt.Sprintf("fake-%d",ttl)
+        if _,exists:=zapret2TestStrategies[key];!exists {
+            zapret2TestStrategies[key]="dppass:test-"+key
+        }
+    }
+}
+
 type zapret2TestTarget struct {
     host string
     path string
