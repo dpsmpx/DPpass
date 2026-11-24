@@ -25,6 +25,7 @@ import (
 
 const siteSearchTTL = 5 * time.Minute
 const siteSearchMaxIPs = 2
+const siteSweepMaxIPs = 8 // isolated diagnostic, NEVER eligible for AUTO commit
 const siteSearchAttempts = 3
 
 // Exact finite set of methods exposed by the private Android outbounds.
@@ -97,6 +98,14 @@ func parseSiteSearchRequest(target string) (siteSearchRequest,bool) {
     if kind=="site_prepare"||kind=="site_apply" {return r,true}
     var prefix string
     switch {
+    case strings.HasPrefix(kind,"site_sweep_h1_ip"):
+        if host!="youtubei.googleapis.com" {return siteSearchRequest{},false}
+        prefix="site_sweep_h1_ip"
+        r.kind="sweep_h1"
+    case strings.HasPrefix(kind,"site_sweep_h2_ip"):
+        if host!="youtubei.googleapis.com" {return siteSearchRequest{},false}
+        prefix="site_sweep_h2_ip"
+        r.kind="sweep_h2"
     case strings.HasPrefix(kind,"site_ip"):prefix="site_ip"
     case strings.HasPrefix(kind,"site_quic_ip"):prefix="site_quic_ip"
     default:return siteSearchRequest{},false
@@ -107,10 +116,12 @@ func parseSiteSearchRequest(target string) (siteSearchRequest,bool) {
         return siteSearchRequest{},false
     }
     index,err:=strconv.Atoi(rest[:2])
-    if err!=nil || index<0 || index>=siteSearchMaxIPs {return siteSearchRequest{},false}
+    limit:=siteSearchMaxIPs
+    if r.kind=="sweep_h1" || r.kind=="sweep_h2" {limit=siteSweepMaxIPs}
+    if err!=nil || index<0 || index>=limit {return siteSearchRequest{},false}
     r.index=index
     r.attempt=int(rest[4]-'0')
-    if prefix=="site_ip" {r.kind="http"} else {r.kind="quic"}
+    if prefix=="site_ip" {r.kind="http"} else if prefix=="site_quic_ip" {r.kind="quic"}
     return r,true
 }
 
@@ -337,6 +348,12 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     } else if request.kind=="quic" {
         for _,m:=range siteSearchQUICMethods {if m==strategy {allowed=true}}
         result.Protocol="quic"
+    } else if request.kind=="sweep_h1" || request.kind=="sweep_h2" {
+        // Only three existing implemented profiles, only the known API
+        // host, and only explicitly prepared public Google DoH IPv4.
+        // The sweep is diagnostic: no evidence reaches siteSearchRecord.
+        allowed=strategy=="plain" || strategy=="tlsrec-split" || strategy=="fake-5"
+        if request.kind=="sweep_h1" {result.Protocol="h1"} else {result.Protocol="h2"}
     }
     if !allowed {result.Outcome="invalid_strategy";return finish(result)}
     result.IPIndex=request.index
@@ -367,14 +384,18 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     if request.kind=="quic" {
         checked=matrixQUIC(ctx,conn,ip,request.host,quic.Version1)
     }else{
-        checked=matrixHTTP(ctx,conn,target,"h1")
+        checked=matrixHTTP(ctx,conn,target,result.Protocol)
     }
     checked=matrixWithMetadata(checked,result)
     checked.Elapsed=time.Since(started)
     // QUIC TLS is a transport diagnostic only. This never auto-pins an
     // IP shared between unrelated hosts; only 3/3 HTTP evidence can
     // teach the exact-host TCP AUTO selector by explicit apply.
-    siteSearchRecord(inst,request.host,gen,request.index,request.attempt,
-        result.Protocol,strategy,checked.Outcome,checked.Elapsed.Milliseconds())
+    if request.kind=="http" || request.kind=="quic" {
+        siteSearchRecord(inst,request.host,gen,request.index,request.attempt,
+            result.Protocol,strategy,checked.Outcome,checked.Elapsed.Milliseconds())
+    }
+    // Sweep samples cannot modify the trusted AUTO 3/3 evidence even if
+    // all eight IPs happen to reply. They only return redacted stages.
     return finish(checked)
 }
