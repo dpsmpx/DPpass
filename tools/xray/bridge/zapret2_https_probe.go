@@ -215,6 +215,11 @@ func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2
     }
     started := time.Now()
     out := Zapret2HTTPSResult{Outcome:"invalid_strategy"}
+    // Extra fake TTL outbounds are exposed ONLY to fully validated DPTS
+    // requests above. Legacy controls and one-click matrices intentionally
+    // retain their original seven-method strategy contract.
+    if strings.HasPrefix(strategy,"fake-") && strategy!="fake-3" &&
+        strategy!="fake-5" {return out}
     tag, valid := zapret2TestStrategies[strategy]
     if !valid { return out }
     target, valid := zapret2TestTargets[targetID]
