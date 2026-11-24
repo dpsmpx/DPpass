@@ -296,3 +296,36 @@ func TestAPISweepTransportResultsDoNotProvideAUTOCandidate(t *testing.T) {
         t.Fatal("diagnostic-only sweep must never promote missing 3/3 H1 evidence")
     }
 }
+
+func TestSameIPGoogleSNIControlGrammarAndNoAutoTraining(t *testing.T) {
+    host:="youtubei.googleapis.com"
+    for index:=0;index<siteSweepMaxIPs;index++ {
+        for attempt:=1;attempt<=siteSearchAttempts;attempt++ {
+            id:=fmt.Sprintf("site_sni_google_ip%02d_a%d_:%s",index,attempt,host)
+            request,ok:=parseSiteSearchRequest(id)
+            if !ok||request.kind!="sni_control"||
+                request.host!=host||request.index!=index||request.attempt!=attempt {
+                t.Fatalf("bad same-IP control: %q %#v %t",id,request,ok)
+            }
+        }
+    }
+    for _,id:=range []string{
+        "site_sni_google_ip08_a1_:youtubei.googleapis.com",
+        "site_sni_google_ip99_a1_:youtubei.googleapis.com",
+        "site_sni_google_ip00_a0_:youtubei.googleapis.com",
+        "site_sni_google_ip00_a4_:youtubei.googleapis.com",
+        "site_sni_google_ip00_a1_:www.youtube.com",
+        "site_sni_google_ip00_a1_:www.google.com",
+        "site_sni_google_ip00_a1_:localhost",
+        "site_sni_google_ip00_a1_:youtubei.googleapis.com/path",
+    } {
+        if _,ok:=parseSiteSearchRequest(id);ok {
+            t.Fatalf("unsafe SNI comparator target accepted: %q",id)
+        }
+    }
+    inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1","8.8.8.8"})
+    if siteSearchCommit(inst,host,"tlsrec-split",gen) ||
+        siteSearchCommit(inst,host,"plain",gen) {
+        t.Fatal("SNI comparator must not contribute any site_apply evidence")
+    }
+}
