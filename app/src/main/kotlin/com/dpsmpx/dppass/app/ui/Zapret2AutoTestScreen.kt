@@ -2,11 +2,15 @@ package com.dpsmpx.dppass.app.ui
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
+import android.text.InputFilter
 import android.os.SystemClock
 import android.view.View
 import android.text.InputType
 import android.widget.EditText
 import android.widget.Button
+import android.widget.Spinner
+import android.widget.ArrayAdapter
 import android.widget.ProgressBar
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.NetworkCheck
@@ -24,6 +28,9 @@ import com.dpsmpx.dppass.engine.xray.Zapret2MatrixReport
 import com.dpsmpx.dppass.engine.xray.Zapret2H3Policy
 import com.dpsmpx.dppass.engine.xray.Zapret2H3Report
 import com.dpsmpx.dppass.engine.xray.Zapret2SiteSearch
+import com.dpsmpx.dppass.engine.xray.DptsScript
+import com.dpsmpx.dppass.engine.xray.DptsPresets
+import com.dpsmpx.dppass.engine.xray.DptsCompileException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -76,6 +83,29 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         context, R.string.zapret2_youtube_api_sni_control_button, Ui.Style.OUTLINE, R.drawable.ic_dns)
     private val apiTLSVersionButton: Button = Ui.button(
         context, R.string.zapret2_youtube_api_tls_version_button, Ui.Style.OUTLINE, R.drawable.ic_dns)
+    private val dptsEditor = EditText(context).apply {
+        hint = context.getString(R.string.dpts_script_hint)
+        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        isSingleLine = false
+        minLines = 7
+        maxLines = 15
+        filters = arrayOf(InputFilter.LengthFilter(DptsScript.MAX_SOURCE_LENGTH))
+        setText(context.getSharedPreferences("dpts_editor", Context.MODE_PRIVATE)
+            .getString("source", null) ?: DptsPresets.scripts.values.first())
+        contentDescription = context.getString(R.string.dpts_script_hint)
+    }
+    private val dptsPresets = DptsPresets.scripts.keys.toList()
+    private val dptsPresetSpinner = Spinner(context).apply {
+        adapter = ArrayAdapter(context, android.R.layout.simple_spinner_item,
+            dptsPresets).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+    }
+    private val dptsLoadButton = Ui.button(context, R.string.dpts_load_preset,
+        Ui.Style.OUTLINE, R.drawable.ic_dns)
+    private val dptsRunButton = Ui.button(context, R.string.dpts_run_script,
+        Ui.Style.PRIMARY, R.drawable.ic_speed)
     private val progress = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
         max = TOTAL
         visibility = View.GONE
@@ -139,6 +169,19 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             Ui.matchWidth())
         addView(Ui.text(context, R.style.Text_DPpass_Caption,
             context.getString(R.string.zapret2_site_search_note)), Ui.matchWidth())
+        addView(Ui.section(context, context.getString(R.string.dpts_title)),
+            Ui.matchWidth())
+        addView(Ui.text(context, R.style.Text_DPpass_Caption,
+            context.getString(R.string.dpts_note)), Ui.matchWidth())
+        addView(dptsPresetSpinner, Ui.matchWidth())
+        addView(dptsLoadButton.apply { setOnClickListener {
+            if (job?.isActive == true) return@setOnClickListener
+            dptsEditor.setText(DptsPresets.scripts.getValue(
+                dptsPresets[dptsPresetSpinner.selectedItemPosition]))
+        } }, Ui.matchWidth())
+        addView(dptsEditor, Ui.matchWidth())
+        addView(dptsRunButton.apply { setOnClickListener { startDptsScript() } },
+            Ui.matchWidth())
         addView(progress, Ui.matchWidth())
         addView(statusText, Ui.matchWidth())
         addView(resultText, Ui.matchWidth())
@@ -166,6 +209,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         youtubeApiSweepButton.isEnabled = ready(status)
         apiSniControlButton.isEnabled = ready(status)
         apiTLSVersionButton.isEnabled = ready(status)
+        dptsRunButton.isEnabled = ready(status)
+        dptsLoadButton.isEnabled = true
         if (!ready(status)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
         }
@@ -174,6 +219,9 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     override fun onHidden() {
         job?.cancel()
         job = null
+        // Persist only the user's editable script, never probe results or IPs.
+        context.getSharedPreferences("dpts_editor", Context.MODE_PRIVATE).edit()
+            .putString("source", dptsEditor.text.toString()).apply()
     }
 
     private fun ready(status: TunnelStatus): Boolean =
