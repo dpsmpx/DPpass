@@ -1,0 +1,83 @@
+package com.dpsmpx.dppass.app
+
+import android.content.Context
+import com.dpsmpx.dppass.connection.Zapret2Hostlist
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.concurrent.TimeUnit
+
+/**
+ * Original ciadpi transparent TCP mode using IPv4 OUTPUT REDIRECT.
+ * No NFQUEUE, no UDP interception and no unprivileged raw sockets.
+ * Dedicated rule and root-owned directory; never flush a system chain.
+ */
+internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
+    override suspend fun start(): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val binary = ByeDpiRuntime.executable(context)
+            val hosts = Zapret2Hostlist.parse(AppPrefs(context).zapret2HostlistText).getOrThrow()
+            val localHosts = File(context.noBackupFilesDir, "bd-root-hosts").apply {
+                writeText(hosts.format() + "\n")
+            }
+            execute(cleanup())
+            try {
+                val args = if (hosts.isEmpty) ByeDpiRuntime.strategy
+                    else ByeDpiRuntime.strategy + listOf("--hosts", "$ROOT/hosts", "--auto=none")
+                val cmd = (listOf("$ROOT/ciadpi", "--ip", "127.0.0.1", "--port", PORT.toString(),
+                    "--transparent", "--no-domain") + args).joinToString(" ") { quote(it) }
+                val watch = "while kill -0 " + android.os.Process.myPid() +
+                    " 2>/dev/null && test -s " + quote("$ROOT/pid") +
+                    " && kill -0 \"$(cat " + quote("$ROOT/pid") + ")\" 2>/dev/null; do sleep 3; done\n" + cleanup(false)
+                execute(listOf("set -eu", "umask 077", "mkdir -p " + quote(ROOT),
+                    "chmod 700 " + quote(ROOT), "cp " + quote(binary.absolutePath) + " " + quote("$ROOT/ciadpi"),
+                    "chmod 700 " + quote("$ROOT/ciadpi"),
+                    "cp " + quote(localHosts.absolutePath) + " " + quote("$ROOT/hosts"),
+                    cmd + " </dev/null >" + quote("$ROOT/log") + " 2>&1 &",
+                    "pid=$!", "echo \"\$pid\" > " + quote("$ROOT/pid"), "sleep 1", "kill -0 \"\$pid\"",
+                    "cat > " + quote("$ROOT/watch.sh") + " <<'DPPASS_BD_WATCH'\n" + watch + "\nDPPASS_BD_WATCH",
+                    "sh " + quote("$ROOT/watch.sh") + " </dev/null >" + quote("$ROOT/watch.log") + " 2>&1 &",
+                    "echo \"\$!\" > " + quote("$ROOT/watch.pid"),
+                    "iptables -t nat -I OUTPUT " + RULE,
+                    "iptables -t nat -C OUTPUT " + RULE).joinToString("\n"))
+            } catch (e: Exception) {
+                runCatching { execute(cleanup()) }
+                throw e
+            }
+        }
+    }
+
+    override suspend fun stop(): Result<Unit> = withContext(Dispatchers.IO) { runCatching { execute(cleanup()) } }
+    override suspend fun alive(): Boolean = withContext(Dispatchers.IO) {
+        runCatching { execute("test -s " + quote("$ROOT/pid") + " && kill -0 \"$(cat " +
+            quote("$ROOT/pid") + ")\" && iptables -t nat -C OUTPUT " + RULE) }.isSuccess
+    }
+
+    private fun cleanup(stopWatch: Boolean = true): String = buildString {
+        appendLine("set +e")
+        if (stopWatch) appendLine("if test -s " + quote("$ROOT/watch.pid") +
+            "; then pid=$(cat " + quote("$ROOT/watch.pid") + "); " +
+            "if tr '\\000' ' ' </proc/\$pid/cmdline 2>/dev/null | grep -Fq " + quote("$ROOT/watch.sh") +
+            "; then kill \"\$pid\" 2>/dev/null; fi; rm -f " + quote("$ROOT/watch.pid") + "; fi")
+        appendLine("while iptables -t nat -C OUTPUT " + RULE + " 2>/dev/null; do iptables -t nat -D OUTPUT " + RULE + " || exit 1; done")
+        appendLine("if test -s " + quote("$ROOT/pid") + "; then pid=$(cat " + quote("$ROOT/pid") + "); " +
+            "if test \"$(readlink /proc/\$pid/exe)\" = " + quote("$ROOT/ciadpi") +
+            "; then kill \"\$pid\" 2>/dev/null; fi; rm -f " + quote("$ROOT/pid") + "; fi")
+        appendLine("exit 0")
+    }
+
+    private fun execute(script: String) {
+        val p = ProcessBuilder("su", "-c", script).redirectErrorStream(true).start()
+        if (!p.waitFor(15, TimeUnit.SECONDS)) { p.destroyForcibly(); error("su timeout") }
+        val output = p.inputStream.bufferedReader().use { it.readText().takeLast(400) }
+        check(p.exitValue() == 0) { "ByeDPI root: " + output }
+    }
+    private fun quote(raw: String): String = "'" + raw.replace("'", "'\\''") + "'"
+
+    private companion object {
+        const val ROOT = "/data/adb/dppass-byedpi"
+        const val PORT = 40529
+        // Exclude daemon's root-owned sockets and local destinations to avoid recursion.
+        const val RULE = "-p tcp -m owner ! --uid-owner 0 -m addrtype ! --dst-type LOCAL -m multiport --dports 80,443 -m comment --comment dppass-byedpi -j REDIRECT --to-ports 40529"
+    }
+}

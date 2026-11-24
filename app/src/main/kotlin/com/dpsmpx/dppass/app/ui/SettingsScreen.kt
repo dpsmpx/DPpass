@@ -292,7 +292,8 @@ class SettingsScreen(host: Host) : Screen(host) {
                     choiceRow(
                         R.drawable.ic_shield,
                         R.string.zapret2_mode_title,
-                        listOf(R.string.zapret2_off, R.string.zapret2_root, R.string.zapret2_vpn),
+                        listOf(R.string.zapret2_off, R.string.zapret2_root, R.string.zapret2_vpn,
+                            R.string.byedpi_root, R.string.byedpi_vpn),
                         host.prefs.zapret2Backend.ordinal,
                     ) { index ->
                         host.prefs.zapret2Backend = Zapret2Backend.entries[index]

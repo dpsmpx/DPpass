@@ -14,12 +14,12 @@ import java.util.concurrent.TimeUnit
  * a kernel that supports NFQUEUE, and execution allowed under /data/adb.
  * Does not establish Android VPN. No claim of physical-device acceptance.
  */
-internal class RootZapret2(private val context: Context) {
+internal class RootZapret2(private val context: Context) : RootDpiRuntime {
     // Snapshot options at connection startup; mid-session preference changes
     // require reconnect so watchdog and firewall agree on the active rules.
     private val rootQuic = AppPrefs(context).zapret2RootQuic
 
-    suspend fun start(): Result<Unit> = withContext(Dispatchers.IO) {
+    override suspend fun start(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val abi = Build.SUPPORTED_ABIS.firstOrNull { it in ARCH }
                 ?: error("nfqws2 не собран для архитектуры устройства")
@@ -39,11 +39,11 @@ internal class RootZapret2(private val context: Context) {
     }
 
     /** Cleanup result must not be silently discarded when firewall rules remain. */
-    suspend fun stop(): Result<Unit> = withContext(Dispatchers.IO) {
+    override suspend fun stop(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching { execute(cleanup()) }
     }
 
-    suspend fun alive(): Boolean = withContext(Dispatchers.IO) {
+    override suspend fun alive(): Boolean = withContext(Dispatchers.IO) {
         runCatching { execute("test -f " + quote(ROOT + "/pid") +
             " && kill -0 \"$(cat " + quote(ROOT + "/pid") + ")\"" +
             " && iptables -t mangle -C OUTPUT " + TCP +

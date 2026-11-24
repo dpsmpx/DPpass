@@ -266,7 +266,8 @@ class ConnectScreen(host: Host) : Screen(host) {
                 context.getString(R.string.path_provider),
                 context.getString(R.string.path_local_auto),
             ), if (localMode) 1 else 0) { choice ->
-                val desired = if (choice == 0) Zapret2Backend.OFF else Zapret2Backend.VPN_SERVICE
+                val desired = if (choice == 0) Zapret2Backend.OFF else
+                    host.prefs.zapret2Backend.takeIf { it != Zapret2Backend.OFF } ?: Zapret2Backend.VPN_SERVICE
                 if (desired != host.prefs.zapret2Backend) {
                     host.prefs.zapret2Backend = desired
                     if (desired == Zapret2Backend.VPN_SERVICE) {
@@ -279,8 +280,7 @@ class ConnectScreen(host: Host) : Screen(host) {
         )
         pathPicker.addView(
             Ui.text(context, R.style.Text_DPpass_Caption,
-                context.getString(if (localMode) R.string.path_local_explained
-                    else R.string.path_provider_explained)).apply {
+                if (localMode) host.prefs.zapret2Backend.wire else context.getString(R.string.path_provider_explained)).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
             }, Ui.matchWidth(),
         )

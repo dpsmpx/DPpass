@@ -141,7 +141,9 @@ class DPpassVpnService : VpnService() {
 
     private var connecting: Job? = null
     private var session: EngineSession? = null
-    private var rootZapret2: RootZapret2? = null
+    private var rootZapret2: RootDpiRuntime? = null
+    private var byeDpi: ByeDpiRuntime? = null
+    private var byeDpiWatch: Job? = null
     private var rootWatch: Job? = null
     /** Alpine's sole strategy planner for local VpnService mode. */
     private var alpineStrategy: AlpineZapret2Runtime? = null
@@ -279,7 +281,7 @@ class DPpassVpnService : VpnService() {
         lifecycle.withLock {
             // Switching from VpnService to root must release the old TUN;
             // otherwise packets stay trapped in an inactive Android VPN.
-            shutdown(keepTunnel = AppPrefs(this@DPpassVpnService).zapret2Backend != Zapret2Backend.ROOT)
+            shutdown(keepTunnel = !AppPrefs(this@DPpassVpnService).zapret2Backend.rooted)
             if (restarts.decrementAndGet() == 0) start() else DeviceLog.log.info("service_reconnect_superseded")
         }
     }
@@ -322,11 +324,11 @@ class DPpassVpnService : VpnService() {
         // подменяем обычную подписку без явного выбора в настройках.
         when (AppPrefs(this).zapret2Backend) {
             Zapret2Backend.OFF -> Unit
-            Zapret2Backend.ROOT -> {
-                connectRootZapret2(core)
+            Zapret2Backend.ROOT, Zapret2Backend.BYEDPI_ROOT -> {
+                connectRootZapret2(core, AppPrefs(this).zapret2Backend.byedpi)
                 return
             }
-            Zapret2Backend.VPN_SERVICE -> {
+            Zapret2Backend.VPN_SERVICE, Zapret2Backend.BYEDPI_VPN -> {
                 // Отдельный локальный TUN: Xray выполняет только перенос пакетов,
                 // DPI-приём делает собственный Go dialer, без внешнего сервера.
                 val p = AppPrefs(this)
@@ -354,9 +356,12 @@ class DPpassVpnService : VpnService() {
                 // ignored to avoid silently retaining an outdated fixed
                 // strategy after updating from an earlier debug build.
                 // Other candidates remain available to private diagnostics.
-                val trick = DesyncTrick.Auto
-                connectServerless(graph, sites, settings, trick, "Zapret2 VPN local",
-                    p.zapret2VpnForceTcp, p.zapret2VpnCatchAllHttps)
+                val useByeDpi = p.zapret2Backend == Zapret2Backend.BYEDPI_VPN
+                val trick = if (useByeDpi) null else DesyncTrick.Auto
+                connectServerless(graph, sites, settings, trick,
+                    if (useByeDpi) "ByeDPI VPN local" else "Zapret2 VPN local",
+                    !useByeDpi && p.zapret2VpnForceTcp, !useByeDpi && p.zapret2VpnCatchAllHttps,
+                    useByeDpi = useByeDpi)
                 return
             }
         }
@@ -562,14 +567,15 @@ class DPpassVpnService : VpnService() {
      * запускаются: сервера нет.
      */
     /** Root NFQUEUE, только отдельный экспериментальный режим. */
-    private suspend fun connectRootZapret2(core: DPpassCore) {
-        progress(TunnelStatus.Connecting("Zapret2 root"))
-        val root = RootZapret2(this)
+    private suspend fun connectRootZapret2(core: DPpassCore, useByeDpi: Boolean) {
+        val name = if (useByeDpi) "ByeDPI root" else "Zapret2 root"
+        progress(TunnelStatus.Connecting(name))
+        val root: RootDpiRuntime = if (useByeDpi) RootByeDpi(this) else RootZapret2(this)
         // Root-команда завершается или откатывается, даже если пользователь нажал «Стоп».
         val result = withContext(NonCancellable) { root.start() }
         if (result.isFailure) {
             fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
-                "Zapret2 root: " + (result.exceptionOrNull()?.message ?: "nfqws2 недоступен")))
+                name + ": " + (result.exceptionOrNull()?.message ?: "движок недоступен")))
             return
         }
         val job = currentCoroutineContext().job
@@ -583,7 +589,7 @@ class DPpassVpnService : VpnService() {
             root.stop()
             return
         }
-        progress(TunnelStatus.Connected(ProfileId("zapret2-root"), "Zapret2 root",
+        progress(TunnelStatus.Connected(ProfileId(if (useByeDpi) "byedpi-root" else "zapret2-root"), name,
             core.clock.nowMillis(), Clock.MONOTONIC.nowMillis()))
         rootWatch = scope.launch {
             while (isActive) {
@@ -595,7 +601,7 @@ class DPpassVpnService : VpnService() {
                         ))
                     }
                     rootZapret2 = null
-                    fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE, "Процесс nfqws2 больше не работает"))
+                    fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE, name + ": процесс больше не работает"))
                     break
                 }
             }
@@ -610,6 +616,7 @@ class DPpassVpnService : VpnService() {
         label: String? = null,
         forceQuicTcp: Boolean = false,
         catchAllHttps: Boolean = false,
+        useByeDpi: Boolean = false,
     ) {
         val core = graph.core
         val name = label ?: getString(R.string.serverless_name)
@@ -629,6 +636,18 @@ class DPpassVpnService : VpnService() {
             is Outcome.Success -> t.value
         }
         tunnel.replace(handle)
+        if (useByeDpi) {
+            val started = withContext(NonCancellable + Dispatchers.IO) {
+                runCatching { ByeDpiRuntime.start(this@DPpassVpnService) }.also { result ->
+                    byeDpi = result.getOrNull()
+                }
+            }
+            if (started.isFailure) {
+                fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
+                    "ByeDPI: " + (started.exceptionOrNull()?.message ?: "startup failed")))
+                return
+            }
+        }
         // Only create a PRoot process after Android has granted VPN consent
         // and established its TUN. Otherwise a rejected permission request
         // starts a daemon that must immediately be destroyed.
@@ -726,7 +745,8 @@ class DPpassVpnService : VpnService() {
         val job = currentCoroutineContext().job
         val result = try {
             core.connectServerless(handle.toTunInput(), sites, settings,
-                desync = desync, forceQuicTcp = forceQuicTcp, catchAllHttps = catchAllHttps) { _, dns ->
+                desync = desync, forceQuicTcp = forceQuicTcp, catchAllHttps = catchAllHttps,
+                byeDpiPort = byeDpi?.port) { _, dns ->
                 withContext(Dispatchers.IO) { graph.engine.probeServerless(dns, probeTimeout) }
             }
         } catch (e: CancellationException) {
@@ -754,6 +774,19 @@ class DPpassVpnService : VpnService() {
                     progress(TunnelStatus.Connected(ServerlessPlan.PROFILE_ID, name, core.clock.nowMillis(), Clock.MONOTONIC.nowMillis()))
                     watchNetwork()
                     startTicker(session)
+                    byeDpi?.let { daemon ->
+                        byeDpiWatch?.cancel()
+                        byeDpiWatch = scope.launch {
+                            while (isActive) {
+                                delay(2_000L)
+                                if (!daemon.isAlive) {
+                                    session.stop()
+                                    fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE, "ByeDPI process stopped"))
+                                    break
+                                }
+                            }
+                        }
+                    }
                     alpineStrategy?.let { daemon ->
                         alpineWatch?.cancel()
                         alpineWatch = scope.launch {
@@ -1448,6 +1481,8 @@ class DPpassVpnService : VpnService() {
     private suspend fun shutdown(keepTunnel: Boolean = false) {
         alpineWatch?.cancel()
         alpineWatch = null
+        byeDpiWatch?.cancel()
+        byeDpiWatch = null
         rootWatch?.cancel()
         rootWatch = null
         stopObservers()
@@ -1460,6 +1495,8 @@ class DPpassVpnService : VpnService() {
             session = null
             pending
         }?.join()
+        withContext(Dispatchers.IO) { runCatching { byeDpi?.close() } }
+        byeDpi = null
         // The protected-socket engine must stop before the Alpine strategy
         // daemon. Clear the socket to avoid stale state in the next session.
         if (alpineStrategy != null) {

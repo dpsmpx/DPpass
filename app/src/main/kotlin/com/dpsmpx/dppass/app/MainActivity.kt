@@ -394,7 +394,7 @@ class MainActivity : Activity(), Host {
     override fun connect() {
         askNotifications()
         // Root NFQUEUE не использует Android VpnService.Builder.
-        if (prefs.zapret2Backend == Zapret2Backend.ROOT) {
+        if (prefs.zapret2Backend.rooted) {
             DPpassVpnService.start(this)
             return
         }
@@ -418,7 +418,7 @@ class MainActivity : Activity(), Host {
 
     override fun reconnectIfBusy() {
         if (!TunnelState.status.value.busy) return
-        val needsVpnConsent = prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE ||
+        val needsVpnConsent = prefs.zapret2Backend.vpn ||
             (prefs.zapret2Backend == Zapret2Backend.OFF && graph?.core?.localProxy?.enabled() != true)
         if (needsVpnConsent) {
             val consent = VpnService.prepare(this)

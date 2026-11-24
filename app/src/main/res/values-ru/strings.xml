@@ -969,4 +969,6 @@
     <string name="dpts_train_save_error">Нейросеть обновлена в памяти, но снимок не сохранился. Повторное обучение запрещено.</string>
     <string name="dpts_train_success">Нейросеть стратегий обучена и сохранена: %1$s (HTML подтверждён, видео не проверено).</string>
     <string name="dpts_train_ack_error">Снимок нейросети сохранён, но подтверждение ядра не удалось.</string>
+    <string name="byedpi_root">ByeDPI · root (прозрачный TCP IPv4)</string>
+    <string name="byedpi_vpn">ByeDPI · VpnService (оригинальный SOCKS)</string>
 </resources>
