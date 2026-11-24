@@ -939,4 +939,6 @@
     <string name="zapret2_youtube_api_sweep_note">Проверяет до восьми IPv4 youtubei.googleapis.com из защищённого Google DoH, сравнивая TLS/HTTP1.1 и HTTP/2 с существующими методами. Только диагностика: не меняет AUTO, не раскрывает адреса и не подтверждает работу API POST или видео.</string>
     <string name="zapret2_youtube_api_sni_control_button">Сравнить SNI API и Google на тех же IPv4 (диагностика)</string>
     <string name="zapret2_youtube_api_sni_control_note">С теми же восемью публичными IPv4 API сравниваются TLS-запросы к youtubei.googleapis.com и www.google.com с проверкой сертификата каждого имени. Отдельный контроль через Google DoH проверяет общую связь. Этот тест не меняет AUTO и не подтверждает работу ленты YouTube.</string>
+    <string name="zapret2_youtube_api_tls_version_button">Сравнить TLS 1.2 и 1.3 для YouTube API (диагностика)</string>
+    <string name="zapret2_youtube_api_tls_version_note">Сравнение TLS 1.2 и TLS 1.3 с проверкой сертификата для API и Google на двух одинаковых публичных IPv4 API. По запросу пользователя, 24 ограниченных соединения; не изменяет AUTO, DNS, маршруты, аккаунты или вход в YouTube.</string>
 </resources>
