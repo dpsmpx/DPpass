@@ -908,4 +908,6 @@
     <string name="zapret2_youtube_thumbnail_button">Test YouTube thumbnail CDN HTTPS</string>
     <string name="zapret2_youtube_api_sweep_button">Check all API IPv4 / HTTP2 (diagnostic)</string>
     <string name="zapret2_youtube_api_sweep_note">Check up to eight Google-DoH IPv4 addresses for youtubei.googleapis.com, comparing TLS/HTTP1.1 and HTTP/2 with existing protected methods. This is a one-time diagnostic, not a new bypass. No AUTO, no raw IP export, no app API POST or video verification.</string>
+    <string name="zapret2_youtube_api_sni_control_button">Compare API and Google SNI on same IPv4 (diagnostic)</string>
+    <string name="zapret2_youtube_api_sni_control_note">A certificate-verified control for www.google.com is sent to each of the same eight public API IPv4 addresses, alongside the original youtubei.googleapis.com SNI. A separate Google DoH control checks the network. This only compares TLS reachability, never uses unverified certificates, never changes AUTO, and does not guarantee a usable YouTube API.</string>
 </resources>
