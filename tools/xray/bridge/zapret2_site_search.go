@@ -96,8 +96,33 @@ func parseSiteSearchRequest(target string) (siteSearchRequest,bool) {
     if !ok || !validOptInSiteHost(host) {return siteSearchRequest{},false}
     r:=siteSearchRequest{kind:kind,host:host}
     if kind=="site_prepare"||kind=="site_apply" {return r,true}
+    if kind=="dpts_train" {r.kind="script_train";return r,true}
     var prefix string
     switch {
+    case strings.HasPrefix(kind,"dpts_h1_ip"):
+        prefix="dpts_h1_ip";r.kind="script_h1"
+    case strings.HasPrefix(kind,"dpts_h2_ip"):
+        prefix="dpts_h2_ip";r.kind="script_h2"
+    case strings.HasPrefix(kind,"dpts_t12_ip"):
+        prefix="dpts_t12_ip";r.kind="script_t12"
+    case strings.HasPrefix(kind,"dpts_t13_ip"):
+        prefix="dpts_t13_ip";r.kind="script_t13"
+    case strings.HasPrefix(kind,"dpts_g12_ip"):
+        prefix="dpts_g12_ip";r.kind="script_g12"
+    case strings.HasPrefix(kind,"dpts_g13_ip"):
+        prefix="dpts_g13_ip";r.kind="script_g13"
+    case strings.HasPrefix(kind,"dpts_gh1_ip"):
+        prefix="dpts_gh1_ip";r.kind="script_gh1"
+    case strings.HasPrefix(kind,"dpts_gh2_ip"):
+        prefix="dpts_gh2_ip";r.kind="script_gh2"
+    case strings.HasPrefix(kind,"dpts_q1_ip"):
+        prefix="dpts_q1_ip";r.kind="script_q1"
+    case strings.HasPrefix(kind,"dpts_q2_ip"):
+        prefix="dpts_q2_ip";r.kind="script_q2"
+    case strings.HasPrefix(kind,"dpts_h3_ip"):
+        prefix="dpts_h3_ip";r.kind="script_h3"
+    case strings.HasPrefix(kind,"dpts_h3api_ip"):
+        prefix="dpts_h3api_ip";r.kind="script_h3api"
     case strings.HasPrefix(kind,"site_tls12_api_ip"):
         if host!="youtubei.googleapis.com" {return siteSearchRequest{},false}
         prefix="site_tls12_api_ip"
@@ -141,7 +166,9 @@ func parseSiteSearchRequest(target string) (siteSearchRequest,bool) {
     index,err:=strconv.Atoi(rest[:2])
     limit:=siteSearchMaxIPs
     if r.kind=="sweep_h1" || r.kind=="sweep_h2" ||
-        r.kind=="sni_control" {limit=siteSweepMaxIPs}
+        r.kind=="sni_control" || strings.HasPrefix(r.kind,"script_") {
+        limit=siteSweepMaxIPs
+    }
     if err!=nil || index<0 || index>=limit {return siteSearchRequest{},false}
     r.index=index
     r.attempt=int(rest[4]-'0')
@@ -161,6 +188,9 @@ type siteSearchRun struct {
     prepared time.Time
     answer fixedDoHAnswer
     trials map[string]*siteSearchTrial
+    // Distinct per-run evidence: script samples must NEVER satisfy site_apply.
+    scriptTrials map[string]*siteSearchTrial
+    scriptTrained map[string]bool
 }
 var siteSearchState=struct {
     sync.Mutex
@@ -354,7 +384,9 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
         siteSearchState.Lock()
         siteSearchState.current=&siteSearchRun{instance:inst,generation:gen,
             host:request.host,prepared:time.Now(),answer:answer,
-            trials:make(map[string]*siteSearchTrial)}
+            trials:make(map[string]*siteSearchTrial),
+            scriptTrials:make(map[string]*siteSearchTrial),
+            scriptTrained:make(map[string]bool)}
         siteSearchState.Unlock()
         return finish(result)
     }
@@ -362,6 +394,10 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     if !ready {result.Outcome="dns_not_prepared";return finish(result)}
     result.DnsFingerprint=preparedRun.answer.fingerprint
     result.DnsAnswers=len(preparedRun.answer.ips)
+    if request.kind=="script_train" {
+        result.Outcome=siteScriptTrain(inst,request.host,strategy,gen)
+        return finish(result)
+    }
     if request.kind=="site_apply" {
         if siteSearchCommit(inst,request.host,strategy,gen) {
             result.Outcome="auto_applied"
@@ -372,7 +408,27 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
         result.Outcome="invalid_index";return finish(result)
     }
     allowed:=false
-    if request.kind=="http" {
+    if strings.HasPrefix(request.kind,"script_") {
+        // Execute only compiled, bounded and pinned DPTS primitives.
+        // Every method must exist as an actual registered protected outbound.
+        switch request.kind {
+        case "script_h1","script_h2","script_t12","script_t13",
+             "script_g12","script_g13","script_gh1","script_gh2":
+            for _,m:=range siteSearchMethods {if m==strategy {allowed=true}}
+            if request.kind=="script_h2" || request.kind=="script_gh2" {
+                result.Protocol="h2"
+            } else {result.Protocol="h1"}
+        case "script_q1","script_q2","script_h3","script_h3api":
+            for _,m:=range siteSearchQUICMethods {if m==strategy {allowed=true}}
+            result.Protocol="quic"
+            if request.kind=="script_q2" {result.Protocol="quicv2"}
+            if request.kind=="script_h3" {result.Protocol="h3"}
+            if request.kind=="script_h3api" {result.Protocol="h3api"}
+            if request.kind=="script_h3" || request.kind=="script_h3api" {
+                if request.host!="youtubei.googleapis.com" {allowed=false}
+            }
+        }
+    } else if request.kind=="http" {
         for _,m:=range siteSearchMethods {if m==strategy {allowed=true}}
         result.Protocol="h1"
     } else if request.kind=="quic" {
@@ -400,7 +456,9 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     result.IPIndex=request.index
     ip:=preparedRun.answer.ips[request.index] // public only; never sent in report
     network:=xnet.Network_TCP
-    if request.kind=="quic" {network=xnet.Network_UDP}
+    if request.kind=="quic" || request.kind=="script_q1" ||
+        request.kind=="script_q2" || request.kind=="script_h3" ||
+        request.kind=="script_h3api" {network=xnet.Network_UDP}
     dest:=xnet.Destination{Network:network,
         Address:xnet.ParseAddress(ip),Port:443}
     conn,err:=core.Dial(session.SetForcedOutboundTagToContext(ctx,tag+"-ipv4"),inst,dest)
@@ -424,13 +482,27 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     // Never pass arbitrary user-controlled paths, credentials or cookies.
     target:=siteSearchHTTPTarget(request.host)
     if request.kind=="sni_control" || request.kind=="tls12_google" ||
-        request.kind=="tls13_google" {
+        request.kind=="tls13_google" || request.kind=="script_gh1" ||
+        request.kind=="script_gh2" || request.kind=="script_g12" ||
+        request.kind=="script_g13" {
         target=zapret2TestTarget{host:"www.google.com",path:"/",
             contentKind:"http_transport",ipv4Only:true}
     }
     var checked Zapret2HTTPSResult
     if request.kind=="quic" {
         checked=matrixQUIC(ctx,conn,ip,request.host,quic.Version1)
+    }else if request.kind=="script_q1" {
+        checked=matrixQUIC(ctx,conn,ip,request.host,quic.Version1)
+    }else if request.kind=="script_q2" {
+        checked=matrixQUIC(ctx,conn,ip,request.host,quic.Version2)
+    }else if request.kind=="script_h3" || request.kind=="script_h3api" {
+        mode:="h3"
+        if request.kind=="script_h3api" {mode="h3api"}
+        checked=matrixH3Pinned(ctx,conn,ip,request.host,mode)
+    }else if request.kind=="script_t12" || request.kind=="script_g12" {
+        checked=matrixHTTPWithVersion(ctx,conn,target,"h1",0x0303)
+    }else if request.kind=="script_t13" || request.kind=="script_g13" {
+        checked=matrixHTTPWithVersion(ctx,conn,target,"h1",0x0304)
     }else if request.kind=="tls12_api" || request.kind=="tls12_google" {
         checked=matrixHTTPWithVersion(ctx,conn,target,"h1",0x0303) // TLS 1.2
     }else if request.kind=="tls13_api" || request.kind=="tls13_google" {
@@ -440,6 +512,10 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     }
     checked=matrixWithMetadata(checked,result)
     checked.Elapsed=time.Since(started)
+    if request.kind=="script_h1" {
+        siteScriptRecord(inst,request.host,gen,request.index,request.attempt,
+            strategy,checked.Outcome,checked.Elapsed.Milliseconds())
+    }
     // QUIC TLS is a transport diagnostic only. This never auto-pins an
     // IP shared between unrelated hosts; only 3/3 HTTP evidence can
     // teach the exact-host TCP AUTO selector by explicit apply.
