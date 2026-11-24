@@ -52,6 +52,8 @@ internal class ByeDpiRuntime private constructor(
             val bound = LocalSocket()
             var server: LocalServerSocket? = null
             var process: java.lang.Process? = null
+            val startupStatus = java.util.concurrent.atomic.AtomicReference("no_output")
+            var lastStage = "spawn"
             try {
                 bound.bind(LocalSocketAddress(path.absolutePath, LocalSocketAddress.Namespace.FILESYSTEM))
                 val listener = LocalServerSocket(bound.fileDescriptor)
@@ -90,28 +92,47 @@ internal class ByeDpiRuntime private constructor(
                 process = child
                 Thread({ runCatching { child.inputStream.use { input ->
                     val buffer = ByteArray(1024)
-                    while (input.read(buffer) >= 0) { /* no private traffic logs */ }
+                    while (true) {
+                        val n = input.read(buffer)
+                        if (n < 0) break
+                        val line = String(buffer, 0, n, Charsets.UTF_8).lowercase()
+                        when {
+                            "invalid value" in line || "unknown option" in line || "unrecognized option" in line -> startupStatus.set("invalid_arguments")
+                            "address already in use" in line -> startupStatus.set("port_in_use")
+                            "permission denied" in line -> startupStatus.set("permission_denied")
+                            "bind" in line -> startupStatus.set("bind_error")
+                            "listen" in line -> startupStatus.set("listen_error")
+                            else -> startupStatus.compareAndSet("no_output", "output_present")
+                        }
+                    }
                 } } }, "dppass-bd-io").apply { isDaemon = true }.start()
                 val until = android.os.SystemClock.elapsedRealtime() + 5_000
                 while (child.isAlive && android.os.SystemClock.elapsedRealtime() < until) {
                     val ready = runCatching {
                         Socket().use { s ->
-                            check(vpn.protect(s))
+                            // Loopback readiness is not an Internet egress socket.
+                            lastStage = "loopback_connect"
+                            s.bind(InetSocketAddress("127.0.0.1", 0))
                             s.connect(InetSocketAddress("127.0.0.1", port), 200)
                             s.soTimeout = 300
+                            lastStage = "socks_method"
                             s.getOutputStream().write(byteArrayOf(5, 1, 2))
+                            s.getOutputStream().flush()
                             val input = java.io.DataInputStream(s.getInputStream())
                             check(input.readUnsignedByte() == 5 && input.readUnsignedByte() == 2)
+                            lastStage = "socks_auth"
                             val user = "dppass".toByteArray()
                             val pass = token.toByteArray()
                             s.getOutputStream().write(byteArrayOf(1, user.size.toByte()) + user + byteArrayOf(pass.size.toByte()) + pass)
+                            s.getOutputStream().flush()
                             input.readUnsignedByte() == 1 && input.readUnsignedByte() == 0
                         }
                     }.getOrDefault(false)
                     if (ready) return ByeDpiRuntime(port, token, child, bound, listener, path)
                     Thread.sleep(40)
                 }
-                error("Original ByeDPI SOCKS listener did not become ready")
+                val exit = if (child.isAlive) "running" else child.exitValue().toString()
+                error("ByeDPI startup: stage=$lastStage process=$exit native=${startupStatus.get()}")
             } catch (e: Exception) {
                 process?.destroyForcibly()
                 runCatching { server?.close() }

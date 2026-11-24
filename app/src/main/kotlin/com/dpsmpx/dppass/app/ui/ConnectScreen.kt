@@ -37,34 +37,31 @@ class ConnectScreen(host: Host) : Screen(host) {
     private val title = Ui.text(context, R.style.Text_DPpass_Headline).apply { gravity = Gravity.CENTER_HORIZONTAL }
     private val detail = Ui.text(context, R.style.Text_DPpass_Secondary).apply { gravity = Gravity.CENTER_HORIZONTAL }
 
-    private val downSpeed = Ui.text(context, R.style.Text_DPpass_Title)
+    private val downSpeed = Ui.text(context, R.style.Text_DPpass_Body)
     private val downTotal = Ui.text(context, R.style.Text_DPpass_Caption)
-    private val upSpeed = Ui.text(context, R.style.Text_DPpass_Title)
+    private val upSpeed = Ui.text(context, R.style.Text_DPpass_Body)
     private val upTotal = Ui.text(context, R.style.Text_DPpass_Caption)
-    private val ping = Ui.text(context, R.style.Text_DPpass_Title)
-    private val jitter = Ui.text(context, R.style.Text_DPpass_Title)
-    private val stats = Ui.card(context, 0).apply {
-        val row = Ui.row(context)
-        row.addView(stat(R.drawable.ic_down, R.string.traffic_down, downSpeed, downTotal), Ui.weight())
-        row.addView(
-            View(context).apply { setBackgroundColor(context.getColor(R.color.outline)) },
-            LinearLayout.LayoutParams(maxOf(1, Ui.dp(context, 1)), Ui.dp(context, 40)).apply {
-                marginStart = Ui.dp(context, 12)
-                marginEnd = Ui.dp(context, 12)
-            },
-        )
-        row.addView(stat(R.drawable.ic_up, R.string.traffic_up, upSpeed, upTotal), Ui.weight())
-        addView(row, Ui.matchWidth())
-        addView(Ui.divider(context, 0), Ui.matchWidth().apply { topMargin = Ui.dp(context, 12); bottomMargin = Ui.dp(context, 12) })
-        addView(Ui.row(context).apply {
-            addView(qualityStat("Ping · TCP RTT", ping), Ui.weight())
-            addView(qualityStat("Jitter · TCP RTTVAR", jitter), Ui.weight())
+    private val ping = Ui.text(context, R.style.Text_DPpass_Body)
+    private val jitter = Ui.text(context, R.style.Text_DPpass_Body)
+    // Text rows only; a plain View with WRAP_CONTENT can fill the ScrollView.
+    private val stats = Ui.card(context, 4).apply {
+        setPadding(Ui.dp(context, 12), Ui.dp(context, 6), Ui.dp(context, 12), Ui.dp(context, 6))
+        addView(Ui.row(context, 8).apply {
+            addView(compactMetric(context.getString(R.string.traffic_down), downSpeed, downTotal), Ui.weight())
+            addView(compactMetric(context.getString(R.string.traffic_up), upSpeed, upTotal), Ui.weight())
+        }, Ui.matchWidth())
+        addView(Ui.row(context, 8).apply {
+            addView(compactMetric("Ping", ping), Ui.weight())
+            addView(compactMetric("Jitter", jitter), Ui.weight())
         }, Ui.matchWidth())
     }
 
-    private fun qualityStat(label: String, value: TextView): LinearLayout = Ui.column(context, 2).apply {
-        addView(Ui.text(context, R.style.Text_DPpass_Caption, label))
-        addView(value)
+    private fun compactMetric(label: String, value: TextView, total: TextView? = null): LinearLayout = Ui.column(context).apply {
+        addView(Ui.row(context, 4).apply {
+            addView(Ui.text(context, R.style.Text_DPpass_Caption, label), Ui.wrap())
+            addView(value, Ui.weight())
+        }, Ui.matchWidth())
+        total?.let { addView(it, Ui.matchWidth()) }
     }
 
     private val serverAvatar = Ui.avatar(context, "•")
@@ -222,7 +219,7 @@ class ConnectScreen(host: Host) : Screen(host) {
             })
             addView(title, Ui.matchWidth().apply { topMargin = Ui.dp(context, 20) })
             addView(detail, Ui.matchWidth().apply { topMargin = Ui.dp(context, 4) })
-            addView(stats, Ui.matchWidth().apply { topMargin = Ui.dp(context, 24) })
+            addView(stats, Ui.matchWidth().apply { topMargin = Ui.dp(context, 8) })
             addView(offerCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 16) })
             addView(serverCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 16) })
             addView(usageCard, Ui.matchWidth().apply { topMargin = Ui.dp(context, 16) })
@@ -235,15 +232,6 @@ class ConnectScreen(host: Host) : Screen(host) {
     )
 
     private var ticker: Job? = null
-
-    private fun stat(icon: Int, label: Int, speed: TextView, total: TextView): LinearLayout = Ui.row(context).apply {
-        addView(Ui.icon(context, icon, R.color.primary, 20))
-        val texts = Ui.column(context, 2)
-        texts.addView(Ui.text(context, R.style.Text_DPpass_Caption, context.getString(label)))
-        texts.addView(speed)
-        texts.addView(total)
-        addView(texts, Ui.weight().apply { marginStart = Ui.dp(context, 8) })
-    }
 
     override fun render(status: TunnelStatus) {
         val graph = host.graph

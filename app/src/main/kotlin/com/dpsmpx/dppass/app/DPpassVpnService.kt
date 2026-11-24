@@ -575,7 +575,10 @@ class DPpassVpnService : VpnService() {
         val result = withContext(NonCancellable) { root.start() }
         if (result.isFailure) {
             fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
-                name + ": " + (result.exceptionOrNull()?.message ?: "движок недоступен")))
+                name + ": " + (result.exceptionOrNull()?.message?.let { message ->
+                    if (message.contains("Permission denied") && message.contains("su"))
+                        "root-доступ недоступен: Android отказал в запуске su" else message
+                } ?: "движок недоступен")))
             return
         }
         val job = currentCoroutineContext().job
