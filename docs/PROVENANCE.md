@@ -268,3 +268,7 @@ DP-Verify, поставлен копией; руками не правится, 
 | Копия | Версия | Источник | SHA-256 манифеста |
 |---|---|---|---|
 | `tools/dpv/` | 1.0.0-rc2 | `dpsmpx/DP-Verify@938f68017a970049596b76892cb4f06be8e621fe` | `a2fae9e34198a01ad50c2768eb7839194fdbd4e367c61cfbfbc4eb50fbab1fac` |
+
+### DPpass direct-distribution release identity (2026-11-24)
+
+The owner confirmed the installed 0.8.1 optimized signed APK updates in place and designated its existing signing identity as permanent for this distribution channel. Keep applicationId `com.dpsmpx.dppass` and SHA-256 `c18792812566ca4a18b518d51313515ff2d62bf8299446e99943eeb5d0630d11` unchanged. This is the existing GitHub Actions certificate, not a claim that it is the historical store certificate. Do not regenerate the signing key or fall back to a debug key. All subsequent releases must verify this fingerprint and increase versionCode; keep signing secrets out of source control. The separate `.alpine` debug package is not an update candidate.
