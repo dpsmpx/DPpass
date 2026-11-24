@@ -98,6 +98,22 @@ func parseSiteSearchRequest(target string) (siteSearchRequest,bool) {
     if kind=="site_prepare"||kind=="site_apply" {return r,true}
     var prefix string
     switch {
+    case strings.HasPrefix(kind,"site_tls12_api_ip"):
+        if host!="youtubei.googleapis.com" {return siteSearchRequest{},false}
+        prefix="site_tls12_api_ip"
+        r.kind="tls12_api"
+    case strings.HasPrefix(kind,"site_tls13_api_ip"):
+        if host!="youtubei.googleapis.com" {return siteSearchRequest{},false}
+        prefix="site_tls13_api_ip"
+        r.kind="tls13_api"
+    case strings.HasPrefix(kind,"site_tls12_google_ip"):
+        if host!="youtubei.googleapis.com" {return siteSearchRequest{},false}
+        prefix="site_tls12_google_ip"
+        r.kind="tls12_google"
+    case strings.HasPrefix(kind,"site_tls13_google_ip"):
+        if host!="youtubei.googleapis.com" {return siteSearchRequest{},false}
+        prefix="site_tls13_google_ip"
+        r.kind="tls13_google"
     case strings.HasPrefix(kind,"site_sni_google_ip"):
         // Exact same pinned API IPv4, but an independent, public control
         // name. This is certificate-verified; no domain fronting or
@@ -362,6 +378,12 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     } else if request.kind=="quic" {
         for _,m:=range siteSearchQUICMethods {if m==strategy {allowed=true}}
         result.Protocol="quic"
+    } else if request.kind=="tls12_api" || request.kind=="tls13_api" ||
+        request.kind=="tls12_google" || request.kind=="tls13_google" {
+        // Only plain is admitted: TLS version is the ONLY new variable.
+        // This is diagnostic-only and excludes any native AUTO recording.
+        allowed=strategy=="plain"
+        result.Protocol="h1"
     } else if request.kind=="sni_control" {
         // The SNI/Host control tests Google on the identical API IP
         // and rejects every non-plain profile to avoid confounding.
@@ -401,13 +423,18 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     // catalog, and the unauthenticated transport-only YouTube API path.
     // Never pass arbitrary user-controlled paths, credentials or cookies.
     target:=siteSearchHTTPTarget(request.host)
-    if request.kind=="sni_control" {
+    if request.kind=="sni_control" || request.kind=="tls12_google" ||
+        request.kind=="tls13_google" {
         target=zapret2TestTarget{host:"www.google.com",path:"/",
             contentKind:"http_transport",ipv4Only:true}
     }
     var checked Zapret2HTTPSResult
     if request.kind=="quic" {
         checked=matrixQUIC(ctx,conn,ip,request.host,quic.Version1)
+    }else if request.kind=="tls12_api" || request.kind=="tls12_google" {
+        checked=matrixHTTPWithVersion(ctx,conn,target,"h1",0x0303) // TLS 1.2
+    }else if request.kind=="tls13_api" || request.kind=="tls13_google" {
+        checked=matrixHTTPWithVersion(ctx,conn,target,"h1",0x0304) // TLS 1.3
     }else{
         checked=matrixHTTP(ctx,conn,target,result.Protocol)
     }
