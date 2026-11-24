@@ -23,6 +23,8 @@ data class DptsPlan(
     val budgetMs: Long,
     /** Observe means export redacted, labelled evidence; NOT model updates. */
     val observeLearning: Boolean,
+    /** Built-in migrated routine, selectable only from the finite registry. */
+    val suite: String? = null,
 )
 
 class DptsCompileException(val line: Int, reason: String) :
@@ -36,6 +38,11 @@ object DptsScript {
     private val allowedMethods = Zapret2SiteSearch.tcpMethods.toSet()
     private val allowedQuic = Zapret2SiteSearch.quicMethods.toSet()
     private val supported = setOf("https", "tls", "quic", "sni")
+    val suites = setOf("google_youtube", "dns_compare", "ip_matrix",
+        "h3_api", "site_https", "site_quic", "api_ipv4_sweep",
+        "sni_control", "tls_versions")
+    private val apiOnlySuites = setOf("api_ipv4_sweep", "sni_control", "tls_versions",
+        "h3_api")
     private val optionPattern = Regex("[a-z_]+=[a-zA-Z0-9,._-]+")
 
     fun compile(source: String): DptsPlan {
@@ -52,6 +59,7 @@ object DptsScript {
         var observe = false
         var named = false
         var learned = false
+        var suite: String? = null
         val probes = ArrayList<DptsProbe>()
         var budget = 0L
 
@@ -77,7 +85,7 @@ object DptsScript {
             val line = lines[index]
             when {
                 line.startsWith("name ") -> {
-                    if (named || probes.isNotEmpty())
+                    if (named || probes.isNotEmpty() || suite != null)
                         throw DptsCompileException(lineNo, "name must appear once before probes")
                     val title = line.removePrefix("name ").trim().trim('"')
                     if (title.isBlank() || title.length > 80 ||
@@ -87,7 +95,7 @@ object DptsScript {
                     named = true
                 }
                 line.startsWith("host ") -> {
-                    if (host != null || probes.isNotEmpty())
+                    if (host != null || probes.isNotEmpty() || suite != null)
                         throw DptsCompileException(lineNo, "host must appear once before probes")
                     val canonical = Zapret2SiteSearch.normalizedHost(
                         line.removePrefix("host ").trim())
@@ -95,7 +103,7 @@ object DptsScript {
                         "only a valid public DNS hostname is allowed")
                 }
                 line.startsWith("learn ") -> {
-                    if (learned || probes.isNotEmpty())
+                    if (learned || probes.isNotEmpty() || suite != null)
                         throw DptsCompileException(lineNo, "learn must appear once before probes")
                     val mode = line.removePrefix("learn ").trim()
                     if (mode != "off" && mode != "observe")
@@ -103,7 +111,27 @@ object DptsScript {
                     observe = mode == "observe"
                     learned = true
                 }
+                line.startsWith("suite ") -> {
+                    if (suite != null || probes.isNotEmpty())
+                        throw DptsCompileException(lineNo, "suite must be the only operation")
+                    val currentHost = host ?: throw DptsCompileException(lineNo,
+                        "declare host before suite")
+                    val id = line.removePrefix("suite ").trim()
+                    if (id !in suites)
+                        throw DptsCompileException(lineNo, "unknown built-in suite: $id")
+                    if (id in apiOnlySuites &&
+                        currentHost != Zapret2SiteSearch.YOUTUBE_API_HOST)
+                        throw DptsCompileException(lineNo,
+                            "this suite requires youtubei.googleapis.com")
+                    if (id == "site_quic" || id == "site_https" ||
+                        currentHost == Zapret2SiteSearch.YOUTUBE_API_HOST ||
+                        id !in apiOnlySuites) {
+                        suite = id
+                    }
+                }
                 else -> {
+                    if (suite != null) throw DptsCompileException(lineNo,
+                        "suite cannot be mixed with individual probes")
                     val currentHost = host ?: throw DptsCompileException(lineNo,
                         "declare host before the first probe")
                     val parts = line.split(Regex("\\s+"))
@@ -205,8 +233,9 @@ object DptsScript {
             }
         }
         if (host == null) throw DptsCompileException(1, "missing host")
-        if (probes.isEmpty()) throw DptsCompileException(1, "no probes declared")
-        return DptsPlan(name, host, probes, budget, observe)
+        if (probes.isEmpty() && suite == null)
+            throw DptsCompileException(1, "no probes declared")
+        return DptsPlan(name, host, probes, budget, observe, suite)
     }
 
     private fun scriptTarget(host: String, kind: String, ip: Int, attempt: Int): String {
