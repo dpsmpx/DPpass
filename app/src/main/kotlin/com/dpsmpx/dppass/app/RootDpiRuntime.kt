@@ -23,6 +23,6 @@ internal suspend fun RootDpiRuntime.startAndAccept(
         accepted = accept()
         if (accepted) result else null
     } finally {
-        if (!accepted) stop().onFailure(onRollbackFailure)
+        if (!accepted) runCatching { stop().getOrThrow() }.onFailure(onRollbackFailure)
     }
 }

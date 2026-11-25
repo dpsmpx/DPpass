@@ -1,6 +1,9 @@
 package com.dpsmpx.dppass.app
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -10,9 +13,10 @@ import org.junit.jupiter.api.Test
 
 class RootDpiRuntimeTest {
     private class Fake(
-        private val duringStart: () -> Unit = {},
+        private val duringStart: suspend () -> Unit = {},
         private val startResult: Result<Unit> = Result.success(Unit),
         private val stopResult: Result<Unit> = Result.success(Unit),
+        private val stopException: Throwable? = null,
     ) : RootDpiRuntime {
         var stops = 0
         override suspend fun start(): Result<Unit> {
@@ -21,6 +25,7 @@ class RootDpiRuntimeTest {
         }
         override suspend fun stop(): Result<Unit> {
             stops++
+            stopException?.let { throw it }
             return stopResult
         }
         override suspend fun alive() = true
@@ -46,6 +51,45 @@ class RootDpiRuntimeTest {
         val result = runtime.startAndAccept({ throw AssertionError("unexpected acceptance") }, { throw AssertionError(it) })
         assertTrue(result?.isFailure == true)
         assertEquals(0, runtime.stops)
+    }
+
+    @Test fun realCancellationDuringSuspendedStartStillRollsBack() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val runtime = Fake(duringStart = {
+            entered.complete(Unit)
+            release.await()
+        })
+        val owner = Job()
+        val task = launch(owner, start = CoroutineStart.UNDISPATCHED) {
+            runtime.startAndAccept({ !owner.isCancelled }, { throw AssertionError(it) })
+        }
+        entered.await()
+        owner.cancel()
+        release.complete(Unit)
+        task.join()
+        assertTrue(task.isCancelled)
+        assertEquals(1, runtime.stops)
+    }
+
+    @Test fun acceptanceExceptionStillRollsBack() = runBlocking {
+        val runtime = Fake()
+        val expected = IllegalStateException("accept failed")
+        val result = runCatching {
+            runtime.startAndAccept({ throw expected }, { throw AssertionError(it) })
+        }
+        assertTrue(result.exceptionOrNull() === expected)
+        assertEquals(1, runtime.stops)
+    }
+
+    @Test fun thrownRollbackExceptionIsReported() = runBlocking {
+        val expected = IllegalStateException("stop threw")
+        val runtime = Fake(stopException = expected)
+        var error: Throwable? = null
+        val result = runtime.startAndAccept({ false }, { error = it })
+        assertNull(result)
+        assertTrue(error === expected)
+        assertEquals(1, runtime.stops)
     }
 
     @Test fun rollbackFailureIsReported() = runBlocking {
