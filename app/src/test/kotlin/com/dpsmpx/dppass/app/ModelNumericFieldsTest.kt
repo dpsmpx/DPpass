@@ -3,6 +3,7 @@ package com.dpsmpx.dppass.app
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -34,4 +35,17 @@ class ModelNumericFieldsTest {
         }
         assertNull(ModelNumericFields.sparseIndex("0", 0))
     }
+    @Test
+    fun observationAdditionPreservesHistoryAndSaturates() {
+        assertEquals(0L, ModelNumericFields.addObservations(0L, 0))
+        assertEquals(100_001L, ModelNumericFields.addObservations(100_000L, 1))
+        assertEquals(500_007L, ModelNumericFields.addObservations(500_000L, 7))
+        assertEquals(1_000_000_000L, ModelNumericFields.addObservations(999_999_999L, 10))
+        assertEquals(1_000_000_000L, ModelNumericFields.addObservations(1_000_000_000L, 1))
+        assertEquals(1_000_000_000L, ModelNumericFields.addObservations(500_000L, Int.MAX_VALUE))
+        assertFailsWith<IllegalArgumentException> { ModelNumericFields.addObservations(-1L, 1) }
+        assertFailsWith<IllegalArgumentException> { ModelNumericFields.addObservations(1L, -1) }
+        assertFailsWith<IllegalArgumentException> { ModelNumericFields.addObservations(1_000_000_001L, 0) }
+    }
+
 }

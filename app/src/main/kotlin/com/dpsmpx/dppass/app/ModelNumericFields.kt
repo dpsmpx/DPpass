@@ -5,6 +5,14 @@ package com.dpsmpx.dppass.app
  * A sparse key has one canonical decimal spelling, as in the Go loader.
  */
 internal object ModelNumericFields {
+    const val MAX_OBSERVATIONS = 1_000_000_000L
+
+    /** Advance a validated counter without overflow or loss of old samples. */
+    fun addObservations(current: Long, added: Int): Long {
+        require(current in 0L..MAX_OBSERVATIONS && added >= 0)
+        return current + minOf(added.toLong(), MAX_OBSERVATIONS - current)
+    }
+
     fun integer(value: Any?): Long? = when (value) {
         is Int -> value.toLong()
         is Long -> value
@@ -12,7 +20,7 @@ internal object ModelNumericFields {
     }
 
     fun observation(value: Any?): Boolean =
-        integer(value)?.let { it in 0L..1_000_000_000L } == true
+        integer(value)?.let { it in 0L..MAX_OBSERVATIONS } == true
 
     fun weight(value: Any?): Boolean =
         value is Number && value.toDouble().let { it.isFinite() && kotlin.math.abs(it) <= 4.0 }

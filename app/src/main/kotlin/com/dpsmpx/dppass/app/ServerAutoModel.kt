@@ -296,7 +296,7 @@ object ServerAutoModel {
                     val head = model.getJSONArray("context_bias").getJSONArray(scenario)
                     head.put(0, clamped(head.getDouble(0) + delta))
                     val counts = model.getJSONArray("context_observations")
-                    counts.put(scenario, (counts.getInt(scenario) + 1).coerceAtMost(1000000000))
+                    counts.put(scenario, ModelNumericFields.addObservations(counts.getLong(scenario), 1))
                     val capacity = sparseCapacity(model)
                     if (capacity > 0) {
                         val sparse = model.getJSONObject("sparse")
@@ -315,7 +315,7 @@ object ServerAutoModel {
                 core.log.info("server_auto_learning", "trained" to 0, "persisted" to false)
                 return@runCatching
             }
-            model.put("observations", (model.optInt("observations", 0) + learned).coerceAtMost(100000))
+            model.put("observations", ModelNumericFields.addObservations(model.optLong("observations", 0), learned))
             // Revalidate and atomically persist only the numeric model,
             // not the server IDs or training examples.
             val persisted = Zapret2NeuralModel.storeIfUnchanged(
