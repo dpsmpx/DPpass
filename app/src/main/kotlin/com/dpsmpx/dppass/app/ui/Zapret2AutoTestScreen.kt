@@ -15,6 +15,7 @@ import android.widget.ArrayAdapter
 import android.widget.ProgressBar
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.DptsCompletedRun
+import com.dpsmpx.dppass.app.DptsDiagnosticJob
 import com.dpsmpx.dppass.app.NetworkCheck
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.TunnelStatus
@@ -39,9 +40,8 @@ import com.dpsmpx.dppass.engine.xray.DptsPresets
 import com.dpsmpx.dppass.engine.xray.DptsCompileException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -113,8 +113,14 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         setTextIsSelectable(true)
         visibility = View.GONE
     }
-    private var job: Job? = null
+    private val diagnostic = DptsDiagnosticJob(host.scope) {
+        renderControls(TunnelState.status.value)
+    }
     private var started = false
+
+    private fun launchDiagnostic(block: suspend CoroutineScope.() -> Unit) {
+        diagnostic.start(block)
+    }
 
     init {
         dptsEditor.addTextChangedListener(object : TextWatcher {
@@ -150,7 +156,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         addView(dptsTrainButton.apply { setOnClickListener { trainFromLastScript() } },
             Ui.matchWidth())
         addView(dptsStopButton.apply { setOnClickListener {
-            job?.cancel()
+            diagnostic.cancel()
             statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
         } }, Ui.matchWidth())
         addView(progress, Ui.matchWidth())
@@ -163,26 +169,32 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             started = true
             refreshScriptCatalog()
             statusText.text = context.getString(R.string.dpts_choose_script)
-            render(TunnelState.status.value)
         }
+        render(TunnelState.status.value)
+    }
+
+    private fun renderControls(status: TunnelStatus) {
+        val idle = !diagnostic.busy
+        dptsRunButton.isEnabled = idle && ready(status)
+        dptsLoadButton.isEnabled = idle
+        dptsSaveButton.isEnabled = idle
+        dptsTrainButton.isEnabled = idle && ready(status) && !lastTrainingSubmitted &&
+            hasCurrentDptsRun()
+        dptsStopButton.isEnabled = diagnostic.cancellable
+        dptsEditor.isEnabled = idle
+        dptsPresetSpinner.isEnabled = idle
+        dptsNameInput.isEnabled = idle
     }
 
     override fun render(status: TunnelStatus) {
-        if (job?.isActive == true) return
-        dptsRunButton.isEnabled = ready(status)
-        dptsLoadButton.isEnabled = true
-        dptsSaveButton.isEnabled = true
-        dptsTrainButton.isEnabled = ready(status) && !lastTrainingSubmitted &&
-            hasCurrentDptsRun()
-        dptsStopButton.isEnabled = false
-        if (!ready(status)) {
+        renderControls(status)
+        if (!diagnostic.busy && !ready(status)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
         }
     }
 
     override fun onHidden() {
-        job?.cancel()
-        job = null
+        diagnostic.cancel()
         invalidateDptsRun()
         // Persist only the user's editable script, never probe results or IPs.
         context.getSharedPreferences("dpts_editor", Context.MODE_PRIVATE).edit()
@@ -209,26 +221,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 statusText.text = context.getString(R.string.dpts_suite_unsupported)
             }
         }
-        val launched = job ?: return
-        dptsRunButton.isEnabled = false
-        dptsLoadButton.isEnabled = false
-        dptsSaveButton.isEnabled = false
-        dptsTrainButton.isEnabled = false
-        dptsStopButton.isEnabled = true
-        dptsEditor.isEnabled = false
-        dptsPresetSpinner.isEnabled = false
-        dptsNameInput.isEnabled = false
-        launched.invokeOnCompletion {
-            host.scope.launch {
-                dptsRunButton.isEnabled = ready(TunnelState.status.value)
-                dptsLoadButton.isEnabled = true
-                dptsSaveButton.isEnabled = true
-                dptsStopButton.isEnabled = false
-                dptsEditor.isEnabled = true
-                dptsPresetSpinner.isEnabled = true
-                dptsNameInput.isEnabled = true
-            }
-        }
     }
 
     private fun refreshScriptCatalog() {
@@ -244,7 +236,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     }
 
     private fun loadSelectedScript() {
-        if (job?.isActive == true) return
+        if (diagnostic.busy) return
         val name = dptsPresetSpinner.selectedItem?.toString() ?: return
         val savedName = name.removePrefix("Мой: ")
         val script = DptsPresets.scripts[name] ?: personalScripts[savedName]
@@ -256,7 +248,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     }
 
     private fun saveCurrentScript() {
-        if (job?.isActive == true) return
+        if (diagnostic.busy) return
         val name = dptsNameInput.text.toString().trim()
         val source = dptsEditor.text.toString()
         if (name.isEmpty() || name.length > 80 || source.isBlank() ||
@@ -302,7 +294,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     }
 
     private fun trainFromLastScript() {
-        if (job?.isActive == true || lastTrainingSubmitted) return
+        if (diagnostic.busy || lastTrainingSubmitted) return
         val run = lastDptsRun
         val underlying = NetworkCheck.underlying(context)
         if (run == null || !ready(TunnelState.status.value) ||
@@ -377,7 +369,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     }
 
     private fun start(dnsComparison: Boolean = false) {
-        if (job?.isActive == true) return
+        if (diagnostic.busy) return
         if (!ready(TunnelState.status.value)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
             host.toast(statusText.text)
@@ -397,7 +389,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         resultText.visibility = View.GONE
         statusText.text = context.getString(R.string.zapret2_autotest_progress,
             0, total, targets.first(), strategies.first(), 0, REPEATS)
-        job = host.scope.launch {
+        launchDiagnostic {
             try {
                 val stageStart = withContext(Dispatchers.IO) {
                     try { JniXrayRuntime.snapshotZapret2Stages() }
@@ -460,8 +452,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             } catch (_: CancellationException) {
                 statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
                 throw CancellationException("Google autotest cancelled")
-            } finally {
-                job = null
             }
         }
     }
@@ -471,7 +461,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
      * same IPv4 positions. The test remains opt-in and has no AUTO feedback.
      */
     private fun startMatrix() {
-        if (job?.isActive == true) return
+        if (diagnostic.busy) return
         if (!ready(TunnelState.status.value)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
             host.toast(statusText.text)
@@ -483,7 +473,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         progress.max = Zapret2ProbeCatalog.matrixProviders.size
         progress.progress = 0
         resultText.visibility = View.GONE
-        job = host.scope.launch {
+        launchDiagnostic {
             val rows = mutableListOf<Zapret2GoogleAttempt>()
             try {
                 // Google control is prepared first, before the long YouTube
@@ -568,8 +558,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             } catch (_: CancellationException) {
                 statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
                 throw CancellationException("IP matrix cancelled")
-            } finally {
-                job = null
             }
         }
     }
@@ -584,7 +572,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
      * the normal VPN, system DNS and AUTO are never modified.
      */
     private fun startH3() {
-        if (job?.isActive == true) return
+        if (diagnostic.busy) return
         if (!ready(TunnelState.status.value)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
             host.toast(statusText.text)
@@ -596,7 +584,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         progress.progress = 0
         progress.visibility = View.VISIBLE
         resultText.visibility = View.GONE
-        job = host.scope.launch {
+        launchDiagnostic {
             val rows = mutableListOf<Zapret2GoogleAttempt>()
             var done = 0
             var expired = false
@@ -775,8 +763,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             } catch (_: CancellationException) {
                 statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
                 throw CancellationException("YouTube H3 diagnostic cancelled")
-            } finally {
-                job = null
             }
         }
     }
@@ -791,7 +777,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
      * safely to the user's specific hostname.
      */
     private fun startSiteSearch(hostname: String, quic: Boolean) {
-        if (job?.isActive == true) return
+        if (diagnostic.busy) return
         if (!ready(TunnelState.status.value)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
             host.toast(statusText.text)
@@ -810,7 +796,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         progress.max = methods.size * Zapret2SiteSearch.MAX_IPS * Zapret2SiteSearch.ATTEMPTS
         resultText.visibility = View.GONE
         statusText.text = "DoH · $domain"
-        job = host.scope.launch {
+        launchDiagnostic {
             try {
                 val prepared = try {
                     withContext(Dispatchers.IO) {
@@ -824,7 +810,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                         " (${prepared.outcome})"
                     resultText.text = statusText.text
                     resultText.visibility = View.VISIBLE
-                    return@launch
+                    return@launchDiagnostic
                 }
                 val ipCount = prepared.dnsAnswers.coerceAtMost(Zapret2SiteSearch.MAX_IPS)
                 val total = methods.size * ipCount * Zapret2SiteSearch.ATTEMPTS
@@ -876,7 +862,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     statusText.text = context.getString(R.string.zapret2_site_search_expired)
                     resultText.text = statusText.text
                     resultText.visibility = View.VISIBLE
-                    return@launch
+                    return@launchDiagnostic
                 }
                 val selection = Zapret2SiteSearch.recommend(domain, ipCount, rows, quic)
                 // Script suites do not apply a live AUTO strategy implicitly.
@@ -903,8 +889,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             } catch (_: CancellationException) {
                 statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
                 throw CancellationException("Any-site strategy search cancelled")
-            } finally {
-                job = null
             }
         }
     }
@@ -916,7 +900,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
      * never stores an IP, and cannot teach AUTO from a one-off success.
      */
     private fun startYoutubeApiSweep() {
-        if (job?.isActive == true) return
+        if (diagnostic.busy) return
         if (!ready(TunnelState.status.value)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
             host.toast(statusText.text)
@@ -927,7 +911,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         progress.visibility = View.VISIBLE
         progress.progress = 0
         statusText.text = "DoH · ${Zapret2SiteSearch.YOUTUBE_API_HOST}"
-        job = host.scope.launch {
+        launchDiagnostic {
             try {
                 val prepared = try {
                     withContext(Dispatchers.IO) {
@@ -942,7 +926,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                         " (${prepared.outcome})"
                     resultText.text = statusText.text
                     resultText.visibility = View.VISIBLE
-                    return@launch
+                    return@launchDiagnostic
                 }
                 val ipCount = prepared.dnsAnswers.coerceAtMost(Zapret2SiteSearch.MAX_SWEEP_IPS)
                 val profiles = Zapret2SiteSearch.apiSweepProfiles
@@ -983,7 +967,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     statusText.text = context.getString(R.string.zapret2_site_search_expired)
                     resultText.text = statusText.text
                     resultText.visibility = View.VISIBLE
-                    return@launch
+                    return@launchDiagnostic
                 }
                 // Confirm up to two transport-positive IP/protocol/method
                 // tuples using independent connections. This is evidence
@@ -1040,8 +1024,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             } catch (_: CancellationException) {
                 statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
                 throw CancellationException("API IPv4/H2 sweep cancelled")
-            } finally {
-                job = null
             }
         }
     }
@@ -1055,7 +1037,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
      * This is user-initiated diagnosis only, not a domain-fronting proxy.
      */
     private fun startSameIpSniControl() {
-        if (job?.isActive == true) return
+        if (diagnostic.busy) return
         if (!ready(TunnelState.status.value)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
             return
@@ -1065,7 +1047,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         progress.progress = 0
         resultText.visibility = View.GONE
         statusText.text = "DoH · API и Google TLS"
-        job = host.scope.launch {
+        launchDiagnostic {
             try {
                 suspend fun probe(method: String, target: String, ms: Int):
                     Zapret2GoogleProbe = try {
@@ -1081,7 +1063,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                         " (${prepared.outcome})"
                     resultText.text = statusText.text
                     resultText.visibility = View.VISIBLE
-                    return@launch
+                    return@launchDiagnostic
                 }
                 val preparedAt = SystemClock.elapsedRealtime()
                 val ownPrepared = probe("plain", "google_control_prepare", DNS_TIMEOUT_MILLIS)
@@ -1126,7 +1108,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     statusText.text = context.getString(R.string.zapret2_site_search_expired)
                     resultText.text = statusText.text
                     resultText.visibility = View.VISIBLE
-                    return@launch
+                    return@launchDiagnostic
                 }
                 // Independently repeat up to two successful same-IP Google
                 // controls, each paired to the original YouTube API SNI.
@@ -1156,7 +1138,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     statusText.text = context.getString(R.string.zapret2_site_search_expired)
                     resultText.text = statusText.text
                     resultText.visibility = View.VISIBLE
-                    return@launch
+                    return@launchDiagnostic
                 }
                 progress.max = rows.size
                 progress.progress = rows.size
@@ -1179,8 +1161,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             } catch (_: CancellationException) {
                 statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
                 throw CancellationException("Same-IP SNI control cancelled")
-            } finally {
-                job = null
             }
         }
     }
@@ -1191,7 +1171,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
      * identities. No destination/IP/SNI spoofing for any live VPN traffic.
      */
     private fun startTLSVersionControl() {
-        if (job?.isActive == true) return
+        if (diagnostic.busy) return
         if (!ready(TunnelState.status.value)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
             return
@@ -1200,7 +1180,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         progress.visibility = View.VISIBLE
         progress.progress = 0
         resultText.visibility = View.GONE
-        job = host.scope.launch {
+        launchDiagnostic {
             try {
                 suspend fun probe(target: String, timeout: Int): Zapret2GoogleProbe =
                     try {
@@ -1217,7 +1197,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                         " (${prepared.outcome})"
                     resultText.text = statusText.text
                     resultText.visibility = View.VISIBLE
-                    return@launch
+                    return@launchDiagnostic
                 }
                 val timestamp = SystemClock.elapsedRealtime()
                 val count = prepared.dnsAnswers.coerceAtMost(Zapret2SiteSearch.MAX_IPS)
@@ -1259,7 +1239,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     statusText.text = context.getString(R.string.zapret2_site_search_expired)
                     resultText.text = statusText.text
                     resultText.visibility = View.VISIBLE
-                    return@launch
+                    return@launchDiagnostic
                 }
                 val report = Zapret2SiteSearch.tlsVersionReport(
                     network, prepared, rows, count)
@@ -1280,8 +1260,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             } catch (_: CancellationException) {
                 statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
                 throw CancellationException("TLS version control cancelled")
-            } finally {
-                job = null
             }
         }
     }
@@ -1293,7 +1271,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
      * URLs, sockets, code execution, application routes or AUTO commits.
      */
     private fun startDptsScript() {
-        if (job?.isActive == true) return
+        if (diagnostic.busy) return
         // Even a failed compile or unavailable connection replaces the previous run.
         invalidateDptsRun()
         if (!ready(TunnelState.status.value)) {
@@ -1335,20 +1313,12 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 current.network?.networkHandle == handle &&
                 runCatching { JniXrayRuntime.dptsGeneration() }.getOrNull() == generation
         }
-        dptsRunButton.isEnabled = false
-        dptsLoadButton.isEnabled = false
-        dptsSaveButton.isEnabled = false
-        dptsTrainButton.isEnabled = false
-        dptsStopButton.isEnabled = true
-        dptsNameInput.isEnabled = false
-        dptsEditor.isEnabled = false
-        dptsPresetSpinner.isEnabled = false
         progress.visibility = View.VISIBLE
         progress.max = plan.probes.size
         progress.progress = 0
         resultText.visibility = View.GONE
         statusText.text = "DPTS: DoH · ${plan.host}"
-        job = host.scope.launch {
+        launchDiagnostic {
             try {
                 val prepared = try {
                     withContext(Dispatchers.IO) {
@@ -1363,7 +1333,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                         "${prepared.dnsAnswers}/$requiredIPs IPv4"
                     resultText.text = statusText.text
                     resultText.visibility = View.VISIBLE
-                    return@launch
+                    return@launchDiagnostic
                 }
                 val preparedAt = SystemClock.elapsedRealtime()
                 val rows = mutableListOf<Zapret2GoogleAttempt>()
@@ -1401,7 +1371,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                         "native target rejected, or test expired. " +
                         "Partial diagnostics are never submitted as complete."
                     resultText.visibility = View.VISIBLE
-                    return@launch
+                    return@launchDiagnostic
                 }
                 val report = DptsScript.report(plan, network, prepared, rows)
                 // Keep the diagnostic report even for inconsistent rows,
@@ -1423,18 +1393,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             } catch (_: CancellationException) {
                 statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
                 throw CancellationException("DPTS interrupted")
-            } finally {
-                job = null
-                dptsEditor.isEnabled = true
-                dptsNameInput.isEnabled = true
-                dptsPresetSpinner.isEnabled = true
-                dptsStopButton.isEnabled = false
-                dptsLoadButton.isEnabled = true
-                val connected = ready(TunnelState.status.value)
-                dptsRunButton.isEnabled = connected
-                dptsSaveButton.isEnabled = true
-                dptsTrainButton.isEnabled = connected &&
-                    hasCurrentDptsRun() && !lastTrainingSubmitted
             }
         }
     }
