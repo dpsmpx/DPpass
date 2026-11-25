@@ -8,6 +8,46 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class RootPidfdCleanupTest {
+    @Test fun missingIdentityCanBeRetiredOnlyAfterNativeAbsenceProof() {
+        if (!File("/bin/sh").canExecute()) return
+        val dir = Files.createTempDirectory("dppass-legacy-child").toFile()
+        val pid = File(dir, "pid")
+        val marker = File(dir, "pidfd.required")
+        val helper = File(dir, "root-pidfd")
+        val calls = File(dir, "calls")
+        val bootFile = File("/proc/sys/kernel/random/boot_id")
+        if (!bootFile.canRead()) {
+            dir.deleteRecursively()
+            return
+        }
+        val boot = bootFile.readText().trim()
+        val stop = RootPidfdCleanup.stopExecutable(dir.path, "pid", "/fixture/daemon")
+        fun run() = RootCommandRunner.run(listOf("/bin/sh", "-c",
+            "kill() { echo unexpected; exit 99; }\n" + stop), timeoutMillis = 5000)
+        fun install(result: Int) {
+            helper.writeText("#!/bin/sh\ncase \"\$1\" in --version) echo dppass-root-pidfd/1;; " +
+                "*) printf '%s\\n' \"\$@\" > '${calls.path}'; exit $result;; esac\n")
+            assertTrue(helper.setExecutable(true))
+        }
+        try {
+            for (strict in listOf(false, true)) {
+                if (strict) marker.writeText("v1\n")
+                pid.writeText("123\n")
+                install(2)
+                assertFalse(run().exitCode == 0)
+                assertEquals("123\n", pid.readText())
+                assertEquals(listOf("absent", "123", boot), calls.readLines())
+                install(0)
+                assertEquals(0, run().exitCode)
+                assertFalse(pid.exists())
+                assertEquals(listOf("absent", "123", boot), calls.readLines())
+                assertEquals(strict, marker.exists())
+            }
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     @Test fun recordedCleanupNeverFallsBackAfterHelperFailure() {
         if (!File("/bin/sh").canExecute()) return
         val dir = Files.createTempDirectory("dppass-recorded-cleanup").toFile()

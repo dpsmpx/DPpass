@@ -41,18 +41,27 @@ internal object RootPidfdCleanup {
             "pid=\$(cat $pidFile) || exit 1",
             "case \"\$pid\" in ''|0*|*[!0-9]*) exit 1 ;; esac",
             "test \"\$pid\" -gt 1 2>/dev/null && test \"\$pid\" -le 2147483647 2>/dev/null || exit 1",
-            // Preserve legacy behavior only for a session that never
-            // required pidfd and has no installed helper. No fallback
-            // after a pidfd error, or for strict-session missing metadata.
-            "if ! test -e $marker && { ! test -e $identity || { ! test -e $helper && ! test -L $helper; }; }; then",
+            // Preserve non-Alpine behavior only if no helper was installed
+            // and this session never required one. Never fall back from
+            // a failed native operation or a missing recorded identity.
+            "if ! test -e $marker && ! test -e $helper && ! test -L $helper; then",
             legacy,
             "exit 0",
             "fi",
             "test -f $helper && test ! -L $helper && test -x $helper || exit 1",
             "test \"\$(stat -c %u $helper)\" = \"\$(id -u)\" || exit 1",
             "test \"\$( $helper --version )\" = dppass-root-pidfd/1 || exit 1",
+            // Missing sidecar after a crash/upgrade: do not invent start
+            // ticks from a live process. Only a positive kernel absence
+            // or death proof permits retirement, with no signal at all.
+            "if ! test -e $identity; then",
+            "current_boot=\$(cat /proc/sys/kernel/random/boot_id) || exit 1",
+            "$helper absent \"\$pid\" \"\$current_boot\" >/dev/null || { echo 'ROOT: child identity missing and PID not proven gone'; exit 1; }",
+            "test \"\$(cat $pidFile)\" = \"\$pid\" || exit 1",
+            "rm -f $pidFile || exit 1",
+            "exit 0",
+            "fi",
             "current=\$( " + RootOwnerStatus.generation(directory) + " ) || exit 1",
-            "test -f $identity || { echo 'ROOT: child identity missing'; exit 1; }",
             "raw=\$(cat $identity) || exit 1",
             "set -- \$raw; test \"\$#\" -eq 5 && test \"\$1\" = v1 || exit 1",
             "test \"\$2\" = \"\$current\" && test \"\$3\" = \"\$pid\" || exit 1",
