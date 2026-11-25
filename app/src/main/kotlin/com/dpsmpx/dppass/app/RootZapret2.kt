@@ -36,7 +36,8 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
             val owner = RootOwnerIdentity(android.os.Process.myPid(), RootProcessIdentity.currentAppStartTime())
             val helper = RootPidfdDeployment.stage(context)
             try {
-                val startup = lifecycle.start(cleanup(), launch(binary, lua, hostsFile, hosts.isEmpty, owner, helper), owner)
+                val startup = lifecycle.start(cleanup(), launch(binary, lua, hostsFile, hosts.isEmpty, owner, helper), owner,
+                    preservePreviousOwner = true)
                 rootLaunchWithRollback(
                     launch = { execute(startup) },
                     rollback = { execute(lifecycle.stop(cleanup())) },

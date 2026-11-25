@@ -180,8 +180,28 @@ internal class RootLifecycleTransaction(
         ).joinToString("\n")
     }
 
-    fun start(cleanup: String, launch: String, owner: RootOwnerIdentity? = null): String {
+    fun start(cleanup: String, launch: String, owner: RootOwnerIdentity? = null,
+              preservePreviousOwner: Boolean = false): String {
         val temporary = "$record.$generation.tmp"
+        val publish = "mv -f " + quote(temporary) + " " + quote(record)
+        val cleanupBody = "(\n$cleanup\n) || exit 1"
+        val handover = if (preservePreviousOwner) listOf(
+            "if test -e " + quote(record) + "; then",
+            RootOwnerStatus.consistent(directory) + " || { echo 'ROOT: previous owner metadata inconsistent'; exit 1; }",
+            // Keep the previous generation authoritative until the cleanup
+            // callback and all child retirement postconditions succeed.
+            cleanupBody,
+            retireChildIdentities(),
+            publish,
+            "else",
+            (listOf(ownerRecord) + childIdentityRecords()).joinToString(" && ") {
+                "test ! -e " + quote(it) + " && test ! -L " + quote(it)
+            } + " || { echo 'ROOT: unmatched owner metadata remains'; exit 1; }",
+            publish,
+            cleanupBody,
+            retireChildIdentities(),
+            "fi",
+        ).joinToString("\n") else listOf(publish, cleanupBody, retireChildIdentities()).joinToString("\n")
         return listOf(
             "set -eu",
             "umask 077",
@@ -197,10 +217,7 @@ internal class RootLifecycleTransaction(
                 migrationStartup(listOf(
                     metadataCheck(record, ownerRecord, temporary, "$ownerRecord.$generation.tmp", *childIdentityRecords().toTypedArray()),
                     stageGeneration(temporary, owner),
-                    "mv -f " + quote(temporary) + " " + quote(record),
-                    // Cleanup may set shell options or exit explicitly.
-                    "(\n$cleanup\n) || exit 1",
-                    retireChildIdentities(),
+                    handover,
                     launch,
                 ).joinToString("\n")),
             ).joinToString("\n")),

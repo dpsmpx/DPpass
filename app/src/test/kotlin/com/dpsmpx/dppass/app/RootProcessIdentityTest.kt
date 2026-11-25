@@ -1147,6 +1147,51 @@ class RootProcessIdentityTest {
         }
     }
 
+    @Test fun preservingHandoverKeepsOldGenerationUntilCleanupSucceeds() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-root-handover").toFile()
+        val old = RootLifecycleTransaction(dir.path, "old")
+        val next = RootLifecycleTransaction(dir.path, "next")
+        val record = File(dir, "generation")
+        val sidecar = File(dir, "pid.identity")
+        val pid = File(dir, "pid")
+        val launched = File(dir, "launched")
+        fun run(script: String) = RootCommandRunner.run(
+            listOf("/bin/sh", "-c", script), timeoutMillis = 10000,
+        )
+        val oldCheck = "test \"\$(cat '${record.path}')\" = old || exit 8"
+        val launch = "test \"\$(cat '${record.path}')\" = next || exit 9; touch '${launched.path}'"
+        try {
+            assertEquals(0, run(old.start(":", ":")).exitCode)
+            sidecar.writeText("fixture")
+            pid.writeText("123")
+            assertFalse(run(next.start("$oldCheck; exit 7", launch, preservePreviousOwner = true)).exitCode == 0)
+            assertEquals("old", record.readText().trim())
+            assertTrue(sidecar.exists())
+            assertFalse(launched.exists())
+            assertEquals(0, run(next.stop("exit 7")).exitCode)
+            assertEquals("old", record.readText().trim())
+            assertFalse(run(next.start(oldCheck, launch, preservePreviousOwner = true)).exitCode == 0)
+            assertEquals("old", record.readText().trim())
+            assertTrue(sidecar.exists())
+            assertEquals(0, run(next.start("$oldCheck; rm -f '${pid.path}'", launch,
+                preservePreviousOwner = true)).exitCode)
+            assertEquals("next", record.readText().trim())
+            assertFalse(sidecar.exists())
+            assertTrue(launched.exists())
+            assertEquals(0, run(old.stop("exit 7")).exitCode)
+            assertEquals(0, run(next.stop(":")).exitCode)
+
+            sidecar.writeText("unmatched")
+            assertFalse(run(next.start(":", ":", preservePreviousOwner = true)).exitCode == 0)
+            assertFalse(record.exists())
+            assertEquals("unmatched", sidecar.readText())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     @Test fun lockAndGenerationGuardRejectInvalidInputs() {
         val invalidTimeout = runCatching { RootProcessIdentity.lockedTransaction("/tmp/lock", ":", 0) }
         assertTrue(invalidTimeout.isFailure)

@@ -60,7 +60,7 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
                     lifecycle.captureExecutable("pid6", "$ROOT/ciadpi"),
                     RootFirewallCleanup.markIntent("$ROOT/ipv6.intent"),
                     "ip6tables -t nat -I OUTPUT " + RULE, "ip6tables -t nat -C OUTPUT " + RULE,
-                    "fi").joinToString("\n"), owner))
+                    "fi").joinToString("\n"), owner, preservePreviousOwner = true))
                 }, rollback = { execute(lifecycle.stop(cleanup())) })
             } finally {
                 helper?.discard()
