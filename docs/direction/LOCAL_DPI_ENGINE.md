@@ -707,3 +707,7 @@ CI 92d008c: Go/Linux/Windows #45650374851 passed; Android #45650364479 failed at
 ## A7 — accurate DPTS compiler diagnostics and titles
 
 CI b8ad220: Go/Linux/Windows #45650864037 and Android #45650855039 succeeded. Preserve original physical line numbers across blanks, comments and CRLF; report the actual header/statement-limit location. Require paired title quotes, reject embedded quote, control, Unicode format and line/paragraph separator characters while accepting normal Unicode text. Remove redundant suite condition after validation. Host tests cover source positions and title boundaries. No change to probe execution, learning, routing, signing or subscription data. New CI pending.
+
+## A7 — bind built-in script suites to their actual host contract
+
+CI dc4ef86: Go/Linux/Windows #45652113982 and Android #45652107565 succeeded. The compiler now declares one registry of built-in suite IDs with fixed host requirements. google_youtube requires www.google.com; dns_compare, ip_matrix and the four API-only routines require youtubei.googleapis.com. Only site_https and site_quic accept arbitrary validated public hostnames. This matches existing dispatch; no probe destinations changed. All bundled presets retain their existing valid hosts. Regression tests reject arbitrary hosts for each fixed suite and verify dynamic site searches. Existing personal scripts with misleading fixed-suite hosts must be corrected, rather than silently running a different target. No model, subscription, signing or VPN changes. New CI pending.

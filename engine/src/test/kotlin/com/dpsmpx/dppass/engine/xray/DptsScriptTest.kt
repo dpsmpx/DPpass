@@ -196,12 +196,21 @@ class DptsScriptTest {
         assertEquals(DptsScript.suites, DptsPresets.scripts.values
             .map { DptsScript.compile(it).suite }.filterNotNull().toSet())
         for (id in DptsScript.suites) {
-            val host = if (id in setOf("api_ipv4_sweep","sni_control",
-                "tls_versions","h3_api")) "youtubei.googleapis.com"
-                else "www.youtube.com"
+            val host = when (id) {
+                "google_youtube" -> "www.google.com"
+                "site_https", "site_quic" -> "example.org"
+                else -> "youtubei.googleapis.com"
+            }
             val result = DptsScript.compile("dpts 1\nhost $host\nsuite $id")
             assertEquals(id, result.suite)
             assertTrue(result.probes.isEmpty())
+            if (id !in setOf("site_https", "site_quic")) {
+                val failure = assertFailsWith<DptsCompileException> {
+                    DptsScript.compile("dpts 1\nhost example.org\nsuite $id")
+                }
+                assertEquals(3, failure.line)
+                assertTrue(failure.message.orEmpty().contains(host))
+            }
         }
         for (script in listOf(
             "dpts 1\nhost youtubei.googleapis.com\nsuite android_exec",

@@ -65,11 +65,20 @@ object DptsScript {
     private val allowedMethods = Zapret2ProbeCatalog.scriptTcpMethods
     private val allowedQuic = Zapret2ProbeCatalog.scriptQuicMethods
     private val supported = setOf("https", "tls", "quic", "sni")
-    val suites = setOf("google_youtube", "dns_compare", "ip_matrix",
-        "h3_api", "site_https", "site_quic", "api_ipv4_sweep",
-        "sni_control", "tls_versions")
-    private val apiOnlySuites = setOf("api_ipv4_sweep", "sni_control", "tls_versions",
-        "h3_api")
+    // Fixed routines do not consume an arbitrary host from the script.
+    // The two site searches do; null marks precisely those two cases.
+    private val suiteHosts: Map<String, String?> = mapOf(
+        "google_youtube" to "www.google.com",
+        "dns_compare" to Zapret2SiteSearch.YOUTUBE_API_HOST,
+        "ip_matrix" to Zapret2SiteSearch.YOUTUBE_API_HOST,
+        "h3_api" to Zapret2SiteSearch.YOUTUBE_API_HOST,
+        "site_https" to null,
+        "site_quic" to null,
+        "api_ipv4_sweep" to Zapret2SiteSearch.YOUTUBE_API_HOST,
+        "sni_control" to Zapret2SiteSearch.YOUTUBE_API_HOST,
+        "tls_versions" to Zapret2SiteSearch.YOUTUBE_API_HOST,
+    )
+    val suites: Set<String> = suiteHosts.keys
     private val optionPattern = Regex("[a-z_]+=[a-zA-Z0-9,._-]+")
 
     fun compile(source: String): DptsPlan {
@@ -152,10 +161,9 @@ object DptsScript {
                     val id = line.removePrefix("suite ").trim()
                     if (id !in suites)
                         throw DptsCompileException(lineNo, "unknown built-in suite: $id")
-                    if (id in apiOnlySuites &&
-                        currentHost != Zapret2SiteSearch.YOUTUBE_API_HOST)
-                        throw DptsCompileException(lineNo,
-                            "this suite requires youtubei.googleapis.com")
+                    val fixedHost = suiteHosts[id]
+                    if (fixedHost != null && currentHost != fixedHost)
+                        throw DptsCompileException(lineNo, "this suite requires $fixedHost")
                     suite = id
                 }
                 else -> {
