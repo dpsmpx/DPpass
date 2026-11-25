@@ -27,6 +27,29 @@ class DptsSavedScriptsTest {
         assertTrue(DptsSavedScripts.validDraft("name", "x".repeat(DptsScript.MAX_SOURCE_LENGTH)))
     }
 
+    @Test fun catalogIdentityDoesNotDependOnDisplayPrefixOrNameCollisions() {
+        val builtIn = linkedMapOf("Shared" to "builtin", "Мой: Shared" to "other builtin")
+        val personal = linkedMapOf("Shared" to "personal", "A" to "draft")
+        val entries = DptsSavedScripts.catalog(builtIn, personal)
+        val builtinId = DptsSavedScripts.ScriptId("Shared", false)
+        val personalId = DptsSavedScripts.ScriptId("Shared", true)
+        assertEquals(listOf(builtinId, DptsSavedScripts.ScriptId("Мой: Shared", false),
+            DptsSavedScripts.ScriptId("A", true), personalId), entries.map { it.id })
+        assertEquals("builtin", entries.single { it.id == builtinId }.source)
+        assertEquals("personal", entries.single { it.id == personalId }.source)
+    }
+
+    @Test fun editorRestorePreservesEmptyAndIncompleteDraftsWithoutTruncation() {
+        val fallback = "default"
+        assertEquals("", DptsSavedScripts.restoreEditor("", fallback))
+        assertEquals("unfinished", DptsSavedScripts.restoreEditor("unfinished", fallback))
+        val max = "x".repeat(DptsScript.MAX_SOURCE_LENGTH)
+        assertEquals(max, DptsSavedScripts.restoreEditor(max, fallback))
+        for (invalid in listOf(null, 42, true, max + "x")) {
+            assertEquals(fallback, DptsSavedScripts.restoreEditor(invalid, fallback))
+        }
+    }
+
     @Test fun restorationIsTypedBoundedAndDeterministic() {
         val values = (0..34).reversed().associate { "script.draft%02d".format(it) to "draft" }
         val mixed = values + mapOf("script.!" to 1, "script." to "bad", "other" to "ignored")

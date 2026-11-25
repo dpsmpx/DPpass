@@ -67,11 +67,12 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         minLines = 7
         maxLines = 15
         filters = arrayOf(InputFilter.LengthFilter(DptsScript.MAX_SOURCE_LENGTH))
-        setText(context.getSharedPreferences("dpts_editor", Context.MODE_PRIVATE)
-            .getString("source", null) ?: DptsPresets.scripts.getValue("YouTube · homepage"))
+        setText(DptsSavedScripts.restoreEditor(
+            context.getSharedPreferences("dpts_editor", Context.MODE_PRIVATE).all["source"],
+            DptsPresets.scripts.getValue("YouTube · homepage")))
         contentDescription = context.getString(R.string.dpts_script_hint)
     }
-    private val dptsPresets = DptsPresets.scripts.keys.toMutableList()
+    private var dptsPresets: List<DptsSavedScripts.ScriptEntry> = emptyList()
     private val personalScripts = DptsSavedScripts.restore(
         context.getSharedPreferences("dpts_saved_scripts", Context.MODE_PRIVATE).all)
     private val dptsNameInput = EditText(context).apply {
@@ -80,12 +81,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         isSingleLine = true
         filters = arrayOf(InputFilter.LengthFilter(DptsSavedScripts.MAX_NAME_LENGTH))
     }
-    private val dptsPresetSpinner = Spinner(context).apply {
-        adapter = ArrayAdapter(context, android.R.layout.simple_spinner_item,
-            dptsPresets).apply {
-            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        }
-    }
+    private val dptsPresetSpinner = Spinner(context)
     private val dptsLoadButton = Ui.button(context, R.string.dpts_load_preset,
         Ui.Style.OUTLINE, R.drawable.ic_dns)
     private val dptsRunButton = Ui.button(context, R.string.dpts_run_script,
@@ -228,26 +224,29 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         }
     }
 
-    private fun refreshScriptCatalog() {
-        val chosen = dptsPresetSpinner.selectedItem?.toString()
-        dptsPresets.clear()
-        dptsPresets.addAll(DptsPresets.scripts.keys)
-        dptsPresets.addAll(personalScripts.keys.sorted().map { "Мой: $it" })
+    private fun selectedScript(): DptsSavedScripts.ScriptEntry? =
+        dptsPresets.getOrNull(dptsPresetSpinner.selectedItemPosition)
+
+    private fun refreshScriptCatalog(chosen: DptsSavedScripts.ScriptId? = selectedScript()?.id) {
+        dptsPresets = DptsSavedScripts.catalog(DptsPresets.scripts, personalScripts)
+        val labels = dptsPresets.map { entry ->
+            if (entry.id.personal)
+                context.getString(R.string.dpts_personal_label, entry.id.name)
+            else entry.id.name
+        }
         dptsPresetSpinner.adapter = ArrayAdapter(context,
-            android.R.layout.simple_spinner_item, dptsPresets).apply {
+            android.R.layout.simple_spinner_item, labels).apply {
             setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         }
-        dptsPresetSpinner.setSelection(dptsPresets.indexOf(chosen).coerceAtLeast(0))
+        dptsPresetSpinner.setSelection(dptsPresets.indexOfFirst { it.id == chosen }
+            .coerceAtLeast(0))
     }
 
     private fun loadSelectedScript() {
         if (diagnostic.busy) return
-        val name = dptsPresetSpinner.selectedItem?.toString() ?: return
-        val savedName = name.removePrefix("Мой: ")
-        val script = DptsPresets.scripts[name] ?: personalScripts[savedName]
-            ?: return
-        dptsNameInput.setText(savedName)
-        dptsEditor.setText(script)
+        val entry = selectedScript() ?: return
+        dptsNameInput.setText(entry.id.name)
+        dptsEditor.setText(entry.source)
         invalidateDptsRun()
         statusText.text = context.getString(R.string.dpts_script_loaded)
     }
@@ -269,9 +268,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         personalScripts[name] = source
         context.getSharedPreferences("dpts_saved_scripts", Context.MODE_PRIVATE)
             .edit().putString("script.$name", source).apply()
-        refreshScriptCatalog()
-        dptsPresetSpinner.setSelection(dptsPresets.indexOf("Мой: $name")
-            .coerceAtLeast(0))
+        refreshScriptCatalog(DptsSavedScripts.ScriptId(name, true))
         statusText.text = context.getString(R.string.dpts_script_saved)
     }
 
