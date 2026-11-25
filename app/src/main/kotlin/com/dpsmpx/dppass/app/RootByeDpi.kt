@@ -5,7 +5,6 @@ import com.dpsmpx.dppass.connection.Zapret2Hostlist
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.concurrent.TimeUnit
 
 /**
  * Original ciadpi transparent TCP mode using IPv4 and optional IPv6 OUTPUT REDIRECT.
@@ -78,11 +77,10 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
     }
 
     private fun execute(script: String) {
-        val p = ProcessBuilder("su", "-c", script).redirectErrorStream(true).start()
-        if (!p.waitFor(15, TimeUnit.SECONDS)) { p.destroyForcibly(); error("su timeout") }
-        val output = p.inputStream.bufferedReader().use { it.readText().takeLast(400) }
-        check(p.exitValue() == 0) { "ByeDPI root: " + output }
+        val result = RootCommandRunner.run(listOf("su", "-c", script))
+        check(result.exitCode == 0) { "ByeDPI root: " + result.outputTail }
     }
+
     private fun quote(raw: String): String = "'" + raw.replace("'", "'\\''") + "'"
 
     private companion object {

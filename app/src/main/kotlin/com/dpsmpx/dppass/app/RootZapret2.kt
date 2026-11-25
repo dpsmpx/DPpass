@@ -7,7 +7,6 @@ import com.dpsmpx.dppass.connection.Zapret2RootProfiles
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.concurrent.TimeUnit
 
 /**
  * Experimental rooted Zapret2 adapter. Requires su, iptables NFQUEUE target,
@@ -124,13 +123,8 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
         )).joinToString("\n")
 
     private fun execute(script: String) {
-        val process = ProcessBuilder("su", "-c", script).redirectErrorStream(true).start()
-        if (!process.waitFor(15, TimeUnit.SECONDS)) {
-            process.destroyForcibly()
-            error("su: timeout")
-        }
-        val output = process.inputStream.bufferedReader().use { it.readText().takeLast(400) }
-        if (process.exitValue() != 0) error("su / nfqws2 / iptables: " + output)
+        val result = RootCommandRunner.run(listOf("su", "-c", script))
+        check(result.exitCode == 0) { "su / nfqws2 / iptables: " + result.outputTail }
     }
 
     private fun quote(raw: String): String = "'" + raw.replace("'", "'\\''") + "'"
