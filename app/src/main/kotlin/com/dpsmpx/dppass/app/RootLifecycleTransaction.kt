@@ -56,6 +56,27 @@ internal class RootLifecycleTransaction(
         ).joinToString("\n")
     }
 
+    /**
+     * Only use after a positive previous-boot proof. A visible current PID,
+     * nonregular file, or malformed record keeps the admission guard closed.
+     * This is metadata validation, never a process signal.
+     */
+    private fun previousBootPidRecordsSafe(peer: String): String {
+        val records = listOf("pid", "pid6", "watch.pid").joinToString(" ") { quote("$peer/$it") }
+        return listOf(
+            "(",
+            "for file in $records; do",
+            "if test ! -e \"\$file\" && test ! -L \"\$file\"; then continue; fi",
+            "test -f \"\$file\" && test ! -L \"\$file\" || exit 1",
+            "pid=\$(cat \"\$file\" 2>/dev/null) || exit 1",
+            "case \"\$pid\" in ''|0*|*[!0-9]*) exit 1 ;; esac",
+            "test \"\$pid\" -gt 1 2>/dev/null && test \"\$pid\" -le 2147483647 2>/dev/null || exit 1",
+            "test ! -e " + quote(procRoot) + "/\$pid && test ! -L " + quote(procRoot) + "/\$pid || exit 1",
+            "done",
+            ")",
+        ).joinToString("\n")
+    }
+
     private fun peerAdmissionCheck(): String {
         val peer = peerDirectory ?: return ":"
         // Older adapters did not publish a generation. An outstanding PID
@@ -66,12 +87,14 @@ internal class RootLifecycleTransaction(
             return "test ! -e $path && test ! -L $path"
         }
         val noPidRecords = listOf("pid", "pid6", "watch.pid").joinToString(" && ") { absent(it) }
-        // A confirmed reboot invalidates prior-boot process ownership. Only
-        // retire metadata when no PID records remain; do not signal processes,
-        // touch firewall rules, or attempt same-boot recovery here.
+        // A confirmed reboot invalidates prior-boot process ownership.
+        // Validate all remaining PID records before deleting any. Do not
+        // signal processes, touch firewall rules, or attempt same-boot recovery.
         return listOf(
             "if ! ( " + absent("generation") + " ); then",
-            "if ( $noPidRecords ) && " + RootOwnerStatus.previousBoot(peer, procRoot) + "; then",
+            "if " + RootOwnerStatus.previousBoot(peer, procRoot) + " && " +
+                previousBootPidRecordsSafe(peer) + "; then",
+            "rm -f " + listOf("pid", "pid6", "watch.pid").joinToString(" ") { quote("$peer/$it") } + " || exit 1",
             "rm -f " + quote("$peer/owner.identity") + " || exit 1",
             "rm -f " + quote("$peer/generation") + " || exit 1",
             "echo 'ROOT: retired previous-boot owner metadata'",

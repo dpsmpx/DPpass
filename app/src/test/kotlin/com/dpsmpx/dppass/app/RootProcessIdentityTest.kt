@@ -630,7 +630,7 @@ class RootProcessIdentityTest {
         }
     }
 
-    @Test fun sharedStartupRetiresOnlyVerifiedPreviousBootPeerMetadataWithoutPidRecords() {
+    @Test fun sharedStartupRetiresOnlyVerifiedPreviousBootPeerMetadata() {
         if (!File("/bin/sh").canExecute()) return
         if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
         val dir = Files.createTempDirectory("dppass-previous-boot")
@@ -660,11 +660,28 @@ class RootProcessIdentityTest {
             assertFalse(marker.exists())
             boot.writeText(secondBoot)
             pid.writeText("123")
+            val visible = File(proc, "123").apply { mkdir() }
+            val otherPid = File(peer, "pid6").apply { writeText("234") }
             assertFalse(run(startup) == 0)
             assertTrue(pid.exists())
+            assertTrue(otherPid.exists())
             assertTrue(identity.exists())
             assertFalse(marker.exists())
-            assertTrue(pid.delete())
+            assertTrue(visible.delete())
+            val watch = File(peer, "watch.pid").apply { writeText("invalid") }
+            assertFalse(run(startup) == 0)
+            assertTrue(pid.exists())
+            assertTrue(otherPid.exists())
+            assertTrue(watch.exists())
+            assertFalse(marker.exists())
+            assertTrue(watch.delete())
+            assertTrue(watch.mkdir())
+            assertFalse(run(startup) == 0)
+            assertTrue(pid.exists())
+            assertTrue(otherPid.exists())
+            assertFalse(marker.exists())
+            assertTrue(watch.delete())
+            watch.writeText("345")
             identity.writeText("other 123 456 $firstBoot\n")
             assertFalse(run(startup) == 0)
             assertTrue(generation.exists())
@@ -677,6 +694,9 @@ class RootProcessIdentityTest {
             assertEquals(0, run(startup))
             assertFalse(generation.exists())
             assertFalse(identity.exists())
+            assertFalse(pid.exists())
+            assertFalse(otherPid.exists())
+            assertFalse(watch.exists())
             assertTrue(marker.exists())
             assertEquals(0, run(lifecycle.stop(":")))
         } finally {
