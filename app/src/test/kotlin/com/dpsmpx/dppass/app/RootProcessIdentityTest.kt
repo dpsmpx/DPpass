@@ -9,6 +9,60 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class RootProcessIdentityTest {
+    @Test fun lifecycleRejectsSymlinkDirectoriesAndNonregularLocks() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-lifecycle-paths").toFile()
+        val outside = File(dir, "outside").apply { mkdir() }
+        val target = File(outside, "untouched").apply { writeText("unchanged") }
+        val shared = File(dir, "shared").apply { mkdir() }
+        val adapter = File(dir, "adapter")
+        val peer = File(dir, "peer")
+        val action = File(dir, "action")
+        val lock = File(shared, "lifecycle.lock")
+        val tx = RootLifecycleTransaction(adapter.path, "next", shared.path, peer.path)
+        val touch = "touch '" + action.path + "'"
+        fun run(script: String) = RootCommandRunner.run(listOf("/bin/sh", "-c", script), timeoutMillis = 5000).exitCode
+        try {
+            Files.createSymbolicLink(adapter.toPath(), outside.toPath())
+            assertFalse(run(tx.start(":", touch)) == 0)
+            assertFalse(run(tx.stop(touch)) == 0)
+            assertFalse(action.exists())
+            assertFalse(File(outside, "generation").exists())
+            Files.delete(adapter.toPath())
+            Files.createSymbolicLink(peer.toPath(), outside.toPath())
+            assertFalse(run(tx.start(":", touch)) == 0)
+            assertFalse(action.exists())
+            Files.delete(peer.toPath())
+            lock.delete()
+            Files.createSymbolicLink(lock.toPath(), target.toPath())
+            assertFalse(run(tx.start(":", touch)) == 0)
+            assertFalse(action.exists())
+            assertEquals("unchanged", target.readText())
+            Files.delete(lock.toPath())
+            assertTrue(lock.mkdir())
+            assertFalse(run(tx.start(":", touch)) == 0)
+            assertFalse(action.exists())
+            assertTrue(lock.delete())
+            assertTrue(adapter.mkdir())
+            val pid = File(adapter, "pid").apply { writeText("123\n") }
+            assertFalse(run(tx.stop(touch)) == 0)
+            assertTrue(pid.exists())
+            assertFalse(action.exists())
+            assertTrue(pid.delete())
+            assertEquals(0, run(tx.start(":", touch)))
+            assertTrue(action.exists())
+            assertEquals(0, run(tx.stop(":")))
+            assertEquals("unchanged", target.readText())
+        } finally {
+            // Remove links explicitly before recursive fixture cleanup.
+            for (file in listOf(adapter, peer, lock)) {
+                if (Files.isSymbolicLink(file.toPath())) Files.delete(file.toPath())
+            }
+            dir.deleteRecursively()
+        }
+    }
+
     @Test fun appHealthRejectsZombieMalformedAndReusedOwnerBeforeProbing() {
         if (!File("/bin/sh").canExecute()) return
         val dir = Files.createTempDirectory("dppass-app-health").toFile()

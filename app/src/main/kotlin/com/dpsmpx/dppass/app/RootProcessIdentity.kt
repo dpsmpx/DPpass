@@ -88,9 +88,16 @@ internal object RootProcessIdentity {
      */
     fun lockedTransaction(lockFile: String, body: String, waitSeconds: Int = 5): String {
         require(waitSeconds in 1..10)
+        val file = quote(lockFile)
+        val parent = quote(java.io.File(lockFile).parent ?: ".")
         return listOf(
             "(",
             "umask 077",
+            "test -d $parent && test ! -L $parent && test \"\$(stat -c %u $parent)\" = \"\$(id -u)\" " +
+                "|| { echo 'ROOT: invalid lifecycle lock directory'; exit 1; }",
+            "test ! -L $file && { test ! -e $file || { test -f $file && " +
+                "test \"\$(stat -c %u $file)\" = \"\$(id -u)\"; }; } " +
+                "|| { echo 'ROOT: invalid lifecycle lock file'; exit 1; }",
             "command -v flock >/dev/null 2>&1 || { echo 'ROOT: flock unavailable'; exit 1; }",
             // A POSIX shell may exit immediately on a special-builtin
             // redirection failure; in either case the body must not run.

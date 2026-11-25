@@ -648,3 +648,7 @@ CI dbc7bfe: Go/Linux/Windows #45629152506 and Android #45629141104 succeeded (re
 ## A3/A5 — application-owner health rejects dead tasks
 
 Hardened the common watchdog application liveness probe: require matching PID prefix, a recognized live task state and saved start ticks before the zero-signal check. A zombie/dead/malformed or reused owner cannot be reported healthy solely because kill -0 succeeds. Synthetic /proc host fixture intercepts kill and verifies no probe for invalid identities. This is read-only health logic, not new signaling or automatic ownership recovery. New combined CI pending.
+
+## A3/A5 — ROOT lifecycle path and lock validation
+
+CI 4722b23: Go/Linux/Windows #45633452321 and Android #45633435923 succeeded. Reject symlink or non-directory lifecycle paths and directories not owned by the executing UID before chmod or metadata operations. Reject symlink/nonregular/unowned lock files before opening them; retain the stable lock inode. A missing generation with outstanding PID files is no longer reported as successful cleanup. Host fixture covers adapter/peer symlinks, symlink/directory lock entries, missing generation with PID evidence, and clean startup/stop. The production /data/adb parent remains trusted; these checks do not defend against a concurrent privileged writer. Physical tests remain open. New CI pending.

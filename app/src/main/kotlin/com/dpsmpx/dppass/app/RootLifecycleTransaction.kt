@@ -35,8 +35,18 @@ internal class RootLifecycleTransaction(
         RootProcessIdentity.generationMatches(record, generation)
     }
 
+    /** Check the final component before chmod, opening metadata or locking.
+     * Production parent /data/adb is trusted; this is not a defense against
+     * another privileged process replacing the directory concurrently. */
+    private fun directoryOrAbsent(path: String): String {
+        val dir = quote(path)
+        return "test ! -L $dir && { test ! -e $dir || { test -d $dir && " +
+            "test \"\$(stat -c %u $dir)\" = \"\$(id -u)\"; }; } " +
+            "|| { echo 'ROOT: invalid lifecycle directory'; exit 1; }"
+    }
+
     private fun transaction(body: String): String =
-        RootProcessIdentity.lockedTransaction(lock, body)
+        RootProcessIdentity.lockedTransaction(lock, directoryOrAbsent(directory) + "\n" + body)
 
     /**
      * The previous generation-aware implementation used a per-adapter lock.
@@ -135,6 +145,7 @@ internal class RootLifecycleTransaction(
         // Validate all remaining PID records before deleting any. Do not
         // signal processes, touch firewall rules, or attempt same-boot recovery.
         return listOf(
+            directoryOrAbsent(peer),
             "if ! ( " + absent("generation") + " ); then",
             "if " + previousBootRecordsSafe(peer) + "; then",
             retirePreviousBootRecords(peer),
@@ -263,7 +274,9 @@ internal class RootLifecycleTransaction(
         return listOf(
             "set -eu",
             "umask 077",
+            directoryOrAbsent(lockDirectory),
             "mkdir -p " + quote(lockDirectory),
+            directoryOrAbsent(lockDirectory),
             "chmod 700 " + quote(lockDirectory),
             transaction(listOf(
                 "set -eu",
@@ -271,6 +284,7 @@ internal class RootLifecycleTransaction(
                 // watchdog has not yet completed cleanup. Do not clean it here.
                 peerAdmissionCheck(),
                 "mkdir -p " + quote(directory),
+                directoryOrAbsent(directory),
                 "chmod 700 " + quote(directory),
                 migrationStartup(listOf(
                     metadataCheck(record, ownerRecord, temporary, "$ownerRecord.$generation.tmp", "$directory/pidfd.required",
@@ -298,6 +312,7 @@ internal class RootLifecycleTransaction(
             "test ! -e " + quote(it) + " && test ! -L " + quote(it)
         }
         return listOf(
+            directoryOrAbsent(directory),
             "test -d " + quote(directory) + " || exit 1",
             transaction(migrationStartup(listOf(
                 metadataCheck(record, ownerRecord, *(pidRecords + childIdentityRecords()).toTypedArray()),
@@ -332,13 +347,14 @@ internal class RootLifecycleTransaction(
 
     private fun cleanupTransaction(cleanup: String, condition: String? = null): String = listOf(
         // Do not create an absent ROOT directory during a stop.
+        directoryOrAbsent(directory),
         "test -d " + quote(directory) + " || exit 0",
         transaction(listOf(
             metadataCheck(record),
             // A missing generation with leftover owner metadata is ambiguous,
             // not proof that cleanup finished. Preserve it for reconciliation.
             "if ! test -e " + quote(record) + "; then",
-            (listOf(ownerRecord, "$directory/ipv6.intent", "$directory/pidfd.required") + childIdentityRecords()).joinToString(" && ") {
+            (listOf(ownerRecord, "$directory/ipv6.intent", "$directory/pidfd.required") + childIdentityRecords() + childPidRecords()).joinToString(" && ") {
                 "test ! -e " + quote(it) + " && test ! -L " + quote(it)
             } + " || { echo 'ROOT: unmatched owner metadata remains'; exit 1; }",
             "exit 0",
