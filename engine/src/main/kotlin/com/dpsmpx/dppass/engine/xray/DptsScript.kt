@@ -282,6 +282,24 @@ object DptsScript {
             "_a${attempt}_:$host"
     }
 
+    /** The address set is fixed for the whole expanded script, including
+     * same-IP controls. The short fingerprint is an identity check, not
+     * an authentication mechanism. */
+    fun preparationValid(plan: DptsPlan, prepared: Zapret2GoogleProbe): Boolean =
+        plan.probes.isNotEmpty() && prepared.outcome == "dns_ready" &&
+            prepared.dnsAnswers in 1..8 && prepared.dnsFingerprint.matches(Regex("[0-9a-f]{8}")) &&
+            plan.probes.all { it.ipIndex in 0 until prepared.dnsAnswers }
+
+    fun rowMatchesPreparation(spec: DptsProbe, row: Zapret2GoogleAttempt,
+        prepared: Zapret2GoogleProbe): Boolean =
+        spec.matches(row) && row.result.dnsFingerprint == prepared.dnsFingerprint &&
+            row.result.dnsAnswers == prepared.dnsAnswers
+
+    fun completeEvidence(plan: DptsPlan, prepared: Zapret2GoogleProbe,
+        rows: List<Zapret2GoogleAttempt>): Boolean =
+        preparationValid(plan, prepared) && rows.size == plan.probes.size &&
+            plan.probes.indices.all { rowMatchesPreparation(plan.probes[it], rows[it], prepared) }
+
     /** Caller never includes HTTP response bytes, raw IPs, credentials or URLs. */
     fun report(plan: DptsPlan, network: String, prepared: Zapret2GoogleProbe,
         observations: List<Zapret2GoogleAttempt>): String = buildString {
@@ -290,13 +308,17 @@ object DptsScript {
         appendLine("Сеть: $network; host=${plan.host}")
         appendLine("DoH: ${prepared.outcome}; IPv4=${prepared.dnsAnswers};" +
             " fingerprint=${prepared.dnsFingerprint}")
+        val preparationValid = preparationValid(plan, prepared)
         val matched = plan.probes.indices.mapNotNull { i ->
             val row = observations.getOrNull(i) ?: return@mapNotNull null
-            if (plan.probes[i].matches(row)) i to row.result else null
+            if (preparationValid && rowMatchesPreparation(plan.probes[i], row, prepared))
+                i to row.result else null
         }.toMap()
         appendLine("Выполнено: ${observations.size}/${plan.probes.size};" +
             " worst_case_budget_ms=${plan.budgetMs}")
         appendLine("matched_rows=${matched.size}; unbound_rows=${observations.size - matched.size}")
+        appendLine("dns_preparation_valid=$preparationValid; complete_evidence=" +
+            completeEvidence(plan, prepared, observations))
         for (phase in plan.probes.map { it.phase }.distinct()) {
             val indices = plan.probes.indices.filter { plan.probes[it].phase == phase }
             val results = indices.mapNotNull { i -> matched[i]?.let { plan.probes[i] to it } }

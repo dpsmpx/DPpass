@@ -1587,8 +1587,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
                 ensureActive()
                 val requiredIPs = (plan.probes.maxOfOrNull { it.ipIndex } ?: 0) + 1
-                if (prepared.outcome != "dns_ready" ||
-                    prepared.dnsAnswers < requiredIPs) {
+                if (!DptsScript.preparationValid(plan, prepared)) {
                     statusText.text = "DPTS: DoH ${prepared.outcome}, " +
                         "${prepared.dnsAnswers}/$requiredIPs IPv4"
                     resultText.text = statusText.text
@@ -1634,11 +1633,15 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     return@launch
                 }
                 val report = DptsScript.report(plan, network, prepared, rows)
-                lastDptsPlan = plan
-                lastDptsRows = rows.toList()
-                lastDptsNetwork = network
-                lastDptsGeneration = generation
-                lastDptsNetworkHandle = handle
+                // Keep the diagnostic report even for inconsistent rows,
+                // but never expose training for an unbound experiment.
+                if (DptsScript.completeEvidence(plan, prepared, rows)) {
+                    lastDptsPlan = plan
+                    lastDptsRows = rows.toList()
+                    lastDptsNetwork = network
+                    lastDptsGeneration = generation
+                    lastDptsNetworkHandle = handle
+                }
                 resultText.text = report
                 resultText.visibility = View.VISIBLE
                 val copied = try {

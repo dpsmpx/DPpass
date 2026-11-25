@@ -68,6 +68,28 @@ class DptsScriptTest {
         }
         assertTrue(wrongAlpn.contains("tls_verified=0/1"))
         assertTrue(wrongAlpn.contains("content_verified=0/1"))
+        val changedDns = report("www.youtube.com", "https") {
+            it.copy(result = it.result.copy(dnsFingerprint = "12345678"))
+        }
+        assertTrue(changedDns.contains("matched_rows=0; unbound_rows=1"))
+        assertTrue(changedDns.contains("complete_evidence=false"))
+        val changedCount = report("www.youtube.com", "https") {
+            it.copy(result = it.result.copy(dnsAnswers = 2))
+        }
+        assertTrue(changedCount.contains("content_verified=0/0"))
+        assertTrue(home.contains("complete_evidence=true"))
+    }
+
+    @Test fun preparedDnsSetMustCoverThePlanBeforeEvidenceIsAccepted() {
+        val plan = DptsScript.compile("dpts 1\nhost www.youtube.com\nhttps ips=2 attempts=1")
+        val valid = Zapret2GoogleProbe("dns_ready", 200, 0, 10, 0, 0, "abcdef12", 2)
+        assertTrue(DptsScript.preparationValid(plan, valid))
+        for (invalid in listOf(valid.copy(dnsAnswers = 1), valid.copy(dnsAnswers = 9),
+            valid.copy(dnsFingerprint = "-"), valid.copy(outcome = "timeout"))) {
+            assertFalse(DptsScript.preparationValid(plan, invalid))
+            assertFalse(DptsScript.completeEvidence(plan, invalid, emptyList()))
+        }
+        assertFalse(DptsScript.completeEvidence(plan, valid, emptyList()))
     }
 
     @Test fun sharedCatalogPreservesDiagnosticOrderAndCalibrationBoundary() {
