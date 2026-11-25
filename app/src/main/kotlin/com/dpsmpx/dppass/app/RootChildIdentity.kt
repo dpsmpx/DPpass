@@ -125,6 +125,50 @@ internal object RootChildIdentity {
     fun sameBootGone(pidFile: String, generation: String, procRoot: String = "/proc"): String =
         probe(pidFile, generation, null, procRoot)
 
+    /**
+     * Strict recorded-child cleanup for a caller holding the lifecycle lock.
+     * No fallback to legacy path-only identity. A positive stale/dead proof
+     * retires the PID without a signal; an unknown identity retains evidence.
+     * This shell implementation narrows but cannot close the PID reuse race
+     * between the final proc check and kill. Do not wire it to live adapters
+     * until the handover and post-signal disappearance cases are resolved.
+     */
+    fun stopRecordedExecutable(pidFile: String, generation: String, path: String, procRoot: String = "/proc"): String =
+        stopRecorded(pidFile, generation, matchesExecutable(pidFile, generation, path, procRoot), procRoot)
+
+    fun stopRecordedScript(pidFile: String, generation: String, path: String, procRoot: String = "/proc"): String =
+        stopRecorded(pidFile, generation, matchesScript(pidFile, generation, path, procRoot), procRoot)
+
+    private fun stopRecorded(pidFile: String, generation: String, matches: String, procRoot: String): String {
+        val gone = sameBootGone(pidFile, generation, procRoot)
+        return listOf(
+            "(",
+            "set -f",
+            pidFrom(pidFile),
+            "target_pid=\$pid",
+            "if ! $gone; then",
+            "$matches || { echo 'ROOT: recorded child identity unproven'; exit 1; }",
+            // Hold the target PID fixed; do not read a new target from the
+            // record after validation. No escalation or repeated signals.
+            "test \"\$(cat " + quote(pidFile) + " 2>/dev/null)\" = \"\$target_pid\" || exit 1",
+            "if ! kill \"\$target_pid\" 2>/dev/null; then",
+            "$gone || { echo 'ROOT: recorded child signal failed'; exit 1; }",
+            "fi",
+            "remaining=2",
+            "while ! $gone; do",
+            "test \"\$remaining\" -gt 0 || { echo 'ROOT: recorded child exit unproven'; exit 1; }",
+            "sleep 1; remaining=\$((remaining-1))",
+            "done",
+            "fi",
+            "test \"\$(cat " + quote(pidFile) + " 2>/dev/null)\" = \"\$target_pid\" || exit 1",
+            // The lifecycle transaction retires sidecars only after all
+            // child PID records are absent and the cleanup callback succeeds.
+            "rm -f " + quote(pidFile) + " || exit 1",
+            // The surrounding cleanup may run with set +e.
+            ") || exit 1",
+        ).joinToString("\n")
+    }
+
     private fun probe(pidFile: String, generation: String, expected: String?, procRoot: String): String {
         validateGeneration(generation)
         val record = "$pidFile.identity"
