@@ -33,6 +33,23 @@ class RootDpiRuntimeTest {
         override suspend fun alive() = true
     }
 
+    @Test fun cleanupSuccessAndReturnedFailureRemainDistinguishable() = runBlocking {
+        val good = Fake()
+        val bad = Fake(stopResult = Result.failure(IllegalStateException("cleanup failed")))
+        assertTrue(good.stopForCleanup().isSuccess)
+        assertEquals("cleanup failed", bad.stopForCleanup().exceptionOrNull()?.message)
+        assertEquals(1, good.stops)
+        assertEquals(1, bad.stops)
+    }
+
+    @Test fun cleanupThrownFailureIsReturnedAndCanBeRetried() = runBlocking {
+        val runtime = Fake(stopException = IllegalStateException("cleanup threw"))
+        repeat(2) {
+            assertEquals("cleanup threw", runtime.stopForCleanup().exceptionOrNull()?.message)
+        }
+        assertEquals(2, runtime.stops)
+    }
+
     @Test fun successfulLaunchDoesNotRollBack() {
         var launches = 0
         var rollbacks = 0

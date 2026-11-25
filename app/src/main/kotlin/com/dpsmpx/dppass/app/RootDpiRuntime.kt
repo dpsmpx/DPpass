@@ -48,3 +48,15 @@ internal fun rootLaunchWithRollback(launch: () -> Unit, rollback: () -> Unit) {
         throw startup
     }
 }
+
+/** Stop may fail by returning Result.failure or by throwing. Keep both
+ * paths observable and finish the cleanup attempt even during cancellation.
+ */
+internal suspend fun RootDpiRuntime.stopForCleanup(): Result<Unit> =
+    withContext(NonCancellable) {
+        try {
+            stop()
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }

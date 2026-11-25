@@ -253,10 +253,13 @@ class DPpassVpnService : VpnService() {
                 TunnelState.set(TunnelStatus.Stopping)
                 announce()
                 scope.launch {
-                    lifecycle.withLock { shutdown() }
-                    TunnelState.set(TunnelStatus.Idle)
-                    announce()
-                    stopSelf()
+                    lifecycle.withLock {
+                        if (shutdown()) {
+                            TunnelState.set(TunnelStatus.Idle)
+                            announce()
+                            stopSelf()
+                        } else reportRootCleanupFailure()
+                    }
                 }
                 return START_NOT_STICKY
             }
@@ -286,8 +289,11 @@ class DPpassVpnService : VpnService() {
         lifecycle.withLock {
             // Switching from VpnService to root must release the old TUN;
             // otherwise packets stay trapped in an inactive Android VPN.
-            shutdown(keepTunnel = !AppPrefs(this@DPpassVpnService).zapret2Backend.rooted)
-            if (restarts.decrementAndGet() == 0) start() else DeviceLog.log.info("service_reconnect_superseded")
+            val cleaned = shutdown(keepTunnel = !AppPrefs(this@DPpassVpnService).zapret2Backend.rooted)
+            val remaining = restarts.decrementAndGet()
+            if (!cleaned) {
+                if (remaining == 0) reportRootCleanupFailure()
+            } else if (remaining == 0) start() else DeviceLog.log.info("service_reconnect_superseded")
         }
     }
 
@@ -616,7 +622,7 @@ class DPpassVpnService : VpnService() {
             while (isActive) {
                 delay(5_000L)
                 if (!root.alive()) {
-                    root.stop().onFailure { error ->
+                    val stopped = root.stopForCleanup().onFailure { error ->
                         DeviceLog.log.diagnostic(Diagnostic.fromThrowable(
                             DiagCode.BACKEND_NOT_AVAILABLE, "не удалось снять правила Zapret2 после сбоя", error,
                         ))
@@ -624,8 +630,15 @@ class DPpassVpnService : VpnService() {
                     // A cancelled observer must not publish a stale failure
                     // after shutdown has begun.
                     currentCoroutineContext().ensureActive()
-                    rootZapret2 = null
-                    fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE, name + ": процесс больше не работает"))
+                    state.withLock {
+                        currentCoroutineContext().ensureActive()
+                        if (rootZapret2 === root) {
+                            if (stopped.isSuccess) rootZapret2 = null
+                            if (stopped.isSuccess) {
+                                fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE, name + ": процесс больше не работает"))
+                            } else reportRootCleanupFailure()
+                        }
+                    }
                     break
                 }
             }
@@ -1602,7 +1615,12 @@ class DPpassVpnService : VpnService() {
         TunnelState.share(emptyList())
     }
 
-    private suspend fun shutdown(keepTunnel: Boolean = false) {
+    private fun reportRootCleanupFailure() {
+        fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
+            "Не удалось завершить очистку ROOT; повторите остановку"))
+    }
+
+    private suspend fun shutdown(keepTunnel: Boolean = false): Boolean {
         alpineWatch?.cancel()
         alpineWatch = null
         byeDpiWatch?.cancel()
@@ -1637,12 +1655,14 @@ class DPpassVpnService : VpnService() {
             alpineStrategy = null
         }
         // У root нет Xray EngineSession, но есть собственный процесс и NFQUEUE.
-        rootZapret2?.stop()?.onFailure { error ->
+        val root = rootZapret2
+        val rootCleaned = root == null || root.stopForCleanup().onFailure { error ->
             DeviceLog.log.diagnostic(Diagnostic.fromThrowable(
                 DiagCode.BACKEND_NOT_AVAILABLE, "не удалось снять правила Zapret2 при остановке", error,
             ))
-        }
-        rootZapret2 = null
+        }.isSuccess
+        // Keep ownership after failure so a subsequent stop/onDestroy can retry.
+        if (rootCleaned) rootZapret2 = null
         // NonCancellable acceptance мог зарегистрировать наблюдателей после первой отмены.
         val lateStrategySession = zapret2FinalState != null
         stopObservers()
@@ -1667,16 +1687,20 @@ class DPpassVpnService : VpnService() {
             core.usage.flush().diagnostics.forEach(core.log::diagnostic)
             core.analyzer.flush().diagnostics.forEach(core.log::diagnostic)
         }
+        return rootCleaned
     }
 
     override fun onRevoke() {
         // Пользователь отозвал разрешение или включил другой VPN.
         DeviceLog.log.info("service_revoked")
         scope.launch {
-            lifecycle.withLock { shutdown() }
-            TunnelState.set(TunnelStatus.Idle)
-            announce()
-            stopSelf()
+            lifecycle.withLock {
+                if (shutdown()) {
+                    TunnelState.set(TunnelStatus.Idle)
+                    announce()
+                    stopSelf()
+                } else reportRootCleanupFailure()
+            }
         }
     }
 
@@ -1684,8 +1708,8 @@ class DPpassVpnService : VpnService() {
         // Сервис уходит: уборка — в области процесса, она переживёт этот объект.
         val failed = TunnelState.status.value as? TunnelStatus.Failed
         AppGraph.scope.launch {
-            lifecycle.withLock { shutdown() }
-            if (failed?.trafficBlocked == true && TunnelState.status.value === failed) {
+            val cleaned = lifecycle.withLock { shutdown() }
+            if (cleaned && failed?.trafficBlocked == true && TunnelState.status.value === failed) {
                 TunnelState.set(failed.copy(trafficBlocked = false))
                 announce()
             }
