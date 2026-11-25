@@ -8,6 +8,60 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class RootPidfdCleanupTest {
+    @Test fun unpairedIdentityRequiresNoSignalGoneProofBeforeRetirement() {
+        if (!File("/bin/sh").canExecute()) return
+        val dir = Files.createTempDirectory("dppass-unpaired-child").toFile()
+        val generation = File(dir, "generation")
+        val pid = File(dir, "pid")
+        val identity = File(dir, "pid.identity")
+        val marker = File(dir, "pidfd.required")
+        val helper = File(dir, "root-pidfd")
+        val calls = File(dir, "calls")
+        val boot = "11111111-1111-1111-1111-111111111111"
+        val record = "v1 owner 123 456 $boot\n"
+        val stop = RootPidfdCleanup.stopExecutable(dir.path, "pid", "/fixture/daemon")
+        fun run() = RootCommandRunner.run(listOf("/bin/sh", "-c",
+            "kill() { exit 99; }\n" + stop), timeoutMillis = 5000).exitCode
+        fun install(result: Int) {
+            helper.writeText("#!/bin/sh\ncase \"\$1\" in --version) echo dppass-root-pidfd/1;; " +
+                "gone) printf '%s\\n' \"\$@\" > '${calls.path}'; exit $result;; *) exit 99;; esac\n")
+            assertTrue(helper.setExecutable(true))
+        }
+        try {
+            generation.writeText("owner\n")
+            marker.writeText("v1\n")
+            assertEquals(0, run())
+            identity.writeText(record)
+            assertFalse(run() == 0)
+            install(2)
+            assertFalse(run() == 0)
+            assertEquals(listOf("gone", "123", "456", boot), calls.readLines())
+            assertEquals(record, identity.readText())
+            assertFalse(pid.exists())
+            install(0)
+            calls.delete()
+            identity.writeText("v1 stale 123 456 $boot\n")
+            assertFalse(run() == 0)
+            assertFalse(calls.exists())
+            identity.writeText(record)
+            marker.writeText("invalid\n")
+            assertFalse(run() == 0)
+            assertFalse(calls.exists())
+            marker.writeText("v1\n")
+            assertEquals(0, run())
+            assertEquals(listOf("gone", "123", "456", boot), calls.readLines())
+            // Only the enclosing lifecycle transaction retires the sidecar.
+            assertEquals(record, identity.readText())
+            assertFalse(pid.exists())
+            marker.delete()
+            helper.delete()
+            assertFalse(run() == 0)
+            assertEquals(record, identity.readText())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     @Test fun missingIdentityCanBeRetiredOnlyAfterNativeAbsenceProof() {
         if (!File("/bin/sh").canExecute()) return
         val dir = Files.createTempDirectory("dppass-legacy-child").toFile()
