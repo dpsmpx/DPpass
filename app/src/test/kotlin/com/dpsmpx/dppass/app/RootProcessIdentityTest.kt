@@ -582,6 +582,54 @@ class RootProcessIdentityTest {
         }
     }
 
+    @Test fun persistedOwnerInspectionDistinguishesMatchStaleAndUnknown() {
+        if (!File("/bin/sh").canExecute()) return
+        val dir = Files.createTempDirectory("dppass-owner-status")
+        val adapter = dir.resolve("adapter").toFile().apply { mkdir() }
+        val proc = dir.resolve("proc").toFile().apply { mkdir() }
+        val boot = File(proc, "sys/kernel/random/boot_id").apply { parentFile?.mkdirs() }
+        val stat = File(proc, "123/stat").apply { parentFile?.mkdirs() }
+        val generation = File(adapter, "generation").apply { writeText("owner") }
+        val record = File(adapter, "owner.identity")
+        val firstBoot = "11111111-1111-1111-1111-111111111111"
+        val secondBoot = "22222222-2222-2222-2222-222222222222"
+        fun writeStat(ticks: String) {
+            stat.writeText("123 (name with ) delimiter) S " + List(18) { "0" }.joinToString(" ") + " $ticks 0")
+        }
+        fun inspect(): String {
+            val result = RootCommandRunner.run(listOf("/bin/sh", "-c",
+                RootOwnerStatus.inspect(adapter.path, proc.path),
+            ))
+            assertEquals(0, result.exitCode)
+            return result.outputTail.trim()
+        }
+        try {
+            boot.writeText(firstBoot)
+            record.writeText("owner 123 456 $firstBoot\n")
+            writeStat("456")
+            assertEquals("ROOT: owner identity matches", inspect())
+            writeStat("789")
+            assertEquals("ROOT: owner identity stale (PID reused)", inspect())
+            assertTrue(stat.delete())
+            assertEquals("ROOT: owner identity unknown", inspect())
+            boot.writeText(secondBoot)
+            assertEquals("ROOT: owner identity stale (boot changed)", inspect())
+            record.writeText("owner 123 456 unknown\n")
+            assertEquals("ROOT: owner identity unknown", inspect())
+            record.writeText("other 123 456 $firstBoot\n")
+            assertEquals("ROOT: owner identity unknown", inspect())
+            record.writeText("owner 1 456 $firstBoot\n")
+            assertEquals("ROOT: owner identity unknown", inspect())
+            record.writeText("owner 123 invalid $firstBoot\n")
+            assertEquals("ROOT: owner identity unknown", inspect())
+            assertTrue(record.delete())
+            assertEquals("ROOT: owner identity unknown", inspect())
+            assertEquals("owner", generation.readText())
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun lockAndGenerationGuardRejectInvalidInputs() {
         val invalidTimeout = runCatching { RootProcessIdentity.lockedTransaction("/tmp/lock", ":", 0) }
         assertTrue(invalidTimeout.isFailure)

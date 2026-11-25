@@ -66,7 +66,8 @@ internal class RootLifecycleTransaction(
         }
         return listOf(
             absent("generation") +
-                " || { echo 'ROOT: other adapter cleanup pending or active'; exit 1; }",
+                " || { echo 'ROOT: other adapter cleanup pending or active'; " +
+                RootOwnerStatus.inspect(peer) + "; exit 1; }",
             listOf("pid", "pid6", "watch.pid").joinToString(" && ") { absent(it) } +
                 " || { echo 'ROOT: previous adapter PID records remain; stop that mode first'; exit 1; }",
         ).joinToString("\n")
