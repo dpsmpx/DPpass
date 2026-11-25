@@ -835,6 +835,68 @@ class RootProcessIdentityTest {
         }
     }
 
+
+    @Test fun failedOwnerPublicationFencesMatchingGenerationUntilMetadataIsRepaired() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-owner-publication-failure")
+        val first = RootLifecycleTransaction(dir.toString(), "first")
+        val next = RootLifecycleTransaction(dir.toString(), "next")
+        val record = dir.resolve("generation").toFile()
+        val identity = dir.resolve("owner.identity").toFile()
+        val staged = dir.resolve("owner.identity.next.tmp").toFile()
+        val marker = dir.resolve("action").toFile()
+        fun run(script: String) = RootCommandRunner.run(
+            listOf("/bin/sh", "-c", script), timeoutMillis = 10_000,
+        )
+        try {
+            val owner = RootOwnerIdentity(123, "456")
+            assertEquals(0, run(first.start(":", ":", owner)).exitCode)
+            val saved = identity.readText()
+            val action = "echo action > '${marker.path}'"
+            val startup = next.start(action, action, owner)
+            // Fail exactly the second metadata rename, after publication of generation.
+            val failed = run("mv() { if test \"\$3\" = '${identity.path}'; then return 7; fi; command mv \"\$@\"; }\n" + startup)
+            assertFalse(failed.exitCode == 0)
+            assertEquals("next", record.readText().trim())
+            assertEquals(saved, identity.readText())
+            assertTrue(staged.exists())
+            assertFalse(marker.exists())
+            assertFalse(run(next.alive(action)).exitCode == 0)
+            val stop = run(next.stop(action))
+            assertFalse(stop.exitCode == 0)
+            assertTrue(stop.outputTail.contains("inconsistent owner metadata"))
+            assertFalse(run(next.watchdogPoll(action, action)).exitCode == 0)
+            assertFalse(marker.exists())
+            assertEquals(saved, identity.readText())
+            assertEquals(0, run(first.stop(action)).exitCode)
+            assertFalse(marker.exists())
+            // A matching record restores the normal lifecycle. This fixture
+            // simulates deliberate repair; it does not enable auto-recovery.
+            identity.writeText(staged.readText())
+            assertEquals(0, run(next.alive(":")).exitCode)
+            assertEquals(0, run(next.stop(action)).exitCode)
+            assertTrue(marker.exists())
+            assertFalse(identity.exists())
+            assertFalse(record.exists())
+            // The same failure on a fresh start leaves no committed owner
+            // record at all; a matching staging record still fences cleanup.
+            assertTrue(staged.delete())
+            assertTrue(marker.delete())
+            val freshFailure = run("mv() { if test \"\$3\" = '${identity.path}'; then return 7; fi; command mv \"\$@\"; }\n" + startup)
+            assertFalse(freshFailure.exitCode == 0)
+            assertEquals("next", record.readText().trim())
+            assertFalse(identity.exists())
+            assertTrue(staged.exists())
+            assertFalse(run(next.alive(action)).exitCode == 0)
+            assertFalse(run(next.stop(action)).exitCode == 0)
+            assertFalse(run(next.watchdogPoll(action, action)).exitCode == 0)
+            assertFalse(marker.exists())
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun lockAndGenerationGuardRejectInvalidInputs() {
         val invalidTimeout = runCatching { RootProcessIdentity.lockedTransaction("/tmp/lock", ":", 0) }
         assertTrue(invalidTimeout.isFailure)
