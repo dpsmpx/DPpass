@@ -143,7 +143,7 @@ class DPpassVpnService : VpnService() {
 
     private var connecting: Job? = null
     private var session: EngineSession? = null
-    private var rootZapret2: RootDpiRuntime? = null
+    private var rootZapret2: RootRuntimeHandle? = null
     private var byeDpi: ByeDpiRuntime? = null
     private var byeDpiWatch: Job? = null
     private var rootWatch: Job? = null
@@ -317,6 +317,18 @@ class DPpassVpnService : VpnService() {
      */
     private suspend fun connectOrFail() {
         try {
+            // A previous service may have left incomplete ROOT cleanup.
+            // Never retry cleanup of an active owner here.
+            if (processRootRuntimeCoordinator.retryAbandonedCleanup().onFailure {
+                    DeviceLog.log.diagnostic(Diagnostic.fromThrowable(
+                        DiagCode.BACKEND_NOT_AVAILABLE, "не удалось снять оставшиеся ROOT-правила", it,
+                    ))
+                }.isFailure) {
+                currentCoroutineContext().ensureActive()
+                reportRootCleanupFailure()
+                return
+            }
+            currentCoroutineContext().ensureActive()
             connect()
         } catch (e: CancellationException) {
             throw e
@@ -589,7 +601,7 @@ class DPpassVpnService : VpnService() {
             return
         }
         val root = processRootRuntimeCoordinator.bind(
-            if (useByeDpi) RootByeDpi(this) else RootZapret2(this),
+            if (useByeDpi) RootByeDpi(applicationContext) else RootZapret2(applicationContext),
         )
         // Capture the original job before entering NonCancellable.
         // Startup and registration/rollback form one ownership transaction.
@@ -1633,7 +1645,7 @@ class DPpassVpnService : VpnService() {
         progress(TunnelStatus.Failed(reason, trafficBlocked = tunnel.present, rootCleanupPending = true))
     }
 
-    private suspend fun shutdown(keepTunnel: Boolean = false): Boolean {
+    private suspend fun shutdown(keepTunnel: Boolean = false, retryAbandonedRoot: Boolean = true): Boolean {
         alpineWatch?.cancel()
         alpineWatch = null
         byeDpiWatch?.cancel()
@@ -1669,7 +1681,12 @@ class DPpassVpnService : VpnService() {
         }
         // У root нет Xray EngineSession, но есть собственный процесс и NFQUEUE.
         val root = rootZapret2
-        val rootCleaned = root == null || root.stopForCleanup().onFailure { error ->
+        val rootCleanup = when {
+            root != null -> root.stopForCleanup()
+            retryAbandonedRoot -> processRootRuntimeCoordinator.retryAbandonedCleanup()
+            else -> Result.success(Unit)
+        }
+        val rootCleaned = rootCleanup.onFailure { error ->
             DeviceLog.log.diagnostic(Diagnostic.fromThrowable(
                 DiagCode.BACKEND_NOT_AVAILABLE, "не удалось снять правила Zapret2 при остановке", error,
             ))
@@ -1721,7 +1738,16 @@ class DPpassVpnService : VpnService() {
         // Сервис уходит: уборка — в области процесса, она переживёт этот объект.
         val failed = TunnelState.status.value as? TunnelStatus.Failed
         AppGraph.scope.launch {
-            val cleaned = lifecycle.withLock { shutdown() }
+            val cleaned = lifecycle.withLock {
+                try {
+                    shutdown(retryAbandonedRoot = false)
+                } finally {
+                    // The coordinator retains only the application-context
+                    // adapter, not this destroyed service. A later service
+                    // can retry the abandoned owner's cleanup.
+                    rootZapret2?.abandon()
+                }
+            }
             if (cleaned && failed != null && TunnelState.status.value === failed) {
                 if (failed.rootCleanupPending) {
                     TunnelState.set(TunnelStatus.Idle)

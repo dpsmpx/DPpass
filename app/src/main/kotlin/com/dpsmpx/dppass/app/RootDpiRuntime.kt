@@ -76,11 +76,28 @@ internal suspend fun RootDpiRuntime.stopForCleanup(): Result<Unit> =
  * An obsolete handle must never stop a newer owner. This does not lock
  * external watchdog scripts or survive process death.
  */
+internal interface RootRuntimeHandle : RootDpiRuntime {
+    /** Only call after the owning service has finished its destruction cleanup. */
+    suspend fun abandon()
+}
+
 internal class RootRuntimeCoordinator {
     private val mutex = Mutex()
-    private var owner: Any? = null
+    private data class Owner(val token: Any, val delegate: RootDpiRuntime, var abandoned: Boolean = false)
+    private var owner: Owner? = null
 
-    fun bind(delegate: RootDpiRuntime): RootDpiRuntime = object : RootDpiRuntime {
+    /** Retry only an explicitly abandoned owner, never a live service's resources. */
+    suspend fun retryAbandonedCleanup(): Result<Unit> = withContext(NonCancellable) {
+        mutex.withLock {
+            val current = owner
+            if (current == null || !current.abandoned) return@withLock Result.success(Unit)
+            val result = current.delegate.stopForCleanup()
+            if (result.isSuccess) owner = null
+            result
+        }
+    }
+
+    fun bind(delegate: RootDpiRuntime): RootRuntimeHandle = object : RootRuntimeHandle {
         private val token = Any()
 
         override suspend fun start(): Result<Unit> = mutex.withLock {
@@ -89,21 +106,28 @@ internal class RootRuntimeCoordinator {
             }
             val result = delegate.start()
             if (result.isSuccess || result.exceptionOrNull() is RootStartupCleanupFailure) {
-                owner = token
+                owner = Owner(token, delegate)
             }
             result
         }
 
         override suspend fun stop(): Result<Unit> = mutex.withLock {
             // No owned resources remain for this handle.
-            if (owner !== token) return@withLock Result.success(Unit)
+            if (owner?.token !== token) return@withLock Result.success(Unit)
             val result = delegate.stopForCleanup()
             if (result.isSuccess) owner = null
             result
         }
 
         override suspend fun alive(): Boolean = mutex.withLock {
-            owner === token && delegate.alive()
+            owner?.token === token && owner?.abandoned == false && delegate.alive()
+        }
+
+        override suspend fun abandon() = withContext(NonCancellable) {
+            mutex.withLock {
+                val current = owner
+                if (current?.token === token) current.abandoned = true
+            }
         }
     }
 }

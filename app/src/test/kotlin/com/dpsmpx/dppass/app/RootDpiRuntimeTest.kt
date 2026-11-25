@@ -17,7 +17,7 @@ class RootDpiRuntimeTest {
     private class Fake(
         private val duringStart: suspend () -> Unit = {},
         private val startResult: Result<Unit> = Result.success(Unit),
-        private val stopResult: Result<Unit> = Result.success(Unit),
+        var stopResult: Result<Unit> = Result.success(Unit),
         private val stopException: Throwable? = null,
     ) : RootDpiRuntime {
         var stops = 0
@@ -33,6 +33,40 @@ class RootDpiRuntimeTest {
             return stopResult
         }
         override suspend fun alive() = true
+    }
+
+    @Test fun abandonedOwnerCanBeRecoveredAfterFailedStop() = runBlocking {
+        val coordinator = RootRuntimeCoordinator()
+        val first = Fake(stopResult = Result.failure(IllegalStateException("cleanup failed")))
+        val second = Fake()
+        val a = coordinator.bind(first)
+        val b = coordinator.bind(second)
+        assertTrue(a.start().isSuccess)
+        assertTrue(a.stop().isFailure)
+        a.abandon()
+        assertTrue(coordinator.retryAbandonedCleanup().isFailure)
+        assertTrue(b.start().isFailure)
+        first.stopResult = Result.success(Unit)
+        assertTrue(coordinator.retryAbandonedCleanup().isSuccess)
+        assertEquals(3, first.stops)
+        assertTrue(b.start().isSuccess)
+        a.abandon()
+        assertTrue(coordinator.retryAbandonedCleanup().isSuccess)
+        assertTrue(b.alive())
+        assertEquals(0, second.stops)
+        assertTrue(b.stop().isSuccess)
+    }
+
+    @Test fun recoveryNeverStopsActiveOwner() = runBlocking {
+        val coordinator = RootRuntimeCoordinator()
+        val runtime = Fake()
+        val handle = coordinator.bind(runtime)
+        assertTrue(coordinator.retryAbandonedCleanup().isSuccess)
+        assertTrue(handle.start().isSuccess)
+        assertTrue(coordinator.retryAbandonedCleanup().isSuccess)
+        assertTrue(handle.alive())
+        assertEquals(0, runtime.stops)
+        assertTrue(handle.stop().isSuccess)
     }
 
     @Test fun coordinatorRejectsAnotherOwnerAndIgnoresObsoleteStop() = runBlocking {
