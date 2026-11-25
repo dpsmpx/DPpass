@@ -47,6 +47,23 @@ internal class RootLifecycleTransaction(
         ).joinToString("\n")
     }
 
+    private fun peerAdmissionCheck(): String {
+        val peer = peerDirectory ?: return ":"
+        // Older adapters did not publish a generation. An outstanding PID
+        // record may be stale, but absence of a generation does not prove
+        // cleanup. Leave reconciliation to the adapter that owns the files.
+        fun absent(name: String): String {
+            val path = quote("$peer/$name")
+            return "test ! -e $path && test ! -L $path"
+        }
+        return listOf(
+            absent("generation") +
+                " || { echo 'ROOT: other adapter cleanup pending or active'; exit 1; }",
+            listOf("pid", "pid6", "watch.pid").joinToString(" && ") { absent(it) } +
+                " || { echo 'ROOT: previous adapter PID records remain; stop that mode first'; exit 1; }",
+        ).joinToString("\n")
+    }
+
     fun start(cleanup: String, launch: String): String {
         val temporary = "$record.$generation.tmp"
         return listOf(
@@ -58,10 +75,7 @@ internal class RootLifecycleTransaction(
                 "set -eu",
                 // Refuse a peer with outstanding ownership, even if its
                 // watchdog has not yet completed cleanup. Do not clean it here.
-                peerDirectory?.let {
-                    "test ! -e " + quote("$it/generation") +
-                        " || { echo 'ROOT: other adapter cleanup pending or active'; exit 1; }"
-                } ?: ":",
+                peerAdmissionCheck(),
                 "mkdir -p " + quote(directory),
                 "chmod 700 " + quote(directory),
                 migrationStartup(listOf(

@@ -474,6 +474,37 @@ class RootProcessIdentityTest {
         }
     }
 
+    @Test fun sharedStartupRefusesLegacyPeerRecordsWithoutGeneration() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-legacy-peer")
+        val peer = dir.resolve("peer").toFile().apply { mkdir() }
+        val adapter = dir.resolve("adapter").toString()
+        val lifecycle = RootLifecycleTransaction(adapter, "next", dir.resolve("shared").toString(), peer.path)
+        val marker = dir.resolve("action").toFile()
+        val startup = lifecycle.start("echo cleanup > '${marker.path}'", "echo launch > '${marker.path}'")
+        fun run(script: String) = RootCommandRunner.run(
+            listOf("/bin/sh", "-c", script), timeoutMillis = 10_000,
+        )
+        try {
+            for (name in listOf("pid", "pid6", "watch.pid")) {
+                val record = File(peer, name).apply { writeText("123") }
+                val denied = run(startup)
+                assertFalse(denied.exitCode == 0)
+                assertTrue(denied.outputTail.contains("previous adapter PID records remain"))
+                assertEquals("123", record.readText())
+                assertFalse(marker.exists())
+                assertFalse(File(adapter, "generation").exists())
+                assertTrue(record.delete())
+            }
+            assertEquals(0, run(startup).exitCode)
+            assertEquals("launch", marker.readText().trim())
+            assertEquals(0, run(lifecycle.stop(":")).exitCode)
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun lockAndGenerationGuardRejectInvalidInputs() {
         val invalidTimeout = runCatching { RootProcessIdentity.lockedTransaction("/tmp/lock", ":", 0) }
         assertTrue(invalidTimeout.isFailure)
