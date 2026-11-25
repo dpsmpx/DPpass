@@ -397,7 +397,16 @@ func (c *desyncConn) Write(b []byte) (int, error) {
 
 // desyncFirst — первая запись с приёмом; не вышло до отправки хоть байта —
 // запись как есть.
-func (c *desyncConn) desyncFirst(b []byte) (int, error) {
+func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
+    var selected *adaptivePick
+    var matched bool
+    // Read/Close flush the first write under writeMu before consuming
+    // evidence. Publish only after the selected action actually completed.
+    defer func() {
+        if selected!=nil && matched && writeErr==nil && written==len(b) {
+            c.adaptiveSelection.Store(selected)
+        }
+    }()
     // Adaptive mode is strictly per *new* protected TCP connection; live
     // streams must not change their packet strategy after ClientHello.
     // Only recognized TLS/HTTP headers can safely enter auto-selection.
@@ -433,7 +442,7 @@ func (c *desyncConn) desyncFirst(b []byte) (int, error) {
         c.mode = resolved
         key := c.host + "|" + c.TCPConn.RemoteAddr().(*net.TCPAddr).IP.String()
         if transport==localdpi.HTTP { key = "http:"+key }
-        c.adaptiveSelection.Store(newSocketPick(key,choice,generation,transport))
+        selected = newSocketPick(key,choice,generation,transport)
     }
     // Strategy decisions and offsets still come from the shared Go planner,
     // including Alpine over its app-private Unix socket.
@@ -443,6 +452,7 @@ func (c *desyncConn) desyncFirst(b []byte) (int, error) {
         c.plannerErr = err
         return 0, err
     }
+    matched = tcpPlanMatchesSelection(selected, plan)
     if !plan.Applied {
         // A TLS client may write an incomplete first record. Never modify
         // an incomplete TLS record or break a legitimate connection merely
