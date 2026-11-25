@@ -1,6 +1,7 @@
 package com.dpsmpx.dppass.app
 
 /** A diagnostic may not mix observations from different native or Android networks. */
+@ConsistentCopyVisibility
 internal data class DptsSession private constructor(
     val network: String,
     val handle: Long,

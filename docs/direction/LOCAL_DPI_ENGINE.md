@@ -787,3 +787,7 @@ CI 1555ee9: PR-triggered Go/Linux/Windows #45685150999 succeeded. Start one cons
 ## A7 — shared diagnostic session ownership
 
 CI e6c990c: PR-triggered Go/Linux/Windows #45687151775 succeeded. Capture a single session identity (Android network type, network handle and native DPTS generation) at admission for all eight diagnostic execution paths. Refuse admission without a usable handle/generation, revalidate the identity and coroutine cancellation before and after all 13 native probe call sites, and verify again before publishing/copying a completed report. Session loss produces a localized incomplete result and invalidates training; the active identity is cleared in a finally block. Tests cover same-type network replacement, generation change and missing identity. Checks detect observed changes at boundaries, not every transient change inside JNI; in-flight JNI remains non-interruptible. No probe algorithms, routing, model format, signing or subscription changes. Android CI and physical tests pending.
+
+### CI correction — consistent diagnostic session copy visibility
+
+CI c1ec7b8: Go/Linux/Windows #45688483011 succeeded. Android push CI #45688470176 failed at :app:compileDebugKotlin because Kotlin warns that a private data-class constructor is exposed through the generated copy method, and -Werror is enabled. Apply @ConsistentCopyVisibility to DptsSession, retaining private construction and structural equality without suppressing compiler warnings or changing session admission. New CI pending.
