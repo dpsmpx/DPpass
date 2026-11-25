@@ -383,6 +383,47 @@ class RootProcessIdentityTest {
         }
     }
 
+    @Test fun sharedLifecycleRejectsPeerUntilCleanupSucceeds() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-shared-lifecycle")
+        val shared = dir.resolve("shared").toString()
+        val aDir = dir.resolve("a").toString()
+        val bDir = dir.resolve("b").toString()
+        val a = RootLifecycleTransaction(aDir, "first", shared, bDir)
+        val b = RootLifecycleTransaction(bDir, "second", shared, aDir)
+        val aRecord = File(aDir, "generation")
+        val bRecord = File(bDir, "generation")
+        val marker = dir.resolve("unexpected").toFile()
+        fun run(script: String) = RootCommandRunner.run(
+            listOf("/bin/sh", "-c", script), timeoutMillis = 10_000,
+        )
+        try {
+            assertEquals(0, run(a.start(":", ":")).exitCode)
+            val denied = b.start("echo cleanup > '${marker.path}'", "echo launch > '${marker.path}'")
+            val failure = run(denied)
+            assertFalse(failure.exitCode == 0)
+            assertTrue(failure.outputTail.contains("other adapter cleanup pending or active"))
+            assertFalse(marker.exists())
+            assertFalse(bRecord.exists())
+            assertEquals("first", aRecord.readText().trim())
+            assertEquals(0, run(b.stop("exit 7")).exitCode)
+            assertFalse(run(a.stop("exit 7")).exitCode == 0)
+            assertFalse(run(denied).exitCode == 0)
+            assertFalse(marker.exists())
+            assertEquals(0, run(a.stop(":")).exitCode)
+            assertEquals(0, run(b.start(":", ":")).exitCode)
+            assertFalse(aRecord.exists())
+            assertEquals("second", bRecord.readText().trim())
+            assertTrue(File(shared, "lifecycle.lock").isFile)
+            assertFalse(File(aDir, "lifecycle.lock").exists())
+            assertFalse(File(bDir, "lifecycle.lock").exists())
+            assertEquals(0, run(b.stop(":")).exitCode)
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun lockAndGenerationGuardRejectInvalidInputs() {
         val invalidTimeout = runCatching { RootProcessIdentity.lockedTransaction("/tmp/lock", ":", 0) }
         assertTrue(invalidTimeout.isFailure)

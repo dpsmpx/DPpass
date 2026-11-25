@@ -12,7 +12,10 @@ import java.io.File
  * Dedicated rule and root-owned directory; never flush a system chain.
  */
 internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
-    private val lifecycle = RootLifecycleTransaction(ROOT)
+    private val lifecycle = RootLifecycleTransaction(
+        ROOT, lockDirectory = RootLifecycleTransaction.SHARED_LOCK_DIRECTORY,
+        peerDirectory = RootLifecycleTransaction.ZAPRET_DIRECTORY,
+    )
 
     override suspend fun start(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
@@ -82,7 +85,7 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
     private fun quote(raw: String): String = "'" + raw.replace("'", "'\\''") + "'"
 
     private companion object {
-        const val ROOT = "/data/adb/dppass-byedpi"
+        const val ROOT = RootLifecycleTransaction.BYEDPI_DIRECTORY
         const val PORT = 40529
         // Exclude daemon's root-owned sockets and local destinations to avoid recursion.
         const val RULE = "-p tcp -m owner ! --uid-owner 0 -m addrtype ! --dst-type LOCAL -m multiport --dports 80,443 -m comment --comment dppass-byedpi -j REDIRECT --to-ports 40529"

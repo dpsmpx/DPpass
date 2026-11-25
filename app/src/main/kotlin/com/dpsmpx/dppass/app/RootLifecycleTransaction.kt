@@ -3,7 +3,7 @@ package com.dpsmpx.dppass.app
 import java.util.UUID
 
 /**
- * Per-adapter transaction for the existing private ROOT directory.
+ * Lifecycle transaction with an optional shared lock and peer ownership check.
  * The lock inode is stable, and a generation is published before any
  * cleanup or launch. An obsolete adapter/watchdog cannot clean a new one.
  * Old versions that do not honor this lock still require migration tests.
@@ -11,13 +11,16 @@ import java.util.UUID
 internal class RootLifecycleTransaction(
     private val directory: String,
     private val generation: String = UUID.randomUUID().toString(),
+    private val lockDirectory: String = directory,
+    private val peerDirectory: String? = null,
 ) {
-    private val lock = "$directory/lifecycle.lock"
+    private val lock = "$lockDirectory/lifecycle.lock"
     private val record = "$directory/generation"
 
     private fun quote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 
     init {
+        require(peerDirectory != directory)
         // Validate even before rendering a startup script.
         RootProcessIdentity.generationMatches(record, generation)
     }
@@ -30,10 +33,18 @@ internal class RootLifecycleTransaction(
         return listOf(
             "set -eu",
             "umask 077",
-            "mkdir -p " + quote(directory),
-            "chmod 700 " + quote(directory),
+            "mkdir -p " + quote(lockDirectory),
+            "chmod 700 " + quote(lockDirectory),
             transaction(listOf(
                 "set -eu",
+                // Refuse a peer with outstanding ownership, even if its
+                // watchdog has not yet completed cleanup. Do not clean it here.
+                peerDirectory?.let {
+                    "test ! -e " + quote("$it/generation") +
+                        " || { echo 'ROOT: other adapter cleanup pending or active'; exit 1; }"
+                } ?: ":",
+                "mkdir -p " + quote(directory),
+                "chmod 700 " + quote(directory),
                 "printf '%s\\n' " + quote(generation) + " > " + quote(temporary),
                 "mv -f " + quote(temporary) + " " + quote(record),
                 // Cleanup may set shell options or exit explicitly.
@@ -68,6 +79,12 @@ internal class RootLifecycleTransaction(
     fun alive(check: String): String = transaction(
         RootProcessIdentity.generationMatches(record, generation) + " && (\n$check\n)",
     )
+
+    companion object {
+        const val SHARED_LOCK_DIRECTORY = "/data/adb/dppass-root-lifecycle"
+        const val ZAPRET_DIRECTORY = "/data/adb/dppass-zapret2"
+        const val BYEDPI_DIRECTORY = "/data/adb/dppass-byedpi"
+    }
 
     fun watchdog(condition: String, cleanup: String): String =
         // Healthy, contended or failed cleanup polls retry. A stale or

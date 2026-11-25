@@ -17,7 +17,10 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
     // Snapshot options at connection startup; mid-session preference changes
     // require reconnect so watchdog and firewall agree on the active rules.
     private val rootQuic = AppPrefs(context).zapret2RootQuic
-    private val lifecycle = RootLifecycleTransaction(ROOT)
+    private val lifecycle = RootLifecycleTransaction(
+        ROOT, lockDirectory = RootLifecycleTransaction.SHARED_LOCK_DIRECTORY,
+        peerDirectory = RootLifecycleTransaction.BYEDPI_DIRECTORY,
+    )
 
     override suspend fun start(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
@@ -126,7 +129,7 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
     private fun quote(raw: String): String = "'" + raw.replace("'", "'\\''") + "'"
 
     private companion object {
-        const val ROOT = "/data/adb/dppass-zapret2"
+        const val ROOT = RootLifecycleTransaction.ZAPRET_DIRECTORY
         const val TCP = "-p tcp -m mark ! --mark 0x40000000/0x40000000 -m multiport --dports 80,443 -j NFQUEUE --queue-num 20529 --queue-bypass"
         const val UDP = "-p udp -m mark ! --mark 0x40000000/0x40000000 --dport 443 -j NFQUEUE --queue-num 20529 --queue-bypass"
         val ARCH = setOf("arm64-v8a", "armeabi-v7a", "x86_64")
