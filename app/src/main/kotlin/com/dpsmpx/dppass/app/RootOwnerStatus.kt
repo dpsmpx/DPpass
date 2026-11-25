@@ -8,11 +8,21 @@ package com.dpsmpx.dppass.app
 internal object RootOwnerStatus {
     private fun quote(raw: String): String = "'" + raw.replace("'", "'\\''") + "'"
 
-    fun inspect(directory: String, procRoot: String = "/proc"): String = listOf(
+    fun inspect(directory: String, procRoot: String = "/proc"): String =
+        probe(directory, procRoot, previousBootOnly = false)
+
+    /** Success only for a validated generation and a different, valid boot ID. */
+    fun previousBoot(directory: String, procRoot: String = "/proc"): String =
+        probe(directory, procRoot, previousBootOnly = true) + " >/dev/null"
+
+    private fun probe(directory: String, procRoot: String, previousBootOnly: Boolean): String = listOf(
         "(",
         "set +e",
         "set -f",
-        "unknown() { echo 'ROOT: owner identity unknown'; exit 0; }",
+        "unknown() { echo 'ROOT: owner identity unknown'; exit " +
+            (if (previousBootOnly) "1" else "0") + "; }",
+        "test -f " + quote("$directory/generation") + " && test ! -L " + quote("$directory/generation") + " || unknown",
+        "test -f " + quote("$directory/owner.identity") + " && test ! -L " + quote("$directory/owner.identity") + " || unknown",
         "valid_boot() { printf '%s\\n' \"\$1\" | grep -Eq '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\$'; }",
         "generation=\$(cat " + quote("$directory/generation") + " 2>/dev/null) || unknown",
         "case \"\$generation\" in ''|*[!a-zA-Z0-9-]*) unknown ;; esac",
@@ -27,6 +37,7 @@ internal object RootOwnerStatus {
         "current_boot=\$(cat " + quote("$procRoot/sys/kernel/random/boot_id") + " 2>/dev/null) || unknown",
         "valid_boot \"\$current_boot\" || unknown",
         "if test \"\$saved_boot\" != \"\$current_boot\"; then echo 'ROOT: owner identity stale (boot changed)'; exit 0; fi",
+        if (previousBootOnly) "exit 1" else ":",
         "stat=\$(cat " + quote(procRoot) + "/\$pid/stat 2>/dev/null) || unknown",
         "case \"\$stat\" in \"\$pid (\"*) ;; *) unknown ;; esac",
         "rest=\${stat##*) }; test \"\$rest\" != \"\$stat\" || unknown",

@@ -20,6 +20,7 @@ internal class RootLifecycleTransaction(
     private val generation: String = UUID.randomUUID().toString(),
     private val lockDirectory: String = directory,
     private val peerDirectory: String? = null,
+    private val procRoot: String = "/proc",
 ) {
     private val lock = "$lockDirectory/lifecycle.lock"
     private val record = "$directory/generation"
@@ -64,11 +65,25 @@ internal class RootLifecycleTransaction(
             val path = quote("$peer/$name")
             return "test ! -e $path && test ! -L $path"
         }
+        val noPidRecords = listOf("pid", "pid6", "watch.pid").joinToString(" && ") { absent(it) }
+        // A confirmed reboot invalidates prior-boot process ownership. Only
+        // retire metadata when no PID records remain; do not signal processes,
+        // touch firewall rules, or attempt same-boot recovery here.
         return listOf(
-            absent("generation") +
-                " || { echo 'ROOT: other adapter cleanup pending or active'; " +
-                RootOwnerStatus.inspect(peer) + "; exit 1; }",
-            listOf("pid", "pid6", "watch.pid").joinToString(" && ") { absent(it) } +
+            "if ! ( " + absent("generation") + " ); then",
+            "if ( $noPidRecords ) && " + RootOwnerStatus.previousBoot(peer, procRoot) + "; then",
+            "rm -f " + quote("$peer/owner.identity") + " || exit 1",
+            "rm -f " + quote("$peer/generation") + " || exit 1",
+            "echo 'ROOT: retired previous-boot owner metadata'",
+            "else",
+            "echo 'ROOT: other adapter cleanup pending or active'",
+            RootOwnerStatus.inspect(peer, procRoot),
+            "exit 1",
+            "fi",
+            "fi",
+            absent("owner.identity") +
+                " || { echo 'ROOT: unmatched peer owner metadata remains'; exit 1; }",
+            noPidRecords +
                 " || { echo 'ROOT: previous adapter PID records remain; stop that mode first'; exit 1; }",
         ).joinToString("\n")
     }

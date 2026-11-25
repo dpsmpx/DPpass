@@ -630,6 +630,60 @@ class RootProcessIdentityTest {
         }
     }
 
+    @Test fun sharedStartupRetiresOnlyVerifiedPreviousBootPeerMetadataWithoutPidRecords() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-previous-boot")
+        val peer = dir.resolve("peer").toFile().apply { mkdir() }
+        val adapter = dir.resolve("adapter").toString()
+        val proc = dir.resolve("proc").toFile().apply { mkdir() }
+        val boot = File(proc, "sys/kernel/random/boot_id").apply { parentFile?.mkdirs() }
+        val generation = File(peer, "generation").apply { writeText("previous") }
+        val identity = File(peer, "owner.identity")
+        val pid = File(peer, "pid")
+        val marker = dir.resolve("launched").toFile()
+        val firstBoot = "11111111-1111-1111-1111-111111111111"
+        val secondBoot = "22222222-2222-2222-2222-222222222222"
+        val lifecycle = RootLifecycleTransaction(
+            adapter, "next", dir.resolve("shared").toString(), peer.path, proc.path,
+        )
+        val startup = lifecycle.start(":", "echo launched > '${marker.path}'")
+        fun run(script: String) = RootCommandRunner.run(
+            listOf("/bin/sh", "-c", script), timeoutMillis = 10_000,
+        ).exitCode
+        try {
+            identity.writeText("previous 123 456 $firstBoot\n")
+            boot.writeText(firstBoot)
+            assertFalse(run(startup) == 0)
+            assertTrue(identity.exists())
+            assertTrue(generation.exists())
+            assertFalse(marker.exists())
+            boot.writeText(secondBoot)
+            pid.writeText("123")
+            assertFalse(run(startup) == 0)
+            assertTrue(pid.exists())
+            assertTrue(identity.exists())
+            assertFalse(marker.exists())
+            assertTrue(pid.delete())
+            identity.writeText("other 123 456 $firstBoot\n")
+            assertFalse(run(startup) == 0)
+            assertTrue(generation.exists())
+            assertFalse(marker.exists())
+            identity.writeText("previous 123 456 unknown\n")
+            assertFalse(run(startup) == 0)
+            assertTrue(identity.exists())
+            assertFalse(marker.exists())
+            identity.writeText("previous 123 456 $firstBoot\n")
+            assertEquals(0, run(startup))
+            assertFalse(generation.exists())
+            assertFalse(identity.exists())
+            assertTrue(marker.exists())
+            assertEquals(0, run(lifecycle.stop(":")))
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun lockAndGenerationGuardRejectInvalidInputs() {
         val invalidTimeout = runCatching { RootProcessIdentity.lockedTransaction("/tmp/lock", ":", 0) }
         assertTrue(invalidTimeout.isFailure)
