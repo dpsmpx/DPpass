@@ -1,5 +1,7 @@
 package com.dpsmpx.dppass.engine.xray
 
+import com.dpsmpx.dppass.engine.Zapret2ProbeCatalog
+
 /**
  * DPTS/1 is deliberately NOT a general-purpose programming language.
  * It is a statically expanded, bounded, auditable matrix of protected probes.
@@ -35,8 +37,8 @@ object DptsScript {
     const val MAX_SOURCE_LENGTH = 12_000
     const val MAX_PROBES = 64
     const val MAX_BUDGET_MS = 240_000L
-    private val allowedMethods = (Zapret2SiteSearch.tcpMethods + com.dpsmpx.dppass.engine.Zapret2ProbeCatalog.scriptOnlyStrategies).toSet()
-    private val allowedQuic = (Zapret2SiteSearch.quicMethods + listOf("fake-2", "fake-4", "fake-8")).toSet()
+    private val allowedMethods = Zapret2ProbeCatalog.scriptTcpMethods
+    private val allowedQuic = Zapret2ProbeCatalog.scriptQuicMethods
     private val supported = setOf("https", "tls", "quic", "sni")
     val suites = setOf("google_youtube", "dns_compare", "ip_matrix",
         "h3_api", "site_https", "site_quic", "api_ipv4_sweep",

@@ -1,5 +1,6 @@
 package com.dpsmpx.dppass.engine.xray
 
+import com.dpsmpx.dppass.engine.Zapret2ProbeCatalog
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -7,6 +8,31 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DptsScriptTest {
+    @Test fun sharedCatalogPreservesDiagnosticOrderAndCalibrationBoundary() {
+        val catalog = Zapret2ProbeCatalog
+        assertEquals(listOf("plain", "split-1", "split", "tlsrec-split", "fake-3", "fake-5", "disorder"), catalog.siteTcpMethods)
+        assertEquals(listOf("plain", "fake-3", "fake-5"), catalog.siteQuicMethods)
+        assertEquals(catalog.siteTcpMethods + "auto", catalog.strategies)
+        assertEquals(catalog.siteTcpMethods, Zapret2SiteSearch.tcpMethods)
+        assertEquals(catalog.siteQuicMethods, Zapret2SiteSearch.quicMethods)
+        assertEquals(catalog.siteTcpMethods.drop(1), DptsLearning.trainable.toList())
+        assertEquals(setOf("split-2", "fake-2", "fake-4", "fake-8"), catalog.scriptOnlyStrategies.toSet())
+        assertEquals(setOf("fake-2", "fake-4", "fake-8"), catalog.scriptOnlyQuicStrategies.toSet())
+        for ((kind, methods) in listOf("https" to catalog.scriptTcpMethods, "quic" to catalog.scriptQuicMethods)) {
+            for (method in methods) {
+                val plan = DptsScript.compile("dpts 1\nhost www.google.com\n$kind methods=$method ips=1 attempts=1")
+                assertEquals(method, plan.probes.single().method)
+            }
+            for (method in listOf("auto", "pass", "root")) {
+                assertFailsWith<DptsCompileException> {
+                    DptsScript.compile("dpts 1\nhost www.google.com\n$kind methods=$method ips=1 attempts=1")
+                }
+            }
+        }
+        assertTrue(catalog.scriptOnlyStrategies.none { it in DptsLearning.trainable })
+        assertFalse("plain" in DptsLearning.trainable)
+    }
+
     @Test fun allBundledPresetsCompileToBoundedPublicTargets() {
         assertEquals(18, DptsPresets.scripts.size)
         for ((name, script) in DptsPresets.scripts) {

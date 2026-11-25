@@ -1,5 +1,6 @@
 package com.dpsmpx.dppass.engine.xray
 
+import com.dpsmpx.dppass.engine.Zapret2ProbeCatalog
 import java.net.IDN
 import java.util.Locale
 
@@ -22,10 +23,8 @@ object Zapret2SiteSearch {
         "h2" to "plain", "h2" to "tlsrec-split", "h2" to "fake-5",
     )
     const val TTL_MS = 5 * 60 * 1000L
-    val tcpMethods = listOf(
-        "plain", "split-1", "split", "tlsrec-split", "fake-3", "fake-5", "disorder"
-    )
-    val quicMethods = listOf("plain", "fake-3", "fake-5")
+    val tcpMethods = Zapret2ProbeCatalog.siteTcpMethods
+    val quicMethods = Zapret2ProbeCatalog.siteQuicMethods
     val methodLabels = mapOf(
         "plain" to "Без изменений / контроль",
         "split-1" to "TCP split: 1 байт",

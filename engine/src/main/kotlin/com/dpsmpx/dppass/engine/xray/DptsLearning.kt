@@ -1,12 +1,14 @@
 package com.dpsmpx.dppass.engine.xray
 
+import com.dpsmpx.dppass.engine.Zapret2ProbeCatalog
+
 /**
  * Report transport separately from application content. Only a repeated
  * matched YouTube HTML experiment can teach the existing global TLS head.
  * A single working IP remains address-scoped evidence, not a host-wide label.
  */
 object DptsLearning {
-    val trainable = setOf("split-1", "split", "tlsrec-split", "fake-3", "fake-5", "disorder")
+    val trainable = Zapret2ProbeCatalog.verifiedHtmlMethods
 
     data class AddressProof(val ipIndex: Int, val protocol: String, val method: String)
     data class Evidence(

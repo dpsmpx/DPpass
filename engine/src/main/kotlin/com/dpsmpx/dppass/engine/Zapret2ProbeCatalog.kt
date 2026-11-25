@@ -9,20 +9,24 @@ package com.dpsmpx.dppass.engine
  */
 object Zapret2ProbeCatalog {
     const val PLAIN_TAG: String = "dppass:test-plain"
-    val strategies: List<String> = listOf(
-        "plain",
-        "split-1",
-        "split",
-        "tlsrec-split",
-        "fake-3",
-        "fake-5",
-        "disorder",
-        "auto",
+    // The explicit diagnostic order predates the model ABI order. Keep
+    // both stable: native parity tests check the trainable method set.
+    val siteTcpMethods: List<String> = listOf(
+        "plain", "split-1", "split", "tlsrec-split", "fake-3", "fake-5", "disorder",
     )
+    val siteQuicMethods: List<String> = listOf("plain", "fake-3", "fake-5")
+    val strategies: List<String> = siteTcpMethods + "auto"
 
-    // Additional physical profiles only for explicit DPTS probes, not legacy AUTO.
+    // Additional profiles are explicit DPTS probes, not legacy AUTO outputs.
     val scriptOnlyStrategies = listOf("split-2", "fake-2", "fake-4", "fake-8")
+    val scriptOnlyQuicStrategies = listOf("fake-2", "fake-4", "fake-8")
     val allProbeStrategies = strategies + scriptOnlyStrategies
+    val scriptTcpMethods: Set<String> = (siteTcpMethods + scriptOnlyStrategies).toSet()
+    val scriptQuicMethods: Set<String> = (siteQuicMethods + scriptOnlyQuicStrategies).toSet()
+
+    // Calibration requires an existing legacy TLS output. 'plain' is a
+    // control, 'auto' is a selector, and script-only methods have no slot.
+    val verifiedHtmlMethods: Set<String> = siteTcpMethods.filterNot { it == "plain" }.toSet()
 
     /** Dedicated test ingress; routes through the real protected exp dialer. */
     /** Fixed safe HTTPS destinations; no user-provided URL or redirect chain. */
