@@ -475,3 +475,34 @@ func TestSocketPickIdentityCannotCrossExecutorOrProtocol(t *testing.T) {
     if socketEvidenceAdmissible(wrong,evidence) || socketPickAdmissible(wrong) {t.Fatal("root observation admitted by VPN")}
     if !socketPickAdmissible(newSocketPick("example.test","pass",1,localdpi.TLS)) {t.Fatal("valid identity rejected")}
 }
+
+func TestSelectorRejectsUnsupportedTransportEvidenceAtMutationBoundary(t *testing.T) {
+    for _,tc:=range []struct{
+        host string
+        candidates []string
+        unsupported []string
+        supported string
+    }{
+        {"example.test",adaptiveCandidates,[]string{"unknown","plain"},"split-1"},
+        {"http:example.test",adaptiveHTTPCandidates,[]string{"split-1","tlsrec-split","unknown"},"split"},
+        {"udp:203.0.113.9",adaptiveQuicCandidates,[]string{"split","tlsrec-split","unknown"},"fake-3"},
+    } {
+        a:=&adaptiveSelector{entries:make(map[string]*adaptiveEntry)}
+        _,g:=a.chooseWithGeneration(tc.host,tc.candidates)
+        for _,method:=range tc.unsupported {
+            a.observeTracked(tc.host,method,adaptivePayloadThreshold,g)
+            a.observeStallTracked(tc.host,method,g)
+            a.observeStallTracked(tc.host,method,g)
+        }
+        e:=a.entries[canonicalAdaptiveKey(tc.host)]
+        if e==nil || e.preferred!="" || len(e.stalls)!=0 || len(e.cooldown)!=0 || len(e.smallResponses)!=0 {
+            t.Fatalf("unsupported evidence mutated %s: %+v",tc.host,e)
+        }
+        a.observeTracked(tc.host,tc.supported,adaptivePayloadThreshold,g)
+        if e.preferred!=tc.supported { t.Fatalf("valid evidence not retained: %s",tc.host) }
+        a.observeTracked(tc.host,tc.supported,-1,g)
+        if e.weakFailures!=0 { t.Fatal("negative byte count changed preference") }
+        a.observeStallTracked(tc.host,tc.supported,g)
+        if e.stalls[tc.supported]!=1 { t.Fatal("valid timeout not counted") }
+    }
+}

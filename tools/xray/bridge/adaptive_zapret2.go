@@ -81,12 +81,8 @@ func newSocketPick(host, method string, generation uint64, transport localdpi.Tr
 
 func socketPickAdmissible(pick *adaptivePick) bool {
     if pick==nil || pick.host=="" {return false}
-    // The legacy selector's protocol namespace must agree with the
-    // explicit identity; never use a TLS observation as HTTP or QUIC.
-    transport:=localdpi.TLS
-    if strings.HasPrefix(pick.host,"http:") {transport=localdpi.HTTP}
-    if strings.HasPrefix(pick.host,"udp:") {transport=localdpi.QUIC}
-    return transport==pick.flow.Transport &&
+    // The key's protocol namespace must agree with the captured identity.
+    return nnHostTransport(pick.host)==pick.flow.Transport &&
         localExecutors.Admit(pick.flow,localdpi.VPNSocket,pick.flow.Generation)
 }
 
@@ -390,11 +386,7 @@ func (a *adaptiveSelector) observeStallTracked(host, strategy string, generation
     host = canonicalAdaptiveKey(host)
     e := a.entries[host]
     if e == nil { return }
-    known := false
-    for _, candidate := range adaptiveCandidates {
-        if candidate == strategy { known = true; break }
-    }
-    if !known { return }
+    if !socketCapabilities.Allows(nnHostTransport(host),strategy) { return }
     if e.stalls == nil { e.stalls = make(map[string]int) }
     e.stalls[strategy]++
     if e.stalls[strategy] >= adaptiveStallThreshold {
@@ -425,6 +417,8 @@ func (a *adaptiveSelector) observeStallTracked(host, strategy string, generation
 
 func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int64) {
     host = canonicalAdaptiveKey(host)
+    // Validate at the mutation boundary too, not just at socket callers.
+    if host=="" || payloadBytes<0 || !socketCapabilities.Allows(nnHostTransport(host),strategy) { return }
     e := a.entries[host]
     if e == nil { return }
     // Meaningful downstream data clears previous timeout suspicions for
