@@ -52,6 +52,24 @@ class RootProcessIdentityTest {
             pidFile.toFile().writeText(pid.toString())
             assertEquals(0, status(executable))
             assertFalse(status(executable + "-unrelated") == 0)
+            val optional = dir.resolve("optional.pid").toFile()
+            fun watchdogStatus(expected: String): Int = RootCommandRunner.run(
+                listOf("/bin/sh", "-c", RootProcessIdentity.watchdogCondition(
+                    pid.toInt(), pidFile.toString(), expected, optional.path,
+                )), timeoutMillis = 5_000,
+            ).exitCode
+            try {
+                assertEquals(0, watchdogStatus(executable))
+                assertFalse(watchdogStatus(executable + "-unrelated") == 0)
+                optional.writeText("")
+                assertFalse(watchdogStatus(executable) == 0)
+                optional.writeText("1")
+                assertFalse(watchdogStatus(executable) == 0)
+                optional.writeText(pid.toString())
+                assertEquals(0, watchdogStatus(executable))
+            } finally {
+                optional.delete()
+            }
             for (invalid in listOf("", "0", "1", "-1", "abc", "123 456")) {
                 pidFile.toFile().writeText(invalid)
                 assertFalse(status(executable) == 0)
@@ -59,6 +77,7 @@ class RootProcessIdentityTest {
             pidFile.toFile().writeText(pid.toString())
             child.destroyForcibly().waitFor()
             assertFalse(status(executable) == 0)
+            assertFalse(watchdogStatus(executable) == 0)
         } finally {
             child.destroyForcibly()
             Files.deleteIfExists(pidFile)

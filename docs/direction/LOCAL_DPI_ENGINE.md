@@ -420,3 +420,7 @@ CI ea06510: Go/Linux/Windows #45559318261 и Android #45559308459 успешно
 ## A3/A5 — исправление JVM fixture ROOT identity
 
 Go CI #45560944073 успешен; Android #45560932446 не компилировал тест из-за Process.pid и Files.writeString. Fixture получает PID собственного shell перед exec sleep, ожидает точное executable identity, записывает PID через File.writeText. Production code unchanged. CI pending.
+
+## A3/A5 — единая проверка daemon identity в ROOT lifecycle
+
+CI e3168d8: Go/Linux/Windows #45561686778 и Android #45561676931 успешны. RootProcessIdentity.watchdogCondition применяется обоими watchdog, executableAlive проверяет daemon после запуска перед установкой правил, optionalExecutableAlive применяется в ByeDPI alive/watchdog: отсутствие optional PID допустимо, пустой/невалидный существующий файл — отказ. nfqws2 stdin /dev/null соответствует фоновой схеме. Host JVM fixture проверяет watchdog predicate без su, включая optional absent/empty/invalid/matching and terminated daemon. Не изменены firewall rules, strategy, interval 3s, cleanup body и ordinary VPN. Это не atomic pidfd; app PID пока проверяется kill -0, а startup/cleanup race и physical ROOT acceptance остаются открытыми. CI pending.

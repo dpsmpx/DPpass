@@ -27,6 +27,19 @@ internal object RootProcessIdentity {
             "test \"\$(readlink /proc/\$pid/exe 2>/dev/null)\" = " + quote(executable) +
             " && kill -0 \"\$pid\" 2>/dev/null )"
 
+    /** Watchdog and foreground health checks must agree on daemon identity.
+     * An optional daemon is absent only when its PID file is absent.
+     */
+    fun optionalExecutableAlive(pidFile: String, executable: String): String =
+        "( ! test -e " + quote(pidFile) + " || " + executableAlive(pidFile, executable) + " )"
+
+    fun watchdogCondition(appPid: Int, pidFile: String, executable: String,
+                          optionalPidFile: String? = null): String {
+        require(appPid > 1)
+        return "kill -0 $appPid 2>/dev/null && " + executableAlive(pidFile, executable) +
+            (optionalPidFile?.let { " && " + optionalExecutableAlive(it, executable) } ?: "")
+    }
+
     fun stopExecutable(pidFile: String, executable: String): String =
         withPid(pidFile, "if test \"\$(readlink /proc/\$pid/exe 2>/dev/null)\" = " +
             quote(executable) + "; then kill \"\$pid\" 2>/dev/null || true; fi") +

@@ -29,16 +29,15 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
                     "--transparent", "--no-domain") + args).joinToString(" ") { quote(it) }
                 val cmd = command("127.0.0.1")
                 val cmd6 = command("::1")
-                val watch = "while kill -0 " + android.os.Process.myPid() +
-                    " 2>/dev/null && test -s " + quote("$ROOT/pid") +
-                    " && kill -0 \"$(cat " + quote("$ROOT/pid") + ")\" 2>/dev/null" +
-                    " && { ! test -s " + quote("$ROOT/pid6") + " || kill -0 \"$(cat " + quote("$ROOT/pid6") + ")\" 2>/dev/null; }; do sleep 3; done\n" + cleanup(false)
+                val watch = "while " + RootProcessIdentity.watchdogCondition(
+                    android.os.Process.myPid(), "$ROOT/pid", "$ROOT/ciadpi", "$ROOT/pid6",
+                ) + "; do sleep 3; done\n" + cleanup(false)
                 execute(listOf("set -eu", "umask 077", "mkdir -p " + quote(ROOT),
                     "chmod 700 " + quote(ROOT), "cp " + quote(binary.absolutePath) + " " + quote("$ROOT/ciadpi"),
                     "chmod 700 " + quote("$ROOT/ciadpi"),
                     "cp " + quote(localHosts.absolutePath) + " " + quote("$ROOT/hosts"),
                     cmd + " </dev/null >" + quote("$ROOT/log") + " 2>&1 &",
-                    "pid=$!", "echo \"\$pid\" > " + quote("$ROOT/pid"), "sleep 1", "kill -0 \"\$pid\"",
+                    "pid=$!", "echo \"\$pid\" > " + quote("$ROOT/pid"), "sleep 1", RootProcessIdentity.executableAlive("$ROOT/pid", "$ROOT/ciadpi"),
                     "cat > " + quote("$ROOT/watch.sh") + " <<'DPPASS_BD_WATCH'\n" + watch + "\nDPPASS_BD_WATCH",
                     "sh " + quote("$ROOT/watch.sh") + " </dev/null >" + quote("$ROOT/watch.log") + " 2>&1 &",
                     "echo \"\$!\" > " + quote("$ROOT/watch.pid"),
@@ -47,7 +46,7 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
                     // Do not claim IPv6 interception on kernels without IPv6 NAT.
                     "if ip6tables -t nat -S OUTPUT >/dev/null 2>&1; then",
                     cmd6 + " </dev/null >" + quote("$ROOT/log6") + " 2>&1 &",
-                    "pid=$!", "echo \"\$pid\" > " + quote("$ROOT/pid6"), "sleep 1", "kill -0 \"\$pid\"",
+                    "pid=$!", "echo \"\$pid\" > " + quote("$ROOT/pid6"), "sleep 1", RootProcessIdentity.executableAlive("$ROOT/pid6", "$ROOT/ciadpi"),
                     "ip6tables -t nat -I OUTPUT " + RULE, "ip6tables -t nat -C OUTPUT " + RULE,
                     "fi").joinToString("\n"))
             } catch (e: Exception) {
@@ -61,9 +60,8 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
     override suspend fun alive(): Boolean = withContext(Dispatchers.IO) {
         runCatching { execute(RootProcessIdentity.executableAlive("$ROOT/pid", "$ROOT/ciadpi") +
             " && iptables -t nat -C OUTPUT " + RULE +
-            " && { ! test -s " + quote("$ROOT/pid6") + " || { " +
-            RootProcessIdentity.executableAlive("$ROOT/pid6", "$ROOT/ciadpi") +
-            " && ip6tables -t nat -C OUTPUT " + RULE + "; }; }") }.isSuccess
+            " && " + RootProcessIdentity.optionalExecutableAlive("$ROOT/pid6", "$ROOT/ciadpi") +
+            " && { ! test -e " + quote("$ROOT/pid6") + " || ip6tables -t nat -C OUTPUT " + RULE + "; }") }.isSuccess
     }
 
     private fun cleanup(stopWatch: Boolean = true): String = buildString {

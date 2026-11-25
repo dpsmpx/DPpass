@@ -71,19 +71,18 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
         parts += "cp " + quote(hostsFile.absolutePath) + " " + quote(ROOT + "/hosts.txt")
         parts += listOf(
             "cd " + quote(ROOT),
-            command + " > " + quote(ROOT + "/nfqws.log") + " 2>&1 &",
+            command + " </dev/null > " + quote(ROOT + "/nfqws.log") + " 2>&1 &",
             "pid=$!",
             "echo \"\$pid\" > " + quote(ROOT + "/pid"),
             "sleep 1",
-            "kill -0 \"\$pid\"",
+            RootProcessIdentity.executableAlive("$ROOT/pid", "$ROOT/nfqws2"),
 
         )
         // A root-owned watchdog removes our NFQUEUE hooks after force-stop or
         // process crash. An Android app cannot rely on onDestroy in that case.
-        val watchdogScript = "while kill -0 " + android.os.Process.myPid() +
-            " 2>/dev/null && test -s " + quote(ROOT + "/pid") +
-            " && kill -0 \"$(cat " + quote(ROOT + "/pid") + ")\" 2>/dev/null; do sleep 3; done\n" +
-            cleanup(stopWatch = false)
+        val watchdogScript = "while " + RootProcessIdentity.watchdogCondition(
+            android.os.Process.myPid(), "$ROOT/pid", "$ROOT/nfqws2",
+        ) + "; do sleep 3; done\n" + cleanup(stopWatch = false)
         parts += listOf(
             "cat > " + quote(ROOT + "/watchdog.sh") +
                 " <<'DPPASS_WATCHDOG'\n#!/system/bin/sh\n" + watchdogScript + "\nDPPASS_WATCHDOG",
