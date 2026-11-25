@@ -99,6 +99,7 @@ object DptsScript {
         var learned = false
         var suite: String? = null
         val probes = ArrayList<DptsProbe>()
+        val emitted = HashSet<Pair<String, String>>()
         var budget = 0L
 
         fun csv(line: Int, value: String, allowed: Set<String>): List<String> {
@@ -228,6 +229,10 @@ object DptsScript {
 
                     fun emit(target: String, method: String, phase: String,
                         protocol: String, ip: Int, attempt: Int) {
+                        // A native attempt is identified by target and method.
+                        // Repeating a statement must not create ambiguous evidence.
+                        if (!emitted.add(target to method))
+                            throw DptsCompileException(lineNo, "duplicate probe target and method")
                         val nextSize = probes.size + 1
                         val nextBudget = budget + timeoutMs.toLong()
                         if (nextSize > MAX_PROBES || nextBudget > MAX_BUDGET_MS)
@@ -316,7 +321,9 @@ object DptsScript {
         }.toMap()
         appendLine("Выполнено: ${observations.size}/${plan.probes.size};" +
             " worst_case_budget_ms=${plan.budgetMs}")
-        appendLine("matched_rows=${matched.size}; unbound_rows=${observations.size - matched.size}")
+        appendLine("matched_rows=${matched.size}; unbound_rows=${observations.size - matched.size};" +
+            " missing_rows=${(plan.probes.size - observations.size).coerceAtLeast(0)};" +
+            " extra_rows=${(observations.size - plan.probes.size).coerceAtLeast(0)}")
         appendLine("dns_preparation_valid=$preparationValid; complete_evidence=" +
             completeEvidence(plan, prepared, observations))
         for (phase in plan.probes.map { it.phase }.distinct()) {
@@ -333,10 +340,12 @@ object DptsScript {
             // and JPEG for the fixed thumbnail. Generic site_http checks
             // only bounded 2xx bytes, not the type or application content.
             val content = if (plan.host in setOf("www.youtube.com", "i.ytimg.com")) bounded else 0
-            appendLine("  phase=$phase: transport=$transport/${results.size};" +
-                " tls_verified=$verified/${results.size};" +
-                " bounded_http_success=$bounded/${results.size};" +
-                " content_verified=$content/${results.size}")
+            val planned = indices.size
+            appendLine("  phase=$phase: transport=$transport/$planned;" +
+                " tls_verified=$verified/$planned;" +
+                " bounded_http_success=$bounded/$planned;" +
+                " content_verified=$content/$planned;" +
+                " matched=${results.size}/$planned")
         }
         for ((i, row) in observations.withIndex()) {
             val spec = plan.probes.getOrNull(i) ?: break

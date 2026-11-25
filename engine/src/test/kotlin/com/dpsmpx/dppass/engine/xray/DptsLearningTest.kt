@@ -98,7 +98,10 @@ class DptsLearningTest {
             { it.copy(dnsAnswers = 9) },
         )) {
             val changed = rows.map { it.copy(result = change(it.result)) }
-            assertEquals("dns_address_set_changed", DptsLearning.analyze(plan, changed).reason)
+            val evidence = DptsLearning.analyze(plan, changed)
+            assertEquals("dns_address_set_changed", evidence.reason)
+            assertEquals(0, evidence.transportVerified)
+            assertEquals(0, evidence.htmlVerified)
         }
         val contradictory = rows.map { row ->
             if (row.strategy == "plain") row.copy(result = row.result.copy(tlsStage = "tls_verified")) else row
@@ -108,6 +111,16 @@ class DptsLearningTest {
             if (row.strategy != "plain") row.copy(result = row.result.copy(alpn = "h2")) else row
         }
         val evidence = DptsLearning.analyze(plan, wrongAlpn)
+        assertEquals(0, evidence.transportVerified)
+        assertEquals(0, evidence.htmlVerified)
+        assertTrue(evidence.winners.isEmpty())
+    }
+
+    @Test fun malformedPlanCannotCountDuplicateNativeIdentities() {
+        val original = DptsScript.compile(source)
+        val plan = original.copy(probes = original.probes + original.probes.first())
+        val evidence = DptsLearning.analyze(plan, observations(plan))
+        assertEquals("duplicate_probe_identity", evidence.reason)
         assertEquals(0, evidence.transportVerified)
         assertEquals(0, evidence.htmlVerified)
         assertTrue(evidence.winners.isEmpty())

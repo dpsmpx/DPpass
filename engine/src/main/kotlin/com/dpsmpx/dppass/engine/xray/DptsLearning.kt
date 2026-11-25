@@ -32,6 +32,15 @@ object DptsLearning {
             return Evidence(reason = "incomplete_or_legacy_suite")
         val matching = rows.indices.all { i -> plan.probes[i].matches(rows[i]) }
         if (!matching) return Evidence(reason = "mismatched_probe_rows")
+        if (plan.probes.map { it.target to it.method }.distinct().size != plan.probes.size)
+            return Evidence(reason = "duplicate_probe_identity")
+
+        val fingerprints = rows.map { it.result.dnsFingerprint }.distinct()
+        val counts = rows.map { it.result.dnsAnswers }.distinct()
+        if (fingerprints.size != 1 || !fingerprints.single().matches(Regex("[0-9a-f]{8}")) ||
+            counts.size != 1 || counts.single() !in 1..8 ||
+            plan.probes.any { it.ipIndex !in 0 until counts.single() })
+            return Evidence(reason = "dns_address_set_changed")
 
         val transportCount = rows.indices.count { i ->
             plan.probes[i].handshakeVerified(rows[i].result)
@@ -43,12 +52,6 @@ object DptsLearning {
         if (!plan.observeLearning) return base.copy(reason = "learning_disabled_in_script")
         if (plan.host != "www.youtube.com")
             return base.copy(reason = if (transportCount > 0) "transport_only_not_content" else "no_verified_transport")
-        val fingerprints = rows.map { it.result.dnsFingerprint }.distinct()
-        val counts = rows.map { it.result.dnsAnswers }.distinct()
-        if (fingerprints.size != 1 || !fingerprints.single().matches(Regex("[0-9a-f]{8}")) ||
-            counts.size != 1 || counts.single() !in 1..8 ||
-            plan.probes.any { it.ipIndex !in 0 until counts.single() })
-            return base.copy(reason = "dns_address_set_changed")
 
         fun on(ip: Int, protocol: String, method: String): List<Pair<DptsProbe, Zapret2GoogleProbe>>? {
             return (1..Zapret2SiteSearch.ATTEMPTS).map { attempt ->

@@ -61,7 +61,7 @@ class DptsScriptTest {
         assertTrue(tls.contains("content_verified=0/1"))
         val mismatch = report("www.youtube.com", "https") { it.copy(target = "unrelated") }
         assertTrue(mismatch.contains("matched_rows=0; unbound_rows=1"))
-        assertTrue(mismatch.contains("content_verified=0/0"))
+        assertTrue(mismatch.contains("content_verified=0/1; matched=0/1"))
         assertTrue(mismatch.contains("binding=unbound"))
         val wrongAlpn = report("www.youtube.com", "https") {
             it.copy(result = it.result.copy(alpn = "h2"))
@@ -76,8 +76,44 @@ class DptsScriptTest {
         val changedCount = report("www.youtube.com", "https") {
             it.copy(result = it.result.copy(dnsAnswers = 2))
         }
-        assertTrue(changedCount.contains("content_verified=0/0"))
+        assertTrue(changedCount.contains("content_verified=0/1; matched=0/1"))
         assertTrue(home.contains("complete_evidence=true"))
+    }
+
+    @Test fun repeatedNativeAttemptIdentityIsRejectedAtSecondStatement() {
+        val header = "dpts 1\nhost youtubei.googleapis.com\n"
+        for ((first, second) in listOf(
+            "https ips=1 attempts=1" to "https ips=2 attempts=2 timeout_ms=3000",
+            "https ips=1 attempts=1" to "sni ips=1 attempts=1",
+            "tls versions=12 ips=1 attempts=1" to "tls versions=12 ips=1 attempts=1",
+            "quic ips=1 attempts=1" to "quic ips=1 attempts=1",
+        )) {
+            val failure = assertFailsWith<DptsCompileException> {
+                DptsScript.compile(header + first + "\n" + second)
+            }
+            assertEquals(4, failure.line)
+        }
+        val distinct = DptsScript.compile(header +
+            "https methods=plain ips=1 attempts=1\n" +
+            "https methods=tlsrec-split ips=1 attempts=1\n" +
+            "https protocols=h2 ips=1 attempts=1")
+        assertEquals(3, distinct.probes.size)
+    }
+
+    @Test fun incompleteReportUsesPlannedDenominatorAndExplicitMissingOrExtraRows() {
+        val plan = DptsScript.compile("dpts 1\nhost www.youtube.com\nhttps ips=2 attempts=1")
+        val prepared = Zapret2GoogleProbe("dns_ready", 200, 0, 10, 0, 0, "abcdef12", 2)
+        val spec = plan.probes.first()
+        val row = Zapret2GoogleAttempt(spec.method, spec.attempt,
+            Zapret2GoogleProbe("ok", 200, 256, 10, 0, 0, "abcdef12", 2,
+                spec.ipIndex, "h1", "tls_verified", "http/1.1"), spec.target)
+        val partial = DptsScript.report(plan, "MOBILE", prepared, listOf(row))
+        assertTrue(partial.contains("content_verified=1/2; matched=1/2"))
+        assertTrue(partial.contains("missing_rows=1; extra_rows=0"))
+        assertTrue(partial.contains("complete_evidence=false"))
+        val extra = DptsScript.report(plan, "MOBILE", prepared, listOf(row, row, row))
+        assertTrue(extra.contains("missing_rows=0; extra_rows=1"))
+        assertTrue(extra.contains("complete_evidence=false"))
     }
 
     @Test fun preparedDnsSetMustCoverThePlanBeforeEvidenceIsAccepted() {
