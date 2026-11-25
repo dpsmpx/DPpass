@@ -4,6 +4,7 @@ import java.nio.file.Files
 import java.io.File
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -53,13 +54,15 @@ class RootProcessIdentityTest {
             assertEquals(0, status(executable))
             assertFalse(status(executable + "-unrelated") == 0)
             val optional = dir.resolve("optional.pid").toFile()
-            fun watchdogStatus(expected: String): Int = RootCommandRunner.run(
+            val startTime = requireNotNull(RootProcessIdentity.startTime(File("/proc/$pid/stat").readText()))
+            fun watchdogStatus(expected: String, appStart: String = startTime): Int = RootCommandRunner.run(
                 listOf("/bin/sh", "-c", RootProcessIdentity.watchdogCondition(
-                    pid.toInt(), pidFile.toString(), expected, optional.path,
+                    pid.toInt(), appStart, pidFile.toString(), expected, optional.path,
                 )), timeoutMillis = 5_000,
             ).exitCode
             try {
                 assertEquals(0, watchdogStatus(executable))
+                assertFalse(watchdogStatus(executable, (startTime.toLong() + 1).toString()) == 0)
                 assertFalse(watchdogStatus(executable + "-unrelated") == 0)
                 optional.writeText("")
                 assertFalse(watchdogStatus(executable) == 0)
@@ -83,6 +86,15 @@ class RootProcessIdentityTest {
             Files.deleteIfExists(pidFile)
             Files.deleteIfExists(dir)
         }
+    }
+
+    @Test fun statStartTimeHandlesCommandNamesAndMalformedFields() {
+        val fields = (listOf("S") + List(18) { "0" }).joinToString(" ")
+        assertEquals("98765", RootProcessIdentity.startTime("123 (a ) tricky name) $fields 98765 0"))
+        assertNull(RootProcessIdentity.startTime("123 (name) S 1"))
+        assertNull(RootProcessIdentity.startTime("123 (name) $fields -1"))
+        assertNull(RootProcessIdentity.startTime("123 (name) $fields nope"))
+        assertNull(RootProcessIdentity.startTime("no delimiter"))
     }
 
 }

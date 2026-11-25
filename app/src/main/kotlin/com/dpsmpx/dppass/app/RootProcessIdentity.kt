@@ -33,10 +33,30 @@ internal object RootProcessIdentity {
     fun optionalExecutableAlive(pidFile: String, executable: String): String =
         "( ! test -e " + quote(pidFile) + " || " + executableAlive(pidFile, executable) + " )"
 
-    fun watchdogCondition(appPid: Int, pidFile: String, executable: String,
+    /** Linux proc stat field 22, after the final command-name delimiter. */
+    fun startTime(stat: String): String? {
+        val suffix = stat.substringAfterLast(") ", "").trim()
+        if (suffix.isEmpty()) return null
+        return suffix.split(Regex("\\s+")).getOrNull(19)
+            ?.takeIf { it.isNotEmpty() && it.all { ch -> ch in '0'..'9' } }
+    }
+
+    fun currentAppStartTime(): String =
+        startTime(java.io.File("/proc/self/stat").readText())
+            ?: error("ROOT: app process start time unavailable")
+
+    fun appAlive(appPid: Int, appStartTime: String): String {
+        require(appPid > 1 && appStartTime.isNotEmpty() && appStartTime.all { it in '0'..'9' })
+        // Disable globbing before splitting the stat suffix in a subshell.
+        return "( set -f; stat=\$(cat /proc/$appPid/stat 2>/dev/null) || exit 1; " +
+            "rest=\${stat##*) }; test \"\$rest\" != \"\$stat\" || exit 1; " +
+            "set -- \$rest; test \"\$#\" -ge 20 && test \"\${20}\" = " +
+            quote(appStartTime) + " && kill -0 $appPid 2>/dev/null )"
+    }
+
+    fun watchdogCondition(appPid: Int, appStartTime: String, pidFile: String, executable: String,
                           optionalPidFile: String? = null): String {
-        require(appPid > 1)
-        return "kill -0 $appPid 2>/dev/null && " + executableAlive(pidFile, executable) +
+        return appAlive(appPid, appStartTime) + " && " + executableAlive(pidFile, executable) +
             (optionalPidFile?.let { " && " + optionalExecutableAlive(it, executable) } ?: "")
     }
 

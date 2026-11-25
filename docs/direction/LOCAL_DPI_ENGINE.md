@@ -424,3 +424,7 @@ Go CI #45560944073 успешен; Android #45560932446 не компилиро�
 ## A3/A5 — единая проверка daemon identity в ROOT lifecycle
 
 CI e3168d8: Go/Linux/Windows #45561686778 и Android #45561676931 успешны. RootProcessIdentity.watchdogCondition применяется обоими watchdog, executableAlive проверяет daemon после запуска перед установкой правил, optionalExecutableAlive применяется в ByeDPI alive/watchdog: отсутствие optional PID допустимо, пустой/невалидный существующий файл — отказ. nfqws2 stdin /dev/null соответствует фоновой схеме. Host JVM fixture проверяет watchdog predicate без su, включая optional absent/empty/invalid/matching and terminated daemon. Не изменены firewall rules, strategy, interval 3s, cleanup body и ordinary VPN. Это не atomic pidfd; app PID пока проверяется kill -0, а startup/cleanup race и physical ROOT acceptance остаются открытыми. CI pending.
+
+## A3/A5 — identity поколения процесса приложения
+
+CI d53fc9a: Go/Linux/Windows #45563239864 и Android #45563229916 успешны. Оба watchdog захватывают starttime Linux /proc/self/stat, поле 22, и сравнивают его вместе с PID. Host JVM fixtures проверяют совпадающее и ошибочное starttime, malformed stat и имена с пробелами/скобками. При недоступном proc stat ROOT launch fails closed; Android/SELinux compatibility требует физической проверки. Не pidfd; cleanup/startup race remains. Firewall, strategies and ordinary VPN unchanged. CI pending.

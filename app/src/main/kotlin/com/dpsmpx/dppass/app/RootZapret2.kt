@@ -81,7 +81,7 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
         // A root-owned watchdog removes our NFQUEUE hooks after force-stop or
         // process crash. An Android app cannot rely on onDestroy in that case.
         val watchdogScript = "while " + RootProcessIdentity.watchdogCondition(
-            android.os.Process.myPid(), "$ROOT/pid", "$ROOT/nfqws2",
+            android.os.Process.myPid(), RootProcessIdentity.currentAppStartTime(), "$ROOT/pid", "$ROOT/nfqws2",
         ) + "; do sleep 3; done\n" + cleanup(stopWatch = false)
         parts += listOf(
             "cat > " + quote(ROOT + "/watchdog.sh") +

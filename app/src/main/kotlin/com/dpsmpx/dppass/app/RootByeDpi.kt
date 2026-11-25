@@ -30,7 +30,7 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
                 val cmd = command("127.0.0.1")
                 val cmd6 = command("::1")
                 val watch = "while " + RootProcessIdentity.watchdogCondition(
-                    android.os.Process.myPid(), "$ROOT/pid", "$ROOT/ciadpi", "$ROOT/pid6",
+                    android.os.Process.myPid(), RootProcessIdentity.currentAppStartTime(), "$ROOT/pid", "$ROOT/ciadpi", "$ROOT/pid6",
                 ) + "; do sleep 3; done\n" + cleanup(false)
                 execute(listOf("set -eu", "umask 077", "mkdir -p " + quote(ROOT),
                     "chmod 700 " + quote(ROOT), "cp " + quote(binary.absolutePath) + " " + quote("$ROOT/ciadpi"),
