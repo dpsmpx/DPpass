@@ -34,11 +34,16 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
             val lua = LUA.map { stageAsset("zapret2/lua/" + it, File(stage, it)) }
             val hostsFile = File(stage, "hosts.txt").apply { writeText(hosts.format() + "\n") }
             val owner = RootOwnerIdentity(android.os.Process.myPid(), RootProcessIdentity.currentAppStartTime())
-            val startup = lifecycle.start(cleanup(), launch(binary, lua, hostsFile, hosts.isEmpty, owner), owner)
-            rootLaunchWithRollback(
-                launch = { execute(startup) },
-                rollback = { execute(lifecycle.stop(cleanup())) },
-            )
+            val helper = RootPidfdDeployment.stage(context)
+            try {
+                val startup = lifecycle.start(cleanup(), launch(binary, lua, hostsFile, hosts.isEmpty, owner, helper), owner)
+                rootLaunchWithRollback(
+                    launch = { execute(startup) },
+                    rollback = { execute(lifecycle.stop(cleanup())) },
+                )
+            } finally {
+                helper?.discard()
+            }
         }
     }
 
@@ -60,13 +65,15 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
         return target
     }
 
-    private fun launch(bin: File, lua: List<File>, hostsFile: File, allHosts: Boolean, owner: RootOwnerIdentity): String {
+    private fun launch(bin: File, lua: List<File>, hostsFile: File, allHosts: Boolean, owner: RootOwnerIdentity,
+                       helper: RootPidfdDeployment.Staged?): String {
         val command = quote(ROOT + "/nfqws2") + Zapret2RootProfiles.arguments(allHosts, rootQuic)
         val parts = mutableListOf(
             "set -eu",
             "umask 077",
             "mkdir -p " + quote(ROOT),
             "chmod 700 " + quote(ROOT),
+            helper?.install(ROOT) ?: ":",
             "cp " + quote(bin.absolutePath) + " " + quote(ROOT + "/nfqws2"),
             "chmod 700 " + quote(ROOT + "/nfqws2"),
         )

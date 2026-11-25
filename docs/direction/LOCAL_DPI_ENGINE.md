@@ -604,3 +604,7 @@ CI 3e668fb: Go/Linux/Windows #45621630087 and Android #45621620586 succeeded. Ad
 ## A3/A5 — native capability and no-signal absence proof
 
 Extended the packaged CLI with a nonmutating pidfd capability probe (self pidfd and signal zero) and a same-boot absence/death check. The latter accepts ESRCH from pidfd_open or exit readiness from a pinned descriptor; a live task or any ambiguous error is unproven. Caller must validate generation, PID record and boot under the lifecycle lock, and ensure the proc/PID namespace is the device host namespace. Linux tests exercise probe, live refusal, exited child and invalid arguments. No production invocation yet. Previous CI was still running at the start of this stage; new CI must validate the combined tree.
+
+## A3/A5 — verified ROOT helper deployment
+
+Both adapters stage the selected APK helper in an app-private temporary file, bound its size and verify SHA-256, then install it after old cleanup under the lifecycle lock. Root installation checks directory ownership, rejects symlinks, copies to an exclusive temporary file, checks the expected digest, sets mode 0700, checks CLI version and atomically renames. The helper capability probe is diagnostic, not a new signaling path. Non-Alpine builds without assets retain prior behavior. Host fixture covers valid publication, bad checksum, invalid version/executable and symlink refusal. Strict cleanup and recovery integration still require generation-preserving handover; physical device support remains unverified.

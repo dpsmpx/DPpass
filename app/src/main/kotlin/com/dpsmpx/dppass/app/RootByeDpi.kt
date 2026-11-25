@@ -26,7 +26,9 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
             val localHosts = File(context.noBackupFilesDir, "bd-root-hosts").apply {
                 writeText(hosts.format() + "\n")
             }
-            rootLaunchWithRollback(launch = {
+            val helper = RootPidfdDeployment.stage(context)
+            try {
+                rootLaunchWithRollback(launch = {
                 val args = if (hosts.isEmpty) ByeDpiRuntime.strategy
                     else ByeDpiRuntime.strategy + listOf("--hosts", "$ROOT/hosts", "--auto=none")
                 fun command(address: String) = (listOf("$ROOT/ciadpi", "--ip", address, "--port", PORT.toString(),
@@ -38,7 +40,8 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
                     owner.pid, owner.startTime, "$ROOT/pid", "$ROOT/ciadpi", "$ROOT/pid6",
                 ), cleanup(false))
                 execute(lifecycle.start(cleanup(), listOf("set -eu", "umask 077", "mkdir -p " + quote(ROOT),
-                    "chmod 700 " + quote(ROOT), "cp " + quote(binary.absolutePath) + " " + quote("$ROOT/ciadpi"),
+                    "chmod 700 " + quote(ROOT), helper?.install(ROOT) ?: ":",
+                    "cp " + quote(binary.absolutePath) + " " + quote("$ROOT/ciadpi"),
                     "chmod 700 " + quote("$ROOT/ciadpi"),
                     "cp " + quote(localHosts.absolutePath) + " " + quote("$ROOT/hosts"),
                     RootProcessIdentity.detachedCommand(cmd, "$ROOT/log"),
@@ -57,7 +60,10 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
                     lifecycle.captureExecutable("pid6", "$ROOT/ciadpi"),
                     "ip6tables -t nat -I OUTPUT " + RULE, "ip6tables -t nat -C OUTPUT " + RULE,
                     "fi").joinToString("\n"), owner))
-            }, rollback = { execute(lifecycle.stop(cleanup())) })
+                }, rollback = { execute(lifecycle.stop(cleanup())) })
+            } finally {
+                helper?.discard()
+            }
         }
     }
 
