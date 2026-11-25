@@ -108,6 +108,19 @@ type Evidence struct {
     Bytes int64
 }
 
+// ValidSocketObservation admits only coherent observations from the socket
+// executor. Content, cancellation and route state are separate evidence.
+func (e Evidence) ValidSocketObservation() bool {
+    switch e.Kind {
+    case Downstream:
+        return e.Bytes > 0
+    case FirstReplyTimeout:
+        return e.Bytes == 0
+    default:
+        return false
+    }
+}
+
 // SocketDownstream is a read-side transport observation. It does not
 // claim verified content, even for a large number of received bytes.
 func SocketDownstream(received int64) Evidence {

@@ -88,15 +88,7 @@ func socketPickAdmissible(pick *adaptivePick) bool {
 }
 
 func socketEvidenceAdmissible(pick *adaptivePick, evidence localdpi.Evidence) bool {
-    if !socketPickAdmissible(pick) {return false}
-    switch evidence.Kind {
-    case localdpi.Downstream:
-        return evidence.Bytes > 0
-    case localdpi.FirstReplyTimeout:
-        return evidence.Bytes == 0
-    default:
-        return false
-    }
+    return socketPickAdmissible(pick) && evidence.ValidSocketObservation()
 }
 
 type adaptiveEntry struct {

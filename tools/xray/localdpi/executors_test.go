@@ -33,3 +33,28 @@ func TestReadEvidenceIsNeverCancellationOrContent(t *testing.T) {
     if got:=SocketDownstream(-1);got.Kind!=Unknown {t.Fatal(got)}
     if got:=SocketDownstream(1<<20);got.Kind!=Downstream || got.Bytes!=1<<20 {t.Fatal(got)}
 }
+
+func TestExecutorSetOwnsRegistrationSnapshot(t *testing.T) {
+    if _,err:=NewExecutorSet();err==nil {t.Fatal("empty registry accepted")}
+    caps,err:=NewCapabilities(VPNSocket,false,[]Support{{TLS,"pass"}})
+    if err!=nil {t.Fatal(err)}
+    set,err:=NewExecutorSet(caps)
+    if err!=nil {t.Fatal(err)}
+    delete(caps.supported,Support{TLS,"pass"})
+    caps.supported[Support{QUIC,"pass"}]=struct{}{}
+    if !reflect.DeepEqual(set.Candidates(VPNSocket,TLS),[]string{"pass"}) {
+        t.Fatal("snapshot changed after original map mutation")
+    }
+    if len(set.Candidates(VPNSocket,QUIC))!=0 {t.Fatal("new capability leaked into snapshot")}
+    out:=set.Candidates(VPNSocket,TLS)
+    out[0]="unknown"
+    if !reflect.DeepEqual(set.Candidates(VPNSocket,TLS),[]string{"pass"}) {
+        t.Fatal("candidate slice mutation changed registry")
+    }
+    empty,err:=NewCapabilities(RootSocket,true,nil)
+    if err!=nil {t.Fatal(err)}
+    emptySet,err:=NewExecutorSet(empty)
+    if err!=nil || len(emptySet.Candidates(RootSocket,TLS))!=0 {
+        t.Fatal("registered executor without methods should remain unavailable",err)
+    }
+}

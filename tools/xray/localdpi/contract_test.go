@@ -65,3 +65,24 @@ func TestSocketEvidenceDoesNotClaimContent(t *testing.T) {
         if tc.got.Kind==VerifiedContent { t.Fatal("socket evidence promoted to content") }
     }
 }
+
+// Classification and admission remain separate from executor identity.
+func TestSocketObservationAdmission(t *testing.T) {
+    for _,tc:=range []struct{e Evidence; want bool}{
+        {Evidence{Kind:Downstream,Bytes:1},true},
+        {Evidence{Kind:Downstream,Bytes:0},false},
+        {Evidence{Kind:Downstream,Bytes:-1},false},
+        {Evidence{Kind:FirstReplyTimeout},true},
+        {Evidence{Kind:FirstReplyTimeout,Bytes:1},false},
+        {Evidence{Kind:FirstReplyTimeout,Bytes:-1},false},
+        {Evidence{Kind:Cancelled},false},
+        {Evidence{Kind:RouteUnavailable},false},
+        {Evidence{Kind:VerifiedContent,Bytes:256},false},
+        {Evidence{Kind:Unknown},false},
+        {Evidence{Kind:EvidenceKind(255)},false},
+    } {
+        if got:=tc.e.ValidSocketObservation();got!=tc.want {
+            t.Fatalf("observation %+v admitted=%v, want %v",tc.e,got,tc.want)
+        }
+    }
+}

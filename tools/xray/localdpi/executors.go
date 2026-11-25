@@ -13,6 +13,9 @@ type ExecutorSet struct {
 // Root capabilities must have been constructed after the caller's permission
 // checks. This does not replace a runtime OS capability probe.
 func NewExecutorSet(entries ...Capabilities) (ExecutorSet,error) {
+    if len(entries)==0 {
+        return ExecutorSet{},fmt.Errorf("no registered executors")
+    }
     s:=ExecutorSet{byKind:make(map[ExecutorKind]Capabilities,len(entries))}
     for _,c:=range entries {
         if !c.kind.valid(true) || c.supported==nil {
@@ -21,7 +24,11 @@ func NewExecutorSet(entries ...Capabilities) (ExecutorSet,error) {
         if _,exists:=s.byKind[c.kind];exists {
             return ExecutorSet{},fmt.Errorf("duplicate executor")
         }
-        s.byKind[c.kind]=c
+        // Own the registration map even if another package-local caller
+        // retains the original capability value.
+        owned:=Capabilities{kind:c.kind,supported:make(map[Support]struct{},len(c.supported))}
+        for entry:=range c.supported {owned.supported[entry]=struct{}{}}
+        s.byKind[c.kind]=owned
     }
     return s,nil
 }
