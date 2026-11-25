@@ -484,3 +484,7 @@ CI 3a1023b: Go/Linux/Windows #45580876760 and Android #45580869312 succeeded. Bo
 ## A3/A5 — verify shell lock error paths
 
 CI 7f05683: Go/Linux/Windows #45582201022 and Android #45582192979 succeeded. Added host shell regression fixtures for missing lock-file parent (transaction body must not execute), nonzero transaction exit propagation and subsequent lock reacquisition including a path with spaces. Lock-file open failure is explicitly fail-closed; POSIX shells may emit their own redirection diagnostic before the custom message. Production adapters still do not acquire the lifecycle lock; this step validates error semantics without changing privileged network operations. Device flock compatibility and migration from old watchdogs remain unverified. New CI pending.
+
+## A3/A5 — preserve process ownership on failed termination
+
+CI b9eb655: Go/Linux/Windows #45585056051 and Android #45585047360 succeeded. Shared ROOT stop helpers now retain PID files and return an explicit failure if a matching process cannot be signaled or remains identifiable after a bounded two-second wait. A failed PID-file removal also propagates rather than being masked by a later successful command. Stale/mismatched PID identity is not signaled. Two host shell fixtures exercise failed and ineffective signals, successful retry and unrelated process protection. No forced escalation, firewall rules or network strategies changed. Identity checks are still not atomic pidfd checks, and this is not yet interprocess flock integration. Android ROOT validation and new CI pending.

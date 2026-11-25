@@ -16,7 +16,7 @@ class RootProcessIdentityTest {
         assertTrue(command.contains("readlink /proc/"))
         assertTrue(command.contains("= '/root/daemon'"))
         assertTrue(command.indexOf("readlink") < command.indexOf("kill "))
-        assertTrue(command.endsWith("rm -f '/root/pid'"))
+        assertTrue(command.endsWith("rm -f '/root/pid' || exit 1"))
         assertFalse(command.contains("kill -9"))
     }
 
@@ -26,7 +26,7 @@ class RootProcessIdentityTest {
         assertTrue(command.contains("-gt 1"))
         assertTrue(command.contains("grep -Fxq '/root/watch.sh'"))
         assertTrue(command.indexOf("grep -Fxq") < command.indexOf("kill "))
-        assertTrue(command.endsWith("rm -f '/root/watch.pid'"))
+        assertTrue(command.endsWith("rm -f '/root/watch.pid' || exit 1"))
     }
     @Test fun executableAliveRejectsUnrelatedOrInvalidPid() {
         if (!File("/bin/sh").canExecute() || !File("/proc/self/exe").exists()) return
@@ -85,6 +85,66 @@ class RootProcessIdentityTest {
             child.destroyForcibly()
             Files.deleteIfExists(pidFile)
             Files.deleteIfExists(dir)
+        }
+    }
+
+    @Test fun failedSignalRetainsPidAndSuccessfulRetryRemovesIt() {
+        if (!File("/bin/sh").canExecute() || !File("/proc/self/exe").exists()) return
+        val sleep = listOf("/bin/sleep", "/usr/bin/sleep").firstOrNull { File(it).canExecute() } ?: return
+        val child = ProcessBuilder(sleep, "15").start()
+        val dir = Files.createTempDirectory("dppass-root-stop")
+        val pidFile = dir.resolve("daemon.pid").toFile()
+        try {
+            val pid = child.pid()
+            val executable = File(sleep).canonicalPath
+            val link = File("/proc/$pid/exe")
+            val deadline = System.nanoTime() + 2_000_000_000L
+            while (link.canonicalPath != executable && System.nanoTime() < deadline) Thread.sleep(10)
+            assertEquals(executable, link.canonicalPath)
+            pidFile.writeText(pid.toString())
+            val command = RootProcessIdentity.stopExecutable(pidFile.path, executable)
+            fun run(script: String) = RootCommandRunner.run(
+                listOf("/bin/sh", "-c", script), timeoutMillis = 5_000,
+            )
+            val failure = run("kill() { return 1; }\n" + command)
+            assertFalse(failure.exitCode == 0)
+            assertTrue(failure.outputTail.contains("ROOT: process stop failed"))
+            assertTrue(child.isAlive)
+            assertEquals(pid.toString(), pidFile.readText())
+            val noExit = run("kill() { return 0; }\n" + command)
+            assertFalse(noExit.exitCode == 0)
+            assertTrue(noExit.outputTail.contains("ROOT: process still active"))
+            assertTrue(child.isAlive)
+            assertTrue(pidFile.exists())
+            val stopped = run(command)
+            assertEquals(0, stopped.exitCode)
+            assertTrue(child.waitFor(2, java.util.concurrent.TimeUnit.SECONDS))
+            assertFalse(pidFile.exists())
+        } finally {
+            child.destroyForcibly().waitFor()
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun mismatchedExecutableNeverSignalsUnrelatedProcess() {
+        if (!File("/bin/sh").canExecute() || !File("/proc/self/exe").exists()) return
+        val sleep = listOf("/bin/sleep", "/usr/bin/sleep").firstOrNull { File(it).canExecute() } ?: return
+        val child = ProcessBuilder(sleep, "15").start()
+        val dir = Files.createTempDirectory("dppass-root-unrelated")
+        val pidFile = dir.resolve("daemon.pid").toFile()
+        try {
+            pidFile.writeText(child.pid().toString())
+            val result = RootCommandRunner.run(listOf("/bin/sh", "-c",
+                "kill() { echo unexpected_signal; exit 42; }\n" +
+                    RootProcessIdentity.stopExecutable(pidFile.path, "/not-the-owned-executable"),
+            ), timeoutMillis = 5_000)
+            assertEquals(0, result.exitCode)
+            assertTrue(child.isAlive)
+            assertFalse(result.outputTail.contains("unexpected_signal"))
+            assertFalse(pidFile.exists())
+        } finally {
+            child.destroyForcibly().waitFor()
+            dir.toFile().deleteRecursively()
         }
     }
 

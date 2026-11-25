@@ -60,15 +60,22 @@ internal object RootProcessIdentity {
             (optionalPidFile?.let { " && " + optionalExecutableAlive(it, executable) } ?: "")
     }
 
+    // Keep the PID file until the matching process is no longer observable.
+    // A failed signal or a process that does not exit must fail cleanup.
+    private fun stopOwned(pidFile: String, identity: String): String =
+        withPid(pidFile, "if $identity; then " +
+            "if ! kill \"\$pid\" 2>/dev/null; then " +
+            "if $identity; then echo 'ROOT: process stop failed'; exit 1; fi; fi; " +
+            "remaining=2; while $identity; do " +
+            "test \"\$remaining\" -gt 0 || { echo 'ROOT: process still active'; exit 1; }; " +
+            "sleep 1; remaining=\$((remaining-1)); done; fi") +
+            "; rm -f " + quote(pidFile) + " || exit 1"
+
     fun stopExecutable(pidFile: String, executable: String): String =
-        withPid(pidFile, "if test \"\$(readlink /proc/\$pid/exe 2>/dev/null)\" = " +
-            quote(executable) + "; then kill \"\$pid\" 2>/dev/null || true; fi") +
-            "; rm -f " + quote(pidFile)
+        stopOwned(pidFile, "test \"\$(readlink /proc/\$pid/exe 2>/dev/null)\" = " + quote(executable))
 
     fun stopScript(pidFile: String, script: String): String =
-        withPid(pidFile, "if tr '\\000' '\\n' </proc/\$pid/cmdline 2>/dev/null | grep -Fxq " +
-            quote(script) + "; then kill \"\$pid\" 2>/dev/null || true; fi") +
-            "; rm -f " + quote(pidFile)
+        stopOwned(pidFile, "tr '\\000' '\\n' </proc/\$pid/cmdline 2>/dev/null | grep -Fxq " + quote(script))
 
     /**
      * A bounded shell transaction on an existing private, root-owned directory.
