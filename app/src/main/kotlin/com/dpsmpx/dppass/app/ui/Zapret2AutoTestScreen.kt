@@ -4,6 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.text.InputFilter
+import android.text.Editable
+import android.text.TextWatcher
 import android.os.SystemClock
 import android.view.View
 import android.text.InputType
@@ -13,6 +15,7 @@ import android.widget.Spinner
 import android.widget.ArrayAdapter
 import android.widget.ProgressBar
 import com.dpsmpx.dppass.R
+import com.dpsmpx.dppass.app.DptsCompletedRun
 import com.dpsmpx.dppass.app.NetworkCheck
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.TunnelStatus
@@ -132,11 +135,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         Ui.Style.OUTLINE, R.drawable.ic_speed)
     private val dptsStopButton = Ui.button(context, R.string.dpts_stop_script,
         Ui.Style.OUTLINE, R.drawable.ic_speed)
-    private var lastDptsPlan: DptsPlan? = null
-    private var lastDptsRows: List<Zapret2GoogleAttempt> = emptyList()
-    private var lastDptsNetwork: String? = null
-    private var lastDptsGeneration: Long? = null
-    private var lastDptsNetworkHandle: Long? = null
+    private var lastDptsRun: DptsCompletedRun? = null
     private var lastTrainingSubmitted = false
     private val progress = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
         max = TOTAL
@@ -149,6 +148,25 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     }
     private var job: Job? = null
     private var started = false
+
+    init {
+        dptsEditor.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                invalidateDptsRun()
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
+    }
+
+    private fun invalidateDptsRun() {
+        lastDptsRun = null
+        lastTrainingSubmitted = false
+        dptsTrainButton.isEnabled = false
+    }
+
+    private fun hasCurrentDptsRun(): Boolean =
+        lastDptsRun?.matchesSource(dptsEditor.text.toString()) == true
 
     override fun content(): View = Ui.column(context, 12).apply {
         addView(Ui.text(context, R.style.Text_DPpass_Caption,
@@ -200,7 +218,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         dptsLoadButton.isEnabled = true
         dptsSaveButton.isEnabled = true
         dptsTrainButton.isEnabled = ready(status) && !lastTrainingSubmitted &&
-            lastDptsPlan != null
+            hasCurrentDptsRun()
         dptsStopButton.isEnabled = false
         if (!ready(status)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
@@ -210,11 +228,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     override fun onHidden() {
         job?.cancel()
         job = null
-        lastDptsPlan = null
-        lastDptsRows = emptyList()
-        lastDptsNetwork = null
-        lastDptsGeneration = null
-        lastDptsNetworkHandle = null
+        invalidateDptsRun()
         // Persist only the user's editable script, never probe results or IPs.
         context.getSharedPreferences("dpts_editor", Context.MODE_PRIVATE).edit()
             .putString("source", dptsEditor.text.toString()).apply()
@@ -288,13 +302,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             ?: return
         dptsNameInput.setText(savedName)
         dptsEditor.setText(script)
-        lastDptsPlan = null
-        lastDptsRows = emptyList()
-        lastDptsNetwork = null
-        lastDptsGeneration = null
-        lastDptsNetworkHandle = null
-        lastTrainingSubmitted = false
-        dptsTrainButton.isEnabled = false
+        invalidateDptsRun()
         statusText.text = context.getString(R.string.dpts_script_loaded)
     }
 
@@ -346,20 +354,18 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
 
     private fun trainFromLastScript() {
         if (job?.isActive == true || lastTrainingSubmitted) return
-        val plan = lastDptsPlan
-        val network = lastDptsNetwork
-        val generation = lastDptsGeneration
-        val handle = lastDptsNetworkHandle
+        val run = lastDptsRun
         val underlying = NetworkCheck.underlying(context)
-        if (plan == null || network == null || generation == null || handle == null ||
-            !ready(TunnelState.status.value) ||
-            underlying.type.toString() != network || underlying.network?.networkHandle != handle ||
-            runCatching { JniXrayRuntime.dptsGeneration() }.getOrNull() != generation) {
+        if (run == null || !ready(TunnelState.status.value) ||
+            !run.matches(dptsEditor.text.toString(), underlying.type.toString(),
+                underlying.network?.networkHandle,
+                runCatching { JniXrayRuntime.dptsGeneration() }.getOrNull())) {
+            invalidateDptsRun()
             statusText.text = context.getString(R.string.dpts_train_no_run)
             appendTrainingLog("not_applied reason=no_matching_completed_run")
             return
         }
-        val evidence = DptsLearning.analyze(plan, lastDptsRows)
+        val evidence = DptsLearning.analyze(run.plan, run.rows)
         val candidates = evidence.winners
         if (candidates.isEmpty()) {
             statusText.text = context.getString(when (evidence.reason) {
@@ -386,7 +392,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             }
         }
         val trained = runCatching {
-            JniXrayRuntime.trainZapret2NeuralFromDPTS(network, candidates, generation)
+            JniXrayRuntime.trainZapret2NeuralFromDPTS(run.network, candidates, run.generation)
         }.getOrNull()
         if (trained != XrayResult.Ok) {
             statusText.text = context.getString(R.string.dpts_train_model_error)
@@ -1515,6 +1521,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
      */
     private fun startDptsScript() {
         if (job?.isActive == true) return
+        // Even a failed compile or unavailable connection replaces the previous run.
+        invalidateDptsRun()
         if (!ready(TunnelState.status.value)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
             host.toast(statusText.text)
@@ -1536,13 +1544,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         }
         context.getSharedPreferences("dpts_editor", Context.MODE_PRIVATE).edit()
             .putString("source", source).apply()
-        lastDptsPlan = null
-        lastDptsRows = emptyList()
-        lastDptsNetwork = null
-        lastDptsGeneration = null
-        lastDptsNetworkHandle = null
-        lastTrainingSubmitted = false
-        dptsTrainButton.isEnabled = false
         if (plan.suite != null) {
             launchScriptSuite(plan)
             return
@@ -1635,13 +1636,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 val report = DptsScript.report(plan, network, prepared, rows)
                 // Keep the diagnostic report even for inconsistent rows,
                 // but never expose training for an unbound experiment.
-                if (DptsScript.completeEvidence(plan, prepared, rows)) {
-                    lastDptsPlan = plan
-                    lastDptsRows = rows.toList()
-                    lastDptsNetwork = network
-                    lastDptsGeneration = generation
-                    lastDptsNetworkHandle = handle
-                }
+                lastDptsRun = DptsCompletedRun.capture(source, plan, prepared, rows,
+                    network, handle, generation)
                 resultText.text = report
                 resultText.visibility = View.VISIBLE
                 val copied = try {
@@ -1672,7 +1668,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 }.forEach { it.isEnabled = connected }
                 dptsSaveButton.isEnabled = true
                 dptsTrainButton.isEnabled = connected &&
-                    lastDptsPlan != null && !lastTrainingSubmitted
+                    hasCurrentDptsRun() && !lastTrainingSubmitted
             }
         }
     }
