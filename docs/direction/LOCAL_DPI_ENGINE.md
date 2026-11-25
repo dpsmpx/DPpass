@@ -652,3 +652,7 @@ Hardened the common watchdog application liveness probe: require matching PID pr
 ## A3/A5 — ROOT lifecycle path and lock validation
 
 CI 4722b23: Go/Linux/Windows #45633452321 and Android #45633435923 succeeded. Reject symlink or non-directory lifecycle paths and directories not owned by the executing UID before chmod or metadata operations. Reject symlink/nonregular/unowned lock files before opening them; retain the stable lock inode. A missing generation with outstanding PID files is no longer reported as successful cleanup. Host fixture covers adapter/peer symlinks, symlink/directory lock entries, missing generation with PID evidence, and clean startup/stop. The production /data/adb parent remains trusted; these checks do not defend against a concurrent privileged writer. Physical tests remain open. New CI pending.
+
+## A3/A5 — shared and legacy lock coverage for peer admission
+
+Peer admission now acquires the existing peer per-adapter lock once after the shared lock, around both previous-boot metadata retirement and same-boot strict recovery. An old watchdog holding its lock blocks admission and retains metadata until it releases the lock; no recursive acquisition or lock inode removal. Added host fixture for a contended previous-boot peer and successful retry. New CI pending; real upgrade/ROOT tests remain open.

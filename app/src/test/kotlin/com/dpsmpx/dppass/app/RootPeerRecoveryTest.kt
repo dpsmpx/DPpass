@@ -8,6 +8,52 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class RootPeerRecoveryTest {
+    @Test fun previousBootPeerRetirementWaitsForLegacyLock() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-peer-legacy-lock").toFile()
+        val peer = File(dir, "peer").apply { mkdir() }
+        val proc = File(dir, "proc")
+        val oldBoot = "11111111-1111-1111-1111-111111111111"
+        val newBoot = "22222222-2222-2222-2222-222222222222"
+        File(proc, "sys/kernel/random/boot_id").apply { parentFile?.mkdirs(); writeText(newBoot) }
+        val record = File(peer, "generation").apply { writeText("v2 old 123 456 $oldBoot\n") }
+        val pid = File(peer, "pid").apply { writeText("234\n") }
+        val lock = File(peer, "lifecycle.lock")
+        val ready = File(dir, "ready")
+        val release = File(dir, "release")
+        val action = File(dir, "launched")
+        val tx = RootLifecycleTransaction(File(dir, "next").path, "next",
+            File(dir, "shared").path, peer.path, proc.path)
+        val startup = tx.start(":", "touch '" + action.path + "'")
+        fun run() = RootCommandRunner.run(listOf("/bin/sh", "-c", startup), timeoutMillis = 10000).exitCode
+        val hold = "touch '" + ready.path + "'; i=0; while ! test -e '" + release.path +
+            "' && test \"\$i\" -lt 200; do sleep 0.05; i=\$((i+1)); done"
+        val holder = ProcessBuilder("/bin/sh", "-c",
+            RootProcessIdentity.lockedTransaction(lock.path, hold)).start()
+        try {
+            val deadline = System.nanoTime() + 3_000_000_000L
+            while (!ready.exists() && System.nanoTime() < deadline) Thread.sleep(10)
+            assertTrue(ready.exists())
+            assertFalse(run() == 0)
+            assertTrue(record.exists())
+            assertTrue(pid.exists())
+            assertFalse(action.exists())
+            release.writeText("release")
+            assertTrue(holder.waitFor(5, java.util.concurrent.TimeUnit.SECONDS))
+            assertEquals(0, holder.exitValue())
+            assertEquals(0, run())
+            assertFalse(record.exists())
+            assertFalse(pid.exists())
+            assertTrue(action.exists())
+            assertTrue(lock.isFile)
+        } finally {
+            release.writeText("release")
+            if (!holder.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) holder.destroyForcibly().waitFor()
+            dir.deleteRecursively()
+        }
+    }
+
     @Test fun strictSameAdapterHandoverRejectsLiveOwnerAndMigratesPreviousBoot() {
         if (!File("/bin/sh").canExecute()) return
         if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return

@@ -91,7 +91,7 @@ internal class RootLifecycleTransaction(
 
     /** Only strict, positively orphaned peers can be reconciled automatically.
      * No fallback to legacy cleanup when owner proof is missing. The caller
-     * holds the shared lock; also honor a peer's older per-adapter lock. */
+     * holds the shared lock and, if present, the peer's legacy lock. */
     private fun recoverStrictPeer(peer: String, cleanup: String): String {
         val strict = quote("$peer/pidfd.required")
         val generationFile = quote("$peer/generation")
@@ -100,7 +100,7 @@ internal class RootLifecycleTransaction(
         val absent = (pids + "$peer/ipv6.intent").joinToString(" && ") {
             "test ! -e " + quote(it) + " && test ! -L " + quote(it)
         }
-        return migrationStartup(listOf(
+        return listOf(
             "test -d " + quote(peer) + " && test ! -L " + quote(peer) + " || exit 1",
             metadataCheck("$peer/generation", "$peer/owner.identity", "$peer/pidfd.required",
                 "$peer/ipv6.intent", *(pids + childIdentityRecords(peer)).toTypedArray()),
@@ -113,7 +113,7 @@ internal class RootLifecycleTransaction(
             "rm -f $owner || exit 1",
             "rm -f $generationFile || exit 1",
             "echo 'ROOT: recovered orphaned strict peer'",
-        ).joinToString("\n"), peer)
+        ).joinToString("\n")
     }
 
     // Use the same previous-boot validation for either adapter. No signal
@@ -143,8 +143,8 @@ internal class RootLifecycleTransaction(
         val noPidRecords = (childPidRecords(peer) + childIdentityRecords(peer) + listOf("$peer/ipv6.intent", "$peer/pidfd.required")).joinToString(" && ") { absent(it.substringAfterLast('/')) }
         // A confirmed reboot invalidates prior-boot process ownership.
         // Validate all remaining PID records before deleting any. Do not
-        // signal processes, touch firewall rules, or attempt same-boot recovery.
-        return listOf(
+        // signal processes or touch firewall rules in that branch.
+        val admission = listOf(
             directoryOrAbsent(peer),
             "if ! ( " + absent("generation") + " ); then",
             "if " + previousBootRecordsSafe(peer) + "; then",
@@ -164,6 +164,11 @@ internal class RootLifecycleTransaction(
             noPidRecords +
                 " || { echo 'ROOT: previous adapter PID records remain; stop that mode first'; exit 1; }",
         ).joinToString("\n")
+        // Both previous-boot retirement and same-boot recovery must honor
+        // an old watchdog using the per-adapter lock. Acquire it once, in
+        // the established shared-then-legacy order, around all peer checks.
+        return directoryOrAbsent(peer) + "\n(\n" +
+            migrationStartup(admission, peer) + "\n) || exit 1"
     }
 
     // Reject ambiguous file types before reading or replacing metadata.
