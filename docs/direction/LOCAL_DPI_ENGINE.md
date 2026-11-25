@@ -392,3 +392,7 @@ CI e6d67e8: Go/Linux/Windows #45508151656 и Android #45508142746 успешны
 ## A3/A6 — loopback regression фактической TCP атрибуции
 
 Добавлен тест настоящих локальных TCP sockets: intentional pass и применённый split публикуют selection после записи; HTTP split-1 (unapplied) и ошибка записи на закрытом сокете не публикуют selection. Проверяется побайтовая сохранность полученного HTTP запроса. Только synthetic localhost, без обращения к внешним сервисам. CI ожидается.
+
+## A3/A6 — разделение выбора и выполненного UDP метода
+
+CI 42616fc: Go/Linux/Windows #45545532370 и Android #45545523891 успешны. В UDP executor choice хранится отдельно под mu, evidence pointer публикуется после полного успешного Initial write с matching selected action. Unapplied non-pass Initial исключает дальнейшую атрибуцию в текущем flow; уже принятые observations не отзываются. Не меняются методы, отправляемые данные, retry budget, маршрутизация или model ABI. Loopback regression проверяет successful baseline, byte integrity и ошибку закрытого socket. Временное окно concurrent Read/Write и физические QUIC испытания остаются открытыми; это conservative attribution, не подтверждение HTTP/3 content. CI ожидается.

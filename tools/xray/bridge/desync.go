@@ -726,6 +726,10 @@ type desyncUDPConn struct {
     initialFlights int
 	plannerErr error
     host string
+    // The choice is immutable for this flow, under mu. Readers may
+    // attribute evidence only after a successful matching Initial write.
+    chosen *adaptivePick
+    evidenceDisqualified bool
     adaptiveSelection atomic.Pointer[adaptivePick]
     received atomic.Int64
     observed sync.Once
@@ -792,12 +796,23 @@ func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
     c.mu.Lock()
     defer c.mu.Unlock()
     initial := zapret2.IsQUICInitial(b)
+    matched := false
     // A successful fake alone does not count. Require the genuine Initial.
     defer func() {
         if !initial { return }
         if writeErr != nil || written != len(b) {
             zapret2Stage.udpInitialFailed.Add(1)
         } else {
+            if c.chosen!=nil {
+                if !matched {
+                    // A successfully sent but unapplied Initial makes
+                    // subsequent attribution ambiguous for this flow.
+                    c.evidenceDisqualified=true
+                    c.adaptiveSelection.Store(nil)
+                } else if !c.evidenceDisqualified {
+                    c.adaptiveSelection.Store(c.chosen)
+                }
+            }
             c.stageInitialSent.Store(true)
             zapret2Stage.udpInitialSent.Add(1)
         }
@@ -806,7 +821,7 @@ func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
     if (c.mode.kind == desyncAuto || zapret2Auto.wants(c.host)) && zapret2.IsQUICInitial(b) {
         // Apply one chosen TTL for this UDP flow, including retransmitted
         // Initials; no silent fallback to unmodified QUIC on injection error.
-        if c.adaptiveSelection.Load() == nil {
+        if c.chosen == nil {
             choice, generation := zapret2Auto.chooseLive("udp:"+c.host, adaptiveQuicCandidates[:])
             resolved, ok, err := parseDesyncTag(zapret2.TagPrefix + choice)
             if !ok || err != nil || resolved.kind != desyncFake && resolved.kind != desyncPass {
@@ -814,7 +829,7 @@ func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
                 return 0, c.plannerErr
             }
             c.mode = resolved
-            c.adaptiveSelection.Store(newSocketPick("udp:"+c.host,choice,generation,localdpi.QUIC))
+            c.chosen = newSocketPick("udp:"+c.host,choice,generation,localdpi.QUIC)
         }
     }
 
@@ -824,6 +839,7 @@ func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
     // is shared with the Alpine planner; no independent parser lives here.
     if c.mode.kind == desyncPass && zapret2.IsQUICInitial(b) {
         // The explicit AUTO baseline sends real QUIC without malformed decoys.
+        matched = c.chosen!=nil && c.chosen.flow.MethodID=="pass"
         desyncSkipped.Add(1)
         return c.UDPConn.Write(b)
     }
@@ -854,6 +870,7 @@ func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
         c.plannerErr = fmt.Errorf("Zapret2 QUIC decoy failed: %w", err)
         return 0, c.plannerErr
     }
+    matched = c.chosen!=nil && plan.Strategy==zapret2.TagPrefix+c.chosen.flow.MethodID
     desyncApplied.Add(1)
     return c.UDPConn.Write(b)
 }
