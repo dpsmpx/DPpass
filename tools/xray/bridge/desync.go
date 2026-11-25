@@ -731,7 +731,11 @@ type desyncUDPConn struct {
     chosen *adaptivePick
     evidenceDisqualified bool
     adaptiveSelection atomic.Pointer[adaptivePick]
+    // Count only downstream observed after a completed Initial write.
+    // Earlier datagrams, including a reply racing publication, have
+    // ambiguous attribution and must not train the chosen method.
     received atomic.Int64
+    preInitialReply atomic.Bool
     observed sync.Once
     stageInitialSent atomic.Bool
     stageFirstReply atomic.Bool
@@ -742,7 +746,11 @@ type desyncUDPConn struct {
 func (c *desyncUDPConn) Read(b []byte) (int, error) {
     n, err := c.UDPConn.Read(b)
     if n > 0 {
-        if c.stageInitialSent.Load() && c.stageFirstReply.CompareAndSwap(false, true) {
+        if !c.stageInitialSent.Load() {
+            c.preInitialReply.Store(true)
+            return n, err
+        }
+        if c.stageFirstReply.CompareAndSwap(false, true) {
             zapret2Stage.udpFirstReply.Add(1)
             if pick := c.adaptiveSelection.Load(); socketPickAdmissible(pick) && pick.flow.MethodID == "pass" {
                 zapret2Auto.retainPlainReply(pick.host, pick.flow.Generation)
@@ -763,7 +771,7 @@ func (c *desyncUDPConn) Read(b []byte) (int, error) {
         // A QUIC Initial was sent and timed out without even a UDP first
         // reply. This is weak reachability evidence, not proof of DPI.
         // Never infer an application response from packet send success.
-        if pick:=c.adaptiveSelection.Load();pick!=nil {
+        if pick:=c.adaptiveSelection.Load();pick!=nil && !c.preInitialReply.Load() {
             recordLocalSocketEvidence(pick, localdpi.SocketFirstReplyTimeout(true, false, 0))
         }
     }
