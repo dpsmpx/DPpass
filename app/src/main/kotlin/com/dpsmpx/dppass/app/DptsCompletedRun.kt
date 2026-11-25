@@ -10,27 +10,23 @@ internal class DptsCompletedRun private constructor(
     private val source: String,
     val plan: DptsPlan,
     val rows: List<Zapret2GoogleAttempt>,
-    val network: String,
-    private val handle: Long,
-    val generation: Long,
+    private val session: DptsSession,
 ) {
+    val network: String get() = session.network
+    val generation: Long get() = session.generation
+
     // Native supervised calibration supports only these two network heads.
     val trainingNetworkSupported: Boolean get() = network == "MOBILE" || network == "WIFI"
 
-    fun matchesSource(currentSource: String): Boolean = source == currentSource
-
-    fun matches(currentSource: String, currentNetwork: String, currentHandle: Long?,
-        currentGeneration: Long?): Boolean =
-        matchesSource(currentSource) && network == currentNetwork &&
-            handle == currentHandle && generation == currentGeneration
+    fun matches(currentSource: String, currentSession: DptsSession?): Boolean =
+        source == currentSource && session == currentSession
 
     companion object {
         fun capture(source: String, plan: DptsPlan, prepared: Zapret2GoogleProbe,
-            rows: List<Zapret2GoogleAttempt>, network: String, handle: Long,
-            generation: Long): DptsCompletedRun? =
-            if (generation >= 0 && DptsScript.completeEvidence(plan, prepared, rows))
+            rows: List<Zapret2GoogleAttempt>, session: DptsSession?): DptsCompletedRun? =
+            if (session != null && DptsScript.completeEvidence(plan, prepared, rows))
                 DptsCompletedRun(source, plan.copy(probes = plan.probes.toList()),
-                    rows.toList(), network, handle, generation)
+                    rows.toList(), session)
             else null
     }
 }

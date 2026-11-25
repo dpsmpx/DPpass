@@ -157,11 +157,19 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         return response
     }
 
-    private fun launchDiagnostic(block: suspend CoroutineScope.() -> Unit) {
+    private fun launchDiagnostic(block: suspend CoroutineScope.(DptsSession) -> Unit) {
+        // Capture on the UI dispatcher at admission, not after scheduling.
+        val session = currentSession()
+        if (session == null) {
+            showIncompleteDpts()
+            renderControls(TunnelState.status.value)
+            return
+        }
         diagnostic.start {
             try {
-                activeSession = currentSession() ?: throw DiagnosticIncomplete()
-                block()
+                activeSession = session
+                requireDiagnosticSession()
+                block(session)
             } catch (_: DiagnosticIncomplete) {
                 ensureActive()
                 showIncompleteDpts()
@@ -199,8 +207,10 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         dptsTrainButton.isEnabled = false
     }
 
-    private fun hasCurrentDptsRun(): Boolean =
-        lastDptsRun?.matchesSource(dptsEditor.text.toString()) == true
+    private fun hasCurrentDptsRun(): Boolean {
+        val run = lastDptsRun ?: return false
+        return run.matches(dptsEditor.text.toString(), currentSession())
+    }
 
     override fun content(): View = Ui.column(context, 12).apply {
         addView(Ui.text(context, R.style.Text_DPpass_Caption,
@@ -418,11 +428,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     private fun trainFromLastScript() {
         if (diagnostic.busy || lastTrainingSubmitted) return
         val run = lastDptsRun
-        val underlying = NetworkCheck.underlying(context)
-        if (run == null || !ready(TunnelState.status.value) ||
-            !run.matches(dptsEditor.text.toString(), underlying.type.toString(),
-                underlying.network?.networkHandle,
-                runCatching { JniXrayRuntime.dptsGeneration() }.getOrNull())) {
+        if (run == null || !run.matches(dptsEditor.text.toString(), currentSession())) {
             invalidateDptsRun()
             statusText.text = context.getString(R.string.dpts_train_no_run)
             appendTrainingLog("not_applied reason=no_matching_completed_run")
@@ -463,11 +469,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             }
             generated
         }
-        val beforeTraining = NetworkCheck.underlying(context)
-        if (!ready(TunnelState.status.value) ||
-            !run.matches(dptsEditor.text.toString(), beforeTraining.type.toString(),
-                beforeTraining.network?.networkHandle,
-                runCatching { JniXrayRuntime.dptsGeneration() }.getOrNull())) {
+        if (!run.matches(dptsEditor.text.toString(), currentSession())) {
             invalidateDptsRun()
             statusText.text = context.getString(R.string.dpts_train_no_run)
             appendTrainingLog("not_applied reason=session_changed_before_training")
@@ -520,7 +522,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             host.toast(statusText.text)
             return
         }
-        val network = NetworkCheck.underlying(context).type.toString()
         val quic = host.prefs.zapret2VpnForceTcp
         val targets = if (dnsComparison) Zapret2ProbeCatalog.dnsTargets else Zapret2ProbeCatalog.targets
         val strategies = if (dnsComparison) Zapret2ProbeCatalog.dnsStrategies else Zapret2ProbeCatalog.strategies
@@ -534,7 +535,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         resultText.visibility = View.GONE
         statusText.text = context.getString(R.string.zapret2_autotest_progress,
             0, total, targets.first(), strategies.first(), 0, REPEATS)
-        launchDiagnostic {
+        launchDiagnostic { session ->
+            val network = session.network
             try {
                 val stageStart = withContext(Dispatchers.IO) {
                     try { JniXrayRuntime.snapshotZapret2Stages() }
@@ -589,13 +591,13 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             host.toast(statusText.text)
             return
         }
-        val network = NetworkCheck.underlying(context).type.toString()
         val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ROOT).format(Date())
         progress.visibility = View.VISIBLE
         progress.max = Zapret2ProbeCatalog.matrixProviders.size
         progress.progress = 0
         resultText.visibility = View.GONE
-        launchDiagnostic {
+        launchDiagnostic { session ->
+            val network = session.network
             val rows = mutableListOf<Zapret2GoogleAttempt>()
             try {
                 // Google control is prepared first, before the long YouTube
@@ -681,13 +683,13 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             host.toast(statusText.text)
             return
         }
-        val network = NetworkCheck.underlying(context).type.toString()
         val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ROOT).format(Date())
         progress.max = 1
         progress.progress = 0
         progress.visibility = View.VISIBLE
         resultText.visibility = View.GONE
-        launchDiagnostic {
+        launchDiagnostic { session ->
+            val network = session.network
             val rows = mutableListOf<Zapret2GoogleAttempt>()
             var done = 0
             var expired = false
@@ -880,14 +882,14 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             host.toast(statusText.text)
             return
         }
-        val network = NetworkCheck.underlying(context).type.toString()
         val methods = if (quic) Zapret2SiteSearch.quicMethods else Zapret2SiteSearch.tcpMethods
         progress.visibility = View.VISIBLE
         progress.progress = 0
         progress.max = methods.size * Zapret2SiteSearch.MAX_IPS * Zapret2SiteSearch.ATTEMPTS
         resultText.visibility = View.GONE
         statusText.text = "DoH · $domain"
-        launchDiagnostic {
+        launchDiagnostic { session ->
+            val network = session.network
             try {
                 val prepared = guardedProbe("plain", Zapret2SiteSearch.prepare(domain), DNS_TIMEOUT_MILLIS)
                 ensureActive()
@@ -971,12 +973,12 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             host.toast(statusText.text)
             return
         }
-        val network = NetworkCheck.underlying(context).type.toString()
         resultText.visibility = View.GONE
         progress.visibility = View.VISIBLE
         progress.progress = 0
         statusText.text = "DoH · ${Zapret2SiteSearch.YOUTUBE_API_HOST}"
-        launchDiagnostic {
+        launchDiagnostic { session ->
+            val network = session.network
             try {
                 val prepared = guardedProbe("plain",
                             Zapret2SiteSearch.prepare(Zapret2SiteSearch.YOUTUBE_API_HOST),
@@ -1079,12 +1081,12 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
             return
         }
-        val network = NetworkCheck.underlying(context).type.toString()
         progress.visibility = View.VISIBLE
         progress.progress = 0
         resultText.visibility = View.GONE
         statusText.text = "DoH · API и Google TLS"
-        launchDiagnostic {
+        launchDiagnostic { session ->
+            val network = session.network
             try {
                 suspend fun probe(method: String, target: String, ms: Int):
                     Zapret2GoogleProbe = guardedProbe(method, target, ms)
@@ -1196,11 +1198,11 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
             return
         }
-        val network = NetworkCheck.underlying(context).type.toString()
         progress.visibility = View.VISIBLE
         progress.progress = 0
         resultText.visibility = View.GONE
-        launchDiagnostic {
+        launchDiagnostic { session ->
+            val network = session.network
             try {
                 suspend fun probe(target: String, timeout: Int): Zapret2GoogleProbe =
                     guardedProbe("plain", target, timeout)
@@ -1303,32 +1305,19 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             launchScriptSuite(plan)
             return
         }
-        val underlying = NetworkCheck.underlying(context)
-        val network = underlying.type.toString()
-        val handle = underlying.network?.networkHandle
-        val generation = runCatching { JniXrayRuntime.dptsGeneration() }.getOrNull()
-        if (handle == null || generation == null || generation < 0) {
-            statusText.text = context.getString(R.string.dpts_train_no_run)
-            return
-        }
-        fun sameSession(): Boolean {
-            val current = NetworkCheck.underlying(context)
-            return ready(TunnelState.status.value) && current.type.toString() == network &&
-                current.network?.networkHandle == handle &&
-                runCatching { JniXrayRuntime.dptsGeneration() }.getOrNull() == generation
-        }
         progress.visibility = View.VISIBLE
         progress.max = plan.probes.size
         progress.progress = 0
         resultText.visibility = View.GONE
         statusText.text = "DPTS: DoH · ${plan.host}"
-        launchDiagnostic {
+        launchDiagnostic { session ->
+            val network = session.network
             try {
                 val window = DptsRunWindow(SystemClock.elapsedRealtime(), DNS_TIMEOUT_MILLIS)
                 val prepared = guardedProbe("plain",
                             Zapret2SiteSearch.prepare(plan.host), DNS_TIMEOUT_MILLIS)
                 ensureActive()
-                if (!sameSession() || !window.canFinish(SystemClock.elapsedRealtime())) {
+                if (session != currentSession() || !window.canFinish(SystemClock.elapsedRealtime())) {
                     showIncompleteDpts()
                     return@launchDiagnostic
                 }
@@ -1344,7 +1333,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 var expired = false
                 for ((index, probe) in plan.probes.withIndex()) {
                     ensureActive()
-                    if (!sameSession() ||
+                    if (session != currentSession() ||
                         !window.canStart(SystemClock.elapsedRealtime(), probe.timeoutMs)) {
                         expired = true
                         break
@@ -1353,7 +1342,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                         " · ${probe.phase}/${probe.method} IPv4 #${probe.ipIndex}"
                     val response = guardedProbe(probe.method, probe.target, probe.timeoutMs)
                     ensureActive()
-                    if (!sameSession() || !window.canFinish(SystemClock.elapsedRealtime())) {
+                    if (session != currentSession() || !window.canFinish(SystemClock.elapsedRealtime())) {
                         expired = true
                         break
                     }
@@ -1361,7 +1350,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                         response, probe.target)
                     progress.progress = rows.size
                 }
-                if (expired || rows.size != plan.probes.size || !sameSession() ||
+                if (expired || rows.size != plan.probes.size || session != currentSession() ||
                     !window.canFinish(SystemClock.elapsedRealtime())) {
                     showIncompleteDpts()
                     return@launchDiagnostic
@@ -1369,8 +1358,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 val report = DptsScript.report(plan, network, prepared, rows)
                 // Keep the diagnostic report even for inconsistent rows,
                 // but never expose training for an unbound experiment.
-                lastDptsRun = DptsCompletedRun.capture(source, plan, prepared, rows,
-                    network, handle, generation)
+                lastDptsRun = DptsCompletedRun.capture(source, plan, prepared, rows, session)
                 publishCompletedReport("DPpass DPTS", report, R.string.dpts_copied)
             } catch (_: CancellationException) {
                 statusText.text = context.getString(R.string.zapret2_autotest_cancelled)

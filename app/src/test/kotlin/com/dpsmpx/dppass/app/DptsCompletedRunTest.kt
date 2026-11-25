@@ -19,26 +19,26 @@ class DptsCompletedRunTest {
             Zapret2GoogleProbe("ok", 200, 256, 10, 0, 0, "abcdef12", 1,
                 spec.ipIndex, spec.wireProtocol, "tls_verified", "http/1.1"), spec.target)
         val rows = mutableListOf(row)
-        val run = DptsCompletedRun.capture(source, plan, prepared, rows, "MOBILE", 10L, 20L)
+        val run = DptsCompletedRun.capture(source, plan, prepared, rows, DptsSession.capture("MOBILE", 10L, 20L))
         assertNotNull(run)
         val captured = requireNotNull(run)
-        assertTrue(captured.matches(source, "MOBILE", 10L, 20L))
+        assertTrue(captured.matches(source, DptsSession.capture("MOBILE", 10L, 20L)))
         assertTrue(captured.trainingNetworkSupported)
         for (network in listOf("WIFI", "OTHER", "UNKNOWN")) {
             val other = requireNotNull(DptsCompletedRun.capture(source, plan, prepared,
-                rows, network, 10L, 20L))
-            assertTrue(other.matches(source, network, 10L, 20L))
+                rows, DptsSession.capture(network, 10L, 20L)))
+            assertTrue(other.matches(source, DptsSession.capture(network, 10L, 20L)))
             assertTrue(other.trainingNetworkSupported == (network == "WIFI"))
         }
-        assertFalse(captured.matches(source + "\n# edit", "MOBILE", 10L, 20L))
-        assertFalse(captured.matches(source, "WIFI", 10L, 20L))
-        assertFalse(captured.matches(source, "MOBILE", 11L, 20L))
-        assertFalse(captured.matches(source, "MOBILE", 10L, 21L))
-        assertFalse(captured.matches(source, "MOBILE", null, 20L))
-        assertFalse(captured.matches(source, "MOBILE", 10L, null))
+        assertFalse(captured.matches(source + "\n# edit", DptsSession.capture("MOBILE", 10L, 20L)))
+        assertFalse(captured.matches(source, DptsSession.capture("WIFI", 10L, 20L)))
+        assertFalse(captured.matches(source, DptsSession.capture("MOBILE", 11L, 20L)))
+        assertFalse(captured.matches(source, DptsSession.capture("MOBILE", 10L, 21L)))
+        assertFalse(captured.matches(source, DptsSession.capture("MOBILE", null, 20L)))
+        assertFalse(captured.matches(source, DptsSession.capture("MOBILE", 10L, null)))
         rows.clear()
         assertTrue(captured.rows.size == 1)
-        assertNull(DptsCompletedRun.capture(source, plan, prepared, rows, "MOBILE", 10L, 20L))
-        assertNull(DptsCompletedRun.capture(source, plan, prepared, listOf(row), "MOBILE", 10L, -1L))
+        assertNull(DptsCompletedRun.capture(source, plan, prepared, rows, DptsSession.capture("MOBILE", 10L, 20L)))
+        assertNull(DptsCompletedRun.capture(source, plan, prepared, listOf(row), DptsSession.capture("MOBILE", 10L, -1L)))
     }
 }
