@@ -11,9 +11,21 @@ n=0
 if [[ -f count ]]; then read -r n < count; fi
 n=$((n+1))
 echo "$n" > count
+if (( n > 1 )); then
+  [[ " $* " == *" --refresh-dependencies "* ]] || exit 99
+else
+  [[ " $* " != *" --refresh-dependencies "* ]] || exit 99
+fi
+[[ " $* " == *" :test "* ]] || exit 99
 case "$MODE" in
   transient)
     if (( n == 1 )); then
+      echo 'could not resolve plugin artifact'
+      exit 7
+    fi
+    ;;
+  late)
+    if (( n < 4 )); then
       echo 'could not resolve plugin artifact'
       exit 7
     fi
@@ -46,7 +58,8 @@ check() {
   [[ "$status" == "$expected_status" && "$(cat count)" == "$expected_attempts" ]]
 }
 check transient 0 2
-check persistent 7 3
+check late 0 4
+check persistent 7 4
 check task 9 1
 check other 6 1
 echo 'Gradle resolution retry fixtures passed'
