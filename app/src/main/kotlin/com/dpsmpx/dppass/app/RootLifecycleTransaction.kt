@@ -43,13 +43,23 @@ internal class RootLifecycleTransaction(
         ).joinToString("\n")
     }
 
-    fun stop(cleanup: String): String = listOf(
+    fun stop(cleanup: String): String = cleanupTransaction(cleanup)
+
+    /** One watchdog poll. Zero means finished, nonzero means retry.
+     * The generation and health checks share the cleanup lock.
+     */
+    fun watchdogPoll(condition: String, cleanup: String): String =
+        cleanupTransaction(cleanup, condition)
+
+    private fun cleanupTransaction(cleanup: String, condition: String? = null): String = listOf(
         // Do not create an absent ROOT directory during a stop.
         "test -d " + quote(directory) + " || exit 0",
         transaction(listOf(
             "test -e " + quote(record) + " || exit 0",
             "current=\$(cat " + quote(record) + ") || exit 1",
             "test \"\$current\" = " + quote(generation) + " || exit 0",
+            // A healthy owner must not be cleaned based on a stale probe.
+            condition?.let { "if (\n$it\n); then exit 75; fi" } ?: ":",
             "(\n$cleanup\n) || exit 1",
             "rm -f " + quote(record) + " || exit 1",
         ).joinToString("\n")),
@@ -60,8 +70,7 @@ internal class RootLifecycleTransaction(
     )
 
     fun watchdog(condition: String, cleanup: String): String =
-        "while $condition; do sleep 3; done\n" +
-            // A busy lifecycle lock or incomplete cleanup must not silently
-            // terminate the watchdog. Generation mismatch is a safe no-op.
-            "while ! (\n" + stop(cleanup) + "\n); do sleep 3; done"
+        // Healthy, contended or failed cleanup polls retry. A stale or
+        // absent generation exits without touching any newer resources.
+        "while ! (\n" + watchdogPoll(condition, cleanup) + "\n); do sleep 3; done"
 }

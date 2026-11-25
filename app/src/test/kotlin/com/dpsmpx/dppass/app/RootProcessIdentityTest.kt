@@ -334,6 +334,55 @@ class RootProcessIdentityTest {
         }
     }
 
+    @Test fun watchdogPollKeepsHealthyOwnerAndRetriesFailedCleanup() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-watchdog-poll")
+        val lifecycle = RootLifecycleTransaction(dir.toString(), "owner")
+        val marker = dir.resolve("cleaned").toFile()
+        val record = dir.resolve("generation").toFile()
+        fun run(script: String) = RootCommandRunner.run(
+            listOf("/bin/sh", "-c", script), timeoutMillis = 10_000,
+        ).exitCode
+        try {
+            assertEquals(0, run(lifecycle.start(":", ":")))
+            val cleanup = "echo cleaned > '${marker.path}'"
+            assertEquals(75, run(lifecycle.watchdogPoll(":", cleanup)))
+            assertFalse(marker.exists())
+            assertEquals("owner", record.readText().trim())
+            assertFalse(run(lifecycle.watchdogPoll("false", "exit 7")) == 0)
+            assertEquals("owner", record.readText().trim())
+            assertEquals(0, run(lifecycle.watchdogPoll("false", cleanup)))
+            assertTrue(marker.exists())
+            assertFalse(record.exists())
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun obsoleteWatchdogExitsWithoutEvaluatingHealthOrCleanup() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-watchdog-obsolete")
+        val old = RootLifecycleTransaction(dir.toString(), "old")
+        val current = RootLifecycleTransaction(dir.toString(), "current")
+        val marker = dir.resolve("unexpected").toFile()
+        fun run(script: String) = RootCommandRunner.run(
+            listOf("/bin/sh", "-c", script), timeoutMillis = 10_000,
+        ).exitCode
+        try {
+            assertEquals(0, run(current.start(":", ":")))
+            assertEquals(0, run(old.watchdog(
+                "echo probe > '${marker.path}'; false",
+                "echo cleanup > '${marker.path}'",
+            )))
+            assertFalse(marker.exists())
+            assertEquals("current", dir.resolve("generation").toFile().readText().trim())
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun lockAndGenerationGuardRejectInvalidInputs() {
         val invalidTimeout = runCatching { RootProcessIdentity.lockedTransaction("/tmp/lock", ":", 0) }
         assertTrue(invalidTimeout.isFailure)
