@@ -19,6 +19,7 @@ import com.dpsmpx.dppass.app.DptsDiagnosticJob
 import com.dpsmpx.dppass.app.DptsSavedScripts
 import com.dpsmpx.dppass.app.DptsReportCopy
 import com.dpsmpx.dppass.app.DptsRunWindow
+import com.dpsmpx.dppass.app.DptsSession
 import com.dpsmpx.dppass.app.NetworkCheck
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.TunnelStatus
@@ -45,6 +46,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -115,8 +117,47 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     }
     private var started = false
 
+    private var activeSession: DptsSession? = null
+
+    private fun currentSession(): DptsSession? {
+        if (!ready(TunnelState.status.value)) return null
+        val underlying = NetworkCheck.underlying(context)
+        return DptsSession.capture(underlying.type.toString(),
+            underlying.network?.networkHandle,
+            runCatching { JniXrayRuntime.dptsGeneration() }.getOrNull())
+    }
+
+    private class DiagnosticSessionLost : Exception()
+
+    private fun requireDiagnosticSession() {
+        val expected = activeSession ?: throw DiagnosticSessionLost()
+        if (expected != currentSession()) throw DiagnosticSessionLost()
+    }
+
+    private suspend fun guardedProbe(method: String, target: String,
+        timeout: Int): Zapret2GoogleProbe {
+        currentCoroutineContext().ensureActive()
+        requireDiagnosticSession()
+        val response = withContext(Dispatchers.IO) {
+            JniXrayRuntime.probeZapret2Google(method, target, timeout)
+        }
+        currentCoroutineContext().ensureActive()
+        requireDiagnosticSession()
+        return response
+    }
+
     private fun launchDiagnostic(block: suspend CoroutineScope.() -> Unit) {
-        diagnostic.start(block)
+        diagnostic.start {
+            try {
+                activeSession = currentSession() ?: throw DiagnosticSessionLost()
+                block()
+            } catch (_: DiagnosticSessionLost) {
+                ensureActive()
+                showIncompleteDpts()
+            } finally {
+                activeSession = null
+            }
+        }
     }
 
     init {
@@ -281,8 +322,10 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             true
         }
 
-    private fun publishCompletedReport(label: String, report: String,
+    private suspend fun publishCompletedReport(label: String, report: String,
         successMessage: Int = R.string.zapret2_autotest_done) {
+        currentCoroutineContext().ensureActive()
+        requireDiagnosticSession()
         resultText.text = report
         resultText.visibility = View.VISIBLE
         val copied = copyReport(label, report)
@@ -446,9 +489,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                                 R.string.zapret2_autotest_progress,
                                 done, total, target, strategy, attempt, REPEATS)
                             val response = try {
-                                withContext(Dispatchers.IO) {
-                                    JniXrayRuntime.probeZapret2Google(strategy, target, timeout)
-                                }
+                                guardedProbe(strategy, target, timeout)
                             } catch (_: LinkageError) {
                                 Zapret2GoogleProbe.unavailable()
                             }
@@ -510,9 +551,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     statusText.text = context.getString(R.string.zapret2_autotest_progress,
                         index, progress.max, id, "plain", 1, 1)
                     val response = try {
-                        withContext(Dispatchers.IO) {
-                            JniXrayRuntime.probeZapret2Google("plain", id, DNS_TIMEOUT_MILLIS)
-                        }
+                        guardedProbe("plain", id, DNS_TIMEOUT_MILLIS)
                     } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
                     ensureActive()
                     rows += Zapret2GoogleAttempt("plain", 1, response, id)
@@ -557,9 +596,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     statusText.text = context.getString(R.string.zapret2_autotest_progress,
                         done, total, trial.first, trial.second, 1, 1)
                     val response = try {
-                        withContext(Dispatchers.IO) {
-                            JniXrayRuntime.probeZapret2Google(trial.second, trial.first, MATRIX_TIMEOUT_MILLIS)
-                        }
+                        guardedProbe(trial.second, trial.first, MATRIX_TIMEOUT_MILLIS)
                     } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
                     ensureActive()
                     rows += Zapret2GoogleAttempt(trial.second, 1, response, trial.first)
@@ -610,9 +647,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     statusText.text = context.getString(R.string.zapret2_autotest_progress,
                         done, progress.max, target, "plain", number, maxAttempts)
                     val result = try {
-                        withContext(Dispatchers.IO) {
-                            JniXrayRuntime.probeZapret2Google("plain", target, timeout)
-                        }
+                        guardedProbe("plain", target, timeout)
                     } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
                     ensureActive()
                     val row = Zapret2GoogleAttempt("plain", number, result, target)
@@ -802,10 +837,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         launchDiagnostic {
             try {
                 val prepared = try {
-                    withContext(Dispatchers.IO) {
-                        JniXrayRuntime.probeZapret2Google(
-                            "plain", Zapret2SiteSearch.prepare(domain), DNS_TIMEOUT_MILLIS)
-                    }
+                    guardedProbe("plain", Zapret2SiteSearch.prepare(domain), DNS_TIMEOUT_MILLIS)
                 } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
                 ensureActive()
                 if (prepared.outcome != "dns_ready" || prepared.dnsAnswers < 1) {
@@ -843,10 +875,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                                 rows.size, total, domain + " IPv4 #$ip", method,
                                 number, Zapret2SiteSearch.ATTEMPTS)
                             val response = try {
-                                withContext(Dispatchers.IO) {
-                                    JniXrayRuntime.probeZapret2Google(
-                                        method, target, SITE_TIMEOUT_MILLIS)
-                                }
+                                guardedProbe(method, target, SITE_TIMEOUT_MILLIS)
                             } catch (_: LinkageError) {
                                 Zapret2GoogleProbe.unavailable()
                             }
@@ -903,11 +932,9 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         launchDiagnostic {
             try {
                 val prepared = try {
-                    withContext(Dispatchers.IO) {
-                        JniXrayRuntime.probeZapret2Google("plain",
+                    guardedProbe("plain",
                             Zapret2SiteSearch.prepare(Zapret2SiteSearch.YOUTUBE_API_HOST),
                             DNS_TIMEOUT_MILLIS)
-                    }
                 } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
                 ensureActive()
                 if (prepared.outcome != "dns_ready" || prepared.dnsAnswers < 1) {
@@ -937,10 +964,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                         val target = Zapret2SiteSearch.apiSweepTrial(ip, 1, proto)
                         statusText.text = "API IPv4 #$ip · $proto / $method · ${rows.size}/$total"
                         val response = try {
-                            withContext(Dispatchers.IO) {
-                                JniXrayRuntime.probeZapret2Google(
-                                    method, target, API_SWEEP_TIMEOUT_MILLIS)
-                            }
+                            guardedProbe(method, target, API_SWEEP_TIMEOUT_MILLIS)
                         } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
                         ensureActive()
                         rows += Zapret2GoogleAttempt(method, 1, response, target)
@@ -979,10 +1003,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                         statusText.text = "API IPv4 #${candidate.result.ipIndex} · " +
                             "${candidate.result.protocol} / ${candidate.strategy} · $attempt/3"
                         val response = try {
-                            withContext(Dispatchers.IO) {
-                                JniXrayRuntime.probeZapret2Google(
-                                    candidate.strategy, target, API_SWEEP_TIMEOUT_MILLIS)
-                            }
+                            guardedProbe(candidate.strategy, target, API_SWEEP_TIMEOUT_MILLIS)
                         } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
                         ensureActive()
                         rows += Zapret2GoogleAttempt(candidate.strategy, attempt,
@@ -1027,9 +1048,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             try {
                 suspend fun probe(method: String, target: String, ms: Int):
                     Zapret2GoogleProbe = try {
-                    withContext(Dispatchers.IO) {
-                        JniXrayRuntime.probeZapret2Google(method, target, ms)
-                    }
+                    guardedProbe(method, target, ms)
                 } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
                 val prepared = probe("plain", Zapret2SiteSearch.prepare(
                     Zapret2SiteSearch.YOUTUBE_API_HOST), DNS_TIMEOUT_MILLIS)
@@ -1147,9 +1166,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             try {
                 suspend fun probe(target: String, timeout: Int): Zapret2GoogleProbe =
                     try {
-                        withContext(Dispatchers.IO) {
-                            JniXrayRuntime.probeZapret2Google("plain", target, timeout)
-                        }
+                        guardedProbe("plain", target, timeout)
                     } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
                 val prepared = probe(
                     Zapret2SiteSearch.prepare(Zapret2SiteSearch.YOUTUBE_API_HOST),
@@ -1274,10 +1291,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             try {
                 val window = DptsRunWindow(SystemClock.elapsedRealtime(), DNS_TIMEOUT_MILLIS)
                 val prepared = try {
-                    withContext(Dispatchers.IO) {
-                        JniXrayRuntime.probeZapret2Google("plain",
+                    guardedProbe("plain",
                             Zapret2SiteSearch.prepare(plan.host), DNS_TIMEOUT_MILLIS)
-                    }
                 } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
                 ensureActive()
                 if (!sameSession() || !window.canFinish(SystemClock.elapsedRealtime())) {
@@ -1304,10 +1319,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     statusText.text = "DPTS: ${plan.title} · ${index + 1}/${plan.probes.size}" +
                         " · ${probe.phase}/${probe.method} IPv4 #${probe.ipIndex}"
                     val response = try {
-                        withContext(Dispatchers.IO) {
-                            JniXrayRuntime.probeZapret2Google(
-                                probe.method, probe.target, probe.timeoutMs)
-                        }
+                        guardedProbe(probe.method, probe.target, probe.timeoutMs)
                     } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
                     ensureActive()
                     if (!sameSession() || !window.canFinish(SystemClock.elapsedRealtime()) ||
