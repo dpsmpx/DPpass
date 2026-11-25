@@ -126,6 +126,24 @@ class DptsLearningTest {
         assertTrue(evidence.winners.isEmpty())
     }
 
+    @Test fun tlsOnlyAndVerifiedHttpUseDistinctEvidenceCounters() {
+        val plan = DptsScript.compile(source)
+        val rows = observations(plan).map { row ->
+            if (row.strategy == "plain") row else row.copy(result = row.result.copy(
+                outcome = "timeout_headers", httpStatus = 0, bodyBytes = 0))
+        }
+        val evidence = DptsLearning.analyze(plan, rows)
+        assertEquals(6, evidence.tlsVerified)
+        assertEquals(0, evidence.transportVerified)
+        assertEquals(0, evidence.htmlVerified)
+        assertEquals("transport_only_not_content", evidence.reason)
+        assertTrue(evidence.winners.isEmpty())
+        val malformed = DptsLearning.analyze(plan.copy(budgetMs = 1), observations(plan))
+        assertEquals("invalid_probe_plan", malformed.reason)
+        assertEquals(0, malformed.tlsVerified)
+        assertTrue(malformed.winners.isEmpty())
+    }
+
     @Test fun explicitLegacySuiteCannotTrainFromScript() {
         val plan = DptsScript.compile(
             "dpts 1\nname API sweep\nhost youtubei.googleapis.com\n" +

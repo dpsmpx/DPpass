@@ -58,6 +58,7 @@ class DptsScriptTest {
         }
         assertTrue(tls.contains("matched_rows=1; unbound_rows=0"))
         assertTrue(tls.contains("tls_verified=1/1"))
+        assertTrue(tls.contains("transport=0/1"))
         assertTrue(tls.contains("content_verified=0/1"))
         val mismatch = report("www.youtube.com", "https") { it.copy(target = "unrelated") }
         assertTrue(mismatch.contains("matched_rows=0; unbound_rows=1"))
@@ -126,6 +127,27 @@ class DptsScriptTest {
             assertFalse(DptsScript.completeEvidence(plan, invalid, emptyList()))
         }
         assertFalse(DptsScript.completeEvidence(plan, valid, emptyList()))
+    }
+
+    @Test fun malformedPlanCannotProduceCompleteOrPositiveEvidence() {
+        val plan = DptsScript.compile("dpts 1\nhost www.youtube.com\nhttps ips=1 attempts=1")
+        val prepared = Zapret2GoogleProbe("dns_ready", 200, 0, 10, 0, 0, "abcdef12", 1)
+        val spec = plan.probes.single()
+        val row = Zapret2GoogleAttempt(spec.method, spec.attempt,
+            Zapret2GoogleProbe("ok", 200, 256, 10, 0, 0, "abcdef12", 1,
+                spec.ipIndex, spec.wireProtocol, "tls_verified", "http/1.1"), spec.target)
+        assertTrue(DptsScript.completeEvidence(plan, prepared, listOf(row)))
+        for (invalid in listOf(plan.copy(budgetMs = 1),
+            plan.copy(probes = listOf(spec, spec), budgetMs = plan.budgetMs * 2),
+            plan.copy(probes = listOf(spec.copy(timeoutMs = 999)), budgetMs = 999),
+            plan.copy(suite = "site_https"))) {
+            val rows = List(invalid.probes.size) { row }
+            assertFalse(DptsScript.completeEvidence(invalid, prepared, rows))
+            val report = DptsScript.report(invalid, "MOBILE", prepared, rows)
+            assertTrue(report.contains("probe_plan_valid=false"))
+            assertTrue(report.contains("matched_rows=0"))
+            assertTrue(report.contains("complete_evidence=false"))
+        }
     }
 
     @Test fun sharedCatalogPreservesDiagnosticOrderAndCalibrationBoundary() {

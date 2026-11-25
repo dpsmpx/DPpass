@@ -37,6 +37,10 @@ data class DptsProbe(
             else -> false
         }
 
+    fun transportVerified(result: Zapret2GoogleProbe): Boolean =
+        handshakeVerified(result) &&
+            (wireProtocol == "quic" || result.httpStatus in 200..499)
+
     fun boundedHttpsSuccess(result: Zapret2GoogleProbe): Boolean =
         phase == "https" && protocol in setOf("h1", "h2") &&
             handshakeVerified(result) && result.outcome == "ok" &&
@@ -290,10 +294,26 @@ object DptsScript {
     /** The address set is fixed for the whole expanded script, including
      * same-IP controls. The short fingerprint is an identity check, not
      * an authentication mechanism. */
+    private val dnsFingerprintPattern = Regex("[0-9a-f]{8}")
+
+    internal fun uniqueProbeIdentities(plan: DptsPlan): Boolean =
+        plan.probes.map { it.target to it.method }.distinct().size == plan.probes.size
+
+    internal fun probePlanValid(plan: DptsPlan): Boolean =
+        plan.suite == null && plan.probes.size in 1..MAX_PROBES &&
+            uniqueProbeIdentities(plan) &&
+            plan.probes.all { it.timeoutMs in 1000..12000 && it.attempt in 1..3 &&
+                it.ipIndex in 0..7 } &&
+            plan.budgetMs in 1..MAX_BUDGET_MS &&
+            plan.budgetMs == plan.probes.sumOf { it.timeoutMs.toLong() }
+
+    internal fun dnsSetValid(plan: DptsPlan, fingerprint: String, count: Int): Boolean =
+        count in 1..8 && dnsFingerprintPattern.matches(fingerprint) &&
+            plan.probes.all { it.ipIndex in 0 until count }
+
     fun preparationValid(plan: DptsPlan, prepared: Zapret2GoogleProbe): Boolean =
-        plan.probes.isNotEmpty() && prepared.outcome == "dns_ready" &&
-            prepared.dnsAnswers in 1..8 && prepared.dnsFingerprint.matches(Regex("[0-9a-f]{8}")) &&
-            plan.probes.all { it.ipIndex in 0 until prepared.dnsAnswers }
+        probePlanValid(plan) && prepared.outcome == "dns_ready" &&
+            dnsSetValid(plan, prepared.dnsFingerprint, prepared.dnsAnswers)
 
     fun rowMatchesPreparation(spec: DptsProbe, row: Zapret2GoogleAttempt,
         prepared: Zapret2GoogleProbe): Boolean =
@@ -324,15 +344,14 @@ object DptsScript {
         appendLine("matched_rows=${matched.size}; unbound_rows=${observations.size - matched.size};" +
             " missing_rows=${(plan.probes.size - observations.size).coerceAtLeast(0)};" +
             " extra_rows=${(observations.size - plan.probes.size).coerceAtLeast(0)}")
+        appendLine("probe_plan_valid=" + probePlanValid(plan))
         appendLine("dns_preparation_valid=$preparationValid; complete_evidence=" +
             completeEvidence(plan, prepared, observations))
         for (phase in plan.probes.map { it.phase }.distinct()) {
             val indices = plan.probes.indices.filter { plan.probes[it].phase == phase }
             val results = indices.mapNotNull { i -> matched[i]?.let { plan.probes[i] to it } }
             val verified = results.count { (spec, r) -> spec.handshakeVerified(r) }
-            val transport = results.count { (spec, r) ->
-                spec.handshakeVerified(r) && (spec.wireProtocol == "quic" || r.httpStatus in 200..499)
-            }
+            val transport = results.count { (spec, r) -> spec.transportVerified(r) }
             val bounded = results.count { (spec, r) ->
                 spec.boundedHttpsSuccess(r) && plan.host != Zapret2SiteSearch.YOUTUBE_API_HOST
             }

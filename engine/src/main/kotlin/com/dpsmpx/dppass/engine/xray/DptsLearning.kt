@@ -14,12 +14,13 @@ object DptsLearning {
     data class Evidence(
         val transportVerified: Int = 0,
         val htmlVerified: Int = 0,
+        val tlsVerified: Int = 0,
         val addressProofs: List<AddressProof> = emptyList(),
         val winners: List<String> = emptyList(),
         val reason: String,
     ) {
         fun report(): String =
-            "transport_verified=$transportVerified html_verified=$htmlVerified address_proofs=" +
+            "transport_verified=$transportVerified html_verified=$htmlVerified tls_verified=$tlsVerified address_proofs=" +
                 addressProofs.joinToString(",") { "${it.ipIndex}:${it.protocol}:${it.method}" }.ifEmpty { "-" }
     }
 
@@ -32,26 +33,31 @@ object DptsLearning {
             return Evidence(reason = "incomplete_or_legacy_suite")
         val matching = rows.indices.all { i -> plan.probes[i].matches(rows[i]) }
         if (!matching) return Evidence(reason = "mismatched_probe_rows")
-        if (plan.probes.map { it.target to it.method }.distinct().size != plan.probes.size)
+        if (!DptsScript.uniqueProbeIdentities(plan))
             return Evidence(reason = "duplicate_probe_identity")
+        if (!DptsScript.probePlanValid(plan))
+            return Evidence(reason = "invalid_probe_plan")
 
         val fingerprints = rows.map { it.result.dnsFingerprint }.distinct()
         val counts = rows.map { it.result.dnsAnswers }.distinct()
-        if (fingerprints.size != 1 || !fingerprints.single().matches(Regex("[0-9a-f]{8}")) ||
-            counts.size != 1 || counts.single() !in 1..8 ||
-            plan.probes.any { it.ipIndex !in 0 until counts.single() })
+        if (fingerprints.size != 1 || counts.size != 1 ||
+            !DptsScript.dnsSetValid(plan, fingerprints.single(), counts.single()))
             return Evidence(reason = "dns_address_set_changed")
 
-        val transportCount = rows.indices.count { i ->
+        val tlsCount = rows.indices.count { i ->
             plan.probes[i].handshakeVerified(rows[i].result)
+        }
+        val transportCount = rows.indices.count { i ->
+            plan.probes[i].transportVerified(rows[i].result)
         }
         val htmlCount = if (plan.host == "www.youtube.com")
             rows.indices.count { i -> plan.probes[i].boundedHttpsSuccess(rows[i].result) }
         else 0
-        val base = Evidence(transportVerified = transportCount, htmlVerified = htmlCount, reason = "no_verified_html")
+        val base = Evidence(transportVerified = transportCount, htmlVerified = htmlCount,
+            tlsVerified = tlsCount, reason = "no_verified_html")
         if (!plan.observeLearning) return base.copy(reason = "learning_disabled_in_script")
         if (plan.host != "www.youtube.com")
-            return base.copy(reason = if (transportCount > 0) "transport_only_not_content" else "no_verified_transport")
+            return base.copy(reason = if (tlsCount > 0) "transport_only_not_content" else "no_verified_transport")
 
         fun on(ip: Int, protocol: String, method: String): List<Pair<DptsProbe, Zapret2GoogleProbe>>? {
             return (1..Zapret2SiteSearch.ATTEMPTS).map { attempt ->
@@ -92,7 +98,7 @@ object DptsLearning {
                 winners.isNotEmpty() -> "verified_two_ips"
                 proofs.isNotEmpty() -> "verified_single_ip_only"
                 htmlCount > 0 -> "no_matched_failed_plain_and_three_repeats"
-                transportCount > 0 -> "transport_only_not_content"
+                tlsCount > 0 -> "transport_only_not_content"
                 else -> "no_verified_transport"
             })
     }
