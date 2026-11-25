@@ -40,7 +40,7 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
                     owner.pid, owner.startTime, "$ROOT/pid", "$ROOT/ciadpi", "$ROOT/pid6",
                 ), cleanup(false))
                 execute(lifecycle.start(cleanup(), listOf("set -eu", "umask 077", "mkdir -p " + quote(ROOT),
-                    "chmod 700 " + quote(ROOT), helper?.install(ROOT) ?: ":",
+                    "chmod 700 " + quote(ROOT), if (helper != null) RootPidfdCleanup.requireForLaunch(ROOT) else ":",
                     "cp " + quote(binary.absolutePath) + " " + quote("$ROOT/ciadpi"),
                     "chmod 700 " + quote("$ROOT/ciadpi"),
                     "cp " + quote(localHosts.absolutePath) + " " + quote("$ROOT/hosts"),
@@ -60,7 +60,7 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
                     lifecycle.captureExecutable("pid6", "$ROOT/ciadpi"),
                     RootFirewallCleanup.markIntent("$ROOT/ipv6.intent"),
                     "ip6tables -t nat -I OUTPUT " + RULE, "ip6tables -t nat -C OUTPUT " + RULE,
-                    "fi").joinToString("\n"), owner, preservePreviousOwner = true))
+                    "fi").joinToString("\n"), owner, preservePreviousOwner = true, prepare = helper?.install(ROOT) ?: ":"))
                 }, rollback = { execute(lifecycle.stop(cleanup())) })
             } finally {
                 helper?.discard()
@@ -81,9 +81,9 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
         appendLine(RootFirewallCleanup.remove(RootFirewallCleanup.Kind.SOCKET, "iptables", listOf(RULE)))
         appendLine(RootFirewallCleanup.remove(RootFirewallCleanup.Kind.SOCKET, "ip6tables", listOf(RULE),
             optional = true, intentFile = "$ROOT/ipv6.intent"))
-        if (stopWatch) appendLine(RootProcessIdentity.stopScript("$ROOT/watch.pid", "$ROOT/watch.sh"))
+        if (stopWatch) appendLine(RootPidfdCleanup.stopWatchdog(ROOT, "$ROOT/watch.sh"))
         for (name in listOf("pid", "pid6")) {
-            appendLine(RootProcessIdentity.stopExecutable("$ROOT/$name", "$ROOT/ciadpi"))
+            appendLine(RootPidfdCleanup.stopExecutable(ROOT, name, "$ROOT/ciadpi"))
         }
         appendLine("exit 0")
     }

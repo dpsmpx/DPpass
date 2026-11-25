@@ -86,19 +86,19 @@ internal class RootLifecycleTransaction(
             val path = quote("$peer/$name")
             return "test ! -e $path && test ! -L $path"
         }
-        val noPidRecords = (childPidRecords(peer) + childIdentityRecords(peer) + "$peer/ipv6.intent").joinToString(" && ") { absent(it.substringAfterLast('/')) }
+        val noPidRecords = (childPidRecords(peer) + childIdentityRecords(peer) + listOf("$peer/ipv6.intent", "$peer/pidfd.required")).joinToString(" && ") { absent(it.substringAfterLast('/')) }
         // A confirmed reboot invalidates prior-boot process ownership.
         // Validate all remaining PID records before deleting any. Do not
         // signal processes, touch firewall rules, or attempt same-boot recovery.
         return listOf(
             "if ! ( " + absent("generation") + " ); then",
             "if " + RootOwnerStatus.previousBoot(peer, procRoot) + " && " +
-                previousBootPidRecordsSafe(peer) + " && " + regularOrAbsent("$peer/ipv6.intent") + " && " +
+                previousBootPidRecordsSafe(peer) + " && " + regularOrAbsent("$peer/ipv6.intent") + " && " + regularOrAbsent("$peer/pidfd.required") + " && " +
                 "peer_generation=\$( " + RootOwnerStatus.generation(peer) + " ) && " +
                 childPidRecords(peer).joinToString(" && ") {
                     RootChildIdentity.previousBootRecordSafe(it, "\"\$peer_generation\"", procRoot)
                 } + "; then",
-            "rm -f " + (childPidRecords(peer) + childIdentityRecords(peer) + "$peer/ipv6.intent").joinToString(" ") { quote(it) } + " || exit 1",
+            "rm -f " + (childPidRecords(peer) + childIdentityRecords(peer) + listOf("$peer/ipv6.intent", "$peer/pidfd.required")).joinToString(" ") { quote(it) } + " || exit 1",
             "rm -f " + quote("$peer/owner.identity") + " || exit 1",
             "rm -f " + quote("$peer/generation") + " || exit 1",
             "echo 'ROOT: retired previous-boot owner metadata'",
@@ -140,7 +140,8 @@ internal class RootLifecycleTransaction(
      */
     private fun captureChild(command: String): String =
         "if ! $command; then sleep 1; " +
-            "if ! $command; then echo 'ROOT: child identity unavailable'; fi; fi"
+            "if ! $command; then echo 'ROOT: child identity unavailable'; " +
+            "test ! -e " + quote("$directory/pidfd.required") + " || exit 1; fi; fi"
 
     fun captureExecutable(name: String, executable: String): String {
         require(name in listOf("pid", "pid6"))
@@ -163,8 +164,12 @@ internal class RootLifecycleTransaction(
                 "test ! -e $file && test ! -L $file " +
                 "|| { echo 'ROOT: child PID record remains'; exit 1; }; fi"
         }
-        return (listOf(metadataCheck(*identities.toTypedArray())) + checks +
-            ("rm -f " + identities.joinToString(" ") { quote(it) } + " || exit 1"))
+        val strictMarker = quote("$directory/pidfd.required")
+        val strictCheck = "if test -e $strictMarker; then " +
+            childPidRecords().joinToString(" && ") { "test ! -e " + quote(it) + " && test ! -L " + quote(it) } +
+            " || exit 1; fi"
+        return (listOf(metadataCheck(*identities.toTypedArray(), "$directory/pidfd.required")) + checks + strictCheck +
+            ("rm -f " + (identities + "$directory/pidfd.required").joinToString(" ") { quote(it) } + " || exit 1"))
             .joinToString("\n")
     }
 
@@ -181,7 +186,7 @@ internal class RootLifecycleTransaction(
     }
 
     fun start(cleanup: String, launch: String, owner: RootOwnerIdentity? = null,
-              preservePreviousOwner: Boolean = false): String {
+              preservePreviousOwner: Boolean = false, prepare: String = ":"): String {
         val temporary = "$record.$generation.tmp"
         val publish = "mv -f " + quote(temporary) + " " + quote(record)
         val cleanupBody = "(\n$cleanup\n) || exit 1"
@@ -194,7 +199,7 @@ internal class RootLifecycleTransaction(
             retireChildIdentities(),
             publish,
             "else",
-            (listOf(ownerRecord) + childIdentityRecords()).joinToString(" && ") {
+            (listOf(ownerRecord, "$directory/pidfd.required") + childIdentityRecords()).joinToString(" && ") {
                 "test ! -e " + quote(it) + " && test ! -L " + quote(it)
             } + " || { echo 'ROOT: unmatched owner metadata remains'; exit 1; }",
             publish,
@@ -217,6 +222,7 @@ internal class RootLifecycleTransaction(
                 migrationStartup(listOf(
                     metadataCheck(record, ownerRecord, temporary, "$ownerRecord.$generation.tmp", *childIdentityRecords().toTypedArray()),
                     stageGeneration(temporary, owner),
+                    prepare,
                     handover,
                     launch,
                 ).joinToString("\n")),
@@ -278,14 +284,14 @@ internal class RootLifecycleTransaction(
             // A missing generation with leftover owner metadata is ambiguous,
             // not proof that cleanup finished. Preserve it for reconciliation.
             "if ! test -e " + quote(record) + "; then",
-            (listOf(ownerRecord, "$directory/ipv6.intent") + childIdentityRecords()).joinToString(" && ") {
+            (listOf(ownerRecord, "$directory/ipv6.intent", "$directory/pidfd.required") + childIdentityRecords()).joinToString(" && ") {
                 "test ! -e " + quote(it) + " && test ! -L " + quote(it)
             } + " || { echo 'ROOT: unmatched owner metadata remains'; exit 1; }",
             "exit 0",
             "fi",
             "current=\$( " + RootOwnerStatus.generation(directory) + " ) || exit 1",
             "test \"\$current\" = " + quote(generation) + " || exit 0",
-            metadataCheck(ownerRecord, *childIdentityRecords().toTypedArray()),
+            metadataCheck(ownerRecord, "$directory/pidfd.required", *childIdentityRecords().toTypedArray()),
             RootOwnerStatus.consistent(directory) + " || { echo 'ROOT: inconsistent owner metadata'; exit 1; }",
             // A healthy owner must not be cleaned based on a stale probe.
             condition?.let { "if (\n$it\n); then exit 75; fi" } ?: ":",

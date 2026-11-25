@@ -1,0 +1,59 @@
+package com.dpsmpx.dppass.app
+
+import java.io.File
+import java.nio.file.Files
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+
+class RootPidfdCleanupTest {
+    @Test fun recordedCleanupNeverFallsBackAfterHelperFailure() {
+        if (!File("/bin/sh").canExecute()) return
+        val dir = Files.createTempDirectory("dppass-recorded-cleanup").toFile()
+        val generation = File(dir, "generation")
+        val pid = File(dir, "pid")
+        val identity = File(dir, "pid.identity")
+        val strict = File(dir, "pidfd.required")
+        val helper = File(dir, "root-pidfd")
+        val call = File(dir, "call")
+        val boot = "11111111-1111-1111-1111-111111111111"
+        val saved = "v1 owner 123 456 $boot\n"
+        val stop = RootPidfdCleanup.stopExecutable(dir.path, "pid", "/fixture/daemon")
+        fun run() = RootCommandRunner.run(listOf("/bin/sh", "-c",
+            "kill() { echo unexpected; exit 99; }\n" + stop), timeoutMillis = 5000)
+        fun install(result: Int) {
+            helper.writeText("#!/bin/sh\ncase \"\$1\" in --version) echo dppass-root-pidfd/1;; " +
+                "absent) exit 2;; stop-executable) printf '%s\\n' \"\$@\" > '${call.path}'; exit $result;; *) exit 2;; esac\n")
+            assertTrue(helper.setExecutable(true))
+        }
+        try {
+            generation.writeText("owner\n")
+            pid.writeText("123\n")
+            identity.writeText(saved)
+            strict.writeText("v1\n")
+            assertFalse(run().exitCode == 0)
+            assertTrue(pid.exists())
+            install(2)
+            assertFalse(run().exitCode == 0)
+            assertTrue(pid.exists())
+            assertEquals(saved, identity.readText())
+            assertEquals(listOf("stop-executable", "123", "456", boot, "/fixture/daemon", "2000"), call.readLines())
+            call.delete()
+            identity.writeText("v1 stale 123 456 $boot\n")
+            assertFalse(run().exitCode == 0)
+            assertFalse(call.exists())
+            assertTrue(pid.exists())
+            assertTrue(identity.delete())
+            assertFalse(run().exitCode == 0)
+            assertTrue(pid.exists())
+            identity.writeText(saved)
+            install(0)
+            assertEquals(0, run().exitCode)
+            assertFalse(pid.exists())
+            assertEquals(saved, identity.readText())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+}

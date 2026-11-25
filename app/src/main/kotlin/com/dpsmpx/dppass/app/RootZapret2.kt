@@ -37,7 +37,7 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
             val helper = RootPidfdDeployment.stage(context)
             try {
                 val startup = lifecycle.start(cleanup(), launch(binary, lua, hostsFile, hosts.isEmpty, owner, helper), owner,
-                    preservePreviousOwner = true)
+                    preservePreviousOwner = true, prepare = helper?.install(ROOT) ?: ":")
                 rootLaunchWithRollback(
                     launch = { execute(startup) },
                     rollback = { execute(lifecycle.stop(cleanup())) },
@@ -74,7 +74,7 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
             "umask 077",
             "mkdir -p " + quote(ROOT),
             "chmod 700 " + quote(ROOT),
-            helper?.install(ROOT) ?: ":",
+            if (helper != null) RootPidfdCleanup.requireForLaunch(ROOT) else ":",
             "cp " + quote(bin.absolutePath) + " " + quote(ROOT + "/nfqws2"),
             "chmod 700 " + quote(ROOT + "/nfqws2"),
         )
@@ -123,8 +123,8 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
         appendLine(RootFirewallCleanup.remove(RootFirewallCleanup.Kind.PACKET, "iptables", listOf(TCP, UDP)))
         appendLine(RootFirewallCleanup.remove(RootFirewallCleanup.Kind.PACKET, "ip6tables", listOf(TCP, UDP),
             optional = true, intentFile = "$ROOT/ipv6.intent"))
-        if (stopWatch) appendLine(RootProcessIdentity.stopScript("$ROOT/watch.pid", "$ROOT/watchdog.sh"))
-        appendLine(RootProcessIdentity.stopExecutable("$ROOT/pid", "$ROOT/nfqws2"))
+        if (stopWatch) appendLine(RootPidfdCleanup.stopWatchdog(ROOT, "$ROOT/watchdog.sh"))
+        appendLine(RootPidfdCleanup.stopExecutable(ROOT, "pid", "$ROOT/nfqws2"))
         appendLine("exit 0")
     }
 
