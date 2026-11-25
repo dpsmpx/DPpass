@@ -915,6 +915,92 @@ class RootProcessIdentityTest {
         }
     }
 
+    @Test fun sameBootRecoveryRequiresPositiveV2ProofAndRetainsOwnerOnFailure() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-orphan-recovery")
+        val adapter = dir.resolve("adapter").toFile().apply { mkdir() }
+        val proc = dir.resolve("proc").toFile().apply { mkdir() }
+        val boot = File(proc, "sys/kernel/random/boot_id").apply { parentFile?.mkdirs() }
+        val stat = File(proc, "123/stat").apply { parentFile?.mkdirs() }
+        val generation = File(adapter, "generation")
+        val identity = File(adapter, "owner.identity")
+        val pid = File(adapter, "pid")
+        val marker = File(adapter, "action")
+        val firstBoot = "11111111-1111-1111-1111-111111111111"
+        val secondBoot = "22222222-2222-2222-2222-222222222222"
+        val lifecycle = RootLifecycleTransaction(adapter.path, "next", procRoot = proc.path)
+        fun run(script: String) = RootCommandRunner.run(
+            listOf("/bin/sh", "-c", script), timeoutMillis = 10_000,
+        )
+        fun writeStat(ticks: String, state: String = "S") {
+            stat.writeText("123 (owner) $state " + List(18) { "0" }.joinToString(" ") + " $ticks 0")
+        }
+        val action = "echo cleanup > '${marker.path}'"
+        val recovery = lifecycle.recoverOrphan(action)
+        val saved = "v2 old 123 456 $firstBoot\n"
+        fun denied() {
+            assertFalse(run(recovery).exitCode == 0)
+            assertFalse(marker.exists())
+        }
+        try {
+            boot.writeText(firstBoot)
+            generation.writeText(saved)
+            writeStat("456")
+            denied()
+            writeStat("456", "?")
+            denied()
+            writeStat("invalid", "Z")
+            denied()
+            assertTrue(stat.delete())
+            denied()
+            writeStat("789")
+            boot.writeText(secondBoot)
+            denied()
+            boot.writeText(firstBoot)
+            generation.writeText("v2 old 123 456 unknown\n")
+            denied()
+            generation.writeText("old\n")
+            identity.writeText("old 123 456 $firstBoot\n")
+            denied()
+            assertTrue(identity.delete())
+            generation.writeText(saved)
+
+            // A positively reused PID allows only the supplied cleanup body.
+            assertEquals(0, run(RootOwnerStatus.sameBootOrphaned(adapter.path, proc.path)).exitCode)
+            assertTrue(pid.mkdir())
+            denied()
+            assertTrue(pid.delete())
+            for (invalid in listOf("", "1", "0234", "bad", "2147483648")) {
+                pid.writeText(invalid)
+                denied()
+                assertEquals(saved, generation.readText())
+            }
+            pid.writeText("234\n")
+            assertFalse(run(lifecycle.recoverOrphan("$action\nexit 7")).exitCode == 0)
+            assertEquals(saved, generation.readText())
+            assertTrue(pid.exists())
+            assertTrue(marker.delete())
+            assertFalse(run(recovery).exitCode == 0)
+            assertEquals(saved, generation.readText())
+            assertTrue(pid.exists())
+            assertTrue(marker.delete())
+
+            // A matching zombie is also positive proof. Keep the old record
+            // until all PID records are gone and cleanup succeeds.
+            writeStat("456", "Z")
+            assertEquals(0, run(lifecycle.recoverOrphan("$action\nrm -f '${pid.path}'")).exitCode)
+            assertTrue(marker.exists())
+            assertFalse(pid.exists())
+            assertFalse(generation.exists())
+            assertFalse(identity.exists())
+            assertTrue(marker.delete())
+            denied()
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun lockAndGenerationGuardRejectInvalidInputs() {
         val invalidTimeout = runCatching { RootProcessIdentity.lockedTransaction("/tmp/lock", ":", 0) }
         assertTrue(invalidTimeout.isFailure)

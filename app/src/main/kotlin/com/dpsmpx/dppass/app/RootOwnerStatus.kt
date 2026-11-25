@@ -8,12 +8,21 @@ package com.dpsmpx.dppass.app
 internal object RootOwnerStatus {
     private fun quote(raw: String): String = "'" + raw.replace("'", "'\\''") + "'"
 
+    private enum class Proof { DIAGNOSTIC, PREVIOUS_BOOT, SAME_BOOT_ORPHAN }
+
     fun inspect(directory: String, procRoot: String = "/proc"): String =
-        probe(directory, procRoot, previousBootOnly = false)
+        probe(directory, procRoot, Proof.DIAGNOSTIC)
 
     /** Success only for a validated generation and a different, valid boot ID. */
     fun previousBoot(directory: String, procRoot: String = "/proc"): String =
-        probe(directory, procRoot, previousBootOnly = true) + " >/dev/null"
+        probe(directory, procRoot, Proof.PREVIOUS_BOOT) + " >/dev/null"
+
+    /** Positive proof only: a V2 owner on this boot has a reused PID or is
+     * a verified zombie/dead task. Missing proc data is never proof.
+     * This does not establish daemon identity or authorize signaling it.
+     */
+    fun sameBootOrphaned(directory: String, procRoot: String = "/proc"): String =
+        probe(directory, procRoot, Proof.SAME_BOOT_ORPHAN) + " >/dev/null"
 
     // The generation file is the commit point. V2 stores the complete
     // identity there; legacy records use a separate owner.identity file.
@@ -63,20 +72,23 @@ internal object RootOwnerStatus {
         readIdentity(directory, "exit 1", allowLegacyMissing = true), ")",
     ).joinToString("\n")
 
-    private fun probe(directory: String, procRoot: String, previousBootOnly: Boolean): String = listOf(
+    private fun probe(directory: String, procRoot: String, proof: Proof): String = listOf(
         "(",
         "set +e",
         "set -f",
         "unknown() { echo 'ROOT: owner identity unknown'; exit " +
-            (if (previousBootOnly) "1" else "0") + "; }",
+            (if (proof == Proof.DIAGNOSTIC) "0" else "1") + "; }",
         validBoot(),
         readGeneration(directory, "unknown"),
+        // Do not authorize same-boot recovery from older split records.
+        if (proof == Proof.SAME_BOOT_ORPHAN) "test -n \"\$identity\" || unknown" else ":",
         readIdentity(directory, "unknown", allowLegacyMissing = false),
         "valid_boot \"\$saved_boot\" || unknown",
         "current_boot=\$(cat " + quote("$procRoot/sys/kernel/random/boot_id") + " 2>/dev/null) || unknown",
         "valid_boot \"\$current_boot\" || unknown",
-        "if test \"\$saved_boot\" != \"\$current_boot\"; then echo 'ROOT: owner identity stale (boot changed)'; exit 0; fi",
-        if (previousBootOnly) "exit 1" else ":",
+        "if test \"\$saved_boot\" != \"\$current_boot\"; then echo 'ROOT: owner identity stale (boot changed)'; exit " +
+            (if (proof == Proof.SAME_BOOT_ORPHAN) "1" else "0") + "; fi",
+        if (proof == Proof.PREVIOUS_BOOT) "exit 1" else ":",
         "stat=\$(cat " + quote(procRoot) + "/\$pid/stat 2>/dev/null) || unknown",
         "case \"\$stat\" in \"\$pid (\"*) ;; *) unknown ;; esac",
         "rest=\${stat##*) }; test \"\$rest\" != \"\$stat\" || unknown",
@@ -88,7 +100,8 @@ internal object RootOwnerStatus {
         "if test \"\${20}\" != \"\$ticks\"; then echo 'ROOT: owner identity stale (PID reused)'; " +
             "elif test \"\$1\" = Z || test \"\$1\" = X || test \"\$1\" = x; then " +
             "echo 'ROOT: owner identity terminated (dead task)'; " +
-            "else echo 'ROOT: owner identity matches'; fi",
+            "else echo 'ROOT: owner identity matches'; exit " +
+            (if (proof == Proof.SAME_BOOT_ORPHAN) "1" else "0") + "; fi",
         ")",
     ).joinToString("\n")
 }

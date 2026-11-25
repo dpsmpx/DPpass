@@ -162,6 +162,43 @@ internal class RootLifecycleTransaction(
         ).joinToString("\n")
     }
 
+    /**
+     * Explicit recovery transaction for a positively orphaned V2 owner.
+     * The caller supplies adapter-specific, idempotent cleanup; this method
+     * never signals a process or manipulates firewall rules itself.
+     * Not wired to production admission until daemon identity and firewall
+     * cleanup postconditions are validated. The proof and cleanup share the
+     * same lifecycle (and, where present, previous adapter) lock.
+     */
+    fun recoverOrphan(cleanup: String): String {
+        val pidRecords = listOf("pid", "pid6", "watch.pid").map { "$directory/$it" }
+        val absent = pidRecords.joinToString(" && ") {
+            "test ! -e " + quote(it) + " && test ! -L " + quote(it)
+        }
+        return listOf(
+            "test -d " + quote(directory) + " || exit 1",
+            transaction(migrationStartup(listOf(
+                metadataCheck(record, ownerRecord, *pidRecords.toTypedArray()),
+                RootOwnerStatus.sameBootOrphaned(directory, procRoot) +
+                    " || { echo 'ROOT: orphan ownership not proven'; exit 1; }",
+                // Validate PID data before handing control to a cleanup
+                // implementation. This is not proof of daemon identity.
+                "for file in " + pidRecords.joinToString(" ") { quote(it) } + "; do",
+                "if test ! -e \"\$file\"; then continue; fi",
+                "pid=\$(cat \"\$file\" 2>/dev/null) || exit 1",
+                "case \"\$pid\" in ''|0*|*[!0-9]*) exit 1 ;; esac",
+                "test \"\$pid\" -gt 1 2>/dev/null && test \"\$pid\" -le 2147483647 2>/dev/null || exit 1",
+                "done",
+                // A cleanup callback must not return success with remaining
+                // PID records. Do not discard the canonical ownership proof.
+                "(\n$cleanup\n) || exit 1",
+                absent + " || { echo 'ROOT: orphan PID records remain'; exit 1; }",
+                "rm -f " + quote(ownerRecord) + " || exit 1",
+                "rm -f " + quote(record) + " || exit 1",
+            ).joinToString("\n"))),
+        ).joinToString("\n")
+    }
+
     fun stop(cleanup: String): String = cleanupTransaction(cleanup)
 
     /** One watchdog poll. Zero means finished, nonzero means retry.
