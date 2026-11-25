@@ -416,3 +416,7 @@ CI f5dbbc6: Go/Linux/Windows #45557869843 и Android #45557861509 успешно
 ## A3/A5 — проверка принадлежности ROOT процесса при alive()
 
 CI ea06510: Go/Linux/Windows #45559318261 и Android #45559308459 успешно завершены. Общий RootProcessIdentity.executableAlive проверяет numeric PID >1, точный /proc/PID/exe и kill -0 без побочного эффекта. Оба legacy ROOT adapters используют этот predicate в alive(), сохраняя прежние проверки firewall и optional IPv6. Host JVM fixture использует собственный непривилегированный sleep process, missing/malformed/stale/unrelated PID и точное совпадение. Watchdog scripts, cleanup, firewall rules, запуск и обычный VPN не меняются. Это не atomic pidfd, не проверка физического ROOT и не гарантия отсутствия PID reuse между проверками. Новый CI ожидается.
+
+## A3/A5 — исправление JVM fixture ROOT identity
+
+Go CI #45560944073 успешен; Android #45560932446 не компилировал тест из-за Process.pid и Files.writeString. Fixture получает PID собственного shell перед exec sleep, ожидает точное executable identity, записывает PID через File.writeText. Production code unchanged. CI pending.
