@@ -282,6 +282,58 @@ class RootProcessIdentityTest {
         }
     }
 
+    @Test fun lifecycleTransactionFencesObsoleteOwnerAndPreservesFailedCleanup() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-lifecycle-transaction")
+        val first = RootLifecycleTransaction(dir.toString(), "first")
+        val second = RootLifecycleTransaction(dir.toString(), "second")
+        val record = dir.resolve("generation").toFile()
+        val marker = dir.resolve("marker").toFile()
+        fun run(script: String) = RootCommandRunner.run(
+            listOf("/bin/sh", "-c", script), timeoutMillis = 10_000,
+        ).exitCode
+        try {
+            assertEquals(0, run(first.start("exit 0", "echo first > '${marker.path}'")))
+            assertEquals("first", record.readText().trim())
+            assertEquals(0, run(first.alive(":")))
+            assertEquals(0, run(second.start("exit 0", "echo second > '${marker.path}'")))
+            assertEquals("second", record.readText().trim())
+            assertFalse(run(first.alive(":")) == 0)
+            assertEquals(0, run(first.stop("exit 9")))
+            assertEquals("second", marker.readText().trim())
+            assertFalse(run(second.stop("exit 7")) == 0)
+            assertEquals("second", record.readText().trim())
+            assertEquals(0, run(second.stop("exit 0")))
+            assertFalse(record.exists())
+            assertTrue(dir.resolve("lifecycle.lock").toFile().exists())
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun lifecycleStartupDoesNotLaunchAfterFailedInitialCleanup() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-lifecycle-start-failure")
+        val lifecycle = RootLifecycleTransaction(dir.toString(), "owner")
+        val marker = dir.resolve("started").toFile()
+        try {
+            val result = RootCommandRunner.run(listOf("/bin/sh", "-c",
+                lifecycle.start("exit 7", "echo started > '${marker.path}'"),
+            ), timeoutMillis = 10_000)
+            assertFalse(result.exitCode == 0)
+            assertFalse(marker.exists())
+            assertEquals("owner", dir.resolve("generation").toFile().readText().trim())
+            assertEquals(0, RootCommandRunner.run(listOf("/bin/sh", "-c",
+                lifecycle.stop("exit 0"),
+            ), timeoutMillis = 10_000).exitCode)
+            assertFalse(dir.resolve("generation").toFile().exists())
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun lockAndGenerationGuardRejectInvalidInputs() {
         val invalidTimeout = runCatching { RootProcessIdentity.lockedTransaction("/tmp/lock", ":", 0) }
         assertTrue(invalidTimeout.isFailure)

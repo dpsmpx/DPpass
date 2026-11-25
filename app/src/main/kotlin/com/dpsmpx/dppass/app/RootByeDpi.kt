@@ -12,6 +12,8 @@ import java.io.File
  * Dedicated rule and root-owned directory; never flush a system chain.
  */
 internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
+    private val lifecycle = RootLifecycleTransaction(ROOT)
+
     override suspend fun start(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             // Read-only preflight, only after explicit selection of ROOT.
@@ -21,7 +23,6 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
             val localHosts = File(context.noBackupFilesDir, "bd-root-hosts").apply {
                 writeText(hosts.format() + "\n")
             }
-            rootPrepareCleanup { execute(cleanup()) }
             rootLaunchWithRollback(launch = {
                 val args = if (hosts.isEmpty) ByeDpiRuntime.strategy
                     else ByeDpiRuntime.strategy + listOf("--hosts", "$ROOT/hosts", "--auto=none")
@@ -29,10 +30,10 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
                     "--transparent", "--no-domain") + args).joinToString(" ") { quote(it) }
                 val cmd = command("127.0.0.1")
                 val cmd6 = command("::1")
-                val watch = "while " + RootProcessIdentity.watchdogCondition(
+                val watch = lifecycle.watchdog(RootProcessIdentity.watchdogCondition(
                     android.os.Process.myPid(), RootProcessIdentity.currentAppStartTime(), "$ROOT/pid", "$ROOT/ciadpi", "$ROOT/pid6",
-                ) + "; do sleep 3; done\n" + cleanup(false)
-                execute(listOf("set -eu", "umask 077", "mkdir -p " + quote(ROOT),
+                ), cleanup(false))
+                execute(lifecycle.start(cleanup(), listOf("set -eu", "umask 077", "mkdir -p " + quote(ROOT),
                     "chmod 700 " + quote(ROOT), "cp " + quote(binary.absolutePath) + " " + quote("$ROOT/ciadpi"),
                     "chmod 700 " + quote("$ROOT/ciadpi"),
                     "cp " + quote(localHosts.absolutePath) + " " + quote("$ROOT/hosts"),
@@ -48,17 +49,17 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
                     RootProcessIdentity.detachedCommand(cmd6, "$ROOT/log6"),
                     "pid=$!", "echo \"\$pid\" > " + quote("$ROOT/pid6"), "sleep 1", RootProcessIdentity.executableAlive("$ROOT/pid6", "$ROOT/ciadpi"),
                     "ip6tables -t nat -I OUTPUT " + RULE, "ip6tables -t nat -C OUTPUT " + RULE,
-                    "fi").joinToString("\n"))
-            }, rollback = { execute(cleanup()) })
+                    "fi").joinToString("\n")))
+            }, rollback = { execute(lifecycle.stop(cleanup())) })
         }
     }
 
-    override suspend fun stop(): Result<Unit> = withContext(Dispatchers.IO) { runCatching { execute(cleanup()) } }
+    override suspend fun stop(): Result<Unit> = withContext(Dispatchers.IO) { runCatching { execute(lifecycle.stop(cleanup())) } }
     override suspend fun alive(): Boolean = withContext(Dispatchers.IO) {
-        runCatching { execute(RootProcessIdentity.executableAlive("$ROOT/pid", "$ROOT/ciadpi") +
+        runCatching { execute(lifecycle.alive(RootProcessIdentity.executableAlive("$ROOT/pid", "$ROOT/ciadpi") +
             " && iptables -t nat -C OUTPUT " + RULE +
             " && " + RootProcessIdentity.optionalExecutableAlive("$ROOT/pid6", "$ROOT/ciadpi") +
-            " && { ! test -e " + quote("$ROOT/pid6") + " || ip6tables -t nat -C OUTPUT " + RULE + "; }") }.isSuccess
+            " && { ! test -e " + quote("$ROOT/pid6") + " || ip6tables -t nat -C OUTPUT " + RULE + "; }")) }.isSuccess
     }
 
     private fun cleanup(stopWatch: Boolean = true): String = buildString {

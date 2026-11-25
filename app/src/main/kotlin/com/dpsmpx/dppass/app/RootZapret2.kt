@@ -17,6 +17,7 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
     // Snapshot options at connection startup; mid-session preference changes
     // require reconnect so watchdog and firewall agree on the active rules.
     private val rootQuic = AppPrefs(context).zapret2RootQuic
+    private val lifecycle = RootLifecycleTransaction(ROOT)
 
     override suspend fun start(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
@@ -29,23 +30,23 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
             val binary = stageAsset("zapret2/" + abi + "/nfqws2", File(stage, "nfqws2"))
             val lua = LUA.map { stageAsset("zapret2/lua/" + it, File(stage, it)) }
             val hostsFile = File(stage, "hosts.txt").apply { writeText(hosts.format() + "\n") }
-            rootPrepareCleanup { execute(cleanup()) }
+            val startup = lifecycle.start(cleanup(), launch(binary, lua, hostsFile, hosts.isEmpty))
             rootLaunchWithRollback(
-                launch = { execute(launch(binary, lua, hostsFile, hosts.isEmpty)) },
-                rollback = { execute(cleanup()) },
+                launch = { execute(startup) },
+                rollback = { execute(lifecycle.stop(cleanup())) },
             )
         }
     }
 
     /** Cleanup result must not be silently discarded when firewall rules remain. */
     override suspend fun stop(): Result<Unit> = withContext(Dispatchers.IO) {
-        runCatching { execute(cleanup()) }
+        runCatching { execute(lifecycle.stop(cleanup())) }
     }
 
     override suspend fun alive(): Boolean = withContext(Dispatchers.IO) {
-        runCatching { execute(RootProcessIdentity.executableAlive(ROOT + "/pid", ROOT + "/nfqws2") +
+        runCatching { execute(lifecycle.alive(RootProcessIdentity.executableAlive(ROOT + "/pid", ROOT + "/nfqws2") +
             " && iptables -t mangle -C OUTPUT " + TCP +
-            (if (rootQuic) " && iptables -t mangle -C OUTPUT " + UDP else "")) }.isSuccess
+            (if (rootQuic) " && iptables -t mangle -C OUTPUT " + UDP else ""))) }.isSuccess
     }
 
     private fun stageAsset(name: String, target: File): File {
@@ -78,9 +79,9 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
         )
         // A root-owned watchdog removes our NFQUEUE hooks after force-stop or
         // process crash. An Android app cannot rely on onDestroy in that case.
-        val watchdogScript = "while " + RootProcessIdentity.watchdogCondition(
+        val watchdogScript = lifecycle.watchdog(RootProcessIdentity.watchdogCondition(
             android.os.Process.myPid(), RootProcessIdentity.currentAppStartTime(), "$ROOT/pid", "$ROOT/nfqws2",
-        ) + "; do sleep 3; done\n" + cleanup(stopWatch = false)
+        ), cleanup(stopWatch = false))
         parts += listOf(
             "cat > " + quote(ROOT + "/watchdog.sh") +
                 " <<'DPPASS_WATCHDOG'\n#!/system/bin/sh\n" + watchdogScript + "\nDPPASS_WATCHDOG",
