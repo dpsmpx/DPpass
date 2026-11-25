@@ -111,6 +111,18 @@ internal class RootLifecycleTransaction(
         ).joinToString("\n")
     }
 
+    // Reject ambiguous file types before reading or replacing metadata.
+    // In particular, mv to an existing directory may return success without
+    // replacing the intended record. Never follow a metadata symlink.
+    private fun regularOrAbsent(path: String): String {
+        val file = quote(path)
+        return "( test ! -L $file && { test ! -e $file || test -f $file; } )"
+    }
+
+    private fun metadataCheck(vararg paths: String): String =
+        paths.joinToString(" && ") { regularOrAbsent(it) } +
+            " || { echo 'ROOT: invalid lifecycle metadata file type'; exit 1; }"
+
     // Publish a data-only record tied to the generation under the same lock.
     // An unavailable boot ID is explicitly unknown; it is not proof of death.
     private fun publishOwner(owner: RootOwnerIdentity?): String {
@@ -140,6 +152,7 @@ internal class RootLifecycleTransaction(
                 "mkdir -p " + quote(directory),
                 "chmod 700 " + quote(directory),
                 migrationStartup(listOf(
+                    metadataCheck(record, ownerRecord, temporary, "$ownerRecord.$generation.tmp"),
                     "printf '%s\\n' " + quote(generation) + " > " + quote(temporary),
                     "mv -f " + quote(temporary) + " " + quote(record),
                     publishOwner(owner),
@@ -163,9 +176,11 @@ internal class RootLifecycleTransaction(
         // Do not create an absent ROOT directory during a stop.
         "test -d " + quote(directory) + " || exit 0",
         transaction(listOf(
+            metadataCheck(record),
             "test -e " + quote(record) + " || exit 0",
             "current=\$(cat " + quote(record) + ") || exit 1",
             "test \"\$current\" = " + quote(generation) + " || exit 0",
+            metadataCheck(ownerRecord),
             // A healthy owner must not be cleaned based on a stale probe.
             condition?.let { "if (\n$it\n); then exit 75; fi" } ?: ":",
             "(\n$cleanup\n) || exit 1",

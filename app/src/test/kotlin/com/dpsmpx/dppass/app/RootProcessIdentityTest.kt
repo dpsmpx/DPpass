@@ -718,6 +718,58 @@ class RootProcessIdentityTest {
         }
     }
 
+    @Test fun invalidLifecycleMetadataTypesPreventStartupAndMatchingCleanup() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-metadata-type")
+        val lifecycle = RootLifecycleTransaction(dir.toString(), "owner")
+        val record = dir.resolve("generation").toFile()
+        val identity = dir.resolve("owner.identity").toFile()
+        val marker = dir.resolve("action").toFile()
+        val target = dir.resolve("unrelated").toFile().apply { writeText("unchanged") }
+        val owner = RootOwnerIdentity(123, "456")
+        val startup = lifecycle.start("echo cleanup > '${marker.path}'", "echo launch > '${marker.path}'", owner)
+        fun run(script: String) = RootCommandRunner.run(
+            listOf("/bin/sh", "-c", script), timeoutMillis = 10_000,
+        )
+        try {
+            for (name in listOf("generation", "owner.identity", "generation.owner.tmp", "owner.identity.owner.tmp")) {
+                val invalid = dir.resolve(name)
+                Files.createDirectory(invalid)
+                val denied = run(startup)
+                assertFalse(denied.exitCode == 0)
+                assertTrue(denied.outputTail.contains("invalid lifecycle metadata file type"))
+                assertTrue(Files.isDirectory(invalid))
+                assertFalse(marker.exists())
+                Files.delete(invalid)
+                Files.createSymbolicLink(invalid, target.toPath())
+                assertFalse(run(startup).exitCode == 0)
+                assertTrue(Files.isSymbolicLink(invalid))
+                assertEquals("unchanged", target.readText())
+                assertFalse(marker.exists())
+                Files.delete(invalid)
+            }
+            assertEquals(0, run(startup).exitCode)
+            assertEquals("owner", record.readText().trim())
+            assertTrue(marker.delete())
+            val original = identity.readText()
+            assertTrue(identity.delete())
+            assertTrue(identity.mkdir())
+            val cleanup = lifecycle.stop("echo cleanup > '${marker.path}'")
+            assertFalse(run(cleanup).exitCode == 0)
+            assertFalse(marker.exists())
+            assertEquals("owner", record.readText().trim())
+            assertTrue(identity.delete())
+            identity.writeText(original)
+            assertEquals(0, run(cleanup).exitCode)
+            assertTrue(marker.exists())
+            assertFalse(record.exists())
+            assertFalse(identity.exists())
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun lockAndGenerationGuardRejectInvalidInputs() {
         val invalidTimeout = runCatching { RootProcessIdentity.lockedTransaction("/tmp/lock", ":", 0) }
         assertTrue(invalidTimeout.isFailure)
