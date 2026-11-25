@@ -89,6 +89,13 @@ internal object RootProcessIdentity {
         ).joinToString("\n")
     }
 
+/** A long-lived child must not inherit the lifecycle lock descriptor.
+     * Preserve the child PID ($!) and keep all standard streams detached.
+     * The command is already shell-quoted by the caller.
+     */
+    fun detachedCommand(command: String, logFile: String): String =
+        command + " </dev/null > " + quote(logFile) + " 2>&1 9>&- &"
+
     /** Only the matching launch generation may perform deferred cleanup.
      * Use this check INSIDE lockedTransaction, not before acquiring the lock.
      */

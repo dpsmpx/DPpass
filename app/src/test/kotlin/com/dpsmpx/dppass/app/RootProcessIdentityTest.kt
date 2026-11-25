@@ -141,6 +141,48 @@ class RootProcessIdentityTest {
         }
     }
 
+
+    @Test fun detachedChildDoesNotRetainLifecycleLock() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-root-child")
+        val lock = dir.resolve("lifecycle.lock").toString()
+        val ready = dir.resolve("ready").toFile()
+        val release = dir.resolve("release").toFile()
+        val done = dir.resolve("done").toFile()
+        val child = dir.resolve("child.sh").toFile()
+        val log = dir.resolve("child.log").toFile()
+        child.writeText(
+            "echo ready > '${ready.path}'\n" +
+                "i=0; while ! test -e '${release.path}' && test \"\$i\" -lt 200; do " +
+                "sleep 0.05; i=\$((i+1)); done\n" +
+                "echo done > '${done.path}'\n",
+        )
+        try {
+            val launch = RootProcessIdentity.detachedCommand("sh '${child.path}'", log.path)
+            val result = RootCommandRunner.run(
+                listOf("/bin/sh", "-c", RootProcessIdentity.lockedTransaction(lock, launch)),
+                timeoutMillis = 5_000,
+            )
+            assertEquals(0, result.exitCode)
+            val deadline = System.nanoTime() + 3_000_000_000L
+            while (!ready.exists() && System.nanoTime() < deadline) Thread.sleep(10)
+            assertTrue(ready.exists())
+            assertFalse(done.exists())
+            val second = RootCommandRunner.run(
+                listOf("/bin/sh", "-c", RootProcessIdentity.lockedTransaction(lock, ":", 1)),
+                timeoutMillis = 5_000,
+            )
+            assertEquals(0, second.exitCode)
+            assertFalse(done.exists())
+        } finally {
+            release.writeText("release")
+            val deadline = System.nanoTime() + 2_000_000_000L
+            while (ready.exists() && !done.exists() && System.nanoTime() < deadline) Thread.sleep(10)
+            dir.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun lockAndGenerationGuardRejectInvalidInputs() {
         val invalidTimeout = runCatching { RootProcessIdentity.lockedTransaction("/tmp/lock", ":", 0) }
         assertTrue(invalidTimeout.isFailure)

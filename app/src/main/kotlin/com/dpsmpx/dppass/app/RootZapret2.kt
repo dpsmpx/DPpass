@@ -69,7 +69,7 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
         parts += "cp " + quote(hostsFile.absolutePath) + " " + quote(ROOT + "/hosts.txt")
         parts += listOf(
             "cd " + quote(ROOT),
-            command + " </dev/null > " + quote(ROOT + "/nfqws.log") + " 2>&1 &",
+            RootProcessIdentity.detachedCommand(command, ROOT + "/nfqws.log"),
             "pid=$!",
             "echo \"\$pid\" > " + quote(ROOT + "/pid"),
             "sleep 1",
@@ -85,8 +85,7 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
             "cat > " + quote(ROOT + "/watchdog.sh") +
                 " <<'DPPASS_WATCHDOG'\n#!/system/bin/sh\n" + watchdogScript + "\nDPPASS_WATCHDOG",
             "chmod 700 " + quote(ROOT + "/watchdog.sh"),
-            "sh " + quote(ROOT + "/watchdog.sh") + " < /dev/null > " +
-                quote(ROOT + "/watchdog.log") + " 2>&1 &",
+            RootProcessIdentity.detachedCommand("sh " + quote(ROOT + "/watchdog.sh"), ROOT + "/watchdog.log"),
             "echo \"\$!\" > " + quote(ROOT + "/watch.pid"),
         )
         parts += listOf(
