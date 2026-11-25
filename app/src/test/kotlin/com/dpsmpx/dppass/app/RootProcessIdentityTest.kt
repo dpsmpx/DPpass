@@ -1001,6 +1001,69 @@ class RootProcessIdentityTest {
         }
     }
 
+    @Test fun childSidecarsFollowLifecycleWithoutAuthorizingCleanup() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-child-lifecycle")
+        val a = dir.resolve("a").toFile()
+        val b = dir.resolve("b").toFile()
+        val proc = dir.resolve("proc").toFile()
+        val shared = dir.resolve("shared").toString()
+        val boot = File(proc, "sys/kernel/random/boot_id").apply { parentFile?.mkdirs() }
+        val task = File(proc, "123").apply { mkdirs() }
+        val stat = File(task, "stat")
+        val exe = File(task, "exe")
+        val daemon = dir.resolve("daemon").toFile().apply { writeText("fixture") }
+        val first = RootLifecycleTransaction(a.path, "first", shared, b.path, proc.path)
+        val next = RootLifecycleTransaction(b.path, "next", shared, a.path, proc.path)
+        val pid = File(a, "pid")
+        val identity = File(a, "pid.identity")
+        val generation = File(a, "generation")
+        val owner = RootOwnerIdentity(234, "567")
+        val firstBoot = "11111111-1111-1111-1111-111111111111"
+        val secondBoot = "22222222-2222-2222-2222-222222222222"
+        fun run(script: String) = RootCommandRunner.run(
+            listOf("/bin/sh", "-c", script), timeoutMillis = 10_000,
+        )
+        val launch = "echo 123 > '${pid.path}'\n" + first.captureExecutable("pid", daemon.path)
+        val cleanup = "rm -f '${pid.path}'"
+        try {
+            boot.writeText(firstBoot)
+            stat.writeText("123 (daemon) S " + List(18) { "0" }.joinToString(" ") + " 456 0")
+            Files.createSymbolicLink(exe.toPath(), daemon.toPath())
+            assertEquals(0, run(first.start(":", launch, owner)).exitCode)
+            assertEquals("v1 first 123 456 $firstBoot\n", identity.readText())
+            val saved = identity.readText()
+            assertFalse(run(first.stop("exit 7")).exitCode == 0)
+            assertEquals(saved, identity.readText())
+            assertFalse(run(first.stop(":")).exitCode == 0)
+            assertTrue(generation.exists())
+            assertEquals(saved, identity.readText())
+            assertFalse(run(next.start(":", ":", owner)).exitCode == 0)
+            assertEquals(0, run(first.stop(cleanup)).exitCode)
+            assertFalse(identity.exists())
+            assertFalse(generation.exists())
+
+            // After a reboot, retire only validated prior-boot sidecars.
+            assertEquals(0, run(first.start(":", launch, owner)).exitCode)
+            boot.writeText(secondBoot)
+            assertFalse(run(next.start(":", ":", owner)).exitCode == 0)
+            assertTrue(identity.exists())
+            assertTrue(task.deleteRecursively())
+            identity.writeText("v1 other 123 456 $firstBoot\n")
+            assertFalse(run(next.start(":", ":", owner)).exitCode == 0)
+            assertTrue(generation.exists())
+            identity.writeText(saved)
+            assertEquals(0, run(next.start(":", ":", owner)).exitCode)
+            assertFalse(identity.exists())
+            assertFalse(pid.exists())
+            assertFalse(generation.exists())
+            assertEquals(0, run(next.stop(":")).exitCode)
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun lockAndGenerationGuardRejectInvalidInputs() {
         val invalidTimeout = runCatching { RootProcessIdentity.lockedTransaction("/tmp/lock", ":", 0) }
         assertTrue(invalidTimeout.isFailure)

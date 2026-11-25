@@ -43,15 +43,18 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
                     "cp " + quote(localHosts.absolutePath) + " " + quote("$ROOT/hosts"),
                     RootProcessIdentity.detachedCommand(cmd, "$ROOT/log"),
                     "pid=$!", "echo \"\$pid\" > " + quote("$ROOT/pid"), "sleep 1", RootProcessIdentity.executableAlive("$ROOT/pid", "$ROOT/ciadpi"),
+                    lifecycle.captureExecutable("pid", "$ROOT/ciadpi"),
                     "cat > " + quote("$ROOT/watch.sh") + " <<'DPPASS_BD_WATCH'\n" + watch + "\nDPPASS_BD_WATCH",
                     RootProcessIdentity.detachedCommand("sh " + quote("$ROOT/watch.sh"), "$ROOT/watch.log"),
                     "echo \"\$!\" > " + quote("$ROOT/watch.pid"),
+                    lifecycle.captureWatchdog("$ROOT/watch.sh"),
                     "iptables -t nat -I OUTPUT " + RULE,
                     "iptables -t nat -C OUTPUT " + RULE,
                     // Do not claim IPv6 interception on kernels without IPv6 NAT.
                     "if ip6tables -t nat -S OUTPUT >/dev/null 2>&1; then",
                     RootProcessIdentity.detachedCommand(cmd6, "$ROOT/log6"),
                     "pid=$!", "echo \"\$pid\" > " + quote("$ROOT/pid6"), "sleep 1", RootProcessIdentity.executableAlive("$ROOT/pid6", "$ROOT/ciadpi"),
+                    lifecycle.captureExecutable("pid6", "$ROOT/ciadpi"),
                     "ip6tables -t nat -I OUTPUT " + RULE, "ip6tables -t nat -C OUTPUT " + RULE,
                     "fi").joinToString("\n"), owner))
             }, rollback = { execute(lifecycle.stop(cleanup())) })

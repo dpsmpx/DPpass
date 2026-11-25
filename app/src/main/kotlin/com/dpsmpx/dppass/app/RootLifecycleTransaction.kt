@@ -86,15 +86,19 @@ internal class RootLifecycleTransaction(
             val path = quote("$peer/$name")
             return "test ! -e $path && test ! -L $path"
         }
-        val noPidRecords = listOf("pid", "pid6", "watch.pid").joinToString(" && ") { absent(it) }
+        val noPidRecords = (childPidRecords(peer) + childIdentityRecords(peer)).joinToString(" && ") { absent(it.substringAfterLast('/')) }
         // A confirmed reboot invalidates prior-boot process ownership.
         // Validate all remaining PID records before deleting any. Do not
         // signal processes, touch firewall rules, or attempt same-boot recovery.
         return listOf(
             "if ! ( " + absent("generation") + " ); then",
             "if " + RootOwnerStatus.previousBoot(peer, procRoot) + " && " +
-                previousBootPidRecordsSafe(peer) + "; then",
-            "rm -f " + listOf("pid", "pid6", "watch.pid").joinToString(" ") { quote("$peer/$it") } + " || exit 1",
+                previousBootPidRecordsSafe(peer) + " && " +
+                "peer_generation=\$( " + RootOwnerStatus.generation(peer) + " ) && " +
+                childPidRecords(peer).joinToString(" && ") {
+                    RootChildIdentity.previousBootRecordSafe(it, "\"\$peer_generation\"", procRoot)
+                } + "; then",
+            "rm -f " + (childPidRecords(peer) + childIdentityRecords(peer)).joinToString(" ") { quote(it) } + " || exit 1",
             "rm -f " + quote("$peer/owner.identity") + " || exit 1",
             "rm -f " + quote("$peer/generation") + " || exit 1",
             "echo 'ROOT: retired previous-boot owner metadata'",
@@ -124,6 +128,39 @@ internal class RootLifecycleTransaction(
             " || { echo 'ROOT: invalid lifecycle metadata file type'; exit 1; }"
 
 
+    private fun childPidRecords(dir: String = directory): List<String> =
+        listOf("pid", "pid6", "watch.pid").map { "$dir/$it" }
+
+    private fun childIdentityRecords(dir: String = directory): List<String> =
+        childPidRecords(dir).map { "$it.identity" }
+
+    /** Diagnostic capture only. Failure is visible to the root command log
+     * but does not change the legacy adapter's launch/rollback semantics.
+     * Retry briefly for the watchdog shell to acquire its script argument.
+     */
+    private fun captureChild(command: String): String =
+        "if ! $command; then sleep 1; " +
+            "if ! $command; then echo 'ROOT: child identity unavailable'; fi; fi"
+
+    fun captureExecutable(name: String, executable: String): String {
+        require(name in listOf("pid", "pid6"))
+        return captureChild(RootChildIdentity.captureExecutable("$directory/$name", generation, executable, procRoot))
+    }
+
+    fun captureWatchdog(script: String): String =
+        captureChild(RootChildIdentity.captureScript("$directory/watch.pid", generation, script, procRoot))
+
+    // Sidecars are diagnostic in this version. Retire them only after
+    // successful cleanup and removal of their corresponding PID records.
+    private fun retireChildIdentities(): String = childPidRecords().joinToString("\n") { pid ->
+        val identity = "$pid.identity"
+        metadataCheck(identity) + "\n" +
+            "if test -e " + quote(identity) + "; then " +
+            "test ! -e " + quote(pid) + " && test ! -L " + quote(pid) +
+            " || { echo 'ROOT: child PID record remains'; exit 1; }; " +
+            "rm -f " + quote(identity) + " || exit 1; fi"
+    }
+
     // Stage the entire V2 record in the same directory and publish with
     // one rename. Generation-only fixtures/legacy callers remain supported.
     private fun stageGeneration(temporary: String, owner: RootOwnerIdentity?): String {
@@ -151,11 +188,12 @@ internal class RootLifecycleTransaction(
                 "mkdir -p " + quote(directory),
                 "chmod 700 " + quote(directory),
                 migrationStartup(listOf(
-                    metadataCheck(record, ownerRecord, temporary, "$ownerRecord.$generation.tmp"),
+                    metadataCheck(record, ownerRecord, temporary, "$ownerRecord.$generation.tmp", *childIdentityRecords().toTypedArray()),
                     stageGeneration(temporary, owner),
                     "mv -f " + quote(temporary) + " " + quote(record),
                     // Cleanup may set shell options or exit explicitly.
                     "(\n$cleanup\n) || exit 1",
+                    retireChildIdentities(),
                     launch,
                 ).joinToString("\n")),
             ).joinToString("\n")),
@@ -178,7 +216,7 @@ internal class RootLifecycleTransaction(
         return listOf(
             "test -d " + quote(directory) + " || exit 1",
             transaction(migrationStartup(listOf(
-                metadataCheck(record, ownerRecord, *pidRecords.toTypedArray()),
+                metadataCheck(record, ownerRecord, *(pidRecords + childIdentityRecords()).toTypedArray()),
                 RootOwnerStatus.sameBootOrphaned(directory, procRoot) +
                     " || { echo 'ROOT: orphan ownership not proven'; exit 1; }",
                 // Validate PID data before handing control to a cleanup
@@ -193,6 +231,7 @@ internal class RootLifecycleTransaction(
                 // PID records. Do not discard the canonical ownership proof.
                 "(\n$cleanup\n) || exit 1",
                 absent + " || { echo 'ROOT: orphan PID records remain'; exit 1; }",
+                retireChildIdentities(),
                 "rm -f " + quote(ownerRecord) + " || exit 1",
                 "rm -f " + quote(record) + " || exit 1",
             ).joinToString("\n"))),
@@ -215,13 +254,14 @@ internal class RootLifecycleTransaction(
             // A missing generation with leftover owner metadata is ambiguous,
             // not proof that cleanup finished. Preserve it for reconciliation.
             "if ! test -e " + quote(record) + "; then",
-            "test ! -e " + quote(ownerRecord) + " && test ! -L " + quote(ownerRecord) +
-                " || { echo 'ROOT: unmatched owner metadata remains'; exit 1; }",
+            (listOf(ownerRecord) + childIdentityRecords()).joinToString(" && ") {
+                "test ! -e " + quote(it) + " && test ! -L " + quote(it)
+            } + " || { echo 'ROOT: unmatched owner metadata remains'; exit 1; }",
             "exit 0",
             "fi",
             "current=\$( " + RootOwnerStatus.generation(directory) + " ) || exit 1",
             "test \"\$current\" = " + quote(generation) + " || exit 0",
-            metadataCheck(ownerRecord),
+            metadataCheck(ownerRecord, *childIdentityRecords().toTypedArray()),
             RootOwnerStatus.consistent(directory) + " || { echo 'ROOT: inconsistent owner metadata'; exit 1; }",
             // A healthy owner must not be cleaned based on a stale probe.
             condition?.let { "if (\n$it\n); then exit 75; fi" } ?: ":",
@@ -230,6 +270,7 @@ internal class RootLifecycleTransaction(
             // PID record only after successful cleanup, before releasing
             // generation ownership. A failed removal remains retryable.
             if (condition != null) "rm -f " + quote("$directory/watch.pid") + " || exit 1" else ":",
+            retireChildIdentities(),
             "rm -f " + quote(ownerRecord) + " || exit 1",
             "rm -f " + quote(record) + " || exit 1",
         ).joinToString("\n")),

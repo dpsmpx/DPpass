@@ -79,6 +79,7 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
             "echo \"\$pid\" > " + quote(ROOT + "/pid"),
             "sleep 1",
             RootProcessIdentity.executableAlive("$ROOT/pid", "$ROOT/nfqws2"),
+            lifecycle.captureExecutable("pid", "$ROOT/nfqws2"),
 
         )
         // A root-owned watchdog removes our NFQUEUE hooks after force-stop or
@@ -92,6 +93,7 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
             "chmod 700 " + quote(ROOT + "/watchdog.sh"),
             RootProcessIdentity.detachedCommand("sh " + quote(ROOT + "/watchdog.sh"), ROOT + "/watchdog.log"),
             "echo \"\$!\" > " + quote(ROOT + "/watch.pid"),
+            lifecycle.captureWatchdog("$ROOT/watchdog.sh"),
         )
         parts += listOf(
             // Listener first, firewall second. Queue bypass prevents a traffic blackout.
