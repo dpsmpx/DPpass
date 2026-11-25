@@ -8,6 +8,32 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DptsScriptTest {
+    @Test fun diagnosticsUseOriginalSourceLineNumbers() {
+        val source = "# introductory comment\r\n\r\ndpts 1\r\n# host\r\n" +
+            "host www.google.com\r\n\r\nhttps attempts=4"
+        assertEquals(7, assertFailsWith<DptsCompileException> {
+            DptsScript.compile(source)
+        }.line)
+        assertEquals(3, assertFailsWith<DptsCompileException> {
+            DptsScript.compile("# comment\n\ndpts 2\nhost www.google.com\nhttps")
+        }.line)
+        val tooMany = "dpts 1\n" + List(40) { "\n# comment\nhttps" }.joinToString("\n")
+        assertEquals(121, assertFailsWith<DptsCompileException> {
+            DptsScript.compile(tooMany)
+        }.line)
+    }
+
+    @Test fun titlesAcceptUnicodeButRejectUnbalancedQuotesAndHiddenControlCharacters() {
+        fun compile(title: String) =
+            DptsScript.compile("dpts 1\nname $title\nhost www.google.com\nhttps ips=1 attempts=1")
+        assertEquals("Проверка HTTPS", compile("\"Проверка HTTPS\"").title)
+        assertEquals("Проверка HTTPS", compile("Проверка HTTPS").title)
+        for (title in listOf("\"unclosed", "unopened\"", "\"a\"b\"", "\"\"",
+            "a\u007fb", "a\u0085b", "a\u202eb", "a\u2028b", "a\u2029b")) {
+            assertEquals(2, assertFailsWith<DptsCompileException> { compile(title) }.line)
+        }
+    }
+
     @Test fun reportSeparatesVerifiedHandshakeGenericResponseAndMatchedContent() {
         val prepared = Zapret2GoogleProbe("dns_ready", 200, 0, 10, 0, 0, "abcdef12", 8)
         fun report(host: String, operation: String, alter: (Zapret2GoogleAttempt) -> Zapret2GoogleAttempt = { it }): String {

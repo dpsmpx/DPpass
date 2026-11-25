@@ -75,11 +75,13 @@ object DptsScript {
     fun compile(source: String): DptsPlan {
         if (source.length > MAX_SOURCE_LENGTH)
             throw DptsCompileException(0, "script exceeds 12,000 characters")
-        val lines = source.lineSequence().map { it.trim() }
-            .filter { it.isNotEmpty() && !it.startsWith("#") }.toList()
-        if (lines.isEmpty() || lines.first() != HEADER)
-            throw DptsCompileException(1, "expected 'dpts 1'")
-        if (lines.size > 40) throw DptsCompileException(0, "too many statements")
+        // Keep original source positions when skipping comments and blanks.
+        val lines = source.lineSequence().mapIndexed { index, text -> (index + 1) to text.trim() }
+            .filter { (_, text) -> text.isNotEmpty() && !text.startsWith("#") }.toList()
+        val header = lines.firstOrNull()
+        if (header?.second != HEADER)
+            throw DptsCompileException(header?.first ?: 1, "expected 'dpts 1'")
+        if (lines.size > 40) throw DptsCompileException(lines[40].first, "too many statements")
 
         var name = "DPTS diagnostic"
         var host: String? = null
@@ -108,15 +110,19 @@ object DptsScript {
         }
 
         for (index in 1 until lines.size) {
-            val lineNo = index + 1
-            val line = lines[index]
+            val (lineNo, line) = lines[index]
             when {
                 line.startsWith("name ") -> {
                     if (named || probes.isNotEmpty() || suite != null)
                         throw DptsCompileException(lineNo, "name must appear once before probes")
-                    val title = line.removePrefix("name ").trim().trim('"')
-                    if (title.isBlank() || title.length > 80 ||
-                        title.any { it.code < 32 })
+                    val rawTitle = line.removePrefix("name ").trim()
+                    val quoted = rawTitle.startsWith('"') && rawTitle.endsWith('"') && rawTitle.length >= 2
+                    val title = if (quoted) rawTitle.substring(1, rawTitle.length - 1) else rawTitle
+                    if (title.isBlank() || title.length > 80 || title.any {
+                            it == '"' || it.isISOControl() ||
+                                it.category in setOf(CharCategory.FORMAT, CharCategory.LINE_SEPARATOR,
+                                    CharCategory.PARAGRAPH_SEPARATOR)
+                        })
                         throw DptsCompileException(lineNo, "invalid title")
                     name = title
                     named = true
@@ -150,11 +156,7 @@ object DptsScript {
                         currentHost != Zapret2SiteSearch.YOUTUBE_API_HOST)
                         throw DptsCompileException(lineNo,
                             "this suite requires youtubei.googleapis.com")
-                    if (id == "site_quic" || id == "site_https" ||
-                        currentHost == Zapret2SiteSearch.YOUTUBE_API_HOST ||
-                        id !in apiOnlySuites) {
-                        suite = id
-                    }
+                    suite = id
                 }
                 else -> {
                     if (suite != null) throw DptsCompileException(lineNo,
