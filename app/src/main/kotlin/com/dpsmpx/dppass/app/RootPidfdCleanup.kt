@@ -88,7 +88,7 @@ internal object RootPidfdCleanup {
             "exit 0",
             "fi",
             "if ! $helper gone \"\$pid\" \"\$ticks\" \"\$boot\" >/dev/null; then",
-            if (watchdog) "interpreter=\$(readlink -f /system/bin/sh) || exit 1" else ":",
+            if (watchdog) RootProcessIdentity.watchdogInterpreter() else ":",
             "$helper $mode \"\$pid\" \"\$ticks\" \"\$boot\" $arguments 2000 || exit 1",
             "fi",
             "test \"\$(cat $pidFile)\" = \"\$pid\" || exit 1",

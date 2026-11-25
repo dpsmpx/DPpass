@@ -108,7 +108,7 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
             "cat > " + quote(ROOT + "/watchdog.sh") +
                 " <<'DPPASS_WATCHDOG'\n#!/system/bin/sh\n" + watchdogScript + "\nDPPASS_WATCHDOG",
             "chmod 700 " + quote(ROOT + "/watchdog.sh"),
-            RootProcessIdentity.detachedCommand("sh " + quote(ROOT + "/watchdog.sh"), ROOT + "/watchdog.log"),
+            RootProcessIdentity.detachedWatchdog("$ROOT/watchdog.sh", "$ROOT/watchdog.log"),
             "echo \"\$!\" > " + quote(ROOT + "/watch.pid"),
             lifecycle.captureWatchdog("$ROOT/watchdog.sh"),
         )

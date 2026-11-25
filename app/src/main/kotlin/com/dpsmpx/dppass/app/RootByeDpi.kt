@@ -50,7 +50,7 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
                     "pid=$!", "echo \"\$pid\" > " + quote("$ROOT/pid"), "sleep 1", RootProcessIdentity.executableAlive("$ROOT/pid", "$ROOT/ciadpi"),
                     lifecycle.captureExecutable("pid", "$ROOT/ciadpi"),
                     "cat > " + quote("$ROOT/watch.sh") + " <<'DPPASS_BD_WATCH'\n" + watch + "\nDPPASS_BD_WATCH",
-                    RootProcessIdentity.detachedCommand("sh " + quote("$ROOT/watch.sh"), "$ROOT/watch.log"),
+                    RootProcessIdentity.detachedWatchdog("$ROOT/watch.sh", "$ROOT/watch.log"),
                     "echo \"\$!\" > " + quote("$ROOT/watch.pid"),
                     lifecycle.captureWatchdog("$ROOT/watch.sh"),
                     "iptables -t nat -I OUTPUT " + RULE,

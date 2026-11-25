@@ -9,6 +9,32 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class RootProcessIdentityTest {
+    @Test fun watchdogUsesExplicitResolvedInterpreterAndKeepsChildPid() {
+        if (!File("/bin/sh").canExecute()) return
+        val dir = Files.createTempDirectory("dppass-watch-interpreter").toFile()
+        val alias = File(dir, "system-shell")
+        val script = File(dir, "watch script.sh")
+        val log = File(dir, "watch.log")
+        val pidFile = File(dir, "pid")
+        try {
+            Files.createSymbolicLink(alias.toPath(), File("/bin/sh").toPath())
+            script.writeText("printf '%s\\n' \"\$\$\" \"\$0\"\n")
+            val launch = RootProcessIdentity.detachedWatchdog(script.path, log.path, alias.path)
+            val result = RootCommandRunner.run(listOf("/bin/sh", "-c",
+                "set -eu\nsh() { exit 91; }\n" + launch +
+                    "\nchild=\$!\nprintf '%s\\n' \"\$child\" > '" + pidFile.path + "'\nwait \"\$child\""),
+                timeoutMillis = 5000)
+            assertEquals(0, result.exitCode)
+            assertEquals(listOf(pidFile.readText().trim(), script.path), log.readLines())
+            log.delete()
+            val bad = RootProcessIdentity.detachedWatchdog(script.path, log.path, File(dir, "missing").path)
+            assertFalse(RootCommandRunner.run(listOf("/bin/sh", "-c", bad)).exitCode == 0)
+            assertFalse(log.exists())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     @Test fun lifecycleRejectsSymlinkDirectoriesAndNonregularLocks() {
         if (!File("/bin/sh").canExecute()) return
         if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return

@@ -115,6 +115,21 @@ internal object RootProcessIdentity {
     fun detachedCommand(command: String, logFile: String): String =
         command + " </dev/null > " + quote(logFile) + " 2>&1 9>&- &"
 
+    /** Resolve the same explicit system interpreter for launch and pidfd
+     * cleanup. Never choose a watchdog interpreter from the root PATH. */
+    fun watchdogInterpreter(shell: String = "/system/bin/sh"): String {
+        require(shell.startsWith("/"))
+        return listOf(
+            "interpreter=\$(readlink -f " + quote(shell) + ") || exit 1",
+            "case \"\$interpreter\" in /*) ;; *) exit 1 ;; esac",
+            "test -f \"\$interpreter\" && test -x \"\$interpreter\" || exit 1",
+        ).joinToString("\n")
+    }
+
+    fun detachedWatchdog(script: String, logFile: String, shell: String = "/system/bin/sh"): String =
+        watchdogInterpreter(shell) + "\n" +
+            detachedCommand("\"\$interpreter\" " + quote(script), logFile)
+
     /** Only the matching launch generation may perform deferred cleanup.
      * Use this check INSIDE lockedTransaction, not before acquiring the lock.
      */
