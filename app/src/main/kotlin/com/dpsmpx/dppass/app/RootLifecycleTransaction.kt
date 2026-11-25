@@ -28,6 +28,25 @@ internal class RootLifecycleTransaction(
     private fun transaction(body: String): String =
         RootProcessIdentity.lockedTransaction(lock, body)
 
+    /**
+     * The previous generation-aware implementation used a per-adapter lock.
+     * During startup, take that lock too if present, always after the shared
+     * lock. Do not unlink it or create it on a fresh install. A previous
+     * watchdog holding it must finish before we replace the generation.
+     */
+    private fun migrationStartup(body: String): String {
+        if (lockDirectory == directory) return body
+        val legacy = "$directory/lifecycle.lock"
+        return listOf(
+            "dppass_migration_body() {\n$body\n}",
+            "if test -e " + quote(legacy) + "; then",
+            RootProcessIdentity.lockedTransaction(legacy, "dppass_migration_body", 1),
+            "else",
+            "dppass_migration_body",
+            "fi",
+        ).joinToString("\n")
+    }
+
     fun start(cleanup: String, launch: String): String {
         val temporary = "$record.$generation.tmp"
         return listOf(
@@ -45,11 +64,13 @@ internal class RootLifecycleTransaction(
                 } ?: ":",
                 "mkdir -p " + quote(directory),
                 "chmod 700 " + quote(directory),
-                "printf '%s\\n' " + quote(generation) + " > " + quote(temporary),
-                "mv -f " + quote(temporary) + " " + quote(record),
-                // Cleanup may set shell options or exit explicitly.
-                "(\n$cleanup\n) || exit 1",
-                launch,
+                migrationStartup(listOf(
+                    "printf '%s\\n' " + quote(generation) + " > " + quote(temporary),
+                    "mv -f " + quote(temporary) + " " + quote(record),
+                    // Cleanup may set shell options or exit explicitly.
+                    "(\n$cleanup\n) || exit 1",
+                    launch,
+                ).joinToString("\n")),
             ).joinToString("\n")),
         ).joinToString("\n")
     }
