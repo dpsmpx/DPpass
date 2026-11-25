@@ -701,3 +701,5 @@ Both adapters now resolve the explicit /system/bin/sh path to its executable bef
 ## A6/A7 — unify DPTS report and learning evidence predicates
 
 CI bfcadd3: Go/Linux/Windows #45649410952 and Android #45649402274 succeeded. DptsProbe now owns wire protocol, row identity, exact handshake ALPN and bounded HTTPS success predicates shared by reporting and learning. TLS version rows bind to H1 as on the wire and no longer invalidate a mixed script; only HTTPS rows can contribute HTML evidence. Learning requires one canonical eight-hex DNS fingerprint, a consistent 1–8 address count and valid IP indices; plain baseline must be a coherent ClientHello timeout with no HTTP/ALPN evidence. Tests cover mixed TLS/HTTPS, invalid DNS metadata, wrong ALPN and contradictory timeouts. No change to probe operations, network strategies, ordinary VPN or signing/subscriptions. Actual device evidence remains pending. New CI pending.
+
+CI 92d008c: Go/Linux/Windows #45650374851 passed; Android #45650364479 failed at :engine:compileKotlin because bodyBytes is Long and the new baseline comparison used an Int zero. Use 0L; no changes to evidence criteria. New CI pending.

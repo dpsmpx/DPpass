@@ -70,7 +70,7 @@ object DptsLearning {
                 // a failed plain baseline; contradictory evidence cannot train.
                 if (baseline.any { (_, r) ->
                     r.outcome != "timeout_tls_no_reply" || r.tlsStage != "clienthello_sent" ||
-                        r.alpn != "-" || r.httpStatus != 0 || r.bodyBytes != 0
+                        r.alpn != "-" || r.httpStatus != 0 || r.bodyBytes != 0L
                 }) continue
                 for (method in trainable) {
                     if (on(ip, protocol, method)?.all { (spec, r) -> spec.boundedHttpsSuccess(r) } == true)
