@@ -24,7 +24,7 @@ class RootPidfdCleanupTest {
             "kill() { echo unexpected; exit 99; }\n" + stop), timeoutMillis = 5000)
         fun install(result: Int) {
             helper.writeText("#!/bin/sh\ncase \"\$1\" in --version) echo dppass-root-pidfd/1;; " +
-                "absent) exit 2;; stop-executable) printf '%s\\n' \"\$@\" > '${call.path}'; exit $result;; *) exit 2;; esac\n")
+                "gone) exit 2;; stop-executable) printf '%s\\n' \"\$@\" > '${call.path}'; exit $result;; *) exit 2;; esac\n")
             assertTrue(helper.setExecutable(true))
         }
         try {

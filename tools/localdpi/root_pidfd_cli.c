@@ -64,6 +64,13 @@ int main(int argc, char **argv) {
         if (result == DPPASS_PIDFD_EXITED) { puts("supported"); return 0; }
         return report(result);
     }
+    if (argc == 5 && strcmp(argv[1], "gone") == 0) {
+        uint64_t pid, ticks;
+        if (!decimal(argv[2], INT32_MAX, &pid) || pid <= 1 ||
+            !decimal(argv[3], UINT64_MAX, &ticks) || !boot_valid(argv[4]))
+            return invalid();
+        return report(dppass_pidfd_gone((pid_t)pid, ticks, argv[4]));
+    }
     if (argc == 4 && strcmp(argv[1], "absent") == 0) {
         uint64_t pid;
         if (!decimal(argv[2], INT32_MAX, &pid) || pid <= 1 || !boot_valid(argv[3]))

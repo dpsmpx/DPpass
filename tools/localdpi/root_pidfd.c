@@ -61,7 +61,7 @@ static int boot_matches(const char *expected) {
     return valid_boot_id(actual) && strcmp(actual, expected) == 0;
 }
 
-static int start_matches(pid_t pid, uint64_t expected) {
+static int read_start_ticks(pid_t pid, uint64_t *value) {
     char path[64], stat[4096], prefix[32];
     if (snprintf(path, sizeof(path), "/proc/%ld/stat", (long)pid) >= (int)sizeof(path) ||
         snprintf(prefix, sizeof(prefix), "%ld (", (long)pid) >= (int)sizeof(prefix) ||
@@ -72,7 +72,7 @@ static int start_matches(pid_t pid, uint64_t expected) {
     if (!end || end[1] != ' ') return 0;
     char *save = NULL;
     char *token = strtok_r(end + 2, " \t\n", &save);
-    if (!token || strlen(token) != 1 || !strchr("RSDTtIWP", token[0])) return 0;
+    if (!token || strlen(token) != 1 || !strchr("RSDTtIWPZXx", token[0])) return 0;
     for (int field = 4; field <= 22; ++field) {
         token = strtok_r(NULL, " \t\n", &save);
         if (!token) return 0;
@@ -80,7 +80,14 @@ static int start_matches(pid_t pid, uint64_t expected) {
     if (!*token || strspn(token, "0123456789") != strlen(token)) return 0;
     errno = 0;
     unsigned long long ticks = strtoull(token, NULL, 10);
-    return errno == 0 && ticks == expected;
+    if (errno != 0) return 0;
+    *value = (uint64_t)ticks;
+    return 1;
+}
+
+static int start_matches(pid_t pid, uint64_t expected) {
+    uint64_t actual;
+    return read_start_ticks(pid, &actual) && actual == expected;
 }
 
 static int executable_matches(pid_t pid, const char *expected) {
@@ -201,6 +208,38 @@ enum dppass_pidfd_result dppass_pidfd_absent(pid_t pid, const char *boot_id) {
     close(fd);
     return status == 1 ? DPPASS_PIDFD_EXITED : DPPASS_PIDFD_UNPROVEN;
 #else
+    return DPPASS_PIDFD_UNSUPPORTED;
+#endif
+}
+
+
+/* Positive no-signal proof for a persisted same-boot identity. Pin the
+ * current task before inspecting its start ticks. A live task with
+ * different ticks cannot be the recorded task. Ambiguous proc data stays
+ * unproven. */
+enum dppass_pidfd_result dppass_pidfd_gone(pid_t pid, uint64_t ticks, const char *boot_id) {
+    if (pid <= 1 || !boot_id) return DPPASS_PIDFD_UNPROVEN;
+#if defined(SYS_pidfd_open) && defined(SYS_pidfd_send_signal)
+    if (!boot_matches(boot_id)) return DPPASS_PIDFD_UNPROVEN;
+    int fd = (int)syscall(SYS_pidfd_open, pid, 0);
+    if (fd < 0) {
+        if (errno == ESRCH) return DPPASS_PIDFD_EXITED;
+        return errno == ENOSYS ? DPPASS_PIDFD_UNSUPPORTED : DPPASS_PIDFD_UNPROVEN;
+    }
+    enum dppass_pidfd_result result = DPPASS_PIDFD_UNPROVEN;
+    int first = exited(fd, 0);
+    if (first == 1) result = DPPASS_PIDFD_EXITED;
+    else if (first == 0) {
+        uint64_t actual;
+        int known = read_start_ticks(pid, &actual);
+        int last = exited(fd, 0);
+        if (last == 1 || (last == 0 && known && actual != ticks))
+            result = DPPASS_PIDFD_EXITED;
+    }
+    close(fd);
+    return result;
+#else
+    (void)ticks;
     return DPPASS_PIDFD_UNSUPPORTED;
 #endif
 }

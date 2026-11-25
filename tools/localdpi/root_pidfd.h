@@ -35,4 +35,8 @@ enum dppass_pidfd_result dppass_pidfd_probe(void);
 // generation and boot. A live task, including a reused PID, is unproven.
 enum dppass_pidfd_result dppass_pidfd_absent(pid_t pid, const char *boot_id);
 
+// No-signal proof of absence, death or reuse of a persisted same-boot PID.
+// Caller validates generation, saved start ticks and boot before use.
+enum dppass_pidfd_result dppass_pidfd_gone(pid_t pid, uint64_t ticks, const char *boot_id);
+
 #endif

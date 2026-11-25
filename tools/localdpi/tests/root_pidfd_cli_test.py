@@ -29,6 +29,10 @@ try:
     exe = os.readlink(f"/proc/{pid}/exe")
     args = ["stop-executable", pid, ticks, boot, exe, "2000"]
     expect(["absent", pid, boot], 2, "unproven")
+    expect(["gone", pid, ticks, boot], 2, "unproven")
+    expect(["gone", pid, str(int(ticks) + 1), boot], 0, "exited")
+    expect(["gone", pid, ticks, "00000000-0000-0000-0000-000000000000"], 2, "unproven")
+    expect(["gone", pid, "-1", boot], 64, "invalid_arguments")
     assert child.poll() is None
     for index, bad in [
         (1, "1"), (1, "0" + pid), (1, "+2"), (1, "2147483648"),
