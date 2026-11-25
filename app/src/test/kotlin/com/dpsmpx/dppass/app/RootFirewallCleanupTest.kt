@@ -14,6 +14,7 @@ class RootFirewallCleanupTest {
         val state = File(dir, "state")
         val intent = File(dir, "ipv6.intent")
         val rule = "-p tcp -j NFQUEUE --queue-num 20529"
+        val policy = "-P OUTPUT ACCEPT"
         val unrelated = "-A OUTPUT -p udp -j ACCEPT"
         val owned = "-A OUTPUT $rule"
         val unexpected = "-A OUTPUT -p udp -j NFQUEUE --queue-num 20529"
@@ -32,17 +33,17 @@ class RootFirewallCleanupTest {
         )
         val cleanup = RootFirewallCleanup.remove(RootFirewallCleanup.Kind.PACKET, "iptables", listOf(rule))
         try {
-            state.writeText("$owned\n$unrelated\n")
+            state.writeText("$policy\n$owned\n$unrelated\n")
             assertEquals(0, run(fixture, cleanup).exitCode)
-            assertEquals("$unrelated\n", state.readText())
-            state.writeText("$unexpected\n$unrelated\n")
+            assertEquals("$policy\n$unrelated\n", state.readText())
+            state.writeText("$policy\n$unexpected\n$unrelated\n")
             assertFalse(run(fixture, cleanup).exitCode == 0)
             assertTrue(state.readText().contains(unexpected))
 
-            state.writeText("$owned\n")
+            state.writeText("$policy\n$owned\n")
             val failedCheck = fixture.replace("-C) grep", "-C) return 2; grep")
             assertFalse(run(failedCheck, cleanup).exitCode == 0)
-            assertEquals("$owned\n", state.readText())
+            assertEquals("$policy\n$owned\n", state.readText())
             val stuck = "iptables() { case \"\$3\" in -S) cat '${state.path}';; -C|-D) return 0;; esac; }\n"
             assertFalse(run(stuck, cleanup).exitCode == 0)
 
@@ -53,7 +54,22 @@ class RootFirewallCleanupTest {
             assertEquals(0, run("", RootFirewallCleanup.markIntent(intent.path)).exitCode)
             assertFalse(run(unavailable, ipv6).exitCode == 0)
             assertTrue(intent.exists())
-            state.writeText("$unrelated\n")
+            for (malformed in listOf("", "$unrelated\n", "-P OUTPUT UNKNOWN\n",
+                "$policy\n$policy\n", "$policy\n-A INPUT -j ACCEPT\n")) {
+                state.writeText(malformed)
+                assertFalse(run(fixture, cleanup).exitCode == 0)
+                assertFalse(run(fixture.replace("iptables()", "ip6tables()"), ipv6).exitCode == 0)
+                assertTrue(intent.exists())
+                assertEquals(malformed, state.readText())
+            }
+            // First listing is valid; the final listing cannot confirm absence.
+            state.writeText("$policy\n$owned\n")
+            val invalidAfterDelete = fixture.replace(
+                "mv '" + state.path + ".tmp' '" + state.path + "'",
+                ": > '" + state.path + "'")
+            assertFalse(run(invalidAfterDelete.replace("iptables()", "ip6tables()"), ipv6).exitCode == 0)
+            assertTrue(intent.exists())
+            state.writeText("$policy\n$unrelated\n")
             assertEquals(0, run(fixture.replace("iptables()", "ip6tables()"), ipv6).exitCode)
             assertFalse(intent.exists())
         } finally {

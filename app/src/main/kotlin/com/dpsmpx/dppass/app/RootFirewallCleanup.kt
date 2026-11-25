@@ -13,6 +13,17 @@ internal object RootFirewallCleanup {
 
     private fun quote(raw: String) = "'" + raw.replace("'", "'\\''") + "'"
 
+    /** A successful -S exit alone is insufficient. OUTPUT is a built-in
+     * chain: require exactly one policy and only its rule records. */
+    private fun validateListing(): List<String> = listOf(
+        "policy_count=\$(printf '%s\\n' \"\$listing\" | grep -Ec " +
+            quote("^-P OUTPUT (ACCEPT|DROP)$") + ") || exit 1",
+        "test \"\$policy_count\" -eq 1 || { echo 'ROOT: invalid OUTPUT policy'; exit 1; }",
+        "printf '%s\\n' \"\$listing\" | grep -Ev " +
+            quote("^(-P OUTPUT (ACCEPT|DROP)|-A OUTPUT .+)$") + " >/dev/null",
+        "test \"\$?\" -eq 1 || { echo 'ROOT: invalid OUTPUT listing'; exit 1; }",
+    )
+
     // For an inaccessible optional IPv6 table, a persisted intent means
     // cleanup cannot be confirmed. Old installs lacking intent metadata
     // retain the legacy optional-table behavior, pending migration tests.
@@ -28,7 +39,7 @@ internal object RootFirewallCleanup {
                 val intent = quote(intentFile)
                 add("test ! -L $intent && { test ! -e $intent || test -f $intent; } || exit 1")
             }
-            add("if ! $prefix -S OUTPUT >/dev/null 2>&1; then")
+            add("if ! listing=\$( $prefix -S OUTPUT 2>/dev/null ); then")
             if (optional) {
                 val intent = quote(requireNotNull(intentFile))
                 add("if test -e $intent || test -L $intent; then echo 'ROOT: IPv6 cleanup unconfirmed'; exit 1; fi")
@@ -37,6 +48,7 @@ internal object RootFirewallCleanup {
                 add("echo 'ROOT: firewall listing unavailable'; exit 1")
             }
             add("fi")
+            addAll(validateListing())
             for (rule in rules) {
                 add("remaining=32")
                 add("while $prefix -C OUTPUT $rule 2>/dev/null; do")
@@ -46,6 +58,7 @@ internal object RootFirewallCleanup {
                 add("done")
             }
             add("listing=\$( $prefix -S OUTPUT ) || { echo 'ROOT: firewall verification unavailable'; exit 1; }")
+            addAll(validateListing())
             add("printf '%s\\n' \"\$listing\" | grep -E " + quote(kind.marker) + " >/dev/null")
             add("status=\$?")
             add("test \"\$status\" -eq 1 || { echo 'ROOT: firewall rules remain or verification failed'; exit 1; }")
