@@ -16,6 +16,7 @@ import android.widget.ProgressBar
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.DptsCompletedRun
 import com.dpsmpx.dppass.app.DptsDiagnosticJob
+import com.dpsmpx.dppass.app.DptsSavedScripts
 import com.dpsmpx.dppass.app.NetworkCheck
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.TunnelStatus
@@ -70,21 +71,13 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         contentDescription = context.getString(R.string.dpts_script_hint)
     }
     private val dptsPresets = DptsPresets.scripts.keys.toMutableList()
-    private val personalScripts = linkedMapOf<String, String>().also { saved ->
-        val prefs = context.getSharedPreferences("dpts_saved_scripts", Context.MODE_PRIVATE)
-        for ((key, value) in prefs.all) {
-            if (key.startsWith("script.") && value is String &&
-                value.length <= DptsScript.MAX_SOURCE_LENGTH) {
-                val name = key.removePrefix("script.")
-                if (name.length in 1..80) saved[name] = value
-            }
-        }
-    }
+    private val personalScripts = DptsSavedScripts.restore(
+        context.getSharedPreferences("dpts_saved_scripts", Context.MODE_PRIVATE).all)
     private val dptsNameInput = EditText(context).apply {
         hint = context.getString(R.string.dpts_name_hint)
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
         isSingleLine = true
-        filters = arrayOf(InputFilter.LengthFilter(80))
+        filters = arrayOf(InputFilter.LengthFilter(DptsSavedScripts.MAX_NAME_LENGTH))
     }
     private val dptsPresetSpinner = Spinner(context).apply {
         adapter = ArrayAdapter(context, android.R.layout.simple_spinner_item,
@@ -175,6 +168,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
 
     private fun renderControls(status: TunnelStatus) {
         val idle = !diagnostic.busy
+        if (idle) progress.visibility = View.GONE
         dptsRunButton.isEnabled = idle && ready(status)
         dptsLoadButton.isEnabled = idle
         dptsSaveButton.isEnabled = idle
@@ -251,13 +245,11 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         if (diagnostic.busy) return
         val name = dptsNameInput.text.toString().trim()
         val source = dptsEditor.text.toString()
-        if (name.isEmpty() || name.length > 80 || source.isBlank() ||
-            source.length > DptsScript.MAX_SOURCE_LENGTH ||
-            name.any { it.code < 32 }) {
+        if (!DptsSavedScripts.validDraft(name, source)) {
             statusText.text = context.getString(R.string.dpts_invalid_save)
             return
         }
-        if (name !in personalScripts && personalScripts.size >= 30) {
+        if (name !in personalScripts && personalScripts.size >= DptsSavedScripts.MAX_SCRIPTS) {
             statusText.text = context.getString(R.string.dpts_save_limit)
             return
         }
