@@ -59,9 +59,11 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
 
     override suspend fun stop(): Result<Unit> = withContext(Dispatchers.IO) { runCatching { execute(cleanup()) } }
     override suspend fun alive(): Boolean = withContext(Dispatchers.IO) {
-        runCatching { execute("test -s " + quote("$ROOT/pid") + " && kill -0 \"$(cat " +
-            quote("$ROOT/pid") + ")\" && iptables -t nat -C OUTPUT " + RULE +
-            " && { ! test -s " + quote("$ROOT/pid6") + " || { kill -0 \"$(cat " + quote("$ROOT/pid6") + ")\" && ip6tables -t nat -C OUTPUT " + RULE + "; }; }") }.isSuccess
+        runCatching { execute(RootProcessIdentity.executableAlive("$ROOT/pid", "$ROOT/ciadpi") +
+            " && iptables -t nat -C OUTPUT " + RULE +
+            " && { ! test -s " + quote("$ROOT/pid6") + " || { " +
+            RootProcessIdentity.executableAlive("$ROOT/pid6", "$ROOT/ciadpi") +
+            " && ip6tables -t nat -C OUTPUT " + RULE + "; }; }") }.isSuccess
     }
 
     private fun cleanup(stopWatch: Boolean = true): String = buildString {

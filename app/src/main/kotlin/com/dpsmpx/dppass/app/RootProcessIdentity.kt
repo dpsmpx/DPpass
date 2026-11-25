@@ -17,6 +17,16 @@ internal object RootProcessIdentity {
             "if test \"\$pid\" -gt 1 2>/dev/null; then " +
             action + "; fi ;; esac; fi"
 
+    // A subshell isolates the validated PID from the caller. Missing,
+    // malformed, stale or unrelated process identities all fail closed.
+    fun executableAlive(pidFile: String, executable: String): String =
+        "( test -s " + quote(pidFile) + " || exit 1; " +
+            "pid=\$(cat " + quote(pidFile) + " 2>/dev/null) || exit 1; " +
+            "case \"\$pid\" in ''|*[!0-9]*) exit 1 ;; esac; " +
+            "test \"\$pid\" -gt 1 2>/dev/null || exit 1; " +
+            "test \"\$(readlink /proc/\$pid/exe 2>/dev/null)\" = " + quote(executable) +
+            " && kill -0 \"\$pid\" 2>/dev/null )"
+
     fun stopExecutable(pidFile: String, executable: String): String =
         withPid(pidFile, "if test \"\$(readlink /proc/\$pid/exe 2>/dev/null)\" = " +
             quote(executable) + "; then kill \"\$pid\" 2>/dev/null || true; fi") +

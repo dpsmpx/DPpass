@@ -45,8 +45,7 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
     }
 
     override suspend fun alive(): Boolean = withContext(Dispatchers.IO) {
-        runCatching { execute("test -f " + quote(ROOT + "/pid") +
-            " && kill -0 \"$(cat " + quote(ROOT + "/pid") + ")\"" +
+        runCatching { execute(RootProcessIdentity.executableAlive(ROOT + "/pid", ROOT + "/nfqws2") +
             " && iptables -t mangle -C OUTPUT " + TCP +
             (if (rootQuic) " && iptables -t mangle -C OUTPUT " + UDP else "")) }.isSuccess
     }
