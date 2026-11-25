@@ -946,6 +946,7 @@
     <string name="dpts_script_hint">dpts 1\nhost youtubei.googleapis.com\nhttps protocols=h1 methods=plain ips=2 attempts=3 timeout_ms=5000</string>
     <string name="dpts_load_preset">Загрузить выбранный пресет DPTS</string>
     <string name="dpts_run_script">Проверить и запустить DPTS</string>
+    <string name="dpts_diagnostic_failed">Диагностика завершилась ошибкой. Отчёт не скопирован, обучение не запущено.</string>
     <string name="dpts_stopped">DPTS остановлен: сеть изменилась или срок теста истёк</string>
     <string name="dpts_copied">DPTS завершён. Журнал автоматически скопирован.</string>
     <string name="dpts_unified_note">Единый редактор защищённых диагностик. Выбери пресет или вставь/измени скрипт DPTS/1, сохрани, запусти, останови или обучи локальную нейросеть только после повторных подтверждённых HTTPS-ответов. Журнал копируется автоматически.</string>

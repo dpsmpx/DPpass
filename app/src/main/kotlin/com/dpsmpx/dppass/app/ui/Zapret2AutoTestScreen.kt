@@ -106,7 +106,13 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         setTextIsSelectable(true)
         visibility = View.GONE
     }
-    private val diagnostic = DptsDiagnosticJob(host.scope) {
+    private val diagnostic = DptsDiagnosticJob(host.scope, failed = {
+        invalidateDptsRun()
+        // Do not publish exception messages, which may contain private data.
+        resultText.text = ""
+        resultText.visibility = View.GONE
+        statusText.text = context.getString(R.string.dpts_diagnostic_failed)
+    }) {
         renderControls(TunnelState.status.value)
     }
     private var started = false
@@ -181,6 +187,10 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     }
 
     override fun render(status: TunnelStatus) {
+        if (!ready(status)) {
+            invalidateDptsRun()
+            if (diagnostic.cancellable) diagnostic.cancel()
+        }
         renderControls(status)
         if (!diagnostic.busy && !ready(status)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
@@ -1289,6 +1299,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         if (diagnostic.busy) return
         // Even a failed compile or unavailable connection replaces the previous run.
         invalidateDptsRun()
+        resultText.text = ""
+        resultText.visibility = View.GONE
         if (!ready(TunnelState.status.value)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
             host.toast(statusText.text)

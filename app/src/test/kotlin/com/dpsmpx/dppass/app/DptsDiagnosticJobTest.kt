@@ -1,11 +1,13 @@
 package com.dpsmpx.dppass.app
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -37,6 +39,25 @@ class DptsDiagnosticJobTest {
         assertTrue(slot.start { secondRan = true })
         withTimeout(5000) { while (slot.busy) yield() }
         assertTrue(secondRan)
+    }
+
+    @Test fun failureDoesNotCancelOwnerAndSlotCanBeReused() = runBlocking {
+        val errors = mutableListOf<Throwable>()
+        val slot = DptsDiagnosticJob(this, failed = { errors.add(it) }) {}
+        assertTrue(slot.start { error("diagnostic failed") })
+        withTimeout(5000) { while (slot.busy) yield() }
+        assertTrue(slot.start { throw UnsatisfiedLinkError("native unavailable") })
+        withTimeout(5000) { while (slot.busy) yield() }
+        assertEquals(2, errors.size)
+        assertTrue(errors[0] is IllegalStateException)
+        assertTrue(errors[1] is UnsatisfiedLinkError)
+        assertTrue(slot.start { throw CancellationException("cancelled") })
+        withTimeout(5000) { while (slot.busy) yield() }
+        assertEquals(2, errors.size)
+        var ran = false
+        assertTrue(slot.start { ran = true })
+        withTimeout(5000) { while (slot.busy) yield() }
+        assertTrue(ran)
     }
 
     @Test fun immediateCompletionReleasesTheSlot() = runBlocking {
