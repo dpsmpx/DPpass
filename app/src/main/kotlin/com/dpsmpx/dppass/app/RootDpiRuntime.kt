@@ -14,10 +14,14 @@ internal interface RootDpiRuntime {
  */
 internal suspend fun RootDpiRuntime.startAndAccept(
     accept: suspend () -> Boolean,
-    onRollbackFailure: (Throwable) -> Unit,
+    onRollbackFailure: suspend (Throwable) -> Unit,
 ): Result<Unit>? = withContext(NonCancellable) {
     val result = start()
-    if (result.isFailure) return@withContext result
+    if (result.isFailure) {
+        val error = result.exceptionOrNull()
+        if (error is RootStartupCleanupFailure) onRollbackFailure(error)
+        return@withContext result
+    }
     var accepted = false
     try {
         accepted = accept()
@@ -25,6 +29,12 @@ internal suspend fun RootDpiRuntime.startAndAccept(
     } finally {
         if (!accepted) runCatching { stop().getOrThrow() }.onFailure(onRollbackFailure)
     }
+}
+
+/** Startup failed and compensating cleanup could not be confirmed. */
+internal class RootStartupCleanupFailure(startup: Exception, cleanup: Exception) :
+    IllegalStateException((startup.message ?: "ROOT startup failed") + "; ROOT cleanup failed", startup) {
+    init { addSuppressed(cleanup) }
 }
 
 /** Preserve the startup error, but make failed compensating cleanup visible.
@@ -38,12 +48,7 @@ internal fun rootLaunchWithRollback(launch: () -> Unit, rollback: () -> Unit) {
         try {
             rollback()
         } catch (cleanup: Exception) {
-            val failure = IllegalStateException(
-                (startup.message ?: "ROOT startup failed") + "; ROOT cleanup failed",
-                startup,
-            )
-            failure.addSuppressed(cleanup)
-            throw failure
+            throw RootStartupCleanupFailure(startup, cleanup)
         }
         throw startup
     }

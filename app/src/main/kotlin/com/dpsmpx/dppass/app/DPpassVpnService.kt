@@ -602,13 +602,20 @@ class DPpassVpnService : VpnService() {
                 }
             },
             onRollbackFailure = { error ->
+                // Even a declined/cancelled start can leave ROOT state behind.
+                // Shutdown joins the connecting job before retrying cleanup.
+                state.withLock { rootZapret2 = root }
                 DeviceLog.log.diagnostic(Diagnostic.fromThrowable(
-                    DiagCode.BACKEND_NOT_AVAILABLE, "не удалось снять ROOT-правила отменённого подключения", error,
+                    DiagCode.BACKEND_NOT_AVAILABLE, "не удалось снять ROOT-правила после запуска", error,
                 ))
             },
         ) ?: return
         job.ensureActive()
         if (result.isFailure) {
+            if (result.exceptionOrNull() is RootStartupCleanupFailure) {
+                reportRootCleanupFailure()
+                return
+            }
             fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
                 name + ": " + (result.exceptionOrNull()?.message?.let { message ->
                     if (message.contains("Permission denied") && message.contains("su"))

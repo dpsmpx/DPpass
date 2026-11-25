@@ -80,6 +80,42 @@ class RootDpiRuntimeTest {
         assertEquals(listOf(cleanup), actual?.suppressed?.toList())
     }
 
+    @Test fun startupWithIncompleteCleanupNotifiesOwnerWithoutDuplicateStop() = runBlocking {
+        val failure = RootStartupCleanupFailure(
+            IllegalStateException("start failed"), IllegalStateException("cleanup failed"),
+        )
+        val runtime = Fake(startResult = Result.failure(failure))
+        var retained: RootDpiRuntime? = null
+        val result = runtime.startAndAccept({ throw AssertionError("unexpected acceptance") }, {
+            assertTrue(it is RootStartupCleanupFailure)
+            retained = runtime
+        })
+        assertTrue(result?.isFailure == true)
+        assertTrue(retained === runtime)
+        assertEquals(0, runtime.stops)
+    }
+
+    @Test fun cancelledStartWithFailedRollbackNotifiesOwnerBeforeJoin() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val runtime = Fake(
+            duringStart = { entered.complete(Unit); release.await() },
+            stopResult = Result.failure(IllegalStateException("cleanup failed")),
+        )
+        var retained: RootDpiRuntime? = null
+        val task = launch(start = CoroutineStart.UNDISPATCHED) {
+            val owner = currentCoroutineContext().job
+            runtime.startAndAccept({ !owner.isCancelled }, { retained = runtime })
+        }
+        entered.await()
+        task.cancel()
+        release.complete(Unit)
+        task.join()
+        assertTrue(task.isCancelled)
+        assertTrue(retained === runtime)
+        assertEquals(1, runtime.stops)
+    }
+
     @Test fun declinedOwnershipRollsBackAfterSuccessfulStart() = runBlocking {
         val owner = Job()
         val runtime = Fake(duringStart = { owner.cancel() })
