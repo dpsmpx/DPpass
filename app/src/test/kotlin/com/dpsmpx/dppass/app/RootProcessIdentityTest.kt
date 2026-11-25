@@ -505,6 +505,50 @@ class RootProcessIdentityTest {
         }
     }
 
+    @Test fun watchdogCleanupRetiresItsPidBeforeAllowingPeerStartup() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-watchdog-retire")
+        val shared = dir.resolve("shared").toString()
+        val aDir = dir.resolve("a").toString()
+        val bDir = dir.resolve("b").toString()
+        val a = RootLifecycleTransaction(aDir, "first", shared, bDir)
+        val b = RootLifecycleTransaction(bDir, "second", shared, aDir)
+        val stale = RootLifecycleTransaction(aDir, "stale", shared, bDir)
+        val watchPid = File(aDir, "watch.pid")
+        val generation = File(aDir, "generation")
+        fun run(script: String) = RootCommandRunner.run(
+            listOf("/bin/sh", "-c", script), timeoutMillis = 10_000,
+        ).exitCode
+        try {
+            assertEquals(0, run(a.start(":", ":")))
+            watchPid.writeText("123")
+            assertEquals(0, run(stale.watchdogPoll("false", "exit 7")))
+            assertEquals("123", watchPid.readText())
+            assertEquals(75, run(a.watchdogPoll(":", ":")))
+            assertEquals("123", watchPid.readText())
+            assertFalse(run(a.watchdogPoll("false", "exit 7")) == 0)
+            assertEquals("123", watchPid.readText())
+            assertEquals("first", generation.readText().trim())
+            assertFalse(run(b.start(":", ":")) == 0)
+            // Simulate a PID-record removal error without privileged files.
+            assertTrue(watchPid.delete())
+            assertTrue(watchPid.mkdir())
+            assertFalse(run(a.watchdogPoll("false", ":")) == 0)
+            assertEquals("first", generation.readText().trim())
+            assertFalse(run(b.start(":", ":")) == 0)
+            assertTrue(watchPid.delete())
+            watchPid.writeText("123")
+            assertEquals(0, run(a.watchdogPoll("false", ":")))
+            assertFalse(watchPid.exists())
+            assertFalse(generation.exists())
+            assertEquals(0, run(b.start(":", ":")))
+            assertEquals(0, run(b.stop(":")))
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun lockAndGenerationGuardRejectInvalidInputs() {
         val invalidTimeout = runCatching { RootProcessIdentity.lockedTransaction("/tmp/lock", ":", 0) }
         assertTrue(invalidTimeout.isFailure)

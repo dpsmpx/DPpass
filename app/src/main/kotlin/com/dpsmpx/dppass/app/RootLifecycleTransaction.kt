@@ -107,6 +107,10 @@ internal class RootLifecycleTransaction(
             // A healthy owner must not be cleaned based on a stale probe.
             condition?.let { "if (\n$it\n); then exit 75; fi" } ?: ":",
             "(\n$cleanup\n) || exit 1",
+            // A watchdog cannot stop itself in its cleanup body. Retire its
+            // PID record only after successful cleanup, before releasing
+            // generation ownership. A failed removal remains retryable.
+            if (condition != null) "rm -f " + quote("$directory/watch.pid") + " || exit 1" else ":",
             "rm -f " + quote(record) + " || exit 1",
         ).joinToString("\n")),
     ).joinToString("\n")
