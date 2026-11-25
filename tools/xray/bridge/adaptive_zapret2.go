@@ -99,6 +99,7 @@ func socketEvidenceAdmissible(pick *adaptivePick, evidence localdpi.Evidence) bo
 }
 
 type adaptiveEntry struct {
+    lastUsed uint64 // selector-local recency, not persisted
     index int
     preferred string
     // Second independently validated HTTPS profile for this exact hostname.
@@ -138,6 +139,7 @@ type adaptiveSelector struct {
     selected map[string]struct{}
     probe map[string]*adaptiveProbeEvidence
     generation uint64 // invalidates observations from old network sessions
+    entryClock uint64
 }
 
 var zapret2Auto = &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
@@ -262,6 +264,32 @@ func (a *adaptiveSelector) chooseLive(host string, candidates []string) (string,
     return a.choosePolicy(host, candidates, true)
 }
 
+// entryLocked is the common admission path for live choices and explicit
+// diagnostic preferences. Existing entries never trigger eviction. At the
+// bound, remove just one least recently selected/seeded entry. Caller holds mu.
+func (a *adaptiveSelector) entryLocked(host string) *adaptiveEntry {
+    if a.entries == nil { a.entries = make(map[string]*adaptiveEntry) }
+    e := a.entries[host]
+    if e == nil {
+        if len(a.entries) >= adaptiveMaxHosts {
+            oldest := ""
+            var oldestUse uint64
+            for key, entry := range a.entries {
+                if oldest == "" || entry.lastUsed < oldestUse ||
+                    (entry.lastUsed == oldestUse && key < oldest) {
+                    oldest, oldestUse = key, entry.lastUsed
+                }
+            }
+            delete(a.entries, oldest)
+        }
+        e = &adaptiveEntry{}
+        a.entries[host] = e
+    }
+    a.entryClock++
+    e.lastUsed = a.entryClock
+    return e
+}
+
 func (a *adaptiveSelector) choosePolicy(host string, candidates []string, directFirst bool) (string, uint64) {
     host = canonicalAdaptiveKey(host)
     a.mu.Lock()
@@ -273,11 +301,7 @@ func (a *adaptiveSelector) choosePolicy(host string, candidates []string, direct
     for _,candidate:=range candidates { if candidate=="pass" { hasPass=true;break } }
     directFirst = directFirst && hasPass
     if host == "" { if directFirst { return "pass", a.generation }; return candidates[0], a.generation }
-    if len(a.entries) >= adaptiveMaxHosts {
-        a.entries = make(map[string]*adaptiveEntry)
-    }
-    e := a.entries[host]
-    if e == nil { e = &adaptiveEntry{}; a.entries[host] = e }
+    e := a.entryLocked(host)
     now := time.Now()
     blocked := func(strategy string) bool {
         if e.cooldown == nil { return false }
@@ -550,14 +574,7 @@ func (a *adaptiveSelector) observeVerifiedProbe(host, requiredHost, validOutcome
     // total latency; do not mistake a redirect or a single success for proof.
     if evidence.winner != "" && sample.totalMillis >= evidence.winnerMillis { return }
     evidence.winner, evidence.winnerMillis = strategy, sample.totalMillis
-    e := a.entries[host]
-    if e == nil {
-        if len(a.entries) >= adaptiveMaxHosts {
-            a.entries = make(map[string]*adaptiveEntry)
-        }
-        e = &adaptiveEntry{}
-        a.entries[host] = e
-    }
+    e := a.entryLocked(host)
     e.preferred = strategy
     e.probeSeeded = true
     e.weakFailures = 0
@@ -576,6 +593,7 @@ func (a *adaptiveSelector) observeVerifiedProbe(host, requiredHost, validOutcome
 // Caller holds the selector lock. Configured targets are not transient.
 func (a *adaptiveSelector) resetLocked() {
     a.entries = make(map[string]*adaptiveEntry)
+    a.entryClock = 0
     a.probe = nil
     a.generation++
 }

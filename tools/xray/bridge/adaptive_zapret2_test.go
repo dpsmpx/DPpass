@@ -506,3 +506,29 @@ func TestSelectorRejectsUnsupportedTransportEvidenceAtMutationBoundary(t *testin
         if e.stalls[tc.supported]!=1 { t.Fatal("valid timeout not counted") }
     }
 }
+
+func TestAdaptiveCapacityRetainsExistingPreferencesAndEvictsOnlyOldest(t *testing.T) {
+    a:=&adaptiveSelector{entries:make(map[string]*adaptiveEntry)}
+    first:="prefix0.example.com"
+    second:="prefix1.example.com"
+    for i:=0;i<adaptiveMaxHosts;i++ {
+        host:="prefix"+strconv.Itoa(i)+".example.com"
+        a.choose(host)
+        a.observe(host,"fake-5",adaptivePayloadThreshold)
+    }
+    firstEntry:=a.entries[first]
+    thirdEntry:=a.entries["prefix2.example.com"]
+    if got:=a.choose(first);got!="fake-5" || a.entries[first]!=firstEntry || len(a.entries)!=adaptiveMaxHosts {
+        t.Fatal("existing host at capacity lost its preference")
+    }
+    a.choose("new.example.com")
+    if len(a.entries)!=adaptiveMaxHosts || a.entries[second]!=nil ||
+        a.entries[first]!=firstEntry || a.entries["prefix2.example.com"]!=thirdEntry {
+        t.Fatal("new host did not evict exactly the oldest entry")
+    }
+    if got:=a.choose(first);got!="fake-5" { t.Fatal("unrelated eviction lost preference") }
+    a.mu.Lock()
+    a.resetLocked()
+    a.mu.Unlock()
+    if len(a.entries)!=0 || a.entryClock!=0 { t.Fatal("network reset retained old entries") }
+}

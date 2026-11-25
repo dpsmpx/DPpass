@@ -279,10 +279,7 @@ func siteSearchCommit(inst *core.Instance,host,method string,gen uint64) bool {
     zapret2Auto.mu.Lock()
     defer zapret2Auto.mu.Unlock()
     if zapret2Auto.generation!=gen {return false}
-    if zapret2Auto.entries==nil {zapret2Auto.entries=make(map[string]*adaptiveEntry)}
-    if len(zapret2Auto.entries)>=adaptiveMaxHosts {zapret2Auto.entries=make(map[string]*adaptiveEntry)}
-    entry:=zapret2Auto.entries[host]
-    if entry==nil {entry=&adaptiveEntry{};zapret2Auto.entries[host]=entry}
+    entry:=zapret2Auto.entryLocked(host)
     selected:=method
     if selected=="plain" {selected="pass"}
     entry.preferred=selected
