@@ -97,7 +97,7 @@ func nnDenseCount(w *adaptiveNNWeights) int64 {
         adaptiveNNOutput*(int64(last)+1) + adaptiveNNContexts*adaptiveNNOutput
 }
 
-func nnModern(w *adaptiveNNWeights) bool { return w.Format == "dppass-zapret2-mlp-v3" }
+const adaptiveNNFormat = "dppass-strategy-mlp-v4"
 
 func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
     if len(raw) == 0 || len(raw) > adaptiveNNMaxBytes {
@@ -115,66 +115,60 @@ func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
         return nil, errors.New("trailing neural model content")
     }
     count := len(w.Hidden)
-    if w.Format != "dppass-zapret2-mlp-v2" && !nnModern(&w) ||
+    if w.Format != adaptiveNNFormat ||
         count < adaptiveNNMinHidden || count > adaptiveNNMaxHidden ||
         len(w.Bias) != count || len(w.Output) != adaptiveNNOutput ||
         len(w.OutputBias) != adaptiveNNOutput {
         return nil, errors.New("unsupported neural model dimensions")
     }
     deep := len(w.DeepHidden)
-    if nnModern(&w) {
-        if deep > adaptiveNNMaxDeep || len(w.DeepBias) != deep {
-            return nil, errors.New("invalid deeper hidden layer")
+    if deep > adaptiveNNMaxDeep || len(w.DeepBias) != deep {
+        return nil, errors.New("invalid deeper hidden layer")
+    }
+    if len(w.Seed) != 16 { return nil, errors.New("bad sparse seed") }
+    for _, c := range w.Seed {
+        if c < '0' || c > '9' && (c < 'a' || c > 'f') {
+            return nil, errors.New("bad sparse seed")
         }
-        if len(w.Seed) != 16 { return nil, errors.New("bad sparse seed") }
-        for _, c := range w.Seed {
-            if c < '0' || c > '9' && (c < 'a' || c > 'f') {
-                return nil, errors.New("bad sparse seed")
+    }
+    if len(w.ContextBias) != adaptiveNNContexts ||
+        len(w.ContextObservations) != adaptiveNNContexts ||
+        w.Observations < 0 || w.Observations > 1_000_000_000 {
+        return nil, errors.New("invalid contextual heads")
+    }
+    for i, row := range w.ContextBias {
+        if len(row) != adaptiveNNOutput || w.ContextObservations[i] < 0 ||
+            w.ContextObservations[i] > 1_000_000_000 {
+            return nil, errors.New("invalid contextual head dimensions")
+        }
+        for _, n := range row {
+            if !validNNNumber(n) { return nil, errors.New("invalid contextual weight") }
+        }
+    }
+    if len(w.VerifiedHTMLBias) != 0 || len(w.VerifiedHTMLObservations) != 0 {
+        if len(w.VerifiedHTMLBias) != 3 || len(w.VerifiedHTMLObservations) != 3 {
+            return nil, errors.New("invalid HTML calibration dimensions")
+        }
+        for i, row := range w.VerifiedHTMLBias {
+            if len(row) != localdpi.LegacyTCPOutputs || w.VerifiedHTMLObservations[i] < 0 || w.VerifiedHTMLObservations[i] > 1_000_000_000 {
+                return nil, errors.New("invalid HTML calibration")
             }
+            for _, n := range row { if !validNNNumber(n) { return nil, errors.New("invalid HTML weight") } }
         }
-        if len(w.ContextBias) != adaptiveNNContexts ||
-            len(w.ContextObservations) != adaptiveNNContexts ||
-            w.Observations < 0 || w.Observations > 1_000_000_000 {
-            return nil, errors.New("invalid contextual heads")
-        }
-        for i, row := range w.ContextBias {
-            if len(row) != adaptiveNNOutput || w.ContextObservations[i] < 0 ||
-                w.ContextObservations[i] > 1_000_000_000 {
-                return nil, errors.New("invalid contextual head dimensions")
-            }
-            for _, n := range row {
-                if !validNNNumber(n) { return nil, errors.New("invalid contextual weight") }
-            }
-        }
-        if len(w.VerifiedHTMLBias) != 0 || len(w.VerifiedHTMLObservations) != 0 {
-            if len(w.VerifiedHTMLBias) != 3 || len(w.VerifiedHTMLObservations) != 3 {
-                return nil, errors.New("invalid HTML calibration dimensions")
-            }
-            for i, row := range w.VerifiedHTMLBias {
-                if len(row) != localdpi.LegacyTCPOutputs || w.VerifiedHTMLObservations[i] < 0 || w.VerifiedHTMLObservations[i] > 1_000_000_000 {
-                    return nil, errors.New("invalid HTML calibration")
-                }
-                for _, n := range row { if !validNNNumber(n) { return nil, errors.New("invalid HTML weight") } }
-            }
-        }
-        if w.Parameters < nnDenseCount(&w) || w.Parameters > adaptiveNNMaxParameters ||
-            len(w.Sparse) > adaptiveNNMaxSparse {
-            return nil, errors.New("invalid parameter budget")
-        }
-        // Legacy or interrupted serializers may omit an empty sparse map.
-        // Normalize it before installing the model: a nil map cannot be
-        // written by the existing model update path.
-        if w.Sparse==nil {w.Sparse=make(map[string]float64)}
-        capacity := w.Parameters - nnDenseCount(&w)
-        for key, n := range w.Sparse {
-            i, err := strconv.ParseInt(key, 10, 64)
-            if err != nil || i < 0 || i >= capacity || strconv.FormatInt(i, 10) != key ||
-                !validNNNumber(n) { return nil, errors.New("invalid sparse slot") }
-        }
-    } else if deep > 0 || len(w.DeepBias) != 0 || len(w.ContextBias) != 0 ||
-        len(w.ContextObservations) != 0 || w.Observations < 0 || w.Observations > 1_000_000_000 ||
-        w.Parameters != 0 || w.Seed != "" || len(w.Sparse) > 0 || len(w.VerifiedHTMLBias) != 0 || len(w.VerifiedHTMLObservations) != 0 {
-        return nil, errors.New("legacy model has modern parameters")
+    }
+    if w.Parameters < nnDenseCount(&w) || w.Parameters > adaptiveNNMaxParameters ||
+        len(w.Sparse) > adaptiveNNMaxSparse {
+        return nil, errors.New("invalid parameter budget")
+    }
+    // Normalize an empty sparse map before learning.
+    // Normalize it before installing the model: a nil map cannot be
+    // written by the existing model update path.
+    if w.Sparse==nil {w.Sparse=make(map[string]float64)}
+    capacity := w.Parameters - nnDenseCount(&w)
+    for key, n := range w.Sparse {
+        i, err := strconv.ParseInt(key, 10, 64)
+        if err != nil || i < 0 || i >= capacity || strconv.FormatInt(i, 10) != key ||
+            !validNNNumber(n) { return nil, errors.New("invalid sparse slot") }
     }
     for i, row := range w.Hidden {
         if len(row) != adaptiveNNInput { return nil, errors.New("bad hidden matrix") }
@@ -203,7 +197,7 @@ func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
     return &w, nil
 }
 
-// Existing JNI configuration API and legacy v2 weights remain supported.
+// Configure only the current model schema.
 func ConfigureZapret2NeuralModel(raw []byte) error {
     if len(raw) == 0 {
         zapret2Neural.mu.Lock()
@@ -238,8 +232,7 @@ func ExportZapret2NeuralModel() []byte {
 
 // Acknowledge exactly the weights Android committed. If a connection
 // learned more between export and acknowledgement, preserve its dirty bit
-// for the next flush. Compare bytes instead of revision counters so both
-// legacy v2 and current v3 models use the same safe protocol.
+// for the next flush. Compare the exact serialized bytes rather than revision counters.
 func AcknowledgeZapret2NeuralModel(saved []byte) error {
     if len(saved) == 0 || len(saved) > adaptiveNNMaxBytes {
         return errors.New("invalid neural acknowledgement")
@@ -344,12 +337,10 @@ func nnForward(w *adaptiveNNWeights, host string, idx int, quic bool) (float64, 
     }
     value := w.OutputBias[idx]
     for j, v := range h { value += w.Output[idx][j] * v }
-    if nnModern(w) {
-        context := nnContext(host, quic)
-        value += w.ContextBias[context][idx]
-        for _, key := range nnSparseKeys(w, host, idx, quic) {
-            value += w.Sparse[key] * 0.5
-        }
+    context := nnContext(host, quic)
+    value += w.ContextBias[context][idx]
+    for _, key := range nnSparseKeys(w, host, idx, quic) {
+        value += w.Sparse[key] * 0.5
     }
     return value, h
 }
@@ -396,38 +387,25 @@ func (n *adaptiveNeural) learn(host, candidate string, downstream int64) {
     logit, hidden := nnForward(w, host, idx, quic)
     prob := 1 / (1 + math.Exp(-math.Max(-12, math.Min(12, logit))))
     delta := (reward - prob) * 0.03
-    oldOutput := append([]float64(nil), w.Output[idx]...)
     for i, v := range hidden {
         w.Output[idx][i] = nnClamp(w.Output[idx][i] + delta*v)
     }
     w.OutputBias[idx] = nnClamp(w.OutputBias[idx] + delta)
-    if nnModern(w) {
-        // Scenario-specific heads are adapted faster than shared features,
-        // so MOBILE failures don't erase learned WIFI priorities.
-        context := nnContext(host, quic)
-        w.ContextBias[context][idx] = nnClamp(w.ContextBias[context][idx] + delta)
-        if w.ContextObservations[context] < 1_000_000_000 {
-            w.ContextObservations[context]++
-        }
-        if w.Observations < 1_000_000_000 { w.Observations++ }
-        for _, key := range nnSparseKeys(w, host, idx, quic) {
-            if len(w.Sparse) < adaptiveNNMaxSparse || hasSparseKey(w.Sparse, key) {
-                w.Sparse[key] = nnClamp(w.Sparse[key] + delta * 0.2)
-            }
-        }
-        // Only train the final layer and the contextual heads for deep
-        // models: this protects shared feature extraction from forgetting.
-    } else {
-        inputs := nnFeatures(host, quic)
-        for i, v := range hidden {
-            if v <= 0 { continue }
-            gradient := delta * oldOutput[i] * 0.1
-            w.Bias[i] = nnClamp(w.Bias[i] + gradient)
-            for j, x := range inputs {
-                w.Hidden[i][j] = nnClamp(w.Hidden[i][j] + gradient*x)
-            }
+    // Scenario-specific heads are adapted faster than shared features,
+    // so MOBILE failures don't erase learned WIFI priorities.
+    context := nnContext(host, quic)
+    w.ContextBias[context][idx] = nnClamp(w.ContextBias[context][idx] + delta)
+    if w.ContextObservations[context] < 1_000_000_000 {
+        w.ContextObservations[context]++
+    }
+    if w.Observations < 1_000_000_000 { w.Observations++ }
+    for _, key := range nnSparseKeys(w, host, idx, quic) {
+        if len(w.Sparse) < adaptiveNNMaxSparse || hasSparseKey(w.Sparse, key) {
+            w.Sparse[key] = nnClamp(w.Sparse[key] + delta * 0.2)
         }
     }
+    // Only train the final layer and the contextual heads for deep
+    // models: this protects shared feature extraction from forgetting.
     n.dirty = true
 }
 

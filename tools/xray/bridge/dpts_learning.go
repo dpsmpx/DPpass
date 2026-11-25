@@ -58,7 +58,7 @@ func TrainZapret2NeuralFromDPTS(network, methodCSV string, generation int64) err
         return errors.New("network context changed before DPTS training")
     }
     w:=zapret2Neural.weights
-    if w==nil || !nnModern(w) {
+    if w==nil {
         return errors.New("current local contextual neural model is not installed")
     }
     ctx:=nnContext("www.youtube.com",false)/3

@@ -71,9 +71,6 @@ object ServerAutoModel {
         return n * 2 + if (profile.transportClass == TransportClass.UDP_QUIC) 1 else 0
     }
 
-    private fun modern(model: JSONObject): Boolean =
-        model.optString("format") == Zapret2NeuralModel.Kind.SERVER.format
-
     private fun firstHidden(model: JSONObject, x: DoubleArray): DoubleArray {
         val matrix = model.getJSONArray("hidden")
         val bias = model.getJSONArray("bias")
@@ -99,7 +96,6 @@ object ServerAutoModel {
     }
 
     private fun sparseCapacity(model: JSONObject): Long {
-        if (!modern(model)) return 0
         val h = model.getJSONArray("hidden").length()
         val deep = model.getJSONArray("deep_hidden").length()
         val last = if (deep > 0) deep else h
@@ -126,16 +122,14 @@ object ServerAutoModel {
         val out = model.getJSONArray("output").getJSONArray(0)
         var z = model.getJSONArray("output_bias").getDouble(0)
         for (i in hidden.indices) z += out.getDouble(i) * hidden[i]
-        if (modern(model)) {
-            z += model.getJSONArray("context_bias").getJSONArray(scenario).getDouble(0)
-            val capacity = sparseCapacity(model)
-            if (capacity > 0) {
-                val sparse = model.getJSONObject("sparse")
-                for (i in x.indices) {
-                    if (x[i] <= 0.0) continue
-                    val bucket = (x[i] * 15.0).toInt().coerceIn(0, 15)
-                    z += sparse.optDouble(sparseKey(model, scenario, profileId, i, bucket, capacity), 0.0) * x[i]
-                }
+        z += model.getJSONArray("context_bias").getJSONArray(scenario).getDouble(0)
+        val capacity = sparseCapacity(model)
+        if (capacity > 0) {
+            val sparse = model.getJSONObject("sparse")
+            for (i in x.indices) {
+                if (x[i] <= 0.0) continue
+                val bucket = (x[i] * 15.0).toInt().coerceIn(0, 15)
+                z += sparse.optDouble(sparseKey(model, scenario, profileId, i, bucket, capacity), 0.0) * x[i]
             }
         }
         val probability = 1.0 / (1.0 + exp((-z).coerceIn(-12.0, 12.0)))
@@ -177,12 +171,8 @@ object ServerAutoModel {
                 val right = scored[i + 1]
                 val leftHealth = core.health.of(left.first.profile.id).state
                 val rightHealth = core.health.of(right.first.profile.id).state
-                val leftCount = if (modern(model))
-                    model.getJSONArray("context_observations").getInt(left.second.scenario)
-                    else observations
-                val rightCount = if (modern(model))
-                    model.getJSONArray("context_observations").getInt(right.second.scenario)
-                    else observations
+                val leftCount = model.getJSONArray("context_observations").getInt(left.second.scenario)
+                val rightCount = model.getJSONArray("context_observations").getInt(right.second.scenario)
                 if (leftHealth != rightHealth || leftHealth == HealthState.FAILED ||
                     leftCount < 4 || rightCount < 4) continue
                 val advantage = right.third - left.third
@@ -290,24 +280,22 @@ object ServerAutoModel {
                             row.put(j, clamped(row.getDouble(j) + scale * x[j]))
                     }
                 }
-                if (modern(model)) {
-                    // Independent LTE/Wi-Fi/other × TCP/QUIC heads prevent
-                    // a failure in one context overwriting all other heads.
-                    val head = model.getJSONArray("context_bias").getJSONArray(scenario)
-                    head.put(0, clamped(head.getDouble(0) + delta))
-                    val counts = model.getJSONArray("context_observations")
-                    counts.put(scenario, ModelNumericFields.addObservations(counts.getLong(scenario), 1))
-                    val capacity = sparseCapacity(model)
-                    if (capacity > 0) {
-                        val sparse = model.getJSONObject("sparse")
-                        for (i in x.indices) {
-                            if (x[i] <= 0.0) continue
-                            val bucket = (x[i] * 15.0).toInt().coerceIn(0, 15)
-                            val key = sparseKey(model, scenario, attempt.profileId.value,
-                                i, bucket, capacity)
-                            if (sparse.has(key) || sparse.length() < Zapret2NeuralModel.MAX_SPARSE_ENTRIES)
-                                sparse.put(key, clamped(sparse.optDouble(key, 0.0) + delta * 0.2 * x[i]))
-                        }
+                // Independent LTE/Wi-Fi/other × TCP/QUIC heads prevent
+                // a failure in one context overwriting all other heads.
+                val head = model.getJSONArray("context_bias").getJSONArray(scenario)
+                head.put(0, clamped(head.getDouble(0) + delta))
+                val counts = model.getJSONArray("context_observations")
+                counts.put(scenario, ModelNumericFields.addObservations(counts.getLong(scenario), 1))
+                val capacity = sparseCapacity(model)
+                if (capacity > 0) {
+                    val sparse = model.getJSONObject("sparse")
+                    for (i in x.indices) {
+                        if (x[i] <= 0.0) continue
+                        val bucket = (x[i] * 15.0).toInt().coerceIn(0, 15)
+                        val key = sparseKey(model, scenario, attempt.profileId.value,
+                            i, bucket, capacity)
+                        if (sparse.has(key) || sparse.length() < Zapret2NeuralModel.MAX_SPARSE_ENTRIES)
+                            sparse.put(key, clamped(sparse.optDouble(key, 0.0) + delta * 0.2 * x[i]))
                     }
                 }
             }

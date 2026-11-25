@@ -15,12 +15,20 @@ import (
 func generatedTestModel(t *testing.T, hidden int) []byte {
     t.Helper()
     w := adaptiveNNWeights{
-        Format: "dppass-zapret2-mlp-v2",
+        Format: adaptiveNNFormat,
+        Seed: "0123456789abcdef",
+        DeepHidden: [][]float64{},
+        DeepBias: []float64{},
+        ContextBias: make([][]float64, adaptiveNNContexts),
+        ContextObservations: make([]int, adaptiveNNContexts),
+        Sparse: make(map[string]float64),
         Hidden: make([][]float64, hidden),
         Bias: make([]float64, hidden),
         Output: make([][]float64, adaptiveNNOutput),
         OutputBias: make([]float64, adaptiveNNOutput),
     }
+    for i := range w.ContextBias { w.ContextBias[i] = make([]float64, adaptiveNNOutput) }
+    w.Parameters = nnDenseCount(&w)
     for i := range w.Hidden {
         w.Hidden[i] = make([]float64, adaptiveNNInput)
         w.Hidden[i][i % adaptiveNNInput] = 1
@@ -71,7 +79,7 @@ func TestNeuralRejectsMalformedAndOversizedUntrustedWeights(t *testing.T) {
         []byte("[]"), []byte("{}"), []byte("null"),
         append(append([]byte{}, raw...), []byte("{}")...),
         []byte(strings.Repeat(" ", adaptiveNNMaxBytes+1)),
-        []byte(strings.Replace(string(raw), "dppass-zapret2-mlp-v2", "bad", 1)),
+        []byte(strings.Replace(string(raw), adaptiveNNFormat, "bad", 1)),
         []byte(strings.Replace(string(raw), "[1,0,0,0,0,0,0,0]", "[7,0,0,0,0,0,0,0]", 1)),
         []byte(strings.Replace(string(raw), "\"output_bias\"", "\"unknown_bias\"", 1)),
         generatedTestModel(t, 7),
@@ -125,7 +133,7 @@ func generatedSparseTestModel(t *testing.T, budget int64, deep int) []byte {
     t.Helper()
     first := 64
     w := adaptiveNNWeights{
-        Format: "dppass-zapret2-mlp-v3",
+        Format: adaptiveNNFormat,
         Parameters: budget,
         Seed: "0123456789abcdef",
         Hidden: make([][]float64, first),
@@ -328,7 +336,14 @@ func TestNeuralAcknowledgementRejectsReplacedCleanModel(t *testing.T) {
     if err:=AcknowledgeZapret2NeuralModel(next);err!=nil {t.Fatal("matching clean snapshot rejected",err)}
 }
 
-func TestLegacyModelRejectsInvalidObservationMetadata(t *testing.T) {
+func TestRejectPreviousModelFormats(t *testing.T) {
+    raw := generatedTestModel(t, 32)
+    for _, previous := range []string{"dppass-zapret2-mlp-v2", "dppass-zapret2-mlp-v3"} {
+        if _,err := parseAdaptiveNN([]byte(strings.Replace(string(raw), adaptiveNNFormat, previous, 1))); err == nil { t.Fatal("previous format accepted", previous) }
+    }
+}
+
+func TestModelRejectsInvalidObservationMetadata(t *testing.T) {
     raw:=generatedTestModel(t,32)
     w,err:=parseAdaptiveNN(raw)
     if err!=nil {t.Fatal(err)}
@@ -336,7 +351,7 @@ func TestLegacyModelRejectsInvalidObservationMetadata(t *testing.T) {
     valid,err:=json.Marshal(w)
     if err!=nil {t.Fatal(err)}
     parsed,err:=parseAdaptiveNN(valid)
-    if err!=nil || parsed.Observations!=42 {t.Fatal("valid legacy count lost",err)}
+    if err!=nil || parsed.Observations!=42 {t.Fatal("valid count lost",err)}
     for _,change:=range []func(*adaptiveNNWeights){
         func(w *adaptiveNNWeights){w.Observations=-1},
         func(w *adaptiveNNWeights){w.Observations=1_000_000_001},
@@ -347,6 +362,6 @@ func TestLegacyModelRejectsInvalidObservationMetadata(t *testing.T) {
         change(candidate)
         bad,err:=json.Marshal(candidate)
         if err!=nil {t.Fatal(err)}
-        if _,err:=parseAdaptiveNN(bad);err==nil {t.Fatal("invalid legacy observation metadata accepted")}
+        if _,err:=parseAdaptiveNN(bad);err==nil {t.Fatal("invalid observation metadata accepted")}
     }
 }

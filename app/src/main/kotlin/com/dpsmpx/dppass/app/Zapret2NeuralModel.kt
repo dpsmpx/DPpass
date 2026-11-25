@@ -17,10 +17,10 @@ import org.json.JSONObject
 object Zapret2NeuralModel {
     enum class Kind(
         val filename: String, val format: String,
-        val legacyFormat: String, val outputs: Int, val contexts: Int,
+        val outputs: Int, val contexts: Int,
     ) {
-        STRATEGY("strategy-v2.json", "dppass-zapret2-mlp-v3", "dppass-zapret2-mlp-v2", 9, 9),
-        SERVER("server-v1.json", "dppass-server-mlp-v2", "dppass-server-mlp-v1", 1, 6),
+        STRATEGY("strategy-v2.json", "dppass-strategy-mlp-v4", 9, 9),
+        SERVER("server-v1.json", "dppass-server-mlp-v3", 1, 6),
     }
 
     val SIZES: List<Int> = listOf(32, 128, 512, 1024)
@@ -105,7 +105,7 @@ object Zapret2NeuralModel {
         }
     }
 
-    /** Back-compatible preset sizes, now with durable contextual heads. */
+    /** Preset sizes with contextual heads. */
     fun build(kind: Kind, hidden: Int): ByteArray {
         require(hidden in SIZES) { "Unsupported hidden size" }
         return create(kind, hidden, 0, denseCount(kind, hidden, 0))
@@ -122,16 +122,13 @@ object Zapret2NeuralModel {
         if (!ModelJsonPreflight.accepts(raw, MAX_BYTES)) return false
         return runCatching {
             val obj = JSONObject(raw.decodeToString())
-            val format = obj.getString("format")
-            val modern = format == kind.format
-            if (!modern && format != kind.legacyFormat) return@runCatching false
+            if (obj.getString("format") != kind.format) return@runCatching false
             val h = obj.getJSONArray("hidden")
             val b = obj.getJSONArray("bias")
             val o = obj.getJSONArray("output")
             val ob = obj.getJSONArray("output_bias")
             if (h.length() !in 8..1024 || b.length() != h.length() ||
-                o.length() != kind.outputs || ob.length() != kind.outputs ||
-                !modern && h.length() !in SIZES) return@runCatching false
+                o.length() != kind.outputs || ob.length() != kind.outputs) return@runCatching false
             fun valid(row: JSONArray, count: Int): Boolean {
                 if (row.length() != count) return false
                 for (i in 0 until count) if (!ModelNumericFields.weight(row.get(i))) return false
@@ -140,8 +137,8 @@ object Zapret2NeuralModel {
             if (!valid(b, h.length()) || !valid(ob, kind.outputs) ||
                 !(0 until h.length()).all { valid(h.getJSONArray(it), INPUTS) })
                 return@runCatching false
-            val deep = if (modern) obj.getJSONArray("deep_hidden") else JSONArray()
-            val deepBias = if (modern) obj.getJSONArray("deep_bias") else JSONArray()
+            val deep = obj.getJSONArray("deep_hidden")
+            val deepBias = obj.getJSONArray("deep_bias")
             if (deep.length() > 512 || deepBias.length() != deep.length() ||
                 !valid(deepBias, deep.length()) ||
                 !(0 until deep.length()).all { valid(deep.getJSONArray(it), h.length()) })
@@ -151,7 +148,6 @@ object Zapret2NeuralModel {
                 return@runCatching false
             if (obj.has("observations") && !ModelNumericFields.observation(obj.get("observations")))
                 return@runCatching false
-            if (!modern) return@runCatching true
             val budget = ModelNumericFields.integer(obj.get("parameters")) ?: return@runCatching false
             val used = denseCount(kind, h.length(), deep.length())
             if (budget !in used..MAX_PARAMETERS ||
@@ -165,7 +161,7 @@ object Zapret2NeuralModel {
                         ModelNumericFields.observation(counts.get(i))
                 }) return@runCatching false
             // The optional, fixed 3×6 HTML calibration is separate from the
-            // legacy MLP parameter budget. Older snapshots need no migration.
+            // MLP parameter budget.
             if (obj.has("verified_html_bias") || obj.has("verified_html_observations")) {
                 if (kind != Kind.STRATEGY) return@runCatching false
                 val html = obj.getJSONArray("verified_html_bias")
@@ -188,40 +184,9 @@ object Zapret2NeuralModel {
         }.getOrDefault(false)
     }
 
-    private fun migrateLegacy(kind: Kind, raw: ByteArray): ByteArray {
-        val model = JSONObject(raw.decodeToString())
-        if (model.getString("format") == kind.format) return raw
-        val hidden = model.getJSONArray("hidden").length()
-        model.put("format", kind.format)
-        model.put("parameters", denseCount(kind, hidden, 0))
-        model.put("seed", java.lang.Long.toHexString(random.nextLong()).padStart(16, '0'))
-        model.put("deep_hidden", JSONArray())
-        model.put("deep_bias", JSONArray())
-        model.put("context_bias", JSONArray().apply {
-            repeat(kind.contexts) {
-                put(JSONArray().apply { repeat(kind.outputs) { put(0.0) } })
-            }
-        })
-        model.put("context_observations", JSONArray().apply { repeat(kind.contexts) { put(0) } })
-        model.put("sparse", JSONObject())
-        // Original numeric weights and global observation count survive.
-        // Unknown past network conditions are not misattributed to any head.
-        if (!model.has("observations")) model.put("observations", 0)
-        return model.toString().encodeToByteArray().also { check(verify(it, kind)) }
-    }
-
     fun readVerified(context: Context, kind: Kind = Kind.STRATEGY): ByteArray? =
         synchronized(storageGuard) {
-            val source = file(context, kind)
-            runCatching {
-                val raw = ModelSnapshotFile.readBounded(source, MAX_BYTES)?.takeIf { verify(it, kind) }
-                    ?: return@runCatching null
-                val modern = migrateLegacy(kind, raw)
-                if (!modern.contentEquals(raw)) {
-                    if (!write(context, kind, modern)) return@runCatching raw
-                }
-                modern
-            }.getOrNull()
+            ModelSnapshotFile.readBounded(file(context, kind), MAX_BYTES)?.takeIf { verify(it, kind) }
         }
 
     fun size(context: Context, kind: Kind = Kind.STRATEGY): Int? =
@@ -233,8 +198,7 @@ object Zapret2NeuralModel {
         readVerified(context, kind)?.let { raw ->
             runCatching {
                 val obj = JSONObject(raw.decodeToString())
-                if (obj.getString("format") == kind.format) obj.getLong("parameters")
-                else null
+                obj.getLong("parameters")
             }.getOrNull()
         }
 

@@ -10,8 +10,8 @@ import (
 func TestModelJSONRejectsAmbiguousFields(t *testing.T) {
     raw:=generatedSparseTestModel(t,100000,16)
     if _,err:=parseAdaptiveNN(raw);err!=nil {t.Fatal(err)}
-    legacy:=generatedTestModel(t,32)
-    if _,err:=parseAdaptiveNN(legacy);err!=nil {t.Fatal(err)}
+    current:=generatedTestModel(t,32)
+    if _,err:=parseAdaptiveNN(current);err!=nil {t.Fatal(err)}
     for _,tc:=range []struct{old,next string}{
         {`"format":`,`"format":"bad","format":`},
         {`"format":`,`"Format":`},
