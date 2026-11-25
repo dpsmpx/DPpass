@@ -26,13 +26,14 @@ const (
     adaptiveNNInput = 8
     adaptiveNNMinHidden = 8
     adaptiveNNMaxHidden = 1024
-    adaptiveNNOutput = localdpi.LegacyModelOutputs // existing v2/v3 output ABI
     adaptiveNNContexts = 9
     adaptiveNNMaxDeep = 512
     adaptiveNNMaxParameters int64 = 1_000_000_000
     adaptiveNNMaxSparse = 4096
     adaptiveNNMaxBytes = 1 << 20
 )
+
+var adaptiveNNOutput = localdpi.ModelOutputCount()
 
 type adaptiveNNWeights struct {
     Format string `json:"format"`
@@ -94,7 +95,7 @@ func nnDenseCount(w *adaptiveNNWeights) int64 {
     last := first
     if deep > 0 { last = deep }
     return int64(first)*(adaptiveNNInput+1) + int64(deep)*(int64(first)+1) +
-        adaptiveNNOutput*(int64(last)+1) + adaptiveNNContexts*adaptiveNNOutput
+        int64(adaptiveNNOutput)*(int64(last)+1) + int64(adaptiveNNContexts*adaptiveNNOutput)
 }
 
 const adaptiveNNFormat = "dppass-strategy-mlp-v4"
@@ -150,7 +151,7 @@ func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
             return nil, errors.New("invalid HTML calibration dimensions")
         }
         for i, row := range w.VerifiedHTMLBias {
-            if len(row) != localdpi.LegacyTCPOutputs || w.VerifiedHTMLObservations[i] < 0 || w.VerifiedHTMLObservations[i] > 1_000_000_000 {
+            if len(row) != localdpi.TCPOutputCount() || w.VerifiedHTMLObservations[i] < 0 || w.VerifiedHTMLObservations[i] > 1_000_000_000 {
                 return nil, errors.New("invalid HTML calibration")
             }
             for _, n := range row { if !validNNNumber(n) { return nil, errors.New("invalid HTML weight") } }
@@ -256,8 +257,7 @@ func nnCandidateIndex(tag string, quic bool) int {
     return localdpi.NeuralIndex(tag, transport)
 }
 
-// The legacy output indices are shared across TLS/HTTP, but the set of
-// valid methods is not. Keep the persisted model layout unchanged.
+// TCP output positions are shared across TLS/HTTP, but capability sets differ.
 func nnHostTransport(host string) localdpi.Transport {
     if strings.HasPrefix(host,"udp:") {return localdpi.QUIC}
     if strings.HasPrefix(host,"http:") {return localdpi.HTTP}
@@ -358,7 +358,7 @@ func (n *adaptiveNeural) rank(host string, candidates []string, usage map[string
         score, _ := nnForward(n.weights, host, idx, quic)
         // This signal proves only a bounded HTML GET for this exact service.
         // It cannot bias unrelated sites, QUIC, plain HTTP or API responses.
-        if host == "www.youtube.com" && !quic && idx < localdpi.LegacyTCPOutputs && len(n.weights.VerifiedHTMLBias) == 3 {
+        if host == "www.youtube.com" && !quic && idx < localdpi.TCPOutputCount() && len(n.weights.VerifiedHTMLBias) == 3 {
             score += n.weights.VerifiedHTMLBias[nnContext(host,false)/3][idx]
         }
         // Explore uncertain candidates, not just a random neural prior.

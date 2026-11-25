@@ -672,3 +672,7 @@ CI ed88c33: Go/Linux/Windows #45636388156 and Android #45636357647 succeeded. DP
 ## Updated development policy: no backward compatibility for neural models
 
 Owner decision: preserve applicationId, release signing and existing subscription data; old neural models/settings may be discarded. Current strategy format is dppass-strategy-mlp-v4 and server format is dppass-server-mlp-v3. Both old formats are rejected rather than migrated. Existing model files are ignored until explicitly regenerated; no subscription or app-data clearing. Removed old-format loading/inference/training branches. Current-format validation and exact-snapshot persistence guards remain for correctness, not backward compatibility. Future strategy layouts may change without migration. CI 4f26461 passed both workflows; new CI pending. Physical update acceptance remains required.
+
+## A6 — current catalog defines neural layout
+
+CI 7ed8c1a: Go/Linux/Windows #45640091557 and Android #45640077962 succeeded. Removed legacy ABI constant and hand-assigned output indices. Current catalog learning flags determine TCP/QUIC index positions and counts; Android derives its model size and HTML calibration width from its diagnostic registry, whose method sets are checked against Go in CI. No model migration requirement; change format if the layout changes. This refactor retains the current method set and behavior; no new strategy, package, signing or subscription changes. New CI pending.

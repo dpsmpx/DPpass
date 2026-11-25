@@ -11,7 +11,7 @@ import (
 
 // The Android diagnostic catalog preserves UI ordering and the wire name
 // "plain" for the native pass control. Verify the actual declaration,
-// not a hand-maintained copy of the legacy neural output set.
+// not a hand-maintained copy of the current neural output set.
 func TestAndroidDiagnosticCatalogParity(t *testing.T) {
     path := filepath.Join("..", "..", "..", "engine", "src", "main", "kotlin",
         "com", "dpsmpx", "dppass", "engine", "Zapret2ProbeCatalog.kt")
@@ -51,9 +51,9 @@ func TestAndroidDiagnosticCatalogParity(t *testing.T) {
         }
         if tc.transport == TLS {
             for _, id := range ids[1:] {
-                if LegacyHTMLIndex(id) < 0 { t.Fatal("nontrainable diagnostic method", id) }
+                if HTMLIndex(id) < 0 { t.Fatal("nontrainable diagnostic method", id) }
             }
-            if len(ids)-1 != LegacyTCPOutputs { t.Fatal("incomplete HTML calibration set") }
+            if len(ids)-1 != TCPOutputCount() { t.Fatal("incomplete HTML calibration set") }
         }
     }
 }

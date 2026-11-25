@@ -54,5 +54,5 @@ func ParseTag(tag string) (Mode, bool, error) {
 }
 
 func Profiles() []string {
-    return localdpi.LegacyProfiles()
+    return localdpi.Profiles()
 }

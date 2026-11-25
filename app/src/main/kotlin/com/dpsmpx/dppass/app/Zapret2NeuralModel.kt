@@ -1,6 +1,7 @@
 package com.dpsmpx.dppass.app
 
 import android.content.Context
+import com.dpsmpx.dppass.engine.Zapret2ProbeCatalog
 import java.io.File
 import java.security.SecureRandom
 import kotlin.math.sqrt
@@ -19,7 +20,7 @@ object Zapret2NeuralModel {
         val filename: String, val format: String,
         val outputs: Int, val contexts: Int,
     ) {
-        STRATEGY("strategy-v2.json", "dppass-strategy-mlp-v4", 9, 9),
+        STRATEGY("strategy-v2.json", "dppass-strategy-mlp-v4", Zapret2ProbeCatalog.modelOutputs, 9),
         SERVER("server-v1.json", "dppass-server-mlp-v3", 1, 6),
     }
 
@@ -168,7 +169,7 @@ object Zapret2NeuralModel {
                 val htmlCounts = obj.getJSONArray("verified_html_observations")
                 if (html.length() != 3 || htmlCounts.length() != 3 ||
                     !(0 until 3).all { i ->
-                        valid(html.getJSONArray(i), 6) &&
+                        valid(html.getJSONArray(i), Zapret2ProbeCatalog.verifiedHtmlMethods.size) &&
                             ModelNumericFields.observation(htmlCounts.get(i))
                     }) return@runCatching false
             }

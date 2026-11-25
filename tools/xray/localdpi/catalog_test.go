@@ -5,7 +5,7 @@ import (
     "testing"
 )
 
-func TestLegacyCandidateOrder(t *testing.T) {
+func TestCandidateOrder(t *testing.T) {
     for _, tc := range []struct{ transport Transport; want []string }{
         {TLS, []string{"split-1","split","fake-3","fake-5","disorder","tlsrec-split","pass"}},
         {HTTP, []string{"split-1","split","fake-3","fake-5","disorder","pass"}},
@@ -17,16 +17,20 @@ func TestLegacyCandidateOrder(t *testing.T) {
         }
     }
     want := []string{"fake-3","fake-5","disorder","split","split-1","tlsrec-split"}
-    if got := LegacyProfiles(); !reflect.DeepEqual(got,want) { t.Fatalf("profiles %v",got) }
+    if got := Profiles(); !reflect.DeepEqual(got,want) { t.Fatalf("profiles %v",got) }
 }
 
-func TestModelOutputABI(t *testing.T) {
-    ids := []string{"split-1","split","fake-3","fake-5","disorder","tlsrec-split"}
-    for i,id := range ids {
-        if got:=NeuralIndex(id,TLS);got!=i { t.Fatalf("TLS %s: %d",id,got) }
-    }
-    for i,id:=range []string{"fake-3","fake-5","pass"} {
-        if got:=NeuralIndex(id,QUIC);got!=6+i { t.Fatalf("QUIC %s: %d",id,got) }
+func TestModelOutputMapping(t *testing.T) {
+    for _, transport := range []Transport{TLS, QUIC} {
+        index := 0
+        if transport == QUIC { index = TCPOutputCount() }
+        for _, m := range methods {
+            train := m.trainTCP
+            if transport == QUIC { train = m.trainQUIC }
+            if !train { continue }
+            if got:=NeuralIndex(m.id,transport);got!=index { t.Fatalf("%s: %d != %d",m.id,got,index) }
+            index++
+        }
     }
     if NeuralIndex("pass",TLS)!=-1 || NeuralIndex("tlsrec-split",HTTP)!=-1 ||
         NeuralIndex("split",QUIC)!=-1 || NeuralIndex("unknown",TLS)!=-1 {
@@ -45,25 +49,22 @@ func TestCatalogUniqueAndImmutable(t *testing.T) {
     if Candidates(TLS)[0]!="split-1" { t.Fatal("mutable shared catalog") }
 }
 
-func TestLegacyModelLayoutHasNoUnmappedOrDuplicateSlots(t *testing.T) {
-    if LegacyModelABI!=1 || LegacyTCPOutputs!=6 || LegacyQUICOutputs!=3 || LegacyModelOutputs!=9 {
-        t.Fatal("legacy model ABI changed")
-    }
+func TestModelLayoutHasNoUnmappedOrDuplicateSlots(t *testing.T) {
     seen:=make(map[int]string)
     for _,transport:=range []Transport{TLS,QUIC} {
         for _,id:=range Candidates(transport) {
             idx:=NeuralIndex(id,transport)
             if idx<0 {continue}
-            if idx>=LegacyModelOutputs {t.Fatal("index outside legacy model",id,idx)}
-            if _,exists:=seen[idx];exists {t.Fatal("duplicate legacy index",idx)}
+            if idx>=ModelOutputCount() {t.Fatal("index outside model",id,idx)}
+            if _,exists:=seen[idx];exists {t.Fatal("duplicate index",idx)}
             seen[idx]=id
         }
     }
-    if len(seen)!=LegacyModelOutputs {t.Fatal("incomplete model layout",seen)}
+    if len(seen)!=ModelOutputCount() {t.Fatal("incomplete model layout",seen)}
     for _,id:=range []string{"pass","plain","fake-2","split-2","unknown"} {
-        if LegacyHTMLIndex(id)!=-1 {t.Fatal("invalid calibration slot",id)}
+        if HTMLIndex(id)!=-1 {t.Fatal("invalid calibration slot",id)}
     }
     for _,id:=range Candidates(TLS) {
-        if id!="pass" && LegacyHTMLIndex(id)!=NeuralIndex(id,TLS) {t.Fatal(id)}
+        if id!="pass" && HTMLIndex(id)!=NeuralIndex(id,TLS) {t.Fatal(id)}
     }
 }

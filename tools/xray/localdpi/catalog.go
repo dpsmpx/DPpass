@@ -4,15 +4,6 @@ package localdpi
 
 import "sort"
 
-// LegacyModelABI is the fixed output layout accepted by v2/v3 models.
-// New trainable methods must use an explicit migration, not reuse a slot.
-const (
-    LegacyModelABI = 1
-    LegacyTCPOutputs = 6
-    LegacyQUICOutputs = 3
-    LegacyModelOutputs = LegacyTCPOutputs + LegacyQUICOutputs
-)
-
 type Transport uint8
 
 const (
@@ -32,23 +23,22 @@ const (
 type method struct {
     id string
     transports transportMask
-    tcpIndex int // legacy neural output, -1 means no output
-    quicIndex int
-    profileOrder int // legacy explicit planner profile; -1 means AUTO-only
+    trainTCP bool
+    trainQUIC bool
+    profileOrder int // explicit planner profile; -1 means AUTO-only
 }
 
-// Append new methods only through a versioned model migration. Existing
-// order and neural indices are part of the on-device model ABI.
-// Entries describe implemented DPpass socket candidates, not claims of
-// upstream equivalence or packet-level ROOT support.
+// Entries declare the current socket candidates and learning eligibility.
+// A layout change requires a new model format, never migration of old weights.
+// Packet-level ROOT capabilities are separate.
 var methods = [...]method{
-    {"split-1", tlsMask | httpMask, 0, -1, 4},
-    {"split", tlsMask | httpMask, 1, -1, 3},
-    {"fake-3", tlsMask | httpMask | quicMask, 2, 6, 0},
-    {"fake-5", tlsMask | httpMask | quicMask, 3, 7, 1},
-    {"disorder", tlsMask | httpMask, 4, -1, 2},
-    {"tlsrec-split", tlsMask, 5, -1, 5},
-    {"pass", tlsMask | httpMask | quicMask, -1, 8, -1},
+    {"split-1", tlsMask | httpMask, true, false, 4},
+    {"split", tlsMask | httpMask, true, false, 3},
+    {"fake-3", tlsMask | httpMask | quicMask, true, true, 0},
+    {"fake-5", tlsMask | httpMask | quicMask, true, true, 1},
+    {"disorder", tlsMask | httpMask, true, false, 2},
+    {"tlsrec-split", tlsMask, true, false, 5},
+    {"pass", tlsMask | httpMask | quicMask, false, true, -1},
 }
 
 func mask(t Transport) transportMask {
@@ -69,18 +59,36 @@ func Candidates(t Transport) []string {
     return out
 }
 
-// NeuralIndex preserves the 6 TCP + 3 QUIC output layout of existing models.
+// Model output positions follow the current catalog: TCP first, then QUIC.
+// HTTP uses the TCP output when the method supports HTTP.
+func TCPOutputCount() int {
+    count := 0
+    for _, m := range methods { if m.trainTCP { count++ } }
+    return count
+}
+
+func ModelOutputCount() int {
+    count := TCPOutputCount()
+    for _, m := range methods { if m.trainQUIC { count++ } }
+    return count
+}
+
 func NeuralIndex(id string, t Transport) int {
+    if mask(t) == 0 { return -1 }
+    index := 0
+    if t == QUIC { index = TCPOutputCount() }
     for _, m := range methods {
-        if m.id != id || m.transports & mask(t) == 0 { continue }
-        if t == QUIC { return m.quicIndex }
-        return m.tcpIndex
+        train := m.trainTCP
+        if t == QUIC { train = m.trainQUIC }
+        if !train { continue }
+        if m.id == id && m.transports & mask(t) != 0 { return index }
+        index++
     }
     return -1
 }
 
-// LegacyProfiles preserves the explicit planner profile order.
-func LegacyProfiles() []string {
+// Profiles returns explicitly selectable planner profiles.
+func Profiles() []string {
     selected := make([]method, 0, len(methods))
     for _, m := range methods {
         if m.profileOrder >= 0 { selected = append(selected, m) }
@@ -91,10 +99,7 @@ func LegacyProfiles() []string {
     return out
 }
 
-// LegacyHTMLIndex admits only the original HTTPS calibration outputs.
-// A diagnostic-only profile or baseline has no calibration slot.
-func LegacyHTMLIndex(id string) int {
-    idx:=NeuralIndex(id,TLS)
-    if idx<0 || idx>=LegacyTCPOutputs {return -1}
-    return idx
+// HTMLIndex identifies a trainable TLS method for content calibration.
+func HTMLIndex(id string) int {
+    return NeuralIndex(id,TLS)
 }

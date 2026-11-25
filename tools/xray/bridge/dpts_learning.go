@@ -27,7 +27,7 @@ func TrainZapret2NeuralFromDPTS(network, methodCSV string, generation int64) err
         return errors.New("network context changed before DPTS training")
     }
     methods:=strings.Split(methodCSV,",")
-    if len(methods)<1 || len(methods)>localdpi.LegacyTCPOutputs {
+    if len(methods)<1 || len(methods)>localdpi.TCPOutputCount() {
         return errors.New("invalid DPTS neural method count")
     }
     seen:=make(map[string]struct{},len(methods))
@@ -37,7 +37,7 @@ func TrainZapret2NeuralFromDPTS(network, methodCSV string, generation int64) err
             return errors.New("duplicate DPTS neural method")
         }
         seen[method]=struct{}{}
-        idx:=localdpi.LegacyHTMLIndex(method)
+        idx:=localdpi.HTMLIndex(method)
         if idx<0 || !socketCapabilities.Allows(localdpi.TLS,method) {
             return errors.New("unknown or unsupported DPTS neural method")
         }
@@ -65,7 +65,7 @@ func TrainZapret2NeuralFromDPTS(network, methodCSV string, generation int64) err
     if ctx<0 || ctx>=3 { return errors.New("invalid DPTS neural context") }
     if len(w.VerifiedHTMLBias)==0 {
         w.VerifiedHTMLBias=make([][]float64,3)
-        for i:=range w.VerifiedHTMLBias { w.VerifiedHTMLBias[i]=make([]float64,localdpi.LegacyTCPOutputs) }
+        for i:=range w.VerifiedHTMLBias { w.VerifiedHTMLBias[i]=make([]float64,localdpi.TCPOutputCount()) }
         w.VerifiedHTMLObservations=make([]int,3)
     }
     for _,idx:=range indices {
