@@ -791,3 +791,7 @@ CI e6c990c: PR-triggered Go/Linux/Windows #45687151775 succeeded. Capture a sing
 ### CI correction — consistent diagnostic session copy visibility
 
 CI c1ec7b8: Go/Linux/Windows #45688483011 succeeded. Android push CI #45688470176 failed at :app:compileDebugKotlin because Kotlin warns that a private data-class constructor is exposed through the generated copy method, and -Werror is enabled. Apply @ConsistentCopyVisibility to DptsSession, retaining private construction and structural equality without suppressing compiler warnings or changing session admission. New CI pending.
+
+## A7 — common native failure and incomplete suite handling
+
+CI fed4136: both Go/Windows regression #45689119570 and Android push #45689108011 succeeded. Extend the already tested DptsRunWindow execution-error classification to the shared guarded probe, covering all 13 call sites. Convert JNI linkage failures to an incomplete diagnostic instead of returning synthetic network observations. Stop H3 publication on detected expiration and refuse completed API sweep publication when confirmation attempts cannot finish before the preparation expires. Normal network failures remain reportable. No probe algorithms, routes, models, package identity, signing or subscription changes. The existing classification tests cover the rejected native outcomes; Android CI and physical checks for the new integration remain pending.
