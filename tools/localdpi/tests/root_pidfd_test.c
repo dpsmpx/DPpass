@@ -51,6 +51,74 @@ static void assert_running(pid_t pid) {
     assert(waitpid(pid, &status, WNOHANG) == 0);
 }
 
+/* Real shell fixture with a ready handshake and blocked builtin read.
+ * No subprocess tree is needed; the parent owns and reaps the shell. */
+static pid_t script_child(const char *script, int extra_arg, int *input) {
+    int ready[2], in[2];
+    assert(pipe(ready) == 0 && pipe(in) == 0);
+    pid_t pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        close(ready[0]);
+        close(in[1]);
+        assert(dup2(ready[1], STDOUT_FILENO) == STDOUT_FILENO);
+        assert(dup2(in[0], STDIN_FILENO) == STDIN_FILENO);
+        close(ready[1]);
+        close(in[0]);
+        if (extra_arg) execl("/bin/sh", "sh", script, "extra", (char *)NULL);
+        else execl("/bin/sh", "sh", script, (char *)NULL);
+        _exit(127);
+    }
+    close(ready[1]);
+    close(in[0]);
+    char marker;
+    assert(read(ready[0], &marker, 1) == 1 && marker == 'x');
+    close(ready[0]);
+    *input = in[1];
+    return pid;
+}
+
+static void test_script(const char *boot) {
+    char script[] = "/tmp/dppass-watchdog-XXXXXX";
+    int file = mkstemp(script);
+    assert(file >= 0);
+    const char body[] = "printf x\nread line\n";
+    assert(write(file, body, sizeof(body) - 1) == (ssize_t)(sizeof(body) - 1));
+    assert(close(file) == 0);
+    char *shell = realpath("/bin/sh", NULL);
+    assert(shell);
+    int input, status;
+    pid_t pid = script_child(script, 0, &input);
+    uint64_t ticks = child_ticks(pid);
+    char wrong_script[128];
+    assert(snprintf(wrong_script, sizeof(wrong_script), "%s-extra", script) < (int)sizeof(wrong_script));
+    assert(dppass_pidfd_stop_script(pid, ticks, boot, shell, wrong_script, 100) == DPPASS_PIDFD_UNPROVEN);
+    assert_running(pid);
+    assert(dppass_pidfd_stop_script(pid, ticks, boot, "/not-the-shell", script, 100) == DPPASS_PIDFD_UNPROVEN);
+    assert_running(pid);
+    assert(dppass_pidfd_stop_script(pid, ticks + 1, boot, shell, script, 100) == DPPASS_PIDFD_UNPROVEN);
+    assert_running(pid);
+    assert(dppass_pidfd_stop_script(pid, ticks, boot, shell, NULL, 100) == DPPASS_PIDFD_UNPROVEN);
+    assert_running(pid);
+    assert(dppass_pidfd_stop_script(pid, ticks, boot, shell, script, 2000) == DPPASS_PIDFD_EXITED);
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFSIGNALED(status) && WTERMSIG(status) == SIGTERM);
+    close(input);
+
+    // A real shell executing the same script with unexpected extra argv
+    // is not the recorded watchdog command.
+    pid = script_child(script, 1, &input);
+    ticks = child_ticks(pid);
+    assert(dppass_pidfd_stop_script(pid, ticks, boot, shell, script, 100) == DPPASS_PIDFD_UNPROVEN);
+    assert_running(pid);
+    assert(write(input, "\n", 1) == 1);
+    close(input);
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    assert(unlink(script) == 0);
+    free(shell);
+}
+
 int main(void) {
     char boot[64], exe[4096];
     FILE *f = fopen("/proc/sys/kernel/random/boot_id", "r");
@@ -103,6 +171,7 @@ int main(void) {
     // Only the test owns this unreaped child; explicit fixture teardown.
     assert(kill(pid, SIGKILL) == 0);
     assert(waitpid(pid, NULL, 0) == pid);
-    puts("ROOT pidfd identity and exit tests passed");
+    test_script(boot);
+    puts("ROOT pidfd executable/script identity and exit tests passed");
     return 0;
 }

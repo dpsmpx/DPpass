@@ -12,7 +12,7 @@
 #include <unistd.h>
 
 #if defined(SYS_pidfd_open) && defined(SYS_pidfd_send_signal)
-static int read_text(const char *path, char *buf, size_t capacity) {
+static ssize_t read_bytes(const char *path, char *buf, size_t capacity) {
     int fd = open(path, O_RDONLY | O_CLOEXEC);
     if (fd < 0) return -1;
     size_t used = 0;
@@ -25,6 +25,12 @@ static int read_text(const char *path, char *buf, size_t capacity) {
     close(fd);
     if (used == capacity - 1) return -1;
     buf[used] = '\0';
+    return (ssize_t)used;
+}
+
+static int read_text(const char *path, char *buf, size_t capacity) {
+    ssize_t n = read_bytes(path, buf, capacity);
+    if (n < 0 || memchr(buf, '\0', (size_t)n)) return -1;
     return 0;
 }
 
@@ -83,6 +89,23 @@ static int executable_matches(pid_t pid, const char *expected) {
     return strcmp(actual, expected) == 0;
 }
 
+/* The ROOT watchdog is launched as exactly sh /absolute/path/to/script.
+ * Match the interpreter executable AND the two complete NUL-delimited argv
+ * entries; a substring, extra argument or truncated record cannot match. */
+static int script_matches(pid_t pid, const char *interpreter, const char *script) {
+    char path[64], argv[8192];
+    if (snprintf(path, sizeof(path), "/proc/%ld/cmdline", (long)pid) >= (int)sizeof(path))
+        return 0;
+    ssize_t n = read_bytes(path, argv, sizeof(argv));
+    if (n <= 0 || argv[n - 1] != '\0') return 0;
+    const char *end = memchr(argv, '\0', (size_t)n);
+    if (!end || (strcmp(argv, "sh") != 0 && strcmp(argv, interpreter) != 0))
+        return 0;
+    size_t remaining = (size_t)n - (size_t)(end + 1 - argv);
+    const char *arg = end + 1;
+    return remaining == strlen(script) + 1 && memcmp(arg, script, remaining) == 0;
+}
+
 /* POLLIN means the task exited, POLLHUP means it was reaped. Both refer
  * to the pinned task, not whatever later occupies the numeric PID. */
 static int exited(int fd, int timeout_ms) {
@@ -95,11 +118,11 @@ static int exited(int fd, int timeout_ms) {
 }
 #endif
 
-enum dppass_pidfd_result dppass_pidfd_stop_executable(
+static enum dppass_pidfd_result stop_child(
     pid_t pid, uint64_t start_ticks, const char *boot_id,
-    const char *executable, int timeout_ms) {
+    const char *executable, const char *script, int timeout_ms) {
     if (pid <= 1 || !boot_id || !executable || executable[0] != '/' ||
-        timeout_ms < 0 || timeout_ms > 5000)
+        (script && script[0] != '/') || timeout_ms < 0 || timeout_ms > 5000)
         return DPPASS_PIDFD_UNPROVEN;
 #if defined(SYS_pidfd_open) && defined(SYS_pidfd_send_signal)
     // Pin the task before reading any numeric-PID proc identity.
@@ -108,7 +131,9 @@ enum dppass_pidfd_result dppass_pidfd_stop_executable(
         return errno == ENOSYS ? DPPASS_PIDFD_UNSUPPORTED : DPPASS_PIDFD_UNPROVEN;
     enum dppass_pidfd_result result = DPPASS_PIDFD_UNPROVEN;
     if (!boot_matches(boot_id) || !start_matches(pid, start_ticks) ||
-        !executable_matches(pid, executable) || !start_matches(pid, start_ticks))
+        !executable_matches(pid, executable) ||
+        (script && !script_matches(pid, executable, script)) ||
+        !start_matches(pid, start_ticks))
         goto done;
     // If the original task exited while proc was read, those reads may
     // refer to a reused PID. Never signal or report validated ownership.
@@ -129,4 +154,17 @@ done:
     (void)start_ticks;
     return DPPASS_PIDFD_UNSUPPORTED;
 #endif
+}
+
+enum dppass_pidfd_result dppass_pidfd_stop_executable(
+    pid_t pid, uint64_t start_ticks, const char *boot_id,
+    const char *executable, int timeout_ms) {
+    return stop_child(pid, start_ticks, boot_id, executable, NULL, timeout_ms);
+}
+
+enum dppass_pidfd_result dppass_pidfd_stop_script(
+    pid_t pid, uint64_t start_ticks, const char *boot_id,
+    const char *interpreter, const char *script, int timeout_ms) {
+    if (!script) return DPPASS_PIDFD_UNPROVEN;
+    return stop_child(pid, start_ticks, boot_id, interpreter, script, timeout_ms);
 }
