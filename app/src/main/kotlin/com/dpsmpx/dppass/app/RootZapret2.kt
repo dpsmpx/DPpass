@@ -117,12 +117,12 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
             "iptables -t mangle -I OUTPUT " + TCP,
             "iptables -t mangle -C OUTPUT " + TCP,
             *(if (rootQuic) arrayOf("iptables -t mangle -I OUTPUT " + UDP, "iptables -t mangle -C OUTPUT " + UDP) else emptyArray()),
-            "if command -v ip6tables >/dev/null 2>&1; then",
-            RootFirewallCleanup.markIntent("$ROOT/ipv6.intent"),
-            "ip6tables -t mangle -I OUTPUT " + TCP,
-            "ip6tables -t mangle -C OUTPUT " + TCP,
-            *(if (rootQuic) arrayOf("ip6tables -t mangle -I OUTPUT " + UDP, "ip6tables -t mangle -C OUTPUT " + UDP) else emptyArray()),
-            "fi",
+            RootFirewallCleanup.optionalIPv6(RootFirewallCleanup.Kind.PACKET, "$ROOT/ipv6.intent", listOf(
+                RootFirewallCleanup.markIntent("$ROOT/ipv6.intent"),
+                "ip6tables -t mangle -I OUTPUT " + TCP,
+                "ip6tables -t mangle -C OUTPUT " + TCP,
+                *(if (rootQuic) arrayOf("ip6tables -t mangle -I OUTPUT " + UDP, "ip6tables -t mangle -C OUTPUT " + UDP) else emptyArray()),
+            )),
         )
         return parts.joinToString("\n")
     }

@@ -56,13 +56,13 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
                     "iptables -t nat -I OUTPUT " + RULE,
                     "iptables -t nat -C OUTPUT " + RULE,
                     // Do not claim IPv6 interception on kernels without IPv6 NAT.
-                    "if ip6tables -t nat -S OUTPUT >/dev/null 2>&1; then",
-                    RootProcessIdentity.detachedCommand(cmd6, "$ROOT/log6"),
-                    "pid=$!", "echo \"\$pid\" > " + quote("$ROOT/pid6"), "sleep 1", RootProcessIdentity.executableAlive("$ROOT/pid6", "$ROOT/ciadpi"),
-                    lifecycle.captureExecutable("pid6", "$ROOT/ciadpi"),
-                    RootFirewallCleanup.markIntent("$ROOT/ipv6.intent"),
-                    "ip6tables -t nat -I OUTPUT " + RULE, "ip6tables -t nat -C OUTPUT " + RULE,
-                    "fi").joinToString("\n"), owner, preservePreviousOwner = true, prepare = helper?.install(ROOT) ?: ":"))
+                    RootFirewallCleanup.optionalIPv6(RootFirewallCleanup.Kind.SOCKET, "$ROOT/ipv6.intent", listOf(
+                        RootProcessIdentity.detachedCommand(cmd6, "$ROOT/log6"),
+                        "pid=$!", "echo \"\$pid\" > " + quote("$ROOT/pid6"), "sleep 1", RootProcessIdentity.executableAlive("$ROOT/pid6", "$ROOT/ciadpi"),
+                        lifecycle.captureExecutable("pid6", "$ROOT/ciadpi"),
+                        RootFirewallCleanup.markIntent("$ROOT/ipv6.intent"),
+                        "ip6tables -t nat -I OUTPUT " + RULE, "ip6tables -t nat -C OUTPUT " + RULE,
+                    ))).joinToString("\n"), owner, preservePreviousOwner = true, prepare = helper?.install(ROOT) ?: ":"))
                 }, rollback = { execute(lifecycle.stop(cleanup())) })
             } finally {
                 helper?.discard()

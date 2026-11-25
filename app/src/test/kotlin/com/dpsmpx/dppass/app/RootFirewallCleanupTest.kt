@@ -8,6 +8,44 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class RootFirewallCleanupTest {
+    @Test fun optionalIPv6RequiresAValidTableBeforeAnyInstallation() {
+        if (!File("/bin/sh").canExecute()) return
+        val dir = Files.createTempDirectory("dppass-ipv6-start").toFile()
+        val intent = File(dir, "ipv6.intent")
+        val launched = File(dir, "launched")
+        try {
+            for (kind in RootFirewallCleanup.Kind.entries) {
+                intent.delete()
+                launched.delete()
+                val script = RootFirewallCleanup.optionalIPv6(kind, intent.path, listOf(
+                    RootFirewallCleanup.markIntent(intent.path),
+                    "touch '" + launched.path + "'",
+                ))
+                fun run(prefix: String) = RootCommandRunner.run(
+                    listOf("/bin/sh", "-c", "set -eu\n" + prefix + "\n" + script),
+                    timeoutMillis = 5000,
+                ).exitCode
+                assertEquals(0, run("ip6tables() { return 2; }"))
+                assertFalse(intent.exists())
+                assertFalse(launched.exists())
+                assertFalse(run("ip6tables() { return 0; }") == 0)
+                assertFalse(intent.exists())
+                assertFalse(launched.exists())
+                intent.writeText("v1\n")
+                assertFalse(run("ip6tables() { return 2; }") == 0)
+                assertFalse(launched.exists())
+                assertTrue(intent.delete())
+                val valid = "ip6tables() { test \"\$*\" = '-t " + kind.table +
+                    " -S OUTPUT' || return 2; echo '-P OUTPUT ACCEPT'; }"
+                assertEquals(0, run(valid))
+                assertEquals("v1\n", intent.readText())
+                assertTrue(launched.exists())
+            }
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     @Test fun listingMustProveAbsenceAndDeletionIsBounded() {
         if (!File("/bin/sh").canExecute()) return
         val dir = Files.createTempDirectory("dppass-firewall-cleanup").toFile()

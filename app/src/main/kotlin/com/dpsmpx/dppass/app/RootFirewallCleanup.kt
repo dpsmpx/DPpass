@@ -68,6 +68,27 @@ internal object RootFirewallCleanup {
         return "(\n" + body.joinToString("\n") + "\n) || exit 1"
     }
 
+    /**
+     * Optional IPv6 activation, under the lifecycle lock and after cleanup.
+     * A missing command or inaccessible table is not a positive capability.
+     * A successful but malformed listing is an error, not an optional skip.
+     */
+    fun optionalIPv6(kind: Kind, intentFile: String, install: List<String>): String {
+        require(install.isNotEmpty())
+        val intent = quote(intentFile)
+        return buildList {
+            add("test ! -e $intent && test ! -L $intent || { echo 'ROOT: unresolved IPv6 intent'; exit 1; }")
+            add("if listing=\$( ip6tables -t " + kind.table + " -S OUTPUT 2>/dev/null ); then")
+            // grep returns 1 for a valid listing with no unexpected lines.
+            // Confine set +e to validation; the installation retains -e.
+            add("(\nset +e\n" + validateListing().joinToString("\n") + "\n) || exit 1")
+            addAll(install)
+            add("else")
+            add("echo 'ROOT: optional IPv6 table unavailable'")
+            add("fi")
+        }.joinToString("\n")
+    }
+
     /** Persist intent before installing the first IPv6 rule. The parent
      * directory is private and the caller holds the lifecycle lock. */
     fun markIntent(path: String): String {
