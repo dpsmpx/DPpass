@@ -27,7 +27,10 @@ internal suspend fun RootDpiRuntime.startAndAccept(
         accepted = accept()
         if (accepted) result else null
     } finally {
-        if (!accepted) runCatching { stop().getOrThrow() }.onFailure(onRollbackFailure)
+        if (!accepted) {
+            val failure = runCatching { stop().getOrThrow() }.exceptionOrNull()
+            if (failure != null) onRollbackFailure(failure)
+        }
     }
 }
 
