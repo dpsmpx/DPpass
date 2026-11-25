@@ -86,19 +86,19 @@ internal class RootLifecycleTransaction(
             val path = quote("$peer/$name")
             return "test ! -e $path && test ! -L $path"
         }
-        val noPidRecords = (childPidRecords(peer) + childIdentityRecords(peer)).joinToString(" && ") { absent(it.substringAfterLast('/')) }
+        val noPidRecords = (childPidRecords(peer) + childIdentityRecords(peer) + "$peer/ipv6.intent").joinToString(" && ") { absent(it.substringAfterLast('/')) }
         // A confirmed reboot invalidates prior-boot process ownership.
         // Validate all remaining PID records before deleting any. Do not
         // signal processes, touch firewall rules, or attempt same-boot recovery.
         return listOf(
             "if ! ( " + absent("generation") + " ); then",
             "if " + RootOwnerStatus.previousBoot(peer, procRoot) + " && " +
-                previousBootPidRecordsSafe(peer) + " && " +
+                previousBootPidRecordsSafe(peer) + " && " + regularOrAbsent("$peer/ipv6.intent") + " && " +
                 "peer_generation=\$( " + RootOwnerStatus.generation(peer) + " ) && " +
                 childPidRecords(peer).joinToString(" && ") {
                     RootChildIdentity.previousBootRecordSafe(it, "\"\$peer_generation\"", procRoot)
                 } + "; then",
-            "rm -f " + (childPidRecords(peer) + childIdentityRecords(peer)).joinToString(" ") { quote(it) } + " || exit 1",
+            "rm -f " + (childPidRecords(peer) + childIdentityRecords(peer) + "$peer/ipv6.intent").joinToString(" ") { quote(it) } + " || exit 1",
             "rm -f " + quote("$peer/owner.identity") + " || exit 1",
             "rm -f " + quote("$peer/generation") + " || exit 1",
             "echo 'ROOT: retired previous-boot owner metadata'",
@@ -261,7 +261,7 @@ internal class RootLifecycleTransaction(
             // A missing generation with leftover owner metadata is ambiguous,
             // not proof that cleanup finished. Preserve it for reconciliation.
             "if ! test -e " + quote(record) + "; then",
-            (listOf(ownerRecord) + childIdentityRecords()).joinToString(" && ") {
+            (listOf(ownerRecord, "$directory/ipv6.intent") + childIdentityRecords()).joinToString(" && ") {
                 "test ! -e " + quote(it) + " && test ! -L " + quote(it)
             } + " || { echo 'ROOT: unmatched owner metadata remains'; exit 1; }",
             "exit 0",

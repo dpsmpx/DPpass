@@ -58,6 +58,7 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
                     RootProcessIdentity.detachedCommand(cmd6, "$ROOT/log6"),
                     "pid=$!", "echo \"\$pid\" > " + quote("$ROOT/pid6"), "sleep 1", RootProcessIdentity.executableAlive("$ROOT/pid6", "$ROOT/ciadpi"),
                     lifecycle.captureExecutable("pid6", "$ROOT/ciadpi"),
+                    RootFirewallCleanup.markIntent("$ROOT/ipv6.intent"),
                     "ip6tables -t nat -I OUTPUT " + RULE, "ip6tables -t nat -C OUTPUT " + RULE,
                     "fi").joinToString("\n"), owner))
                 }, rollback = { execute(lifecycle.stop(cleanup())) })
@@ -77,10 +78,10 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
 
     private fun cleanup(stopWatch: Boolean = true): String = buildString {
         appendLine("set +e")
-        appendLine("iptables -t nat -S OUTPUT >/dev/null || exit 1")
+        appendLine(RootFirewallCleanup.remove(RootFirewallCleanup.Kind.SOCKET, "iptables", listOf(RULE)))
+        appendLine(RootFirewallCleanup.remove(RootFirewallCleanup.Kind.SOCKET, "ip6tables", listOf(RULE),
+            optional = true, intentFile = "$ROOT/ipv6.intent"))
         if (stopWatch) appendLine(RootProcessIdentity.stopScript("$ROOT/watch.pid", "$ROOT/watch.sh"))
-        appendLine("while iptables -t nat -C OUTPUT " + RULE + " 2>/dev/null; do iptables -t nat -D OUTPUT " + RULE + " || exit 1; done")
-        appendLine("if ip6tables -t nat -S OUTPUT >/dev/null 2>&1; then while ip6tables -t nat -C OUTPUT " + RULE + " 2>/dev/null; do ip6tables -t nat -D OUTPUT " + RULE + " || exit 1; done; fi")
         for (name in listOf("pid", "pid6")) {
             appendLine(RootProcessIdentity.stopExecutable("$ROOT/$name", "$ROOT/ciadpi"))
         }

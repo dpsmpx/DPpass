@@ -105,31 +105,27 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
         parts += listOf(
             // Listener first, firewall second. Queue bypass prevents a traffic blackout.
             "iptables -t mangle -I OUTPUT " + TCP,
-            *(if (rootQuic) arrayOf("iptables -t mangle -I OUTPUT " + UDP) else emptyArray()),
-            "if command -v ip6tables >/dev/null 2>&1; then " +
-                "ip6tables -t mangle -I OUTPUT " + TCP +
-                (if (rootQuic) "; ip6tables -t mangle -I OUTPUT " + UDP else "") + "; fi",
+            "iptables -t mangle -C OUTPUT " + TCP,
+            *(if (rootQuic) arrayOf("iptables -t mangle -I OUTPUT " + UDP, "iptables -t mangle -C OUTPUT " + UDP) else emptyArray()),
+            "if command -v ip6tables >/dev/null 2>&1; then",
+            RootFirewallCleanup.markIntent("$ROOT/ipv6.intent"),
+            "ip6tables -t mangle -I OUTPUT " + TCP,
+            "ip6tables -t mangle -C OUTPUT " + TCP,
+            *(if (rootQuic) arrayOf("ip6tables -t mangle -I OUTPUT " + UDP, "ip6tables -t mangle -C OUTPUT " + UDP) else emptyArray()),
+            "fi",
         )
         return parts.joinToString("\n")
     }
 
-    private fun cleanup(stopWatch: Boolean = true): String = (
-        listOf("set +e", "iptables -t mangle -S OUTPUT >/dev/null || exit 1") +
-            (if (stopWatch) listOf(
-                RootProcessIdentity.stopScript(ROOT + "/watch.pid", ROOT + "/watchdog.sh"),
-            ) else emptyList()) +
-            listOf(
-        "while iptables -t mangle -C OUTPUT " + TCP +
-            " 2>/dev/null; do iptables -t mangle -D OUTPUT " + TCP + " || exit 1; done",
-        "while iptables -t mangle -C OUTPUT " + UDP +
-            " 2>/dev/null; do iptables -t mangle -D OUTPUT " + UDP + " || exit 1; done",
-        "if command -v ip6tables >/dev/null 2>&1; then " +
-            "while ip6tables -t mangle -C OUTPUT " + TCP +
-            " 2>/dev/null; do ip6tables -t mangle -D OUTPUT " + TCP + " || exit 1; done; " +
-            "while ip6tables -t mangle -C OUTPUT " + UDP +
-            " 2>/dev/null; do ip6tables -t mangle -D OUTPUT " + UDP + " || exit 1; done; fi",
-        RootProcessIdentity.stopExecutable(ROOT + "/pid", ROOT + "/nfqws2"),
-        )).joinToString("\n")
+    private fun cleanup(stopWatch: Boolean = true): String = buildString {
+        appendLine("set +e")
+        appendLine(RootFirewallCleanup.remove(RootFirewallCleanup.Kind.PACKET, "iptables", listOf(TCP, UDP)))
+        appendLine(RootFirewallCleanup.remove(RootFirewallCleanup.Kind.PACKET, "ip6tables", listOf(TCP, UDP),
+            optional = true, intentFile = "$ROOT/ipv6.intent"))
+        if (stopWatch) appendLine(RootProcessIdentity.stopScript("$ROOT/watch.pid", "$ROOT/watchdog.sh"))
+        appendLine(RootProcessIdentity.stopExecutable("$ROOT/pid", "$ROOT/nfqws2"))
+        appendLine("exit 0")
+    }
 
     private fun execute(script: String) {
         val result = RootCommandRunner.run(listOf("su", "-c", script))
