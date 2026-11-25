@@ -69,4 +69,31 @@ internal object RootProcessIdentity {
         withPid(pidFile, "if tr '\\000' '\\n' </proc/\$pid/cmdline 2>/dev/null | grep -Fxq " +
             quote(script) + "; then kill \"\$pid\" 2>/dev/null || true; fi") +
             "; rm -f " + quote(pidFile)
+
+    /**
+     * A bounded shell transaction on an existing private, root-owned directory.
+     * Never unlink the lock file: waiters must refer to the same inode.
+     * Callers must close fd 9 in long-lived children (including watchdogs).
+     * Missing flock, an unavailable lock or an open failure must fail closed.
+     */
+    fun lockedTransaction(lockFile: String, body: String, waitSeconds: Int = 5): String {
+        require(waitSeconds in 1..10)
+        return listOf(
+            "(",
+            "umask 077",
+            "command -v flock >/dev/null 2>&1 || { echo 'ROOT: flock unavailable'; exit 1; }",
+            "exec 9>>" + quote(lockFile) + " || exit 1",
+            "flock -x -w $waitSeconds 9 || { echo 'ROOT: lifecycle lock unavailable'; exit 1; }",
+            body,
+            ")",
+        ).joinToString("\n")
+    }
+
+    /** Only the matching launch generation may perform deferred cleanup.
+     * Use this check INSIDE lockedTransaction, not before acquiring the lock.
+     */
+    fun generationMatches(generationFile: String, generation: String): String {
+        require(generation.isNotEmpty() && generation.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' })
+        return "test \"\$(cat " + quote(generationFile) + " 2>/dev/null)\" = " + quote(generation)
+    }
 }

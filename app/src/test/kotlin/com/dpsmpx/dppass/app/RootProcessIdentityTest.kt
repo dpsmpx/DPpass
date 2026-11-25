@@ -97,4 +97,57 @@ class RootProcessIdentityTest {
         assertNull(RootProcessIdentity.startTime("no delimiter"))
     }
 
+
+    @Test fun lockedTransactionSerializesAndFencesDeferredCleanup() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-root-lock")
+        val lock = dir.resolve("lifecycle.lock").toString()
+        val generation = dir.resolve("generation").toFile()
+        val ready = dir.resolve("ready").toFile()
+        val release = dir.resolve("release").toFile()
+        val marker = dir.resolve("cleanup").toFile()
+        generation.writeText("old")
+        val holder = ProcessBuilder("/bin/sh", "-c", RootProcessIdentity.lockedTransaction(
+            lock, "echo ready > '${ready.path}'; while ! test -e '${release.path}'; do sleep 0.05; done; echo new > '${generation.path}'",
+        )).start()
+        try {
+            val deadline = System.nanoTime() + 3_000_000_000L
+            while (!ready.exists() && System.nanoTime() < deadline) Thread.sleep(10)
+            assertTrue(ready.exists())
+            val blocked = RootCommandRunner.run(
+                listOf("/bin/sh", "-c", RootProcessIdentity.lockedTransaction(lock, "echo bad > '${marker.path}'", 1)),
+                timeoutMillis = 5_000,
+            )
+            assertFalse(blocked.exitCode == 0)
+            assertFalse(marker.exists())
+            release.writeText("release")
+            assertTrue(holder.waitFor(5, java.util.concurrent.TimeUnit.SECONDS))
+            assertEquals(0, holder.exitValue())
+            fun guarded(expected: String): Int = RootCommandRunner.run(
+                listOf("/bin/sh", "-c", RootProcessIdentity.lockedTransaction(
+                    lock, RootProcessIdentity.generationMatches(generation.path, expected) + " || exit 0\n echo cleaned > '${marker.path}'",
+                )), timeoutMillis = 5_000,
+            ).exitCode
+            assertEquals(0, guarded("old"))
+            assertFalse(marker.exists())
+            assertEquals(0, guarded("new"))
+            assertTrue(marker.exists())
+            assertTrue(File(lock).exists())
+        } finally {
+            release.writeText("release")
+            if (!holder.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) holder.destroyForcibly().waitFor()
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun lockAndGenerationGuardRejectInvalidInputs() {
+        val invalidTimeout = runCatching { RootProcessIdentity.lockedTransaction("/tmp/lock", ":", 0) }
+        assertTrue(invalidTimeout.isFailure)
+        assertTrue(runCatching { RootProcessIdentity.generationMatches("/tmp/gen", "") }.isFailure)
+        assertTrue(runCatching { RootProcessIdentity.generationMatches("/tmp/gen", "bad token") }.isFailure)
+        val command = RootProcessIdentity.lockedTransaction("/tmp/lock", "echo action")
+        assertTrue(command.indexOf("flock -x -w") < command.indexOf("echo action"))
+        assertFalse(command.contains("rm -f"))
+    }
 }
