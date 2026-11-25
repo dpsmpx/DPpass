@@ -24,11 +24,20 @@ internal object DptsSavedScripts {
         (value as? String)?.takeIf { it.length <= DptsScript.MAX_SOURCE_LENGTH }
             ?: defaultSource
 
-    fun validDraft(name: String, source: String): Boolean =
+    fun restoreEditorName(value: Any?): String =
+        (value as? String)?.takeIf { it.length <= MAX_NAME_LENGTH &&
+            it.none { char -> char.category in forbiddenNameCategories } }.orEmpty()
+
+    fun preferenceKey(id: ScriptId): String? =
+        if (id.personal && validName(id.name)) PREFIX + id.name else null
+
+    private fun validName(name: String): Boolean =
         name.length in 1..MAX_NAME_LENGTH &&
             name == name.trim() && name.isNotBlank() &&
-            name.none { it.category in forbiddenNameCategories } &&
-            source.isNotBlank() && source.length <= DptsScript.MAX_SOURCE_LENGTH
+            name.none { it.category in forbiddenNameCategories }
+
+    fun validDraft(name: String, source: String): Boolean =
+        validName(name) && source.isNotBlank() && source.length <= DptsScript.MAX_SOURCE_LENGTH
 
     // Ignore malformed preference values. The stable order makes the limit
     // independent of SharedPreferences iteration order. Do not delete drafts.

@@ -923,6 +923,9 @@
     <string name="dpts_copied">DPTS complete. Redacted log automatically copied.</string>
     <string name="dpts_unified_note">One script editor for all protected diagnostics. Choose a preset or paste/edit your own DPTS/1 text; save drafts, run, stop, and train the installed local strategy neural model only after strong, repeated verified HTML evidence. The report auto-copies.</string>
     <string name="dpts_personal_label">My: %1$s</string>
+    <string name="dpts_delete_script">Delete saved script</string>
+    <string name="dpts_delete_confirm">Delete saved script %1$s? The editor text is retained.</string>
+    <string name="dpts_script_deleted">Saved script deleted.</string>
     <string name="dpts_name_hint">Script name for saving</string>
     <string name="dpts_save_script">Save script</string>
     <string name="dpts_train_network">Train neural model from completed script</string>

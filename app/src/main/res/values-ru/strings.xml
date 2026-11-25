@@ -952,6 +952,9 @@
     <string name="dpts_copied">DPTS завершён. Журнал автоматически скопирован.</string>
     <string name="dpts_unified_note">Единый редактор защищённых диагностик. Выбери пресет или вставь/измени скрипт DPTS/1, сохрани, запусти, останови или обучи локальную нейросеть только после повторных подтверждённых HTTPS-ответов. Журнал копируется автоматически.</string>
     <string name="dpts_personal_label">Мой: %1$s</string>
+    <string name="dpts_delete_script">Удалить сохранённый скрипт</string>
+    <string name="dpts_delete_confirm">Удалить сохранённый скрипт %1$s? Текст в редакторе останется.</string>
+    <string name="dpts_script_deleted">Сохранённый скрипт удалён.</string>
     <string name="dpts_name_hint">Название скрипта для сохранения</string>
     <string name="dpts_save_script">Сохранить скрипт</string>
     <string name="dpts_train_network">Обучить нейросеть на результатах</string>

@@ -1,5 +1,6 @@
 package com.dpsmpx.dppass.app.ui
 
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -12,6 +13,7 @@ import android.text.InputType
 import android.widget.EditText
 import android.widget.Spinner
 import android.widget.ArrayAdapter
+import android.widget.AdapterView
 import android.widget.ProgressBar
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.DptsCompletedRun
@@ -83,8 +85,12 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
         isSingleLine = true
         filters = arrayOf(InputFilter.LengthFilter(DptsSavedScripts.MAX_NAME_LENGTH))
+        setText(DptsSavedScripts.restoreEditorName(
+            context.getSharedPreferences("dpts_editor", Context.MODE_PRIVATE).all["name"]))
     }
     private val dptsPresetSpinner = Spinner(context)
+    private val dptsDeleteButton = Ui.button(context, R.string.dpts_delete_script,
+        Ui.Style.OUTLINE, R.drawable.ic_dns).apply { isEnabled = false }
     private val dptsLoadButton = Ui.button(context, R.string.dpts_load_preset,
         Ui.Style.OUTLINE, R.drawable.ic_dns)
     private val dptsRunButton = Ui.button(context, R.string.dpts_run_script,
@@ -170,9 +176,21 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 invalidateDptsRun()
+                resultText.text = ""
+                resultText.visibility = View.GONE
+                statusText.text = context.getString(R.string.dpts_choose_script)
             }
             override fun afterTextChanged(s: Editable?) = Unit
         })
+        dptsPresetSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?,
+                position: Int, id: Long) {
+                renderDeleteControl()
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {
+                dptsDeleteButton.isEnabled = false
+            }
+        }
     }
 
     private fun invalidateDptsRun() {
@@ -189,6 +207,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             context.getString(R.string.dpts_unified_note)), Ui.matchWidth())
         addView(dptsPresetSpinner, Ui.matchWidth())
         addView(dptsLoadButton.apply { setOnClickListener { loadSelectedScript() } },
+            Ui.matchWidth())
+        addView(dptsDeleteButton.apply { setOnClickListener { deleteSelectedScript() } },
             Ui.matchWidth())
         addView(dptsNameInput, Ui.matchWidth())
         addView(dptsEditor, Ui.matchWidth())
@@ -221,6 +241,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         if (idle) progress.visibility = View.GONE
         dptsRunButton.isEnabled = idle && ready(status)
         dptsLoadButton.isEnabled = idle
+        renderDeleteControl()
         dptsSaveButton.isEnabled = idle
         dptsTrainButton.isEnabled = idle && ready(status) && !lastTrainingSubmitted &&
             hasCurrentDptsRun()
@@ -244,9 +265,14 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     override fun onHidden() {
         diagnostic.cancel()
         invalidateDptsRun()
-        // Persist only the user's editable script, never probe results or IPs.
+        // Persist only the editable draft, never probe results or IPs.
+        persistEditor()
+    }
+
+    private fun persistEditor() {
         context.getSharedPreferences("dpts_editor", Context.MODE_PRIVATE).edit()
-            .putString("source", dptsEditor.text.toString()).apply()
+            .putString("source", dptsEditor.text.toString())
+            .putString("name", dptsNameInput.text.toString()).apply()
     }
 
     private fun ready(status: TunnelStatus): Boolean =
@@ -287,6 +313,33 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         }
         dptsPresetSpinner.setSelection(dptsPresets.indexOfFirst { it.id == chosen }
             .coerceAtLeast(0))
+        renderDeleteControl()
+    }
+
+    private fun renderDeleteControl() {
+        dptsDeleteButton.isEnabled = !diagnostic.busy &&
+            selectedScript()?.id?.personal == true
+    }
+
+    private fun deleteSelectedScript() {
+        if (diagnostic.busy) return
+        val entry = selectedScript() ?: return
+        val key = DptsSavedScripts.preferenceKey(entry.id) ?: return
+        AlertDialog.Builder(context)
+            .setTitle(R.string.dpts_delete_script)
+            .setMessage(context.getString(R.string.dpts_delete_confirm, entry.id.name))
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.dpts_delete_script) { _, _ ->
+                if (!diagnostic.busy && personalScripts[entry.id.name] == entry.source) {
+                    context.getSharedPreferences("dpts_saved_scripts", Context.MODE_PRIVATE)
+                        .edit().remove(key).apply()
+                    personalScripts.remove(entry.id.name)
+                    refreshScriptCatalog()
+                    // The editable text remains available even after deleting
+                    // the saved catalog entry. Built-ins are never removed.
+                    statusText.text = context.getString(R.string.dpts_script_deleted)
+                }
+            }.show()
     }
 
     private fun loadSelectedScript() {
@@ -295,6 +348,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         dptsNameInput.setText(entry.id.name)
         dptsEditor.setText(entry.source)
         invalidateDptsRun()
+        persistEditor()
         statusText.text = context.getString(R.string.dpts_script_loaded)
     }
 
@@ -312,10 +366,13 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         }
         // Drafts may be saved before they compile; no source is executed
         // during save/load and the runner always checks the complete grammar.
+        val id = DptsSavedScripts.ScriptId(name, true)
+        val key = DptsSavedScripts.preferenceKey(id) ?: return
         personalScripts[name] = source
         context.getSharedPreferences("dpts_saved_scripts", Context.MODE_PRIVATE)
-            .edit().putString("script.$name", source).apply()
-        refreshScriptCatalog(DptsSavedScripts.ScriptId(name, true))
+            .edit().putString(key, source).apply()
+        persistEditor()
+        refreshScriptCatalog(id)
         statusText.text = context.getString(R.string.dpts_script_saved)
     }
 
@@ -1241,8 +1298,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             resultText.visibility = View.VISIBLE
             return
         }
-        context.getSharedPreferences("dpts_editor", Context.MODE_PRIVATE).edit()
-            .putString("source", source).apply()
+        persistEditor()
         if (plan.suite != null) {
             launchScriptSuite(plan)
             return

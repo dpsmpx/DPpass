@@ -50,6 +50,26 @@ class DptsSavedScriptsTest {
         }
     }
 
+    @Test fun editorNameRestoresUnfinishedNamesWithoutCoercingInvalidValues() {
+        assertEquals(" unfinished ", DptsSavedScripts.restoreEditorName(" unfinished "))
+        assertEquals("日本語", DptsSavedScripts.restoreEditorName("日本語"))
+        assertEquals("x".repeat(80), DptsSavedScripts.restoreEditorName("x".repeat(80)))
+        for (invalid in listOf(null, 42, "a\nb", "a\u202eb", "x".repeat(81))) {
+            assertEquals("", DptsSavedScripts.restoreEditorName(invalid))
+        }
+    }
+
+    @Test fun onlyValidPersonalIdentityCanAddressSavedPreference() {
+        assertEquals("script.Shared", DptsSavedScripts.preferenceKey(
+            DptsSavedScripts.ScriptId("Shared", true)))
+        assertEquals(null, DptsSavedScripts.preferenceKey(
+            DptsSavedScripts.ScriptId("Shared", false)))
+        assertEquals(null, DptsSavedScripts.preferenceKey(
+            DptsSavedScripts.ScriptId("bad\nname", true)))
+        assertEquals(null, DptsSavedScripts.preferenceKey(
+            DptsSavedScripts.ScriptId("", true)))
+    }
+
     @Test fun restorationIsTypedBoundedAndDeterministic() {
         val values = (0..34).reversed().associate { "script.draft%02d".format(it) to "draft" }
         val mixed = values + mapOf("script.!" to 1, "script." to "bad", "other" to "ignored")
