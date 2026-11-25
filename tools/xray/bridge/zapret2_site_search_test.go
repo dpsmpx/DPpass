@@ -71,7 +71,7 @@ func newSiteSearchTestRun(t *testing.T,host string,ips []string) (*core.Instance
     gen:=zapret2Auto.generationSnapshot()
     siteSearchState.Lock()
     siteSearchState.current=&siteSearchRun{
-        instance:inst,generation:gen,host:host,prepared:time.Now(),
+        token:new(byte),instance:inst,generation:gen,host:host,prepared:time.Now(),
         answer:fixedDoHAnswer{ips:ips,fingerprint:"abcdef12",status:"ok",httpStatus:200},
         trials:make(map[string]*siteSearchTrial),
     }
@@ -79,6 +79,7 @@ func newSiteSearchTestRun(t *testing.T,host string,ips []string) (*core.Instance
     t.Cleanup(func() {
         siteSearchState.Lock()
         siteSearchState.current=nil
+        siteSearchState.pending=nil
         siteSearchState.Unlock()
         _=zapret2Auto.configureHosts("")
     })
@@ -89,18 +90,18 @@ func TestSiteSearchCommitRequiresIndependentThreeOfThreeAtEachAddress(t *testing
     inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1","8.8.8.8"})
     for ip:=0;ip<2;ip++ {
         for attempt:=1;attempt<=3;attempt++ {
-            siteSearchRecord(inst,host,gen,ip,attempt,"h1","plain","timeout_tls",5000)
-            siteSearchRecord(inst,host,gen,ip,attempt,"h1","tlsrec-split","ok",350)
+            recordSiteSearchTestSample(inst,host,gen,ip,attempt,"h1","plain","timeout_tls",5000)
+            recordSiteSearchTestSample(inst,host,gen,ip,attempt,"h1","tlsrec-split","ok",350)
         }
     }
-    if !siteSearchCommit(inst,host,"tlsrec-split",gen) {t.Fatal("3/3 exact-host validated candidate not applied")}
+    if !commitSiteSearchTestRun(inst,host,"tlsrec-split",gen) {t.Fatal("3/3 exact-host validated candidate not applied")}
     if got:=zapret2Auto.choose(host);got!="tlsrec-split" {
         t.Fatalf("verified method unavailable to next TCP connection: %s",got)
     }
     if got:=zapret2Auto.choose("unrelated.example.org");got!="split-1" {
         t.Fatalf("site-scoped evidence leaked: %s",got)
     }
-    if siteSearchCommit(inst,host,"auto",gen) || siteSearchCommit(inst,host,"plain",gen) {
+    if commitSiteSearchTestRun(inst,host,"auto",gen) || commitSiteSearchTestRun(inst,host,"plain",gen) {
         t.Fatal("auto/plain cannot be promoted as method")
     }
 }
@@ -109,25 +110,25 @@ func TestSiteSearchRejectsIntermittentAndDuplicateSamples(t *testing.T) {
     inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1","8.8.8.8"})
     for ip:=0;ip<2;ip++ {
         for attempt:=1;attempt<=3;attempt++ {
-            siteSearchRecord(inst,host,gen,ip,attempt,"h1","plain","timeout_tls",5000)
-            siteSearchRecord(inst,host,gen,ip,attempt,"h1","split","ok",400)
+            recordSiteSearchTestSample(inst,host,gen,ip,attempt,"h1","plain","timeout_tls",5000)
+            recordSiteSearchTestSample(inst,host,gen,ip,attempt,"h1","split","ok",400)
         }
     }
     // A single failed repeat on any selected address invalidates promotion.
     siteSearchState.Lock()
     siteSearchState.current.trials["1|h1|split"].good[1]=false
     siteSearchState.Unlock()
-    if siteSearchCommit(inst,host,"split",gen) {t.Fatal("2/3 incorrectly promoted")}
-    siteSearchRecord(inst,host,gen,1,2,"h1","split","ok",100) // duplicate cannot heal
-    if siteSearchCommit(inst,host,"split",gen) {t.Fatal("replayed sample healed failure")}
+    if commitSiteSearchTestRun(inst,host,"split",gen) {t.Fatal("2/3 incorrectly promoted")}
+    recordSiteSearchTestSample(inst,host,gen,1,2,"h1","split","ok",100) // duplicate cannot heal
+    if commitSiteSearchTestRun(inst,host,"split",gen) {t.Fatal("replayed sample healed failure")}
     // Even a full candidate is not enough when untouched TCP works 2/3.
     siteSearchState.Lock()
     siteSearchState.current.trials["1|h1|split"].good[1]=true
     siteSearchState.current.trials["0|h1|plain"].good[0]=true
     siteSearchState.current.trials["0|h1|plain"].good[1]=true
     siteSearchState.Unlock()
-    if siteSearchCommit(inst,host,"split",gen) {t.Fatal("not better than intermittent baseline")}
-    if siteSearchCommit(inst,host,"split",gen+1) {t.Fatal("stale generation accepted")}
+    if commitSiteSearchTestRun(inst,host,"split",gen) {t.Fatal("not better than intermittent baseline")}
+    if commitSiteSearchTestRun(inst,host,"split",gen+1) {t.Fatal("stale generation accepted")}
 }
 func TestSiteSearchExpiredRunNeverPromotesOrChangesAUTO(t *testing.T) {
     host:="search.example.org"
@@ -136,10 +137,10 @@ func TestSiteSearchExpiredRunNeverPromotesOrChangesAUTO(t *testing.T) {
     siteSearchState.current.prepared=time.Now().Add(-siteSearchTTL)
     siteSearchState.Unlock()
     for i:=1;i<=3;i++ {
-        siteSearchRecord(inst,host,gen,0,i,"h1","plain","timeout_tls",5000)
-        siteSearchRecord(inst,host,gen,0,i,"h1","fake-5","ok",300)
+        recordSiteSearchTestSample(inst,host,gen,0,i,"h1","plain","timeout_tls",5000)
+        recordSiteSearchTestSample(inst,host,gen,0,i,"h1","fake-5","ok",300)
     }
-    if siteSearchCommit(inst,host,"fake-5",gen) {
+    if commitSiteSearchTestRun(inst,host,"fake-5",gen) {
         t.Fatal("expired DNS address set promoted")
     }
     if got:=zapret2Auto.choose(host);got!="split-1" {t.Fatal(got)}
@@ -154,10 +155,10 @@ func TestSiteSearchRestoresPlainBaselineWhenStable(t *testing.T) {
     zapret2Auto.mu.Unlock()
     for ip:=0;ip<2;ip++ {
         for attempt:=1;attempt<=3;attempt++ {
-            siteSearchRecord(inst,host,gen,ip,attempt,"h1","plain","ok",500)
+            recordSiteSearchTestSample(inst,host,gen,ip,attempt,"h1","plain","ok",500)
         }
     }
-    if !siteSearchCommit(inst,host,"plain",gen) {
+    if !commitSiteSearchTestRun(inst,host,"plain",gen) {
         t.Fatal("verified original TLS/HTTP was not selected")
     }
     if got:=zapret2Auto.choose(host);got!="pass" {
@@ -175,13 +176,13 @@ func TestSiteSearchVerifiedBackupUsedOnlyAfterTimeoutBreaker(t *testing.T) {
     inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1","8.8.8.8"})
     for ip:=0;ip<2;ip++ {
         for attempt:=1;attempt<=3;attempt++ {
-            siteSearchRecord(inst,host,gen,ip,attempt,"h1","plain","timeout_tls",6000)
-            siteSearchRecord(inst,host,gen,ip,attempt,"h1","tlsrec-split","ok",900)
-            siteSearchRecord(inst,host,gen,ip,attempt,"h1","fake-5","ok",1100)
-            siteSearchRecord(inst,host,gen,ip,attempt,"h1","split","timeout_tls",6000)
+            recordSiteSearchTestSample(inst,host,gen,ip,attempt,"h1","plain","timeout_tls",6000)
+            recordSiteSearchTestSample(inst,host,gen,ip,attempt,"h1","tlsrec-split","ok",900)
+            recordSiteSearchTestSample(inst,host,gen,ip,attempt,"h1","fake-5","ok",1100)
+            recordSiteSearchTestSample(inst,host,gen,ip,attempt,"h1","split","timeout_tls",6000)
         }
     }
-    if !siteSearchCommit(inst,host,"tlsrec-split",gen) {t.Fatal("primary not applied")}
+    if !commitSiteSearchTestRun(inst,host,"tlsrec-split",gen) {t.Fatal("primary not applied")}
     zapret2Auto.mu.Lock()
     fallback:=zapret2Auto.entries[host].verifiedFallback
     zapret2Auto.mu.Unlock()
@@ -205,11 +206,11 @@ func TestSiteSearchNeverUsesUnverifiedBackup(t *testing.T) {
     host:="www.example.org"
     inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1"})
     for attempt:=1;attempt<=3;attempt++ {
-        siteSearchRecord(inst,host,gen,0,attempt,"h1","plain","timeout_tls",6000)
-        siteSearchRecord(inst,host,gen,0,attempt,"h1","tlsrec-split","ok",900)
-        siteSearchRecord(inst,host,gen,0,attempt,"h1","fake-5","timeout_tls",6000)
+        recordSiteSearchTestSample(inst,host,gen,0,attempt,"h1","plain","timeout_tls",6000)
+        recordSiteSearchTestSample(inst,host,gen,0,attempt,"h1","tlsrec-split","ok",900)
+        recordSiteSearchTestSample(inst,host,gen,0,attempt,"h1","fake-5","timeout_tls",6000)
     }
-    if !siteSearchCommit(inst,host,"tlsrec-split",gen) {t.Fatal("primary not applied")}
+    if !commitSiteSearchTestRun(inst,host,"tlsrec-split",gen) {t.Fatal("primary not applied")}
     zapret2Auto.mu.Lock()
     fallback:=zapret2Auto.entries[host].verifiedFallback
     zapret2Auto.mu.Unlock()
@@ -259,11 +260,11 @@ func TestSiteSearchHTTPTransportOnlyDoesNotAutoPromote(t *testing.T) {
     host:="example.org"
     inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1"})
     for attempt:=1;attempt<=3;attempt++ {
-        siteSearchRecord(inst,host,gen,0,attempt,"h1","plain","redirect",260)
-        siteSearchRecord(inst,host,gen,0,attempt,"h1","tlsrec-split","http_reachable",280)
+        recordSiteSearchTestSample(inst,host,gen,0,attempt,"h1","plain","redirect",260)
+        recordSiteSearchTestSample(inst,host,gen,0,attempt,"h1","tlsrec-split","http_reachable",280)
     }
-    if siteSearchCommit(inst,host,"plain",gen) ||
-        siteSearchCommit(inst,host,"tlsrec-split",gen) {
+    if commitSiteSearchTestRun(inst,host,"plain",gen) ||
+        commitSiteSearchTestRun(inst,host,"tlsrec-split",gen) {
         t.Fatal("3xx/4xx HTTP reachability must not be promoted as 2xx content")
     }
 }
@@ -313,8 +314,8 @@ func TestAPISweepTransportResultsDoNotProvideAUTOCandidate(t *testing.T) {
     // input to native site_apply for an H1 strategy.
     r,ok:=parseSiteSearchRequest("site_sweep_h2_ip01_a1_:"+host)
     if !ok || r.kind!="sweep_h2" {t.Fatalf("bad sweep request: %#v",r)}
-    if siteSearchCommit(inst,host,"tlsrec-split",gen) ||
-        siteSearchCommit(inst,host,"plain",gen) {
+    if commitSiteSearchTestRun(inst,host,"tlsrec-split",gen) ||
+        commitSiteSearchTestRun(inst,host,"plain",gen) {
         t.Fatal("diagnostic-only sweep must never promote missing 3/3 H1 evidence")
     }
 }
@@ -346,8 +347,8 @@ func TestSameIPGoogleSNIControlGrammarAndNoAutoTraining(t *testing.T) {
         }
     }
     inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1","8.8.8.8"})
-    if siteSearchCommit(inst,host,"tlsrec-split",gen) ||
-        siteSearchCommit(inst,host,"plain",gen) {
+    if commitSiteSearchTestRun(inst,host,"tlsrec-split",gen) ||
+        commitSiteSearchTestRun(inst,host,"plain",gen) {
         t.Fatal("SNI comparator must not contribute any site_apply evidence")
     }
 }
@@ -402,8 +403,8 @@ func TestYouTubeAPITLSVersionControlGrammarAndNoAUTO(t *testing.T) {
         }
     }
     inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1","8.8.8.8"})
-    if siteSearchCommit(inst,host,"plain",gen) ||
-        siteSearchCommit(inst,host,"tlsrec-split",gen) {
+    if commitSiteSearchTestRun(inst,host,"plain",gen) ||
+        commitSiteSearchTestRun(inst,host,"tlsrec-split",gen) {
         t.Fatal("version-only diagnostics must not produce site apply evidence")
     }
 }
@@ -466,8 +467,76 @@ func TestDPTSNativePublicHostProtectedProbeGrammarAndNoAuto(t *testing.T) {
 func TestDPTSProbesCannotPromoteSiteSearchWeights(t *testing.T) {
     host:="youtubei.googleapis.com"
     inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1","8.8.8.8"})
-    if siteSearchCommit(inst,host,"plain",gen) ||
-       siteSearchCommit(inst,host,"tlsrec-split",gen) {
+    if commitSiteSearchTestRun(inst,host,"plain",gen) ||
+       commitSiteSearchTestRun(inst,host,"tlsrec-split",gen) {
         t.Fatal("script-only observations cannot be accepted for AUTO")
     }
+}
+
+// Fixtures capture the same immutable run snapshot as the production probe.
+func recordSiteSearchTestSample(inst *core.Instance, host string, gen uint64,
+    index,attempt int, proto,strategy,outcome string, elapsed int64) {
+    run,_:=siteSearchReady(inst,host,gen)
+    siteSearchRecord(run,index,attempt,proto,strategy,outcome,elapsed)
+}
+
+func commitSiteSearchTestRun(inst *core.Instance,host,method string,gen uint64) bool {
+    run,_:=siteSearchReady(inst,host,gen)
+    return siteSearchCommit(run,method)
+}
+
+func TestSiteSearchLatePreparationAndOldSamplesCannotReplaceNewRun(t *testing.T) {
+    const host="example.org"
+    inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1"})
+    old,ok:=siteSearchReady(inst,host,gen)
+    if !ok {t.Fatal("missing original run")}
+    for attempt:=1;attempt<=3;attempt++ {
+        siteSearchRecord(old,0,attempt,"h1","plain","ok",500)
+    }
+    slow:=beginSiteSearch()
+    latest:=beginSiteSearch()
+    run:=&siteSearchRun{token:latest,instance:inst,generation:gen,host:host,
+        prepared:time.Now(),answer:fixedDoHAnswer{ips:[]string{"8.8.8.8"}},
+        trials:make(map[string]*siteSearchTrial)}
+    if !publishSiteSearch(run) {t.Fatal("latest preparation rejected")}
+    stale:=*run
+    stale.token=slow
+    if publishSiteSearch(&stale) {t.Fatal("old preparation overwrote latest")}
+    for attempt:=1;attempt<=3;attempt++ {
+        siteSearchRecord(old,0,attempt,"h1","plain","ok",500)
+    }
+    if len(run.trials)!=0 || siteSearchCommit(old,"plain") {
+        t.Fatal("previous run affected replacement")
+    }
+    fresh,ok:=siteSearchReady(inst,host,gen)
+    if !ok {t.Fatal("replacement unavailable")}
+    for attempt:=1;attempt<=3;attempt++ {
+        siteSearchRecord(fresh,0,attempt,"h1","plain","ok",500)
+    }
+    if !siteSearchCommit(fresh,"plain") {t.Fatal("valid replacement rejected")}
+}
+
+func TestSiteSearchRejectsInvalidSampleBeforeAllocatingTrial(t *testing.T) {
+    const host="example.org"
+    inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1"})
+    run,ok:=siteSearchReady(inst,host,gen)
+    if !ok {t.Fatal("missing run")}
+    for _,tc:=range []struct{ip,attempt int;proto,method string;elapsed int64}{
+        {-1,1,"h1","plain",10},
+        {1,1,"h1","plain",10},
+        {0,0,"h1","plain",10},
+        {0,4,"h1","plain",10},
+        {0,1,"h2","plain",10},
+        {0,1,"quic","split",10},
+        {0,1,"h1","unknown",10},
+        {0,1,"h1","plain",-1},
+        {0,1,"h1","plain",time.Minute.Milliseconds()+1},
+    } {
+        siteSearchRecord(run,tc.ip,tc.attempt,tc.proto,tc.method,"ok",tc.elapsed)
+    }
+    siteSearchState.Lock()
+    count:=len(siteSearchState.current.trials)
+    siteSearchState.Unlock()
+    if count!=0 {t.Fatal("invalid sample allocated trial state")}
+    if siteSearchCommit(run,"plain") {t.Fatal("invalid samples promoted")}
 }

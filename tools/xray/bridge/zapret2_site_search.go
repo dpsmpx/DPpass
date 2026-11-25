@@ -167,6 +167,7 @@ type siteSearchTrial struct {
     elapsed [siteSearchAttempts]int64
 }
 type siteSearchRun struct {
+    token *byte // nonzero-size allocation, unique while any snapshot retains it
     instance *core.Instance
     generation uint64
     host string
@@ -177,13 +178,35 @@ type siteSearchRun struct {
 var siteSearchState=struct {
     sync.Mutex
     current *siteSearchRun
+    pending *byte
 }{}
+
+// Only the latest preparation may publish a DNS set. A slower previous
+// resolver completion cannot resurrect a superseded run.
+func beginSiteSearch() *byte {
+    siteSearchState.Lock()
+    defer siteSearchState.Unlock()
+    token:=new(byte)
+    siteSearchState.pending=token
+    siteSearchState.current=nil
+    return token
+}
+
+func publishSiteSearch(run *siteSearchRun) bool {
+    siteSearchState.Lock()
+    defer siteSearchState.Unlock()
+    if run==nil || run.token==nil || siteSearchState.pending!=run.token ||
+        len(run.answer.ips)==0 {return false}
+    siteSearchState.current=run
+    siteSearchState.pending=nil
+    return true
+}
 
 func siteSearchReady(inst *core.Instance, host string, gen uint64) (*siteSearchRun,bool) {
     siteSearchState.Lock()
     defer siteSearchState.Unlock()
     r:=siteSearchState.current
-    if r==nil || r.instance!=inst || r.generation!=gen || r.host!=host ||
+    if r==nil || r.token==nil || r.instance!=inst || r.generation!=gen || r.host!=host ||
         time.Since(r.prepared)>=siteSearchTTL || len(r.answer.ips)==0 {return nil,false}
     // Clone only immutable address strings and basic metadata; no mutable
     // evidence can leave the lock. It never includes private addresses.
@@ -198,13 +221,30 @@ func siteSearchMayRecord(kind string) bool {
     return kind=="http" || kind=="quic"
 }
 
-func siteSearchRecord(inst *core.Instance, host string, gen uint64,
+func siteSearchSameRun(r,prepared *siteSearchRun) bool {
+    return r!=nil && prepared!=nil && r.token!=nil && r.token==prepared.token &&
+        r.instance==prepared.instance && r.generation==prepared.generation &&
+        r.host==prepared.host && time.Since(r.prepared)<siteSearchTTL &&
+        len(r.answer.ips)>0
+}
+
+func siteSearchRecord(prepared *siteSearchRun,
     index,attempt int, proto,strategy string, outcome string, elapsed int64) {
     siteSearchState.Lock()
     defer siteSearchState.Unlock()
     r:=siteSearchState.current
-    if r==nil || r.instance!=inst || r.generation!=gen || r.host!=host ||
-        time.Since(r.prepared)>=siteSearchTTL {return}
+    if !siteSearchSameRun(r,prepared) {return}
+    if index<0 || index>=siteSearchMaxIPs || index>=len(r.answer.ips) ||
+        attempt<1 || attempt>siteSearchAttempts || elapsed<0 ||
+        elapsed>time.Minute.Milliseconds() {return}
+    allowed:=false
+    switch proto {
+    case "h1":
+        for _,m:=range siteSearchMethods {if m==strategy {allowed=true;break}}
+    case "quic":
+        for _,m:=range siteSearchQUICMethods {if m==strategy {allowed=true;break}}
+    }
+    if !allowed {return}
     key:=strconv.Itoa(index)+"|"+proto+"|"+strategy
     if r.trials==nil {r.trials=make(map[string]*siteSearchTrial)}
     trial:=r.trials[key]
@@ -228,16 +268,21 @@ func siteSearchTrialGood(r *siteSearchRun,index int,proto,strategy string) (int,
     }
     return success,true,duration
 }
-func siteSearchCommit(inst *core.Instance,host,method string,gen uint64) bool {
+func siteSearchCommit(prepared *siteSearchRun,method string) bool {
     if method=="auto" {return false}
     recognized:=method=="plain"
     for _,m:=range siteSearchMethods {if method==m {recognized=true}}
     if !recognized {return false}
 
+    // Lock order: selector -> site state. Keep the proof and publication
+    // in one critical section; a new preparation cannot replace the run
+    // between verification and preference mutation.
+    zapret2Auto.mu.Lock()
+    defer zapret2Auto.mu.Unlock()
     siteSearchState.Lock()
+    defer siteSearchState.Unlock()
     r:=siteSearchState.current
-    if r==nil||r.instance!=inst||r.generation!=gen||r.host!=host||
-        time.Since(r.prepared)>=siteSearchTTL {siteSearchState.Unlock();return false}
+    if !siteSearchSameRun(r,prepared) || zapret2Auto.generation!=r.generation {return false}
     count:=len(r.answer.ips)
     if count>siteSearchMaxIPs {count=siteSearchMaxIPs}
     // The native engine independently verifies the entire requested
@@ -250,7 +295,6 @@ func siteSearchCommit(inst *core.Instance,host,method string,gen uint64) bool {
         goodBetterMethod:=method!="plain" && baseComplete && complete &&
             baseline<=1 && winner==3
         if !goodBaseline && !goodBetterMethod {
-            siteSearchState.Unlock()
             return false
         }
     }
@@ -275,11 +319,7 @@ func siteSearchCommit(inst *core.Instance,host,method string,gen uint64) bool {
             }
         }
     }
-    siteSearchState.Unlock()
-    zapret2Auto.mu.Lock()
-    defer zapret2Auto.mu.Unlock()
-    if zapret2Auto.generation!=gen {return false}
-    entry:=zapret2Auto.entryLocked(host)
+    entry:=zapret2Auto.entryLocked(r.host)
     selected:=method
     if selected=="plain" {selected="pass"}
     entry.preferred=selected
@@ -344,9 +384,7 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
         if strategy!="plain" {result.Outcome="invalid_strategy";return finish(result)}
         // Preparing a new host invalidates all previous samples; nothing
         // is learned until a fully completed explicit commit.
-        siteSearchState.Lock()
-        siteSearchState.current=nil
-        siteSearchState.Unlock()
+        token:=beginSiteSearch()
         answer:=resolveOptInSiteDoH(ctx,inst,request.host)
         result.Outcome=answer.status
         result.HTTPStatus=answer.httpStatus
@@ -363,14 +401,15 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
         digest:=sha256.Sum256([]byte(strings.Join(public,",")))
         answer.fingerprint=hex.EncodeToString(digest[:4])
         // This is not an arbitrary Android-resolver fallback.
+        if !publishSiteSearch(&siteSearchRun{token:token,instance:inst,generation:gen,
+            host:request.host,prepared:time.Now(),answer:answer,
+            trials:make(map[string]*siteSearchTrial)}) {
+            result.Outcome="dns_not_prepared"
+            return finish(result)
+        }
         result.Outcome="dns_ready"
         result.DnsFingerprint=answer.fingerprint
         result.DnsAnswers=len(public)
-        siteSearchState.Lock()
-        siteSearchState.current=&siteSearchRun{instance:inst,generation:gen,
-            host:request.host,prepared:time.Now(),answer:answer,
-            trials:make(map[string]*siteSearchTrial)}
-        siteSearchState.Unlock()
         return finish(result)
     }
     preparedRun,ready:=siteSearchReady(inst,request.host,gen)
@@ -378,7 +417,7 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     result.DnsFingerprint=preparedRun.answer.fingerprint
     result.DnsAnswers=len(preparedRun.answer.ips)
     if request.kind=="site_apply" {
-        if siteSearchCommit(inst,request.host,strategy,gen) {
+        if siteSearchCommit(preparedRun,strategy) {
             result.Outcome="auto_applied"
         }else{result.Outcome="auto_no_winner"}
         return finish(result)
@@ -439,7 +478,7 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
         result.Outcome="dial_failed"
         if ctx.Err()!=nil {result.Outcome="timeout_dial"}
         if siteSearchMayRecord(request.kind) {
-            siteSearchRecord(inst,request.host,gen,request.index,request.attempt,
+            siteSearchRecord(preparedRun,request.index,request.attempt,
                 result.Protocol,strategy,result.Outcome,0)
         }
         return finish(result)
@@ -479,7 +518,7 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     // IP shared between unrelated hosts; only 3/3 HTTP evidence can
     // teach the exact-host TCP AUTO selector by explicit apply.
     if siteSearchMayRecord(request.kind) {
-        siteSearchRecord(inst,request.host,gen,request.index,request.attempt,
+        siteSearchRecord(preparedRun,request.index,request.attempt,
             result.Protocol,strategy,checked.Outcome,checked.Elapsed.Milliseconds())
     }
     // Sweep samples cannot modify the trusted AUTO 3/3 evidence even if
