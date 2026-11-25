@@ -21,7 +21,7 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
             val localHosts = File(context.noBackupFilesDir, "bd-root-hosts").apply {
                 writeText(hosts.format() + "\n")
             }
-            execute(cleanup())
+            rootPrepareCleanup { execute(cleanup()) }
             rootLaunchWithRollback(launch = {
                 val args = if (hosts.isEmpty) ByeDpiRuntime.strategy
                     else ByeDpiRuntime.strategy + listOf("--hosts", "$ROOT/hosts", "--auto=none")

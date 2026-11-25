@@ -29,7 +29,7 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
             val binary = stageAsset("zapret2/" + abi + "/nfqws2", File(stage, "nfqws2"))
             val lua = LUA.map { stageAsset("zapret2/lua/" + it, File(stage, it)) }
             val hostsFile = File(stage, "hosts.txt").apply { writeText(hosts.format() + "\n") }
-            execute(cleanup())
+            rootPrepareCleanup { execute(cleanup()) }
             rootLaunchWithRollback(
                 launch = { execute(launch(binary, lua, hostsFile, hosts.isEmpty)) },
                 rollback = { execute(cleanup()) },

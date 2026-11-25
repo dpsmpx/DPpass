@@ -626,7 +626,7 @@ class DPpassVpnService : VpnService() {
         ) ?: return
         job.ensureActive()
         if (result.isFailure) {
-            if (result.exceptionOrNull() is RootStartupCleanupFailure) {
+            if (result.exceptionOrNull() is RootCleanupRequired) {
                 reportRootCleanupFailure()
                 return
             }

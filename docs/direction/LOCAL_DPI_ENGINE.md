@@ -496,3 +496,7 @@ CI e28b241: Go/Linux/Windows #45586465280 passed; Android #45586450425 failed to
 ## CI — Android-compatible host test PID acquisition
 
 CI 3cde1bf: Go/Linux/Windows #45587114906 succeeded; Android #45587100225 resolved dependencies and compiled main Kotlin, but compileDebugUnitTestKotlin rejected Process.pid() in two new host fixtures. Use the existing shell PID announcement followed by exec, preserving process identity, rather than the unavailable Java API. Both failure/retry and unrelated-process assertions remain intact; no production source, Android API level, dependency or compiler changes. New CI pending.
+
+## A3/A5 — retain ownership after initial ROOT cleanup failure
+
+CI c9b2c7d: Go/Linux/Windows #45589883100 and Android #45589871252 succeeded. Both adapters now classify failure of the initial cleanup as RootInitialCleanupFailure, distinct from preflight or startup failure with successful compensation. The shared RootCleanupRequired type lets the existing service and coordinator retain cleanup ownership and report retryable cleanup pending; another ROOT start remains blocked until cleanup succeeds. Two host fixtures cover launch suppression, original cause, owner retention and retry. No changes to privileged commands, firewall rules or network strategies. Production flock integration, process-death recovery and physical ROOT verification remain open. New CI pending.

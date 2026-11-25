@@ -21,7 +21,7 @@ internal suspend fun RootDpiRuntime.startAndAccept(
     val result = start()
     if (result.isFailure) {
         val error = result.exceptionOrNull()
-        if (error is RootStartupCleanupFailure) onRollbackFailure(error)
+        if (error is RootCleanupRequired) onRollbackFailure(error)
         return@withContext result
     }
     var accepted = false
@@ -36,15 +36,30 @@ internal suspend fun RootDpiRuntime.startAndAccept(
     }
 }
 
+/** A failed startup that still needs a cleanup owner. */
+internal sealed class RootCleanupRequired(message: String, cause: Exception) :
+    IllegalStateException(message, cause)
+
+internal class RootInitialCleanupFailure(cleanup: Exception) :
+    RootCleanupRequired("ROOT initial cleanup failed", cleanup)
+
 /** Startup failed and compensating cleanup could not be confirmed. */
 internal class RootStartupCleanupFailure(startup: Exception, cleanup: Exception) :
-    IllegalStateException((startup.message ?: "ROOT startup failed") + "; ROOT cleanup failed", startup) {
+    RootCleanupRequired((startup.message ?: "ROOT startup failed") + "; ROOT cleanup failed", startup) {
     init { addSuppressed(cleanup) }
 }
 
+/** Initial cleanup precedes any launch. Keep its failure retryable. */
+internal fun rootPrepareCleanup(cleanup: () -> Unit) {
+    try {
+        cleanup()
+    } catch (error: Exception) {
+        throw RootInitialCleanupFailure(error)
+    }
+}
+
 /** Preserve the startup error, but make failed compensating cleanup visible.
- * Initial cleanup is deliberately outside this transaction: if it fails, do
- * not attempt to launch another daemon.
+ * Initial cleanup remains a separate prerequisite.
  */
 internal fun rootLaunchWithRollback(launch: () -> Unit, rollback: () -> Unit) {
     try {
@@ -105,7 +120,7 @@ internal class RootRuntimeCoordinator {
                 return@withLock Result.failure(IllegalStateException("ROOT: previous owner has not completed cleanup"))
             }
             val result = delegate.start()
-            if (result.isSuccess || result.exceptionOrNull() is RootStartupCleanupFailure) {
+            if (result.isSuccess || result.exceptionOrNull() is RootCleanupRequired) {
                 owner = Owner(token, delegate)
             }
             result

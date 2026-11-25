@@ -103,6 +103,42 @@ class RootDpiRuntimeTest {
         assertEquals(1, first.stops)
     }
 
+    @Test fun initialCleanupFailurePreventsLaunchAndPreservesCause() {
+        val cleanup = IllegalStateException("initial cleanup failed")
+        var launches = 0
+        val result = runCatching {
+            rootPrepareCleanup { throw cleanup }
+            rootLaunchWithRollback({ launches++ }, {})
+        }
+        val error = result.exceptionOrNull()
+        assertTrue(error is RootInitialCleanupFailure)
+        assertTrue(error?.cause === cleanup)
+        assertEquals(0, launches)
+    }
+
+    @Test fun coordinatorRetainsInitialCleanupFailureForExplicitRetry() = runBlocking {
+        val coordinator = RootRuntimeCoordinator()
+        val first = Fake(startResult = Result.failure(RootInitialCleanupFailure(
+            IllegalStateException("cleanup failed"),
+        )))
+        val second = Fake()
+        val a = coordinator.bind(first)
+        val b = coordinator.bind(second)
+        var retained = false
+        val result = a.startAndAccept({ throw AssertionError("unexpected acceptance") }, {
+            assertTrue(it is RootInitialCleanupFailure)
+            retained = true
+        })
+        assertTrue(result?.isFailure == true)
+        assertTrue(retained)
+        assertEquals(0, first.stops)
+        assertTrue(b.start().isFailure)
+        assertEquals(0, second.starts)
+        assertTrue(a.stop().isSuccess)
+        assertTrue(b.start().isSuccess)
+        assertTrue(b.stop().isSuccess)
+    }
+
     @Test fun coordinatorRetainsOwnerForIncompleteStartupCompensation() = runBlocking {
         val coordinator = RootRuntimeCoordinator()
         val failure = RootStartupCleanupFailure(
