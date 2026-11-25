@@ -69,6 +69,34 @@ class RootDpiRuntimeTest {
         assertTrue(handle.stop().isSuccess)
     }
 
+    @Test fun connectionPreparationRejectsActiveOwnerWithoutStoppingIt() = runBlocking {
+        val coordinator = RootRuntimeCoordinator()
+        val runtime = Fake()
+        val handle = coordinator.bind(runtime)
+        assertTrue(coordinator.prepareForConnection().isSuccess)
+        assertTrue(handle.start().isSuccess)
+        assertTrue(coordinator.prepareForConnection().isFailure)
+        assertEquals(0, runtime.stops)
+        assertTrue(handle.alive())
+        assertTrue(handle.stop().isSuccess)
+        assertTrue(coordinator.prepareForConnection().isSuccess)
+    }
+
+    @Test fun connectionPreparationRequiresSuccessfulAbandonedCleanup() = runBlocking {
+        val coordinator = RootRuntimeCoordinator()
+        val runtime = Fake(stopResult = Result.failure(IllegalStateException("cleanup failed")))
+        val handle = coordinator.bind(runtime)
+        assertTrue(handle.start().isSuccess)
+        handle.abandon()
+        assertTrue(coordinator.prepareForConnection().isFailure)
+        assertEquals(1, runtime.stops)
+        runtime.stopResult = Result.success(Unit)
+        assertTrue(coordinator.prepareForConnection().isSuccess)
+        assertEquals(2, runtime.stops)
+        assertTrue(coordinator.prepareForConnection().isSuccess)
+        assertEquals(2, runtime.stops)
+    }
+
     @Test fun coordinatorRejectsAnotherOwnerAndIgnoresObsoleteStop() = runBlocking {
         val coordinator = RootRuntimeCoordinator()
         val first = Fake()

@@ -317,9 +317,9 @@ class DPpassVpnService : VpnService() {
      */
     private suspend fun connectOrFail() {
         try {
-            // A previous service may have left incomplete ROOT cleanup.
-            // Never retry cleanup of an active owner here.
-            if (processRootRuntimeCoordinator.retryAbandonedCleanup().onFailure {
+            // Do not begin another connection while a previous service
+            // still owns ROOT resources. Only abandoned owners may be retried.
+            if (processRootRuntimeCoordinator.prepareForConnection().onFailure {
                     DeviceLog.log.diagnostic(Diagnostic.fromThrowable(
                         DiagCode.BACKEND_NOT_AVAILABLE, "не удалось снять оставшиеся ROOT-правила", it,
                     ))

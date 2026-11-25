@@ -102,10 +102,21 @@ internal class RootRuntimeCoordinator {
     private var owner: Owner? = null
 
     /** Retry only an explicitly abandoned owner, never a live service's resources. */
-    suspend fun retryAbandonedCleanup(): Result<Unit> = withContext(NonCancellable) {
+    suspend fun retryAbandonedCleanup(): Result<Unit> = recoverAbandoned(requireIdle = false)
+
+    /** Before any new connection (including non-ROOT), require no remaining
+     * process-local ROOT owner. An active owner must not be stopped here.
+     */
+    suspend fun prepareForConnection(): Result<Unit> = recoverAbandoned(requireIdle = true)
+
+    private suspend fun recoverAbandoned(requireIdle: Boolean): Result<Unit> = withContext(NonCancellable) {
         mutex.withLock {
-            val current = owner
-            if (current == null || !current.abandoned) return@withLock Result.success(Unit)
+            val current = owner ?: return@withLock Result.success(Unit)
+            if (!current.abandoned) {
+                return@withLock if (requireIdle) Result.failure(
+                    IllegalStateException("ROOT: another service still owns the resources"),
+                ) else Result.success(Unit)
+            }
             val result = current.delegate.stopForCleanup()
             if (result.isSuccess) owner = null
             result
