@@ -1736,11 +1736,12 @@ class DPpassVpnService : VpnService() {
 
     override fun onDestroy() {
         // Сервис уходит: уборка — в области процесса, она переживёт этот объект.
-        val failed = TunnelState.status.value as? TunnelStatus.Failed
+        val snapshot = TunnelState.snapshot()
         AppGraph.scope.launch {
-            val cleaned = lifecycle.withLock {
+            val (cleaned, ownedRoot) = lifecycle.withLock {
+                val hadRoot = rootZapret2 != null
                 try {
-                    shutdown(retryAbandonedRoot = false)
+                    shutdown(retryAbandonedRoot = false) to hadRoot
                 } finally {
                     // The coordinator retains only the application-context
                     // adapter, not this destroyed service. A later service
@@ -1748,20 +1749,17 @@ class DPpassVpnService : VpnService() {
                     rootZapret2?.abandon()
                 }
             }
-            if (cleaned && failed != null && TunnelState.status.value === failed) {
-                if (failed.rootCleanupPending) {
-                    TunnelState.set(TunnelStatus.Idle)
-                    announce()
-                } else if (failed.trafficBlocked) {
-                    TunnelState.set(failed.copy(trafficBlocked = false))
-                    announce()
-                }
-            }
+            val reason = Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
+                "Не удалось завершить очистку ROOT; повторите остановку")
+            if (!cleaned) DeviceLog.log.diagnostic(reason)
+            val next = statusAfterServiceDestruction(snapshot.status, cleaned, ownedRoot, reason)
+            // Never publish a destroyed instance's result over a newer status,
+            // including an equal-valued state published by another instance.
+            if (TunnelState.setIfCurrent(snapshot, next)) announce()
         }
         // Без туннеля вопрос о сбое сервера (D-58) ни к чему.
         ServerSwitch.clear(this)
-        // Отказ остаётся на экране; всё остальное без сервиса — «не подключено».
-        if (TunnelState.status.value !is TunnelStatus.Failed) TunnelState.set(TunnelStatus.Idle)
+        // Do not announce Idle before asynchronous cleanup has completed.
         announce()
         // Сервис остановлен — отмечаем в журнале; экспорт только по кнопке (D-47).
         DeviceLog.onWorkFinished(this, "service_stop")

@@ -42,6 +42,21 @@ sealed interface TunnelStatus {
     val busy: Boolean get() = this is Connecting || this is Connected || (this is Failed && (trafficBlocked || rootCleanupPending))
 }
 
+/** Destruction only publishes a final state after its cleanup result is known. */
+internal fun statusAfterServiceDestruction(
+    previous: TunnelStatus,
+    rootCleaned: Boolean,
+    ownedRoot: Boolean,
+    cleanupFailure: Diagnostic,
+): TunnelStatus {
+    if (!rootCleaned) return TunnelStatus.Failed(cleanupFailure, rootCleanupPending = true)
+    if (previous !is TunnelStatus.Failed) return TunnelStatus.Idle
+    // A destroyed instance that did not own ROOT cannot clear an inherited
+    // pending-cleanup status merely because its own shutdown succeeded.
+    if (previous.rootCleanupPending && ownedRoot) return TunnelStatus.Idle
+    return previous.copy(trafficBlocked = false)
+}
+
 /** Трафик сессии (D-40): итоги с подключения и скорость по счётчикам ядра. */
 data class Traffic(val upBytes: Long, val downBytes: Long, val upPerSec: Long, val downPerSec: Long, val pingMicros: Long? = null, val jitterMicros: Long? = null) {
     companion object {
@@ -157,7 +172,22 @@ object TunnelState {
     /** Вопрос о сбое выбранного сервера (D-58); без туннеля или после ответа — null. */
     val offer: StateFlow<ServerOffer?> = offerFlow.asStateFlow()
 
+    internal data class StatusSnapshot(val status: TunnelStatus, val revision: Long)
+    private var statusRevision = 0L
+
+    @Synchronized
+    internal fun snapshot(): StatusSnapshot = StatusSnapshot(flow.value, statusRevision)
+
+    @Synchronized
+    internal fun setIfCurrent(snapshot: StatusSnapshot, next: TunnelStatus): Boolean {
+        if (snapshot.revision != statusRevision) return false
+        set(next)
+        return true
+    }
+
+    @Synchronized
     fun set(next: TunnelStatus) {
+        statusRevision++
         flow.value = next
         if (!next.busy) {
             trafficFlow.value = Traffic.ZERO

@@ -30,6 +30,36 @@ class TunnelStatusTest {
     }
 
     @Test
+    fun destructionPreservesPendingCleanupAndDoesNotClaimTunBlock() {
+        val reason = Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE, "ROOT cleanup failed")
+        val connected = TunnelStatus.Connected(ProfileId("root"), "ROOT", 0)
+        val pending = TunnelStatus.Failed(reason, rootCleanupPending = true)
+        assertEquals(pending, statusAfterServiceDestruction(connected, false, true, reason))
+        assertEquals(pending, statusAfterServiceDestruction(pending, true, false, reason))
+        assertEquals(TunnelStatus.Idle, statusAfterServiceDestruction(pending, true, true, reason))
+        assertEquals(TunnelStatus.Idle, statusAfterServiceDestruction(connected, true, true, reason))
+        val blocked = TunnelStatus.Failed(reason, trafficBlocked = true)
+        assertEquals(blocked.copy(trafficBlocked = false),
+            statusAfterServiceDestruction(blocked, true, false, reason))
+    }
+
+    @Test
+    fun oldDestructionCannotOverwriteEqualNewStatus() {
+        try {
+            TunnelState.set(TunnelStatus.Connecting(null))
+            val old = TunnelState.snapshot()
+            TunnelState.set(TunnelStatus.Connecting(null))
+            assertFalse(TunnelState.setIfCurrent(old, TunnelStatus.Idle))
+            assertEquals(TunnelStatus.Connecting(null), TunnelState.status.value)
+            val current = TunnelState.snapshot()
+            assertTrue(TunnelState.setIfCurrent(current, TunnelStatus.Idle))
+            assertEquals(TunnelStatus.Idle, TunnelState.status.value)
+        } finally {
+            TunnelState.set(TunnelStatus.Idle)
+        }
+    }
+
+    @Test
     fun stateIsShared() {
         TunnelState.set(TunnelStatus.Connecting("A"))
         assertEquals(TunnelStatus.Connecting("A"), TunnelState.status.value)
