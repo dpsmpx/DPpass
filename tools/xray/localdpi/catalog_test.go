@@ -68,3 +68,33 @@ func TestModelLayoutHasNoUnmappedOrDuplicateSlots(t *testing.T) {
         if id!="pass" && HTMLIndex(id)!=NeuralIndex(id,TLS) {t.Fatal(id)}
     }
 }
+
+func TestNeuralLookupMatchesOrderedModelWithoutAllocations(t *testing.T) {
+    for _, transport := range []Transport{TLS, HTTP, QUIC, 0, 255} {
+        group, offset := TLS, 0
+        if transport == QUIC { group, offset = QUIC, TCPOutputCount() }
+        layout := ModelMethods(group)
+        for _, m := range methods {
+            want := -1
+            for index, id := range layout {
+                if id == m.id && m.transports & mask(transport) != 0 {
+                    want = offset + index
+                }
+            }
+            if got := NeuralIndex(m.id, transport); got != want {
+                t.Fatalf("transport %d, method %s: got %d want %d", transport, m.id, got, want)
+            }
+        }
+    }
+    sum := 0
+    allocs := testing.AllocsPerRun(1000, func() {
+        sum += NeuralIndex("fake-5", TLS)
+        sum += NeuralIndex("fake-5", HTTP)
+        sum += NeuralIndex("pass", QUIC)
+        sum += NeuralIndex("unknown", TLS)
+        sum += TCPOutputCount() + ModelOutputCount()
+    })
+    if allocs != 0 || sum == 0 {
+        t.Fatalf("unexpected lookup allocations: %v (sum %d)", allocs, sum)
+    }
+}

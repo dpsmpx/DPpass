@@ -62,21 +62,34 @@ func Candidates(t Transport) []string {
     return out
 }
 
+// The learning group is independent of the transport admission mask.
+// HTTP shares the TCP output positions, including gaps for TLS-only methods.
+func (m method) trainable(t Transport) bool {
+    return (t == TLS && m.trainTCP) || (t == QUIC && m.trainQUIC)
+}
+
 // Model output positions follow the current catalog: TCP first, then QUIC.
-// HTTP uses a TCP output only if the method also supports HTTP.
 func ModelMethods(t Transport) []string {
     out := []string{}
     for _, m := range methods {
-        if (t == TLS && m.trainTCP) || (t == QUIC && m.trainQUIC) {
+        if m.trainable(t) {
             out = append(out, m.id)
         }
     }
     return out
 }
 
-func TCPOutputCount() int { return len(ModelMethods(TLS)) }
+func modelGroupCount(t Transport) int {
+    n := 0
+    for _, m := range methods {
+        if m.trainable(t) { n++ }
+    }
+    return n
+}
 
-func ModelOutputCount() int { return TCPOutputCount() + len(ModelMethods(QUIC)) }
+func TCPOutputCount() int { return modelGroupCount(TLS) }
+
+func ModelOutputCount() int { return TCPOutputCount() + modelGroupCount(QUIC) }
 
 // Include the ordered method IDs, not merely the number of outputs.
 // Bump the schema prefix for changes to feature or training semantics.
@@ -85,15 +98,20 @@ func ModelFormat() string {
         ";quic=" + strings.Join(ModelMethods(QUIC), ",")
 }
 
+// NeuralIndex runs on the per-connection selection path. Walk the catalog
+// directly rather than allocating a model-method slice for every lookup.
 func NeuralIndex(id string, t Transport) int {
-    if mask(t) == 0 { return -1 }
-    group, offset := TLS, 0
-    if t == QUIC { group, offset = QUIC, TCPOutputCount() }
-    for index, candidate := range ModelMethods(group) {
-        if candidate != id { continue }
-        for _, m := range methods {
-            if m.id == id && m.transports & mask(t) != 0 { return offset + index }
+    allowed := mask(t)
+    if allowed == 0 { return -1 }
+    group, index := TLS, 0
+    if t == QUIC { group, index = QUIC, TCPOutputCount() }
+    for _, m := range methods {
+        if !m.trainable(group) { continue }
+        if m.id == id {
+            if m.transports & allowed != 0 { return index }
+            return -1
         }
+        index++
     }
     return -1
 }
