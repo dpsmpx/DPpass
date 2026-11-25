@@ -33,8 +33,9 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
                     "--transparent", "--no-domain") + args).joinToString(" ") { quote(it) }
                 val cmd = command("127.0.0.1")
                 val cmd6 = command("::1")
+                val owner = RootOwnerIdentity(android.os.Process.myPid(), RootProcessIdentity.currentAppStartTime())
                 val watch = lifecycle.watchdog(RootProcessIdentity.watchdogCondition(
-                    android.os.Process.myPid(), RootProcessIdentity.currentAppStartTime(), "$ROOT/pid", "$ROOT/ciadpi", "$ROOT/pid6",
+                    owner.pid, owner.startTime, "$ROOT/pid", "$ROOT/ciadpi", "$ROOT/pid6",
                 ), cleanup(false))
                 execute(lifecycle.start(cleanup(), listOf("set -eu", "umask 077", "mkdir -p " + quote(ROOT),
                     "chmod 700 " + quote(ROOT), "cp " + quote(binary.absolutePath) + " " + quote("$ROOT/ciadpi"),
@@ -52,7 +53,7 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
                     RootProcessIdentity.detachedCommand(cmd6, "$ROOT/log6"),
                     "pid=$!", "echo \"\$pid\" > " + quote("$ROOT/pid6"), "sleep 1", RootProcessIdentity.executableAlive("$ROOT/pid6", "$ROOT/ciadpi"),
                     "ip6tables -t nat -I OUTPUT " + RULE, "ip6tables -t nat -C OUTPUT " + RULE,
-                    "fi").joinToString("\n")))
+                    "fi").joinToString("\n"), owner))
             }, rollback = { execute(lifecycle.stop(cleanup())) })
         }
     }

@@ -33,7 +33,8 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
             val binary = stageAsset("zapret2/" + abi + "/nfqws2", File(stage, "nfqws2"))
             val lua = LUA.map { stageAsset("zapret2/lua/" + it, File(stage, it)) }
             val hostsFile = File(stage, "hosts.txt").apply { writeText(hosts.format() + "\n") }
-            val startup = lifecycle.start(cleanup(), launch(binary, lua, hostsFile, hosts.isEmpty))
+            val owner = RootOwnerIdentity(android.os.Process.myPid(), RootProcessIdentity.currentAppStartTime())
+            val startup = lifecycle.start(cleanup(), launch(binary, lua, hostsFile, hosts.isEmpty, owner), owner)
             rootLaunchWithRollback(
                 launch = { execute(startup) },
                 rollback = { execute(lifecycle.stop(cleanup())) },
@@ -59,7 +60,7 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
         return target
     }
 
-    private fun launch(bin: File, lua: List<File>, hostsFile: File, allHosts: Boolean): String {
+    private fun launch(bin: File, lua: List<File>, hostsFile: File, allHosts: Boolean, owner: RootOwnerIdentity): String {
         val command = quote(ROOT + "/nfqws2") + Zapret2RootProfiles.arguments(allHosts, rootQuic)
         val parts = mutableListOf(
             "set -eu",
@@ -83,7 +84,7 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
         // A root-owned watchdog removes our NFQUEUE hooks after force-stop or
         // process crash. An Android app cannot rely on onDestroy in that case.
         val watchdogScript = lifecycle.watchdog(RootProcessIdentity.watchdogCondition(
-            android.os.Process.myPid(), RootProcessIdentity.currentAppStartTime(), "$ROOT/pid", "$ROOT/nfqws2",
+            owner.pid, owner.startTime, "$ROOT/pid", "$ROOT/nfqws2",
         ), cleanup(stopWatch = false))
         parts += listOf(
             "cat > " + quote(ROOT + "/watchdog.sh") +

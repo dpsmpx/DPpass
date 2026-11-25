@@ -549,6 +549,39 @@ class RootProcessIdentityTest {
         }
     }
 
+    @Test fun lifecyclePersistsOwnerIdentityAndRetainsItUntilCleanupSucceeds() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-owner-identity")
+        val lifecycle = RootLifecycleTransaction(dir.toString(), "owner")
+        val stale = RootLifecycleTransaction(dir.toString(), "stale")
+        val record = dir.resolve("owner.identity").toFile()
+        val generation = dir.resolve("generation").toFile()
+        fun run(script: String) = RootCommandRunner.run(
+            listOf("/bin/sh", "-c", script), timeoutMillis = 10_000,
+        ).exitCode
+        try {
+            val identity = RootOwnerIdentity(123, "456")
+            assertEquals(0, run(lifecycle.start(":", "test -s '${record.path}'", identity)))
+            val fields = record.readText().trim().split(" ")
+            assertEquals(4, fields.size)
+            assertEquals(listOf("owner", "123", "456"), fields.take(3))
+            assertTrue(fields[3].isNotEmpty())
+            assertEquals(0, run(stale.stop("exit 7")))
+            assertEquals(fields, record.readText().trim().split(" "))
+            assertFalse(run(lifecycle.stop("exit 7")) == 0)
+            assertEquals(fields, record.readText().trim().split(" "))
+            assertEquals("owner", generation.readText().trim())
+            assertEquals(0, run(lifecycle.stop(":")))
+            assertFalse(record.exists())
+            assertFalse(generation.exists())
+            assertTrue(runCatching { RootOwnerIdentity(1, "456") }.isFailure)
+            assertTrue(runCatching { RootOwnerIdentity(123, "bad") }.isFailure)
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun lockAndGenerationGuardRejectInvalidInputs() {
         val invalidTimeout = runCatching { RootProcessIdentity.lockedTransaction("/tmp/lock", ":", 0) }
         assertTrue(invalidTimeout.isFailure)

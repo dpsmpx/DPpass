@@ -2,6 +2,13 @@ package com.dpsmpx.dppass.app
 
 import java.util.UUID
 
+/** PID and Linux start ticks identify an application instance, not just a PID. */
+internal data class RootOwnerIdentity(val pid: Int, val startTime: String) {
+    init {
+        require(pid > 1 && startTime.isNotEmpty() && startTime.all { it in '0'..'9' })
+    }
+}
+
 /**
  * Lifecycle transaction with an optional shared lock and peer ownership check.
  * The lock inode is stable, and a generation is published before any
@@ -16,6 +23,7 @@ internal class RootLifecycleTransaction(
 ) {
     private val lock = "$lockDirectory/lifecycle.lock"
     private val record = "$directory/generation"
+    private val ownerRecord = "$directory/owner.identity"
 
     private fun quote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 
@@ -64,7 +72,21 @@ internal class RootLifecycleTransaction(
         ).joinToString("\n")
     }
 
-    fun start(cleanup: String, launch: String): String {
+    // Publish a data-only record tied to the generation under the same lock.
+    // An unavailable boot ID is explicitly unknown; it is not proof of death.
+    private fun publishOwner(owner: RootOwnerIdentity?): String {
+        if (owner == null) return ":"
+        val temporary = "$ownerRecord.$generation.tmp"
+        return listOf(
+            "boot_id=\$(cat /proc/sys/kernel/random/boot_id 2>/dev/null) || boot_id=unknown",
+            "test -n \"\$boot_id\" || boot_id=unknown",
+            "printf '%s %s %s %s\\n' " + quote(generation) + " " + quote(owner.pid.toString()) +
+                " " + quote(owner.startTime) + " \"\$boot_id\" > " + quote(temporary),
+            "mv -f " + quote(temporary) + " " + quote(ownerRecord),
+        ).joinToString("\n")
+    }
+
+    fun start(cleanup: String, launch: String, owner: RootOwnerIdentity? = null): String {
         val temporary = "$record.$generation.tmp"
         return listOf(
             "set -eu",
@@ -81,6 +103,7 @@ internal class RootLifecycleTransaction(
                 migrationStartup(listOf(
                     "printf '%s\\n' " + quote(generation) + " > " + quote(temporary),
                     "mv -f " + quote(temporary) + " " + quote(record),
+                    publishOwner(owner),
                     // Cleanup may set shell options or exit explicitly.
                     "(\n$cleanup\n) || exit 1",
                     launch,
@@ -111,6 +134,7 @@ internal class RootLifecycleTransaction(
             // PID record only after successful cleanup, before releasing
             // generation ownership. A failed removal remains retryable.
             if (condition != null) "rm -f " + quote("$directory/watch.pid") + " || exit 1" else ":",
+            "rm -f " + quote(ownerRecord) + " || exit 1",
             "rm -f " + quote(record) + " || exit 1",
         ).joinToString("\n")),
     ).joinToString("\n")
