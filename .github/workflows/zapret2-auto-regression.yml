@@ -42,6 +42,11 @@ jobs:
         run: python3 tools/xray/check_cgo_exports.py && python3 tools/xray/check_native_inputs.py && python3 tools/xray/native.py check-packages
       - name: Compile and test pinned ByeDPI packet module on host
         run: bash tools/localdpi/check_byedpi_packets.sh
+      - name: Test ROOT pidfd identity and exit on Linux
+        run: |
+          set -euo pipefail
+          cc -std=c11 -Wall -Wextra -Werror -O2 -Itools/localdpi tools/localdpi/root_pidfd.c tools/localdpi/tests/root_pidfd_test.c -o "$RUNNER_TEMP/root-pidfd-test"
+          "$RUNNER_TEMP/root-pidfd-test"
       - name: Compare Go and native TLS encoders
         working-directory: tools/xray
         run: CGO_ENABLED=1 go test -a -count=1 -tags localdpi_native ./localdpi/native ./zapret2

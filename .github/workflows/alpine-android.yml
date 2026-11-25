@@ -80,6 +80,14 @@ jobs:
           test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0" "ndk;30.0.16248370" "cmake;3.22.1"
+      - name: Cross-compile experimental ROOT pidfd primitive for Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="$ANDROID_HOME/ndk/30.0.16248370/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          for target in aarch64-linux-android26 armv7a-linux-androideabi26 x86_64-linux-android26; do
+            "$bin/$target-clang" -std=c11 -Wall -Wextra -Werror -c tools/localdpi/root_pidfd.c -o "$RUNNER_TEMP/root-pidfd-$target.o"
+          done
       - name: Build pinned original ByeDPI for Android ARM64
         run: python3 tools/byedpi/build_android.py --ndk "$ANDROID_HOME/ndk/30.0.16248370" --abis arm64-v8a
       - name: Cross-link opt-in native DPI library for Android ARM64
