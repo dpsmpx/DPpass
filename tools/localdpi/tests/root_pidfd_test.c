@@ -119,7 +119,22 @@ static void test_script(const char *boot) {
     free(shell);
 }
 
+static void test_namespace_status(void) {
+    assert(dppass_pidfd_namespace_status("Name:\tfixture\nNSpid:\t123\nThreads:\t1\n", 123));
+    assert(dppass_pidfd_namespace_status("NSpid: 123\t", 123));
+    assert(!dppass_pidfd_namespace_status("NSpid:\t456\t123\n", 123));
+    assert(!dppass_pidfd_namespace_status("NSpid:\t123\t123\n", 123));
+    assert(!dppass_pidfd_namespace_status("NSpid:\t1234\n", 123));
+    assert(!dppass_pidfd_namespace_status("NSpid:\t0123\n", 123));
+    assert(!dppass_pidfd_namespace_status("NSpid:123\n", 123));
+    assert(!dppass_pidfd_namespace_status("NSpid:\t123\nNSpid:\t123\n", 123));
+    assert(!dppass_pidfd_namespace_status("Pid:\t123\n", 123));
+    assert(!dppass_pidfd_namespace_status("Name:\tNSpid: 123\n", 123));
+    assert(!dppass_pidfd_namespace_status(NULL, 123));
+}
+
 int main(void) {
+    test_namespace_status();
     assert(dppass_pidfd_probe() == DPPASS_PIDFD_EXITED);
     char boot[64], exe[4096];
     FILE *f = fopen("/proc/sys/kernel/random/boot_id", "r");

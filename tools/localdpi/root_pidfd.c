@@ -9,11 +9,41 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/syscall.h>
+#include <sys/vfs.h>
 #include <unistd.h>
 
 #if defined(DPPASS_REQUIRE_PIDFD_SYSCALLS) && (!defined(SYS_pidfd_open) || !defined(SYS_pidfd_send_signal))
 #error "NDK headers must expose both pidfd syscall numbers"
 #endif
+
+/* NSpid is relative to the PID namespace of the procfs mount. A
+ * single value equal to getpid() establishes a same-namespace view.
+ * Reject nested views even if the outer and inner numeric PIDs coincide. */
+int dppass_pidfd_namespace_status(const char *status, pid_t pid) {
+    if (!status || pid <= 0) return 0;
+    char expected[32];
+    int length = snprintf(expected, sizeof(expected), "%ld", (long)pid);
+    if (length <= 0 || (size_t)length >= sizeof(expected)) return 0;
+    int found = 0;
+    for (const char *line = status; *line;) {
+        const char *end = strchr(line, '\n');
+        if (!end) end = line + strlen(line);
+        if ((size_t)(end - line) >= 6 && memcmp(line, "NSpid:", 6) == 0) {
+            if (found) return 0;
+            const char *p = line + 6;
+            if (p == end || (*p != ' ' && *p != '\t')) return 0;
+            while (p < end && (*p == ' ' || *p == '\t')) ++p;
+            if ((size_t)(end - p) < (size_t)length ||
+                memcmp(p, expected, (size_t)length) != 0) return 0;
+            p += length;
+            while (p < end && (*p == ' ' || *p == '\t')) ++p;
+            if (p != end) return 0;
+            found = 1;
+        }
+        line = *end ? end + 1 : end;
+    }
+    return found;
+}
 
 #if defined(SYS_pidfd_open) && defined(SYS_pidfd_send_signal)
 static ssize_t read_bytes(const char *path, char *buf, size_t capacity) {
@@ -36,6 +66,25 @@ static int read_text(const char *path, char *buf, size_t capacity) {
     ssize_t n = read_bytes(path, buf, capacity);
     if (n < 0 || memchr(buf, '\0', (size_t)n)) return -1;
     return 0;
+}
+
+/* The caller uses a trusted host /proc, not an arbitrary filesystem.
+ * Check the procfs superblock, self link and namespace-relative PID list
+ * before interpreting any numeric PID or claiming ESRCH proves absence.
+ * An inaccessible or missing NSpid field fails closed. */
+static int proc_namespace_matches(void) {
+    struct statfs fs;
+    if (statfs("/proc", &fs) != 0 || (unsigned long)fs.f_type != 0x9fa0UL)
+        return 0;
+    pid_t pid = getpid();
+    char expected[32], actual[64], status[16384];
+    int length = snprintf(expected, sizeof(expected), "%ld", (long)pid);
+    ssize_t n = readlink("/proc/self", actual, sizeof(actual));
+    if (length <= 0 || (size_t)length >= sizeof(expected) ||
+        n != (ssize_t)length || memcmp(actual, expected, (size_t)length) != 0)
+        return 0;
+    return read_text("/proc/self/status", status, sizeof(status)) == 0 &&
+        dppass_pidfd_namespace_status(status, pid);
 }
 
 static int valid_boot_id(const char *s) {
@@ -136,6 +185,7 @@ static enum dppass_pidfd_result stop_child(
         (script && script[0] != '/') || timeout_ms < 0 || timeout_ms > 5000)
         return DPPASS_PIDFD_UNPROVEN;
 #if defined(SYS_pidfd_open) && defined(SYS_pidfd_send_signal)
+    if (!proc_namespace_matches()) return DPPASS_PIDFD_UNPROVEN;
     // Pin the task before reading any numeric-PID proc identity.
     int fd = (int)syscall(SYS_pidfd_open, pid, 0);
     if (fd < 0)
@@ -182,6 +232,7 @@ enum dppass_pidfd_result dppass_pidfd_stop_script(
 
 enum dppass_pidfd_result dppass_pidfd_probe(void) {
 #if defined(SYS_pidfd_open) && defined(SYS_pidfd_send_signal)
+    if (!proc_namespace_matches()) return DPPASS_PIDFD_UNPROVEN;
     int fd = (int)syscall(SYS_pidfd_open, getpid(), 0);
     if (fd < 0) return errno == ENOSYS ? DPPASS_PIDFD_UNSUPPORTED : DPPASS_PIDFD_UNPROVEN;
     // Signal zero checks availability/permission without delivering a signal.
@@ -198,7 +249,7 @@ enum dppass_pidfd_result dppass_pidfd_probe(void) {
 enum dppass_pidfd_result dppass_pidfd_absent(pid_t pid, const char *boot_id) {
     if (pid <= 1 || !boot_id) return DPPASS_PIDFD_UNPROVEN;
 #if defined(SYS_pidfd_open) && defined(SYS_pidfd_send_signal)
-    if (!boot_matches(boot_id)) return DPPASS_PIDFD_UNPROVEN;
+    if (!proc_namespace_matches() || !boot_matches(boot_id)) return DPPASS_PIDFD_UNPROVEN;
     int fd = (int)syscall(SYS_pidfd_open, pid, 0);
     if (fd < 0) {
         if (errno == ESRCH) return DPPASS_PIDFD_EXITED;
@@ -220,7 +271,7 @@ enum dppass_pidfd_result dppass_pidfd_absent(pid_t pid, const char *boot_id) {
 enum dppass_pidfd_result dppass_pidfd_gone(pid_t pid, uint64_t ticks, const char *boot_id) {
     if (pid <= 1 || !boot_id) return DPPASS_PIDFD_UNPROVEN;
 #if defined(SYS_pidfd_open) && defined(SYS_pidfd_send_signal)
-    if (!boot_matches(boot_id)) return DPPASS_PIDFD_UNPROVEN;
+    if (!proc_namespace_matches() || !boot_matches(boot_id)) return DPPASS_PIDFD_UNPROVEN;
     int fd = (int)syscall(SYS_pidfd_open, pid, 0);
     if (fd < 0) {
         if (errno == ESRCH) return DPPASS_PIDFD_EXITED;
