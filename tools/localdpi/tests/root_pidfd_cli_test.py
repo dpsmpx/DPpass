@@ -15,6 +15,10 @@ def expect(args, code, output):
 
 
 expect(["--version"], 0, "dppass-root-pidfd/1")
+expect(["probe"], 0, "supported")
+expect(["absent", "1", boot], 64, "invalid_arguments")
+expect(["absent", "2", "unknown"], 64, "invalid_arguments")
+expect(["absent", str(os.getpid()), boot], 2, "unproven")
 expect([], 64, "invalid_arguments")
 expect(["--version", "extra"], 64, "invalid_arguments")
 child = subprocess.Popen(["/bin/sleep", "30"])
@@ -24,6 +28,8 @@ try:
     ticks = stat.rsplit(") ", 1)[1].split()[19]
     exe = os.readlink(f"/proc/{pid}/exe")
     args = ["stop-executable", pid, ticks, boot, exe, "2000"]
+    expect(["absent", pid, boot], 2, "unproven")
+    assert child.poll() is None
     for index, bad in [
         (1, "1"), (1, "0" + pid), (1, "+2"), (1, "2147483648"),
         (2, "-1"), (2, "18446744073709551616"), (2, "00"),
@@ -42,7 +48,13 @@ try:
         expect(altered, 2, "unproven")
         assert child.poll() is None
     expect(args, 0, "exited")
+    # Before wait(), the task is dead and may still be a zombie.
+    expect(["absent", pid, boot], 0, "exited")
     assert child.wait(timeout=3) == -15
+    # The test's reaped PID is normally absent. If reused immediately,
+    # the helper must conservatively refuse to declare it absent.
+    result = subprocess.run([helper, "absent", pid, boot], capture_output=True, text=True, timeout=7)
+    assert (result.returncode, result.stdout) in [(0, "exited\n"), (2, "unproven\n")]
 finally:
     if child.poll() is None:
         child.kill()

@@ -172,3 +172,35 @@ enum dppass_pidfd_result dppass_pidfd_stop_script(
     if (!script) return DPPASS_PIDFD_UNPROVEN;
     return stop_child(pid, start_ticks, boot_id, interpreter, script, timeout_ms);
 }
+
+enum dppass_pidfd_result dppass_pidfd_probe(void) {
+#if defined(SYS_pidfd_open) && defined(SYS_pidfd_send_signal)
+    int fd = (int)syscall(SYS_pidfd_open, getpid(), 0);
+    if (fd < 0) return errno == ENOSYS ? DPPASS_PIDFD_UNSUPPORTED : DPPASS_PIDFD_UNPROVEN;
+    // Signal zero checks availability/permission without delivering a signal.
+    int status = (int)syscall(SYS_pidfd_send_signal, fd, 0, NULL, 0);
+    int error = errno;
+    close(fd);
+    if (status == 0) return DPPASS_PIDFD_EXITED;
+    return error == ENOSYS ? DPPASS_PIDFD_UNSUPPORTED : DPPASS_PIDFD_UNPROVEN;
+#else
+    return DPPASS_PIDFD_UNSUPPORTED;
+#endif
+}
+
+enum dppass_pidfd_result dppass_pidfd_absent(pid_t pid, const char *boot_id) {
+    if (pid <= 1 || !boot_id) return DPPASS_PIDFD_UNPROVEN;
+#if defined(SYS_pidfd_open) && defined(SYS_pidfd_send_signal)
+    if (!boot_matches(boot_id)) return DPPASS_PIDFD_UNPROVEN;
+    int fd = (int)syscall(SYS_pidfd_open, pid, 0);
+    if (fd < 0) {
+        if (errno == ESRCH) return DPPASS_PIDFD_EXITED;
+        return errno == ENOSYS ? DPPASS_PIDFD_UNSUPPORTED : DPPASS_PIDFD_UNPROVEN;
+    }
+    int status = exited(fd, 0);
+    close(fd);
+    return status == 1 ? DPPASS_PIDFD_EXITED : DPPASS_PIDFD_UNPROVEN;
+#else
+    return DPPASS_PIDFD_UNSUPPORTED;
+#endif
+}

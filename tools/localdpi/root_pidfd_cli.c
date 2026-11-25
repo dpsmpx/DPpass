@@ -48,7 +48,28 @@ static int invalid(void) {
     return 64;
 }
 
+static int report(enum dppass_pidfd_result result) {
+    switch (result) {
+        case DPPASS_PIDFD_EXITED: puts("exited"); return 0;
+        case DPPASS_PIDFD_UNSUPPORTED: puts("unsupported"); return 1;
+        case DPPASS_PIDFD_UNPROVEN: puts("unproven"); return 2;
+        case DPPASS_PIDFD_TIMEOUT: puts("timeout"); return 3;
+        default: puts("unproven"); return 2;
+    }
+}
+
 int main(int argc, char **argv) {
+    if (argc == 2 && strcmp(argv[1], "probe") == 0) {
+        enum dppass_pidfd_result result = dppass_pidfd_probe();
+        if (result == DPPASS_PIDFD_EXITED) { puts("supported"); return 0; }
+        return report(result);
+    }
+    if (argc == 4 && strcmp(argv[1], "absent") == 0) {
+        uint64_t pid;
+        if (!decimal(argv[2], INT32_MAX, &pid) || pid <= 1 || !boot_valid(argv[3]))
+            return invalid();
+        return report(dppass_pidfd_absent((pid_t)pid, argv[3]));
+    }
     if (argc == 2 && strcmp(argv[1], "--version") == 0) {
         puts("dppass-root-pidfd/1");
         return 0;
@@ -70,11 +91,5 @@ int main(int argc, char **argv) {
     enum dppass_pidfd_result result = script
         ? dppass_pidfd_stop_script((pid_t)pid, ticks, argv[4], argv[5], argv[6], (int)timeout)
         : dppass_pidfd_stop_executable((pid_t)pid, ticks, argv[4], argv[5], (int)timeout);
-    switch (result) {
-        case DPPASS_PIDFD_EXITED: puts("exited"); return 0;
-        case DPPASS_PIDFD_UNSUPPORTED: puts("unsupported"); return 1;
-        case DPPASS_PIDFD_UNPROVEN: puts("unproven"); return 2;
-        case DPPASS_PIDFD_TIMEOUT: puts("timeout"); return 3;
-        default: puts("unproven"); return 2;
-    }
+    return report(result);
 }

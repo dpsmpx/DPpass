@@ -120,6 +120,7 @@ static void test_script(const char *boot) {
 }
 
 int main(void) {
+    assert(dppass_pidfd_probe() == DPPASS_PIDFD_EXITED);
     char boot[64], exe[4096];
     FILE *f = fopen("/proc/sys/kernel/random/boot_id", "r");
     assert(f && fgets(boot, sizeof(boot), f));

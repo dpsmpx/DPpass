@@ -27,4 +27,12 @@ enum dppass_pidfd_result dppass_pidfd_stop_script(
     pid_t pid, uint64_t start_ticks, const char *boot_id,
     const char *interpreter, const char *script, int timeout_ms);
 
+// Probe availability with a self pidfd and signal zero, not TERM.
+// EXITED (=0) denotes a successful capability probe here.
+enum dppass_pidfd_result dppass_pidfd_probe(void);
+
+// No-signal same-boot absence/death check; caller validates persisted PID,
+// generation and boot. A live task, including a reused PID, is unproven.
+enum dppass_pidfd_result dppass_pidfd_absent(pid_t pid, const char *boot_id);
+
 #endif
