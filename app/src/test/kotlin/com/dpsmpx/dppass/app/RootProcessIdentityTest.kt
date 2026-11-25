@@ -183,6 +183,44 @@ class RootProcessIdentityTest {
         }
     }
 
+
+    @Test fun lockOpenFailureNeverRunsTransactionBody() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-root-lock-failure")
+        val marker = dir.resolve("ran").toFile()
+        try {
+            val result = RootCommandRunner.run(listOf("/bin/sh", "-c", RootProcessIdentity.lockedTransaction(
+                dir.resolve("missing-parent").resolve("lock").toString(),
+                "echo ran > '${marker.path}'",
+            )), timeoutMillis = 5_000)
+            assertFalse(result.exitCode == 0)
+            assertFalse(marker.exists())
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun failedTransactionReturnsOriginalStatusAndReleasesLock() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-root-lock-status")
+        val lock = dir.resolve("lock with space").toString()
+        try {
+            fun run(body: String) = RootCommandRunner.run(
+                listOf("/bin/sh", "-c", RootProcessIdentity.lockedTransaction(lock, body, 1)),
+                timeoutMillis = 5_000,
+            )
+            val failed = run("echo cleanup_failed; exit 7")
+            assertEquals(7, failed.exitCode)
+            assertTrue(failed.outputTail.contains("cleanup_failed"))
+            assertEquals(0, run(":").exitCode)
+            assertTrue(File(lock).isFile)
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun lockAndGenerationGuardRejectInvalidInputs() {
         val invalidTimeout = runCatching { RootProcessIdentity.lockedTransaction("/tmp/lock", ":", 0) }
         assertTrue(invalidTimeout.isFailure)

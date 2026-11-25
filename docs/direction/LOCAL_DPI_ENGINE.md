@@ -480,3 +480,7 @@ CI 5e8aa06: Go/Linux/Windows #45579110391 and Android #45579099828 succeeded. Ro
 ## A3/A5 — prevent lock descriptor inheritance in detached ROOT children
 
 CI 3a1023b: Go/Linux/Windows #45580876760 and Android #45580869312 succeeded. Both ROOT adapters now build all daemon/watchdog launches via detachedCommand; standard stream redirections and background PID capture remain unchanged, and fd 9 is closed in the child. Host fixture launches a bounded harmless shell child inside a flock transaction and verifies another transaction can acquire the lock while the child is still running. This is preparatory integration: no lifecycle lock is yet acquired by production ROOT adapters, and no firewall/strategy changes were made. Android shell/flock compatibility, full transaction integration, legacy watchdog migration and physical ROOT verification remain pending.
+
+## A3/A5 — verify shell lock error paths
+
+CI 7f05683: Go/Linux/Windows #45582201022 and Android #45582192979 succeeded. Added host shell regression fixtures for missing lock-file parent (transaction body must not execute), nonzero transaction exit propagation and subsequent lock reacquisition including a path with spaces. Lock-file open failure is explicitly fail-closed; POSIX shells may emit their own redirection diagnostic before the custom message. Production adapters still do not acquire the lifecycle lock; this step validates error semantics without changing privileged network operations. Device flock compatibility and migration from old watchdogs remain unverified. New CI pending.

@@ -82,14 +82,16 @@ internal object RootProcessIdentity {
             "(",
             "umask 077",
             "command -v flock >/dev/null 2>&1 || { echo 'ROOT: flock unavailable'; exit 1; }",
-            "exec 9>>" + quote(lockFile) + " || exit 1",
+            // A POSIX shell may exit immediately on a special-builtin
+            // redirection failure; in either case the body must not run.
+            "exec 9>>" + quote(lockFile) + " || { echo 'ROOT: lifecycle lock file unavailable'; exit 1; }",
             "flock -x -w $waitSeconds 9 || { echo 'ROOT: lifecycle lock unavailable'; exit 1; }",
             body,
             ")",
         ).joinToString("\n")
     }
 
-/** A long-lived child must not inherit the lifecycle lock descriptor.
+    /** A long-lived child must not inherit the lifecycle lock descriptor.
      * Preserve the child PID ($!) and keep all standard streams detached.
      * The command is already shell-quoted by the caller.
      */
