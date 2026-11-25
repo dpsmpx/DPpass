@@ -125,7 +125,7 @@ internal class RootLifecycleTransaction(
 
     // Publish a data-only record tied to the generation under the same lock.
     // An unavailable boot ID is explicitly unknown; it is not proof of death.
-    private fun publishOwner(owner: RootOwnerIdentity?): String {
+    private fun stageOwner(owner: RootOwnerIdentity?): String {
         if (owner == null) return ":"
         val temporary = "$ownerRecord.$generation.tmp"
         return listOf(
@@ -133,7 +133,6 @@ internal class RootLifecycleTransaction(
             "test -n \"\$boot_id\" || boot_id=unknown",
             "printf '%s %s %s %s\\n' " + quote(generation) + " " + quote(owner.pid.toString()) +
                 " " + quote(owner.startTime) + " \"\$boot_id\" > " + quote(temporary),
-            "mv -f " + quote(temporary) + " " + quote(ownerRecord),
         ).joinToString("\n")
     }
 
@@ -153,9 +152,13 @@ internal class RootLifecycleTransaction(
                 "chmod 700 " + quote(directory),
                 migrationStartup(listOf(
                     metadataCheck(record, ownerRecord, temporary, "$ownerRecord.$generation.tmp"),
+                    // Stage both records before replacing either committed file.
+                    // Failure while preparing metadata leaves the old owner intact.
                     "printf '%s\\n' " + quote(generation) + " > " + quote(temporary),
+                    stageOwner(owner),
                     "mv -f " + quote(temporary) + " " + quote(record),
-                    publishOwner(owner),
+                    if (owner != null) "mv -f " + quote("$ownerRecord.$generation.tmp") +
+                        " " + quote(ownerRecord) else ":",
                     // Cleanup may set shell options or exit explicitly.
                     "(\n$cleanup\n) || exit 1",
                     launch,
@@ -177,7 +180,13 @@ internal class RootLifecycleTransaction(
         "test -d " + quote(directory) + " || exit 0",
         transaction(listOf(
             metadataCheck(record),
-            "test -e " + quote(record) + " || exit 0",
+            // A missing generation with leftover owner metadata is ambiguous,
+            // not proof that cleanup finished. Preserve it for reconciliation.
+            "if ! test -e " + quote(record) + "; then",
+            "test ! -e " + quote(ownerRecord) + " && test ! -L " + quote(ownerRecord) +
+                " || { echo 'ROOT: unmatched owner metadata remains'; exit 1; }",
+            "exit 0",
+            "fi",
             "current=\$(cat " + quote(record) + ") || exit 1",
             "test \"\$current\" = " + quote(generation) + " || exit 0",
             metadataCheck(ownerRecord),

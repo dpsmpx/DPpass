@@ -770,6 +770,71 @@ class RootProcessIdentityTest {
         }
     }
 
+    @Test fun interruptedOwnerMetadataPreparationPreservesCommittedGeneration() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-owner-stage-failure")
+        val first = RootLifecycleTransaction(dir.toString(), "first")
+        val next = RootLifecycleTransaction(dir.toString(), "next")
+        val record = dir.resolve("generation").toFile()
+        val identity = dir.resolve("owner.identity").toFile()
+        val marker = dir.resolve("action").toFile()
+        fun run(script: String) = RootCommandRunner.run(
+            listOf("/bin/sh", "-c", script), timeoutMillis = 10_000,
+        )
+        try {
+            val owner = RootOwnerIdentity(123, "456")
+            assertEquals(0, run(first.start(":", ":", owner)).exitCode)
+            val original = identity.readText()
+            // Simulate failure of the owner staging write, without privileged
+            // files or relying on chmod to deny a privileged test runner.
+            val startup = next.start("echo cleanup > '${marker.path}'", "echo launch > '${marker.path}'", owner)
+            val failure = run("printf() { if test \"\$1\" = '%s %s %s %s\\n'; then return 7; fi; command printf \"\$@\"; }\n" + startup)
+            assertFalse(failure.exitCode == 0)
+            assertEquals("first", record.readText().trim())
+            assertEquals(original, identity.readText())
+            assertFalse(marker.exists())
+            assertEquals(0, run(next.stop("exit 7")).exitCode)
+            assertEquals(original, identity.readText())
+            assertEquals(0, run(first.stop(":")).exitCode)
+            assertFalse(identity.exists())
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun missingGenerationWithOwnerMetadataDoesNotReportSuccessfulCleanup() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-owner-unmatched")
+        val lifecycle = RootLifecycleTransaction(dir.toString(), "owner")
+        val record = dir.resolve("generation").toFile()
+        val identity = dir.resolve("owner.identity").toFile()
+        val marker = dir.resolve("action").toFile()
+        fun run(script: String) = RootCommandRunner.run(
+            listOf("/bin/sh", "-c", script), timeoutMillis = 10_000,
+        )
+        try {
+            assertEquals(0, run(lifecycle.start(":", ":", RootOwnerIdentity(123, "456"))).exitCode)
+            val saved = identity.readText()
+            assertTrue(record.delete())
+            val cleanup = "echo cleanup > '${marker.path}'"
+            val stop = run(lifecycle.stop(cleanup))
+            assertFalse(stop.exitCode == 0)
+            assertTrue(stop.outputTail.contains("unmatched owner metadata remains"))
+            assertFalse(run(lifecycle.watchdogPoll("false", cleanup)).exitCode == 0)
+            assertEquals(saved, identity.readText())
+            assertFalse(marker.exists())
+            record.writeText("owner\n")
+            assertEquals(0, run(lifecycle.stop(cleanup)).exitCode)
+            assertTrue(marker.exists())
+            assertFalse(identity.exists())
+            assertFalse(record.exists())
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun lockAndGenerationGuardRejectInvalidInputs() {
         val invalidTimeout = runCatching { RootProcessIdentity.lockedTransaction("/tmp/lock", ":", 0) }
         assertTrue(invalidTimeout.isFailure)
