@@ -22,7 +22,7 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
                 writeText(hosts.format() + "\n")
             }
             execute(cleanup())
-            try {
+            rootLaunchWithRollback(launch = {
                 val args = if (hosts.isEmpty) ByeDpiRuntime.strategy
                     else ByeDpiRuntime.strategy + listOf("--hosts", "$ROOT/hosts", "--auto=none")
                 fun command(address: String) = (listOf("$ROOT/ciadpi", "--ip", address, "--port", PORT.toString(),
@@ -49,10 +49,7 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
                     "pid=$!", "echo \"\$pid\" > " + quote("$ROOT/pid6"), "sleep 1", RootProcessIdentity.executableAlive("$ROOT/pid6", "$ROOT/ciadpi"),
                     "ip6tables -t nat -I OUTPUT " + RULE, "ip6tables -t nat -C OUTPUT " + RULE,
                     "fi").joinToString("\n"))
-            } catch (e: Exception) {
-                runCatching { execute(cleanup()) }
-                throw e
-            }
+            }, rollback = { execute(cleanup()) })
         }
     }
 

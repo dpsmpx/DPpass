@@ -444,3 +444,7 @@ CI 83c7c0d: Go/Linux/Windows #45566942468 passed; Android #45566933130 failed at
 ## A3/A5 — coroutine exception assertion CI fix
 
 CI bc1b0d7: Go/Linux/Windows #45567617213 passed; Android #45567608307 compiled successfully, then 100/101 app JVM tests passed. The failing acceptanceExceptionStillRollsBack fixture compared exception references across a suspend boundary. Coroutine stack recovery may copy the exception; the fixture now asserts exact exception class and message and retains the exactly-once rollback assertion. The exact failing assertion details were not exposed by the job log. No production behavior, compiler settings or test count changed. New CI pending.
+
+## A3/A5 — report incomplete startup rollback
+
+CI 7b18897: Go/Linux/Windows #45568330800 and Android #45568323807 succeeded. RootZapret2 and RootByeDpi share rootLaunchWithRollback for the launch transaction: launch failure with successful rollback preserves the original exception; failed rollback reports an explicit cleanup failure while retaining the original cause and suppressed cleanup exception. Initial cleanup remains outside the launch transaction. Three JVM tests exercise success, successful rollback and failed rollback without privileged operations. No shell commands, firewall rules, network strategies or ordinary VPN changed. This improves error reporting, not cleanup atomicity or inter-process ownership; physical ROOT tests and new CI remain pending.

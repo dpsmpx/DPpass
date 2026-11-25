@@ -33,6 +33,36 @@ class RootDpiRuntimeTest {
         override suspend fun alive() = true
     }
 
+    @Test fun successfulLaunchDoesNotRollBack() {
+        var launches = 0
+        var rollbacks = 0
+        rootLaunchWithRollback({ launches++ }, { rollbacks++ })
+        assertEquals(1, launches)
+        assertEquals(0, rollbacks)
+    }
+
+    @Test fun failedLaunchPreservesErrorAfterSuccessfulRollback() {
+        val startup = IllegalStateException("start failed")
+        var rollbacks = 0
+        val result = runCatching {
+            rootLaunchWithRollback({ throw startup }, { rollbacks++ })
+        }
+        assertTrue(result.exceptionOrNull() === startup)
+        assertEquals(1, rollbacks)
+    }
+
+    @Test fun failedLaunchReportsFailedRollbackWithoutLosingOriginalCause() {
+        val startup = IllegalStateException("start failed")
+        val cleanup = IllegalStateException("cleanup failed")
+        val result = runCatching {
+            rootLaunchWithRollback({ throw startup }, { throw cleanup })
+        }
+        val actual = result.exceptionOrNull()
+        assertEquals("start failed; ROOT cleanup failed", actual?.message)
+        assertTrue(actual?.cause === startup)
+        assertEquals(listOf(cleanup), actual?.suppressed?.toList())
+    }
+
     @Test fun declinedOwnershipRollsBackAfterSuccessfulStart() = runBlocking {
         val owner = Job()
         val runtime = Fake(duringStart = { owner.cancel() })

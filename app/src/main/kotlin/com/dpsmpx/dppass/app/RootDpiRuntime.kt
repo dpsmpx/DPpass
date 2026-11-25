@@ -26,3 +26,25 @@ internal suspend fun RootDpiRuntime.startAndAccept(
         if (!accepted) runCatching { stop().getOrThrow() }.onFailure(onRollbackFailure)
     }
 }
+
+/** Preserve the startup error, but make failed compensating cleanup visible.
+ * Initial cleanup is deliberately outside this transaction: if it fails, do
+ * not attempt to launch another daemon.
+ */
+internal fun rootLaunchWithRollback(launch: () -> Unit, rollback: () -> Unit) {
+    try {
+        launch()
+    } catch (startup: Exception) {
+        try {
+            rollback()
+        } catch (cleanup: Exception) {
+            val failure = IllegalStateException(
+                (startup.message ?: "ROOT startup failed") + "; ROOT cleanup failed",
+                startup,
+            )
+            failure.addSuppressed(cleanup)
+            throw failure
+        }
+        throw startup
+    }
+}
