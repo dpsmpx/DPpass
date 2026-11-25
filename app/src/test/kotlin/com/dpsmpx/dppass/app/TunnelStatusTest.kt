@@ -20,6 +20,16 @@ class TunnelStatusTest {
     }
 
     @Test
+    fun rootCleanupFailureRequiresDisconnectWithoutClaimingTunBlock() {
+        val reason = Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE, "ROOT cleanup failed")
+        val pending = TunnelStatus.Failed(reason, rootCleanupPending = true)
+        assertTrue(pending.busy)
+        assertFalse(pending.trafficBlocked)
+        assertTrue(TunnelStatus.Failed(reason, trafficBlocked = true).busy)
+        assertFalse(pending.copy(rootCleanupPending = false).busy)
+    }
+
+    @Test
     fun stateIsShared() {
         TunnelState.set(TunnelStatus.Connecting("A"))
         assertEquals(TunnelStatus.Connecting("A"), TunnelState.status.value)

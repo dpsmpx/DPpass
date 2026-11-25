@@ -1616,8 +1616,12 @@ class DPpassVpnService : VpnService() {
     }
 
     private fun reportRootCleanupFailure() {
-        fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
-            "Не удалось завершить очистку ROOT; повторите остановку"))
+        val reason = Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
+            "Не удалось завершить очистку ROOT; повторите остановку")
+        AppGraph.core(this).log.diagnostic(reason)
+        // Keep the existing foreground service and its ROOT owner available
+        // for a retry via the power button, quick settings or notification.
+        progress(TunnelStatus.Failed(reason, trafficBlocked = tunnel.present, rootCleanupPending = true))
     }
 
     private suspend fun shutdown(keepTunnel: Boolean = false): Boolean {
@@ -1709,9 +1713,14 @@ class DPpassVpnService : VpnService() {
         val failed = TunnelState.status.value as? TunnelStatus.Failed
         AppGraph.scope.launch {
             val cleaned = lifecycle.withLock { shutdown() }
-            if (cleaned && failed?.trafficBlocked == true && TunnelState.status.value === failed) {
-                TunnelState.set(failed.copy(trafficBlocked = false))
-                announce()
+            if (cleaned && failed != null && TunnelState.status.value === failed) {
+                if (failed.rootCleanupPending) {
+                    TunnelState.set(TunnelStatus.Idle)
+                    announce()
+                } else if (failed.trafficBlocked) {
+                    TunnelState.set(failed.copy(trafficBlocked = false))
+                    announce()
+                }
             }
         }
         // Без туннеля вопрос о сбое сервера (D-58) ни к чему.

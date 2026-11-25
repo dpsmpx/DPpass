@@ -295,7 +295,7 @@ class ConnectScreen(host: Host) : Screen(host) {
             when {
                 status is TunnelStatus.Connected -> PowerButton.Mode.CONNECTED
                 status is TunnelStatus.Connecting -> PowerButton.Mode.CONNECTING
-                status is TunnelStatus.Failed && status.trafficBlocked -> PowerButton.Mode.FAILED
+                status is TunnelStatus.Failed && status.busy -> PowerButton.Mode.FAILED
                 status is TunnelStatus.Failed && canConnect -> PowerButton.Mode.FAILED
                 status == TunnelStatus.Stopping || !canConnect -> PowerButton.Mode.DISABLED
                 else -> PowerButton.Mode.OFF

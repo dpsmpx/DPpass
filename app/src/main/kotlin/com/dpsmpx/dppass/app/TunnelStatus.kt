@@ -29,11 +29,17 @@ sealed interface TunnelStatus {
 
     data object Stopping : TunnelStatus
 
-    /** Отказ; при [trafficBlocked] TUN сохранён до явного отключения (D-111). */
-    data class Failed(val reason: Diagnostic, val trafficBlocked: Boolean = false) : TunnelStatus
+    /** Отказ; при [trafficBlocked] TUN сохранён до явного отключения (D-111).
+     * [rootCleanupPending] means ROOT cleanup failed, not that TUN is blocking traffic.
+     */
+    data class Failed(
+        val reason: Diagnostic,
+        val trafficBlocked: Boolean = false,
+        val rootCleanupPending: Boolean = false,
+    ) : TunnelStatus
 
     /** Туннель есть или поднимается: кнопка экрана — «Отключить», выбор сервера — переподключение. */
-    val busy: Boolean get() = this is Connecting || this is Connected || (this is Failed && trafficBlocked)
+    val busy: Boolean get() = this is Connecting || this is Connected || (this is Failed && (trafficBlocked || rootCleanupPending))
 }
 
 /** Трафик сессии (D-40): итоги с подключения и скорость по счётчикам ядра. */
