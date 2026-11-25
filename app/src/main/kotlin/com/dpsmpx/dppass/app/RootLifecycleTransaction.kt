@@ -124,39 +124,14 @@ internal class RootLifecycleTransaction(
             " || { echo 'ROOT: invalid lifecycle metadata file type'; exit 1; }"
 
 
-    // A second rename can fail after generation was published. A mismatched
-    // owner record must never authorize health or matching-generation cleanup.
-    // Absence of owner metadata remains compatible with generation-only builds.
-    private fun ownerMetadataMatches(): String = listOf(
-        "(",
-        "set -f",
-        "if test ! -e " + quote(ownerRecord) + " && test ! -L " + quote(ownerRecord) + "; then",
-        // An unpublished matching staging file distinguishes an interrupted
-        // initial publication from a generation-only legacy record.
-        "test ! -e " + quote("$ownerRecord.$generation.tmp") + " && test ! -L " +
-            quote("$ownerRecord.$generation.tmp") + " || exit 1",
-        "exit 0",
-        "fi",
-        "test -f " + quote(ownerRecord) + " && test ! -L " + quote(ownerRecord) + " || exit 1",
-        "owner_data=\$(cat " + quote(ownerRecord) + " 2>/dev/null) || exit 1",
-        "set -- \$owner_data",
-        "test \"\$#\" -eq 4 && test \"\$1\" = " + quote(generation) + " || exit 1",
-        "case \"\$2\" in ''|0*|*[!0-9]*) exit 1 ;; esac",
-        "test \"\$2\" -gt 1 2>/dev/null && test \"\$2\" -le 2147483647 2>/dev/null || exit 1",
-        "case \"\$3\" in ''|*[!0-9]*) exit 1 ;; esac",
-        "test \"\$4\" = unknown || printf '%s\\n' \"\$4\" | grep -Eq '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\$'",
-        ")",
-    ).joinToString("\n")
-
-    // Publish a data-only record tied to the generation under the same lock.
-    // An unavailable boot ID is explicitly unknown; it is not proof of death.
-    private fun stageOwner(owner: RootOwnerIdentity?): String {
-        if (owner == null) return ":"
-        val temporary = "$ownerRecord.$generation.tmp"
+    // Stage the entire V2 record in the same directory and publish with
+    // one rename. Generation-only fixtures/legacy callers remain supported.
+    private fun stageGeneration(temporary: String, owner: RootOwnerIdentity?): String {
+        if (owner == null) return "printf '%s\\n' " + quote(generation) + " > " + quote(temporary)
         return listOf(
-            "boot_id=\$(cat /proc/sys/kernel/random/boot_id 2>/dev/null) || boot_id=unknown",
-            "test -n \"\$boot_id\" || boot_id=unknown",
-            "printf '%s %s %s %s\\n' " + quote(generation) + " " + quote(owner.pid.toString()) +
+            "boot_id=\$(cat " + quote("$procRoot/sys/kernel/random/boot_id") + " 2>/dev/null) || boot_id=unknown",
+            "printf '%s\\n' \"\$boot_id\" | grep -Eq '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\$' || boot_id=unknown",
+            "printf 'v2 %s %s %s %s\\n' " + quote(generation) + " " + quote(owner.pid.toString()) +
                 " " + quote(owner.startTime) + " \"\$boot_id\" > " + quote(temporary),
         ).joinToString("\n")
     }
@@ -177,13 +152,8 @@ internal class RootLifecycleTransaction(
                 "chmod 700 " + quote(directory),
                 migrationStartup(listOf(
                     metadataCheck(record, ownerRecord, temporary, "$ownerRecord.$generation.tmp"),
-                    // Stage both records before replacing either committed file.
-                    // Failure while preparing metadata leaves the old owner intact.
-                    "printf '%s\\n' " + quote(generation) + " > " + quote(temporary),
-                    stageOwner(owner),
+                    stageGeneration(temporary, owner),
                     "mv -f " + quote(temporary) + " " + quote(record),
-                    if (owner != null) "mv -f " + quote("$ownerRecord.$generation.tmp") +
-                        " " + quote(ownerRecord) else ":",
                     // Cleanup may set shell options or exit explicitly.
                     "(\n$cleanup\n) || exit 1",
                     launch,
@@ -212,10 +182,10 @@ internal class RootLifecycleTransaction(
                 " || { echo 'ROOT: unmatched owner metadata remains'; exit 1; }",
             "exit 0",
             "fi",
-            "current=\$(cat " + quote(record) + ") || exit 1",
+            "current=\$( " + RootOwnerStatus.generation(directory) + " ) || exit 1",
             "test \"\$current\" = " + quote(generation) + " || exit 0",
             metadataCheck(ownerRecord),
-            ownerMetadataMatches() + " || { echo 'ROOT: inconsistent owner metadata'; exit 1; }",
+            RootOwnerStatus.consistent(directory) + " || { echo 'ROOT: inconsistent owner metadata'; exit 1; }",
             // A healthy owner must not be cleaned based on a stale probe.
             condition?.let { "if (\n$it\n); then exit 75; fi" } ?: ":",
             "(\n$cleanup\n) || exit 1",
@@ -230,8 +200,8 @@ internal class RootLifecycleTransaction(
 
     fun alive(check: String): String = transaction(
         metadataCheck(record) + "\n" +
-            RootProcessIdentity.generationMatches(record, generation) + " && " +
-            ownerMetadataMatches() + " && (\n$check\n)",
+            "current=\$( " + RootOwnerStatus.generation(directory) + " ) && test \"\$current\" = " + quote(generation) + " && " +
+            RootOwnerStatus.consistent(directory) + " && (\n$check\n)",
     )
 
     companion object {

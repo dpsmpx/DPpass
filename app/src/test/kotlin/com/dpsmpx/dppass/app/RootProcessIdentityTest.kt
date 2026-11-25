@@ -562,16 +562,17 @@ class RootProcessIdentityTest {
         ).exitCode
         try {
             val identity = RootOwnerIdentity(123, "456")
-            assertEquals(0, run(lifecycle.start(":", "test -s '${record.path}'", identity)))
-            val fields = record.readText().trim().split(" ")
-            assertEquals(4, fields.size)
-            assertEquals(listOf("owner", "123", "456"), fields.take(3))
-            assertTrue(fields[3].isNotEmpty())
+            assertEquals(0, run(lifecycle.start(":", "test -s '${generation.path}'", identity)))
+            val fields = generation.readText().trim().split(" ")
+            assertEquals(5, fields.size)
+            assertEquals(listOf("v2", "owner", "123", "456"), fields.take(4))
+            assertTrue(fields[4].isNotEmpty())
+            assertFalse(record.exists())
             assertEquals(0, run(stale.stop("exit 7")))
-            assertEquals(fields, record.readText().trim().split(" "))
+            assertEquals(fields, generation.readText().trim().split(" "))
             assertFalse(run(lifecycle.stop("exit 7")) == 0)
-            assertEquals(fields, record.readText().trim().split(" "))
-            assertEquals("owner", generation.readText().trim())
+            assertEquals(fields, generation.readText().trim().split(" "))
+            assertEquals(fields, generation.readText().trim().split(" "))
             assertEquals(0, run(lifecycle.stop(":")))
             assertFalse(record.exists())
             assertFalse(generation.exists())
@@ -639,6 +640,14 @@ class RootProcessIdentityTest {
             assertTrue(record.delete())
             assertEquals("ROOT: owner identity unknown", inspect())
             assertEquals("owner", generation.readText())
+            generation.writeText("v2 owner 123 456 $firstBoot\n")
+            boot.writeText(firstBoot)
+            writeStat("456")
+            assertEquals("ROOT: owner identity matches", inspect())
+            boot.writeText(secondBoot)
+            assertEquals("ROOT: owner identity stale (boot changed)", inspect())
+            generation.writeText("v2 owner 123 invalid $firstBoot\n")
+            assertEquals("ROOT: owner identity unknown", inspect())
         } finally {
             dir.toFile().deleteRecursively()
         }
@@ -713,6 +722,13 @@ class RootProcessIdentityTest {
             assertFalse(watch.exists())
             assertTrue(marker.exists())
             assertEquals(0, run(lifecycle.stop(":")))
+            assertTrue(marker.delete())
+            generation.writeText("v2 previous 123 456 $firstBoot\n")
+            assertEquals(0, run(startup))
+            assertFalse(generation.exists())
+            assertFalse(identity.exists())
+            assertTrue(marker.exists())
+            assertEquals(0, run(lifecycle.stop(":")))
         } finally {
             dir.toFile().deleteRecursively()
         }
@@ -750,17 +766,15 @@ class RootProcessIdentityTest {
                 Files.delete(invalid)
             }
             assertEquals(0, run(startup).exitCode)
-            assertEquals("owner", record.readText().trim())
+            assertTrue(record.readText().startsWith("v2 owner "))
             assertTrue(marker.delete())
-            val original = identity.readText()
-            assertTrue(identity.delete())
+            assertFalse(identity.exists())
             assertTrue(identity.mkdir())
             val cleanup = lifecycle.stop("echo cleanup > '${marker.path}'")
             assertFalse(run(cleanup).exitCode == 0)
             assertFalse(marker.exists())
-            assertEquals("owner", record.readText().trim())
+            assertTrue(record.readText().startsWith("v2 owner "))
             assertTrue(identity.delete())
-            identity.writeText(original)
             assertEquals(0, run(cleanup).exitCode)
             assertTrue(marker.exists())
             assertFalse(record.exists())
@@ -785,17 +799,17 @@ class RootProcessIdentityTest {
         try {
             val owner = RootOwnerIdentity(123, "456")
             assertEquals(0, run(first.start(":", ":", owner)).exitCode)
-            val original = identity.readText()
+            val original = record.readText()
             // Simulate failure of the owner staging write, without privileged
             // files or relying on chmod to deny a privileged test runner.
             val startup = next.start("echo cleanup > '${marker.path}'", "echo launch > '${marker.path}'", owner)
-            val failure = run("printf() { if test \"\$1\" = '%s %s %s %s\\n'; then return 7; fi; command printf \"\$@\"; }\n" + startup)
+            val failure = run("printf() { if test \"\$1\" = 'v2 %s %s %s %s\\n'; then return 7; fi; command printf \"\$@\"; }\n" + startup)
             assertFalse(failure.exitCode == 0)
-            assertEquals("first", record.readText().trim())
-            assertEquals(original, identity.readText())
+            assertTrue(record.readText().startsWith("v2 first "))
+            assertEquals(original, record.readText())
             assertFalse(marker.exists())
             assertEquals(0, run(next.stop("exit 7")).exitCode)
-            assertEquals(original, identity.readText())
+            assertEquals(original, record.readText())
             assertEquals(0, run(first.stop(":")).exitCode)
             assertFalse(identity.exists())
         } finally {
@@ -815,9 +829,9 @@ class RootProcessIdentityTest {
             listOf("/bin/sh", "-c", script), timeoutMillis = 10_000,
         )
         try {
-            assertEquals(0, run(lifecycle.start(":", ":", RootOwnerIdentity(123, "456"))).exitCode)
+            // A legacy owner sidecar without a generation remains ambiguous.
+            identity.writeText("owner 123 456 unknown\n")
             val saved = identity.readText()
-            assertTrue(record.delete())
             val cleanup = "echo cleanup > '${marker.path}'"
             val stop = run(lifecycle.stop(cleanup))
             assertFalse(stop.exitCode == 0)
@@ -836,7 +850,7 @@ class RootProcessIdentityTest {
     }
 
 
-    @Test fun failedOwnerPublicationFencesMatchingGenerationUntilMetadataIsRepaired() {
+    @Test fun failedAtomicPublicationPreservesPreviousOwnerAndFencesLegacyPartialRecords() {
         if (!File("/bin/sh").canExecute()) return
         if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
         val dir = Files.createTempDirectory("dppass-owner-publication-failure")
@@ -852,46 +866,50 @@ class RootProcessIdentityTest {
         try {
             val owner = RootOwnerIdentity(123, "456")
             assertEquals(0, run(first.start(":", ":", owner)).exitCode)
-            val saved = identity.readText()
+            val saved = record.readText()
             val action = "echo action > '${marker.path}'"
             val startup = next.start(action, action, owner)
-            // Fail exactly the second metadata rename, after publication of generation.
-            val failed = run("mv() { if test \"\$3\" = '${identity.path}'; then return 7; fi; command mv \"\$@\"; }\n" + startup)
+            val failed = run("mv() { return 7; }\n" + startup)
             assertFalse(failed.exitCode == 0)
-            assertEquals("next", record.readText().trim())
-            assertEquals(saved, identity.readText())
-            assertTrue(staged.exists())
+            assertEquals(saved, record.readText())
+            assertFalse(identity.exists())
             assertFalse(marker.exists())
+            assertEquals(0, run(first.alive(":")).exitCode)
             assertFalse(run(next.alive(action)).exitCode == 0)
-            val stop = run(next.stop(action))
-            assertFalse(stop.exitCode == 0)
-            assertTrue(stop.outputTail.contains("inconsistent owner metadata"))
-            assertFalse(run(next.watchdogPoll(action, action)).exitCode == 0)
+            assertEquals(0, run(next.stop(action)).exitCode)
             assertFalse(marker.exists())
-            assertEquals(saved, identity.readText())
+            assertEquals(0, run(next.start(":", ":", owner)).exitCode)
+            assertTrue(record.readText().startsWith("v2 next "))
             assertEquals(0, run(first.stop(action)).exitCode)
             assertFalse(marker.exists())
-            // A matching record restores the normal lifecycle. This fixture
-            // simulates deliberate repair; it does not enable auto-recovery.
-            identity.writeText(staged.readText())
-            assertEquals(0, run(next.alive(":")).exitCode)
-            assertEquals(0, run(next.stop(action)).exitCode)
-            assertTrue(marker.exists())
-            assertFalse(identity.exists())
+            assertEquals(0, run(next.stop(":")).exitCode)
             assertFalse(record.exists())
-            // The same failure on a fresh start leaves no committed owner
-            // record at all; a matching staging record still fences cleanup.
-            assertTrue(staged.delete())
-            assertTrue(marker.delete())
-            val freshFailure = run("mv() { if test \"\$3\" = '${identity.path}'; then return 7; fi; command mv \"\$@\"; }\n" + startup)
-            assertFalse(freshFailure.exitCode == 0)
-            assertEquals("next", record.readText().trim())
-            assertFalse(identity.exists())
-            assertTrue(staged.exists())
+
+            // Initial publication failure also must not create a committed owner.
+            assertFalse(run("mv() { return 7; }\n" + startup).exitCode == 0)
+            assertFalse(record.exists())
+            assertFalse(marker.exists())
+            assertEquals(0, run(next.stop(action)).exitCode)
+            assertFalse(marker.exists())
+
+            // Simulate an interrupted publication from the preceding build.
+            record.writeText("next\n")
+            identity.writeText("first 123 456 unknown\n")
             assertFalse(run(next.alive(action)).exitCode == 0)
             assertFalse(run(next.stop(action)).exitCode == 0)
             assertFalse(run(next.watchdogPoll(action, action)).exitCode == 0)
             assertFalse(marker.exists())
+            assertTrue(identity.delete())
+            staged.writeText("next 123 456 unknown\n")
+            assertFalse(run(next.stop(action)).exitCode == 0)
+            assertFalse(marker.exists())
+            // Explicit new startup supersedes the legacy state atomically.
+            identity.writeText("first 123 456 unknown\n")
+            assertEquals(0, run(next.start(":", ":", owner)).exitCode)
+            assertEquals(0, run(next.alive(":")).exitCode)
+            assertEquals(0, run(next.stop(":")).exitCode)
+            assertFalse(record.exists())
+            assertFalse(identity.exists())
         } finally {
             dir.toFile().deleteRecursively()
         }
