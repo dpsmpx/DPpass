@@ -11,6 +11,10 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
+#if defined(DPPASS_REQUIRE_PIDFD_SYSCALLS) && (!defined(SYS_pidfd_open) || !defined(SYS_pidfd_send_signal))
+#error "NDK headers must expose both pidfd syscall numbers"
+#endif
+
 #if defined(SYS_pidfd_open) && defined(SYS_pidfd_send_signal)
 static ssize_t read_bytes(const char *path, char *buf, size_t capacity) {
     int fd = open(path, O_RDONLY | O_CLOEXEC);

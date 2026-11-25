@@ -80,14 +80,8 @@ jobs:
           test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0" "ndk;30.0.16248370" "cmake;3.22.1"
-      - name: Cross-compile experimental ROOT pidfd primitive for Android
-        shell: bash
-        run: |
-          set -euo pipefail
-          bin="$ANDROID_HOME/ndk/30.0.16248370/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          for target in aarch64-linux-android26 armv7a-linux-androideabi26 x86_64-linux-android26; do
-            "$bin/$target-clang" -std=c11 -Wall -Wextra -Werror -c tools/localdpi/root_pidfd.c -o "$RUNNER_TEMP/root-pidfd-$target.o"
-          done
+      - name: Cross-link ROOT pidfd helper for all Android ABIs
+        run: python3 tools/localdpi/build_root_pidfd.py --ndk "$ANDROID_HOME/ndk/30.0.16248370" --out "$RUNNER_TEMP/root-pidfd-assets"
       - name: Build pinned original ByeDPI for Android ARM64
         run: python3 tools/byedpi/build_android.py --ndk "$ANDROID_HOME/ndk/30.0.16248370" --abis arm64-v8a
       - name: Cross-link opt-in native DPI library for Android ARM64
@@ -157,6 +151,8 @@ jobs:
                   assert z.read(path).startswith(b"\x7fELF"), path
           print("Verified optional Alpine ARM64 APK:", files[0])
           PY
+      - name: Verify bundled ROOT pidfd helper in debug APK
+        run: python3 tools/localdpi/check_root_pidfd_apk.py app/build/outputs/apk/debug/*.apk
       - name: Verify side-by-side experimental APK identity
         shell: bash
         run: |
@@ -219,6 +215,7 @@ jobs:
           print("Verified pinned alpha-certificate ARM64 release APK:", apks[0])
           PY
           apk="$(find build/alpine-release-signed -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          python3 tools/localdpi/check_root_pidfd_apk.py "$apk"
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.dpsmpx.dppass'"
       - uses: actions/upload-artifact@v4
         with:

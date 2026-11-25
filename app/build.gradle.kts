@@ -276,10 +276,14 @@ if (alpineEnabled) {
         val builder = rootProject.file("tools/alpine/build-proot.sh")
         val xrayToolDir = rootProject.file("tools/xray")
         val compat = rootProject.file("tools/alpine/proot-musl-compat.h")
+        val rootPidfd = rootProject.file("tools/localdpi")
         val ndk = androidComponents.sdkComponents.ndkDirectory
         val url = "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/alpine-minirootfs-3.24.3-aarch64.tar.gz"
         val pin = "4d3f80afaebd447c5591a63a73bde380a149fe8b2d85488cafabb2ff97551f50"
         inputs.files(builder, compat, rootProject.file("tools/xray/go.mod"), rootProject.file("tools/xray/go.sum"))
+        inputs.files(rootPidfd.resolve("root_pidfd.c"), rootPidfd.resolve("root_pidfd.h"),
+            rootPidfd.resolve("root_pidfd_cli.c"), rootPidfd.resolve("build_root_pidfd.py"))
+        inputs.property("rootPidfdNdkVersion", libs.versions.android.ndk.get())
         inputs.files(rootProject.fileTree("tools/xray/zapret2") { include("**/*.go"); exclude("**/*_test.go") })
         inputs.files(rootProject.fileTree("tools/xray/localdpi") { include("*.go"); exclude("*_test.go") })
         inputs.files(rootProject.fileTree("tools/xray/cmd/zapret2-alpine") { include("**/*.go") })
@@ -340,6 +344,14 @@ if (alpineEnabled) {
             check(isAarch64Elf(executable)) { "Alpine strategy engine is not ARM64 ELF" }
             File(asset, "zapret2-runtime.bin").writeBytes(executable)
             File(asset, "zapret2-runtime.sha256").writeText(sha256(executable) + "\n")
+            // Bundle the dormant helper as data, not an auto-loaded JNI library.
+            // All three ABIs are included; runtime staging is a separate step.
+            val helper = ProcessBuilder("python3", rootPidfd.resolve("build_root_pidfd.py").absolutePath,
+                "--ndk", ndk.get().asFile.absolutePath,
+                "--out", assets.get().asFile.resolve("root-pidfd").absolutePath)
+                .redirectErrorStream(true).start()
+            val helperLog = helper.inputStream.bufferedReader().use { it.readText() }
+            check(helper.waitFor() == 0) { "ROOT pidfd helper build failed:\n" + helperLog.takeLast(4000) }
         }
     }
     androidComponents {

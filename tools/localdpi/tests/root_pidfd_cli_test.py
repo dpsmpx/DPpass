@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""CLI protocol tests with a child owned by this test only."""
+from pathlib import Path
+import os
+import subprocess
+import sys
+
+helper = sys.argv[1]
+boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+
+
+def expect(args, code, output):
+    result = subprocess.run([helper, *args], capture_output=True, text=True, timeout=7)
+    assert (result.returncode, result.stdout, result.stderr) == (code, output + "\n", ""), result
+
+
+expect(["--version"], 0, "dppass-root-pidfd/1")
+expect([], 64, "invalid_arguments")
+expect(["--version", "extra"], 64, "invalid_arguments")
+child = subprocess.Popen(["/bin/sleep", "30"])
+try:
+    pid = str(child.pid)
+    stat = Path(f"/proc/{pid}/stat").read_text()
+    ticks = stat.rsplit(") ", 1)[1].split()[19]
+    exe = os.readlink(f"/proc/{pid}/exe")
+    args = ["stop-executable", pid, ticks, boot, exe, "2000"]
+    for index, bad in [
+        (1, "1"), (1, "0" + pid), (1, "+2"), (1, "2147483648"),
+        (2, "-1"), (2, "18446744073709551616"), (2, "00"),
+        (3, "unknown"), (4, "relative"), (4, "/bad\npath"),
+        (5, "5001"), (5, "-1"), (5, "000"),
+    ]:
+        altered = args.copy()
+        altered[index] = bad
+        expect(altered, 64, "invalid_arguments")
+        assert child.poll() is None
+    expect(args + ["extra"], 64, "invalid_arguments")
+    expect(["stop-script", pid, ticks, boot, exe, "relative", "100"], 64, "invalid_arguments")
+    for index, wrong in [(2, str(int(ticks) + 1)), (4, "/not-the-child")]:
+        altered = args.copy()
+        altered[index] = wrong
+        expect(altered, 2, "unproven")
+        assert child.poll() is None
+    expect(args, 0, "exited")
+    assert child.wait(timeout=3) == -15
+finally:
+    if child.poll() is None:
+        child.kill()
+        child.wait()
+print("ROOT pidfd CLI protocol tests passed")
