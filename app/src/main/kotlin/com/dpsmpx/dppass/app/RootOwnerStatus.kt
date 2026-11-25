@@ -30,7 +30,7 @@ internal object RootOwnerStatus {
         "set -- \$record; test \"\$#\" -eq 4 || unknown",
         "test \"\$1\" = \"\$generation\" || unknown",
         "pid=\$2; ticks=\$3; saved_boot=\$4",
-        "case \"\$pid\" in ''|*[!0-9]*) unknown ;; esac",
+        "case \"\$pid\" in ''|0*|*[!0-9]*) unknown ;; esac",
         "case \"\$ticks\" in ''|*[!0-9]*) unknown ;; esac",
         "test \"\$pid\" -gt 1 2>/dev/null && test \"\$pid\" -le 2147483647 2>/dev/null || unknown",
         "valid_boot \"\$saved_boot\" || unknown",
@@ -43,8 +43,13 @@ internal object RootOwnerStatus {
         "rest=\${stat##*) }; test \"\$rest\" != \"\$stat\" || unknown",
         "set -- \$rest; test \"\$#\" -ge 20 || unknown",
         "case \"\${20}\" in ''|*[!0-9]*) unknown ;; esac",
-        "if test \"\${20}\" = \"\$ticks\"; then echo 'ROOT: owner identity matches'; " +
-            "else echo 'ROOT: owner identity stale (PID reused)'; fi",
+        // A matching start time is not evidence of a running process when
+        // proc still exposes a zombie or dead task. Unknown states stay unknown.
+        "case \"\$1\" in R|S|D|T|t|I|W|P|Z|X|x) ;; *) unknown ;; esac",
+        "if test \"\${20}\" != \"\$ticks\"; then echo 'ROOT: owner identity stale (PID reused)'; " +
+            "elif test \"\$1\" = Z || test \"\$1\" = X || test \"\$1\" = x; then " +
+            "echo 'ROOT: owner identity terminated (dead task)'; " +
+            "else echo 'ROOT: owner identity matches'; fi",
         ")",
     ).joinToString("\n")
 }

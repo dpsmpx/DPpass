@@ -593,8 +593,8 @@ class RootProcessIdentityTest {
         val record = File(adapter, "owner.identity")
         val firstBoot = "11111111-1111-1111-1111-111111111111"
         val secondBoot = "22222222-2222-2222-2222-222222222222"
-        fun writeStat(ticks: String) {
-            stat.writeText("123 (name with ) delimiter) S " + List(18) { "0" }.joinToString(" ") + " $ticks 0")
+        fun writeStat(ticks: String, state: String = "S") {
+            stat.writeText("123 (name with ) delimiter) $state " + List(18) { "0" }.joinToString(" ") + " $ticks 0")
         }
         fun inspect(): String {
             val result = RootCommandRunner.run(listOf("/bin/sh", "-c",
@@ -608,6 +608,18 @@ class RootProcessIdentityTest {
             record.writeText("owner 123 456 $firstBoot\n")
             writeStat("456")
             assertEquals("ROOT: owner identity matches", inspect())
+            for (state in listOf("Z", "X", "x")) {
+                writeStat("456", state)
+                assertEquals("ROOT: owner identity terminated (dead task)", inspect())
+            }
+            writeStat("456", "?")
+            assertEquals("ROOT: owner identity unknown", inspect())
+            writeStat("invalid", "S")
+            assertEquals("ROOT: owner identity unknown", inspect())
+            stat.writeText("124 (different PID) S " + List(18) { "0" }.joinToString(" ") + " 456 0")
+            assertEquals("ROOT: owner identity unknown", inspect())
+            writeStat("789", "Z")
+            assertEquals("ROOT: owner identity stale (PID reused)", inspect())
             writeStat("789")
             assertEquals("ROOT: owner identity stale (PID reused)", inspect())
             assertTrue(stat.delete())
@@ -619,6 +631,8 @@ class RootProcessIdentityTest {
             record.writeText("other 123 456 $firstBoot\n")
             assertEquals("ROOT: owner identity unknown", inspect())
             record.writeText("owner 1 456 $firstBoot\n")
+            assertEquals("ROOT: owner identity unknown", inspect())
+            record.writeText("owner 0123 456 $firstBoot\n")
             assertEquals("ROOT: owner identity unknown", inspect())
             record.writeText("owner 123 invalid $firstBoot\n")
             assertEquals("ROOT: owner identity unknown", inspect())
