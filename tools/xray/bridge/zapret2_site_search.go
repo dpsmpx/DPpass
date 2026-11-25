@@ -302,6 +302,11 @@ func siteSearchCommit(inst *core.Instance,host,method string,gen uint64) bool {
 // GET cannot prove a YouTube app browse/feed API POST.
 func siteSearchHTTPTarget(host string) zapret2TestTarget {
     switch host {
+    case "www.youtube.com":
+        // DPTS learning requires verified HTML, not merely a long 2xx body.
+        target:=zapret2TestTargets["youtube_home"]
+        target.ipv4Only=true
+        return target
     case "i.ytimg.com":
         target:=zapret2TestTargets["youtube_thumbnail"]
         target.ipv4Only=true

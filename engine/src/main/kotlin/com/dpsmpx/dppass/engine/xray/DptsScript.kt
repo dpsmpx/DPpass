@@ -255,31 +255,56 @@ object DptsScript {
         appendLine("Сеть: $network; host=${plan.host}")
         appendLine("DoH: ${prepared.outcome}; IPv4=${prepared.dnsAnswers};" +
             " fingerprint=${prepared.dnsFingerprint}")
+        // TLS version is a plan dimension, not a wire ALPN protocol.
+        fun wireProtocol(spec: DptsProbe): String =
+            if (spec.protocol in setOf("tls12", "tls13")) "h1" else spec.protocol
+        fun matches(spec: DptsProbe, row: Zapret2GoogleAttempt): Boolean =
+            row.target == spec.target && row.strategy == spec.method &&
+                row.attempt == spec.attempt && row.result.ipIndex == spec.ipIndex &&
+                row.result.protocol == wireProtocol(spec)
+        fun tlsVerified(spec: DptsProbe, r: Zapret2GoogleProbe): Boolean =
+            when (wireProtocol(spec)) {
+                "quic" -> r.outcome == "quic_verified" &&
+                    r.tlsStage == "quic_tls_verified" && r.alpn == "h3"
+                "h1" -> r.tlsStage == "tls_verified" && r.alpn == "http/1.1"
+                "h2" -> r.tlsStage == "tls_verified" && r.alpn == "h2"
+                else -> false
+            }
+        val matched = plan.probes.indices.mapNotNull { i ->
+            val row = observations.getOrNull(i) ?: return@mapNotNull null
+            if (matches(plan.probes[i], row)) i to row.result else null
+        }.toMap()
         appendLine("Выполнено: ${observations.size}/${plan.probes.size};" +
             " worst_case_budget_ms=${plan.budgetMs}")
+        appendLine("matched_rows=${matched.size}; unbound_rows=${observations.size - matched.size}")
         for (phase in plan.probes.map { it.phase }.distinct()) {
-            val rows = plan.probes.withIndex().filter { it.value.phase == phase }
-            val results = rows.mapNotNull { i -> observations.getOrNull(i.index) }
-            val transport = results.count { result ->
-                if (result.result.protocol == "quic")
-                    result.result.outcome == "quic_verified" &&
-                        result.result.tlsStage == "quic_tls_verified"
-                else result.result.tlsStage == "tls_verified" &&
-                    result.result.httpStatus in 200..499
+            val indices = plan.probes.indices.filter { plan.probes[it].phase == phase }
+            val results = indices.mapNotNull { i -> matched[i]?.let { plan.probes[i] to it } }
+            val verified = results.count { (spec, r) -> tlsVerified(spec, r) }
+            val transport = results.count { (spec, r) ->
+                tlsVerified(spec, r) && (wireProtocol(spec) == "quic" || r.httpStatus in 200..499)
             }
-            val content = results.count {
-                it.result.outcome == "ok" && it.result.httpStatus in 200..299 &&
-                    it.result.bodyBytes >= 128 && it.result.tlsStage == "tls_verified"
+            val bounded = results.count { (spec, r) ->
+                phase == "https" && tlsVerified(spec, r) &&
+                    r.outcome == "ok" && r.httpStatus in 200..299 && r.bodyBytes >= 128 &&
+                    plan.host != Zapret2SiteSearch.YOUTUBE_API_HOST
             }
+            // The native verifier checks HTML for the fixed YouTube home
+            // and JPEG for the fixed thumbnail. Generic site_http checks
+            // only bounded 2xx bytes, not the type or application content.
+            val content = if (plan.host in setOf("www.youtube.com", "i.ytimg.com")) bounded else 0
             appendLine("  phase=$phase: transport=$transport/${results.size};" +
+                " tls_verified=$verified/${results.size};" +
+                " bounded_http_success=$bounded/${results.size};" +
                 " content_verified=$content/${results.size}")
         }
         for ((i, row) in observations.withIndex()) {
             val spec = plan.probes.getOrNull(i) ?: break
             val r = row.result
+            val binding = if (i in matched) "matched" else "unbound"
             appendLine("  step=$i phase=${spec.phase} ip_index=${spec.ipIndex}" +
                 " method=${spec.method} protocol=${spec.protocol}" +
-                " attempt=${spec.attempt} outcome=${r.outcome}" +
+                " attempt=${spec.attempt} binding=$binding outcome=${r.outcome}" +
                 " tls_stage=${r.tlsStage} alpn=${r.alpn}" +
                 " http=${r.httpStatus} body_bytes_bounded=${r.bodyBytes}" +
                 " elapsed_ms=${r.elapsedMillis}")

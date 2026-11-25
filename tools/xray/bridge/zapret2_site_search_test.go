@@ -3,6 +3,7 @@
 package bridge
 
 import (
+    "strings"
     "context"
     "fmt"
     "testing"
@@ -228,6 +229,21 @@ func TestSiteSearchServiceTargetsUseRealResourceNotMissingRoot(t *testing.T) {
         !api.ipv4Only {t.Fatalf("API is not a bounded transport-only test: %#v",api)}
     if got:=classifyProbeHTTP(403,"application/json",[]byte("{}"),nil,api);got!="http_reachable" {
         t.Fatalf("authenticated API failure must be transport only, got %s",got)
+    }
+    home:=siteSearchHTTPTarget("www.youtube.com")
+    if home.host!="www.youtube.com" || home.path!="/" ||
+        home.contentKind!="html" || !home.ipv4Only {
+        t.Fatalf("YouTube homepage must use HTML validation: %#v",home)
+    }
+    body:=[]byte("<html>"+strings.Repeat("x",256)+"</html>")
+    if got:=classifyProbeHTTP(200,"text/html",body,nil,home);got!="ok" {
+        t.Fatalf("valid HTML rejected: %s",got)
+    }
+    if got:=classifyProbeHTTP(200,"application/json",body,nil,home);got=="ok" {
+        t.Fatal("non-HTML content falsely verified")
+    }
+    if got:=classifyProbeHTTP(200,"text/html",[]byte(strings.Repeat("x",256)),nil,home);got=="ok" {
+        t.Fatal("long non-HTML body falsely verified")
     }
     generic:=siteSearchHTTPTarget("example.org")
     if generic.path!="/" || generic.contentKind!="site_http" ||

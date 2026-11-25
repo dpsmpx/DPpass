@@ -8,6 +8,42 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DptsScriptTest {
+    @Test fun reportSeparatesVerifiedHandshakeGenericResponseAndMatchedContent() {
+        val prepared = Zapret2GoogleProbe("dns_ready", 200, 0, 10, 0, 0, "abcdef12", 8)
+        fun report(host: String, operation: String, alter: (Zapret2GoogleAttempt) -> Zapret2GoogleAttempt = { it }): String {
+            val plan = DptsScript.compile("dpts 1\nhost $host\n$operation ips=1 attempts=1")
+            val spec = plan.probes.single()
+            val protocol = if (spec.protocol == "tls12") "h1" else spec.protocol
+            val r = Zapret2GoogleProbe("ok", 200, 256, 10, 0, 0,
+                "abcdef12", 8, spec.ipIndex, protocol, "tls_verified",
+                if (protocol == "h2") "h2" else "http/1.1")
+            return DptsScript.report(plan, "MOBILE", prepared,
+                listOf(alter(Zapret2GoogleAttempt(spec.method, spec.attempt, r, spec.target))))
+        }
+        val generic = report("example.org", "https")
+        assertTrue(generic.contains("bounded_http_success=1/1"))
+        assertTrue(generic.contains("content_verified=0/1"))
+        val home = report("www.youtube.com", "https")
+        assertTrue(home.contains("content_verified=1/1"))
+        val api = report("youtubei.googleapis.com", "https")
+        assertTrue(api.contains("content_verified=0/1"))
+        val tls = report("www.youtube.com", "tls versions=12") {
+            it.copy(result = it.result.copy(httpStatus = 0, bodyBytes = 0, outcome = "timeout_headers"))
+        }
+        assertTrue(tls.contains("matched_rows=1; unbound_rows=0"))
+        assertTrue(tls.contains("tls_verified=1/1"))
+        assertTrue(tls.contains("content_verified=0/1"))
+        val mismatch = report("www.youtube.com", "https") { it.copy(target = "unrelated") }
+        assertTrue(mismatch.contains("matched_rows=0; unbound_rows=1"))
+        assertTrue(mismatch.contains("content_verified=0/0"))
+        assertTrue(mismatch.contains("binding=unbound"))
+        val wrongAlpn = report("www.youtube.com", "https") {
+            it.copy(result = it.result.copy(alpn = "h2"))
+        }
+        assertTrue(wrongAlpn.contains("tls_verified=0/1"))
+        assertTrue(wrongAlpn.contains("content_verified=0/1"))
+    }
+
     @Test fun sharedCatalogPreservesDiagnosticOrderAndCalibrationBoundary() {
         val catalog = Zapret2ProbeCatalog
         assertEquals(listOf("plain", "split-1", "split", "tlsrec-split", "fake-3", "fake-5", "disorder"), catalog.siteTcpMethods)
