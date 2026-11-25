@@ -68,6 +68,7 @@ const adaptiveStallCooldown = 90 * time.Second
 type adaptivePick struct {
     host string
     flow localdpi.FlowIdentity
+    entryID uint64 // identity of the admitted cache entry, not its recency
 }
 
 // The immutable flow identity is captured when the transport selects a
@@ -99,6 +100,7 @@ func socketEvidenceAdmissible(pick *adaptivePick, evidence localdpi.Evidence) bo
 }
 
 type adaptiveEntry struct {
+    entryID uint64 // fixed for the lifetime of this cache entry
     lastUsed uint64 // selector-local recency, not persisted
     index int
     preferred string
@@ -255,13 +257,23 @@ func (a *adaptiveSelector) chooseFrom(host string, candidates []string) string {
 // Previous-network connections may close after a network reset. The captured
 // generation prevents their late evidence changing the new network's winner.
 func (a *adaptiveSelector) chooseWithGeneration(host string, candidates []string) (string, uint64) {
-    return a.choosePolicy(host, candidates, false)
+    choice, generation, _ := a.choosePolicy(host, candidates, false)
+    return choice, generation
 }
 
 // Live traffic starts with the untouched transport. A received reply can
 // retain this baseline without pretending that application content worked.
 func (a *adaptiveSelector) chooseLive(host string, candidates []string) (string, uint64) {
-    return a.choosePolicy(host, candidates, true)
+    choice, generation, _ := a.choosePolicy(host, candidates, true)
+    return choice, generation
+}
+
+// Capture cache identity in the same critical section as method selection.
+func (a *adaptiveSelector) chooseSocketLive(host string, candidates []string, transport localdpi.Transport) *adaptivePick {
+    choice, generation, entryID := a.choosePolicy(host, candidates, true)
+    pick := newSocketPick(host, choice, generation, transport)
+    pick.entryID = entryID
+    return pick
 }
 
 // entryLocked is the common admission path for live choices and explicit
@@ -286,21 +298,22 @@ func (a *adaptiveSelector) entryLocked(host string) *adaptiveEntry {
         a.entries[host] = e
     }
     a.entryClock++
+    if e.entryID == 0 { e.entryID = a.entryClock }
     e.lastUsed = a.entryClock
     return e
 }
 
-func (a *adaptiveSelector) choosePolicy(host string, candidates []string, directFirst bool) (string, uint64) {
+func (a *adaptiveSelector) choosePolicy(host string, candidates []string, directFirst bool) (string, uint64, uint64) {
     host = canonicalAdaptiveKey(host)
     a.mu.Lock()
     defer a.mu.Unlock()
     // A future executor may advertise no candidates, or no direct baseline.
     // Do not synthesize an unsupported method or divide by zero.
-    if len(candidates)==0 { return "",a.generation }
+    if len(candidates)==0 { return "",a.generation,0 }
     hasPass := false
     for _,candidate:=range candidates { if candidate=="pass" { hasPass=true;break } }
     directFirst = directFirst && hasPass
-    if host == "" { if directFirst { return "pass", a.generation }; return candidates[0], a.generation }
+    if host == "" { if directFirst { return "pass", a.generation, 0 }; return candidates[0], a.generation, 0 }
     e := a.entryLocked(host)
     now := time.Now()
     blocked := func(strategy string) bool {
@@ -316,7 +329,7 @@ func (a *adaptiveSelector) choosePolicy(host string, candidates []string, direct
     if e.preferred != "" {
         for _, candidate := range candidates {
             if candidate == e.preferred && !blocked(e.preferred) {
-                return e.preferred, a.generation
+                return e.preferred, a.generation, e.entryID
             }
         }
         if blocked(e.preferred) {
@@ -333,7 +346,7 @@ func (a *adaptiveSelector) choosePolicy(host string, candidates []string, direct
                     if candidate == fallback {
                         e.preferred = fallback
                         e.probeSeeded = true
-                        return fallback, a.generation
+                        return fallback, a.generation, e.entryID
                     }
                 }
             }
@@ -343,7 +356,7 @@ func (a *adaptiveSelector) choosePolicy(host string, candidates []string, direct
         e.index++
         if e.usage == nil { e.usage = make(map[string]int) }
         e.usage["pass"]++
-        return "pass", a.generation
+        return "pass", a.generation, e.entryID
     }
     // Preserve established candidate ordering and the plain baseline
     // unless an independent timeout-based circuit breaker is active.
@@ -369,7 +382,7 @@ func (a *adaptiveSelector) choosePolicy(host string, candidates []string, direct
     e.index++
     if e.usage == nil { e.usage = make(map[string]int) }
     if e.usage[tag] < 100 { e.usage[tag]++ }
-    return tag, a.generation
+    return tag, a.generation, e.entryID
 }
 
 // First real TCP reply is reachability only. Never train the MLP here.
@@ -377,6 +390,10 @@ func (a *adaptiveSelector) retainPlainReply(host string, generation uint64) {
     a.mu.Lock()
     defer a.mu.Unlock()
     if a.generation != generation { return }
+    a.retainPlainReplyLocked(host)
+}
+
+func (a *adaptiveSelector) retainPlainReplyLocked(host string) {
     e := a.entries[canonicalAdaptiveKey(host)]
     if e == nil { return }
     if e.preferred != "" && e.preferred != "pass" { return }
@@ -407,6 +424,10 @@ func (a *adaptiveSelector) observeStallTracked(host, strategy string, generation
     a.mu.Lock()
     defer a.mu.Unlock()
     if a.generation != generation { return }
+    a.observeStallLocked(host,strategy)
+}
+
+func (a *adaptiveSelector) observeStallLocked(host, strategy string) {
     host = canonicalAdaptiveKey(host)
     e := a.entries[host]
     if e == nil { return }
@@ -437,6 +458,35 @@ func (a *adaptiveSelector) observeStallTracked(host, strategy string, generation
         }
     }
     a.observeLocked(host, strategy, 0)
+}
+
+// Both network generation and cache incarnation must match under mu.
+// An evicted flow cannot seed a later entry with the same destination key.
+func (a *adaptiveSelector) socketPickCurrentLocked(pick *adaptivePick) bool {
+    if !socketPickAdmissible(pick) || pick.entryID == 0 ||
+        pick.flow.Generation != a.generation { return false }
+    e := a.entries[canonicalAdaptiveKey(pick.host)]
+    return e != nil && e.entryID == pick.entryID
+}
+
+func (a *adaptiveSelector) retainSocketReply(pick *adaptivePick) {
+    a.mu.Lock()
+    defer a.mu.Unlock()
+    if a.socketPickCurrentLocked(pick) && pick.flow.MethodID == "pass" {
+        a.retainPlainReplyLocked(pick.host)
+    }
+}
+
+func (a *adaptiveSelector) observeSocketEvidence(pick *adaptivePick, evidence localdpi.Evidence) {
+    a.mu.Lock()
+    defer a.mu.Unlock()
+    if !a.socketPickCurrentLocked(pick) || !socketEvidenceAdmissible(pick,evidence) { return }
+    switch evidence.Kind {
+    case localdpi.Downstream:
+        a.observeLocked(pick.host,pick.flow.MethodID,evidence.Bytes)
+    case localdpi.FirstReplyTimeout:
+        a.observeStallLocked(pick.host,pick.flow.MethodID)
+    }
 }
 
 func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int64) {

@@ -179,7 +179,7 @@ func TestAdaptiveTCPFirstReplyTimeoutNotDoubleCountedOnClose(t *testing.T) {
         // replies. No real DPI planner or external endpoint is involved.
         conn := &desyncConn{TCPConn: client, firstDone: true}
         conn.stageHelloSent.Store(true)
-        conn.adaptiveSelection.Store(newSocketPick(host,strategy,generation,localdpi.TLS))
+        conn.adaptiveSelection.Store(boundTestSocketPick(host,strategy,generation,localdpi.TLS))
         if err := client.SetReadDeadline(time.Now().Add(-time.Millisecond)); err != nil { t.Fatal(err) }
         if _, err := conn.Read(make([]byte, 8)); !isZapret2Timeout(err) {
             t.Fatalf("expected a timeout, got %v", err)
@@ -311,7 +311,7 @@ func TestUniversalAUTOQUICRealReadTimeoutIsCountedOnceOnClose(t *testing.T) {
         if err!=nil {receiver.Close();t.Fatal(err)}
         c:=&desyncUDPConn{UDPConn:udp,host:host,mode:desyncMode{kind:desyncAuto}}
         c.stageInitialSent.Store(true)
-        c.adaptiveSelection.Store(newSocketPick("udp:"+host,strategy,generation,localdpi.QUIC))
+        c.adaptiveSelection.Store(boundTestSocketPick("udp:"+host,strategy,generation,localdpi.QUIC))
         if err:=udp.SetReadDeadline(time.Now().Add(-time.Millisecond));err!=nil {t.Fatal(err)}
         if _,err:=c.Read(make([]byte,2048));!isZapret2Timeout(err) {
             t.Fatalf("expected QUIC no-reply timeout, got %v",err)
@@ -395,14 +395,14 @@ func TestCancelledZeroByteTCPAndUDPCloseDoNotDemotePreferred(t *testing.T) {
         if err != nil { raw.Close(); t.Fatal(err) }
         conn := &desyncConn{TCPConn: raw, firstDone: true}
         conn.stageHelloSent.Store(true)
-        conn.adaptiveSelection.Store(newSocketPick(tcpHost,tcpStrategy,tcpGen,localdpi.TLS))
+        conn.adaptiveSelection.Store(boundTestSocketPick(tcpHost,tcpStrategy,tcpGen,localdpi.TLS))
         if err := conn.Close(); err != nil { peer.Close(); t.Fatal(err) }
         peer.Close()
         udp, err := net.DialUDP("udp4", nil, receiver.LocalAddr().(*net.UDPAddr))
         if err != nil { t.Fatal(err) }
         uc := &desyncUDPConn{UDPConn: udp}
         uc.stageInitialSent.Store(true)
-        uc.adaptiveSelection.Store(newSocketPick(udpHost,udpStrategy,udpGen,localdpi.QUIC))
+        uc.adaptiveSelection.Store(boundTestSocketPick(udpHost,udpStrategy,udpGen,localdpi.QUIC))
         if err := uc.Close(); err != nil { t.Fatal(err) }
     }
     zapret2Auto.mu.Lock()
@@ -531,4 +531,55 @@ func TestAdaptiveCapacityRetainsExistingPreferencesAndEvictsOnlyOldest(t *testin
     a.resetLocked()
     a.mu.Unlock()
     if len(a.entries)!=0 || a.entryClock!=0 { t.Fatal("network reset retained old entries") }
+}
+
+// Socket-level fixtures model a flow already selected by the controller.
+func boundTestSocketPick(host, method string, generation uint64, transport localdpi.Transport) *adaptivePick {
+    zapret2Auto.mu.Lock()
+    defer zapret2Auto.mu.Unlock()
+    pick := newSocketPick(host,method,generation,transport)
+    if e := zapret2Auto.entries[canonicalAdaptiveKey(host)]; e != nil {
+        pick.entryID = e.entryID
+    }
+    return pick
+}
+
+func TestEvictedSocketEvidenceCannotMutateRecreatedEntry(t *testing.T) {
+    for _,tc := range []struct{
+        host string
+        candidates []string
+        transport localdpi.Transport
+    }{
+        {"example.test",adaptiveCandidates,localdpi.TLS},
+        {"http:example.test",adaptiveHTTPCandidates,localdpi.HTTP},
+        {"udp:203.0.113.9",adaptiveQuicCandidates,localdpi.QUIC},
+    } {
+        a := &adaptiveSelector{entries:make(map[string]*adaptiveEntry)}
+        old := a.chooseSocketLive(tc.host,tc.candidates,tc.transport)
+        for i:=0; i<adaptiveMaxHosts; i++ {
+            a.choose("other"+strconv.Itoa(i)+".example.test")
+        }
+        if a.entries[canonicalAdaptiveKey(tc.host)] != nil { t.Fatal("old entry not evicted") }
+        current := a.chooseSocketLive(tc.host,tc.candidates,tc.transport)
+        if current.entryID == old.entryID || current.flow.Generation != old.flow.Generation {
+            t.Fatal("cache incarnation not distinct within generation")
+        }
+        a.retainSocketReply(old)
+        a.observeSocketEvidence(old,localdpi.SocketDownstream(adaptivePayloadThreshold))
+        a.observeSocketEvidence(old,localdpi.SocketFirstReplyTimeout(true,false,0))
+        e := a.entries[canonicalAdaptiveKey(tc.host)]
+        if e.preferred!="" || e.plainReachable || len(e.stalls)!=0 {
+            t.Fatalf("evicted flow changed replacement: %+v",e)
+        }
+        a.observeSocketEvidence(current,localdpi.SocketDownstream(adaptivePayloadThreshold))
+        if e.preferred!=current.flow.MethodID { t.Fatal("current evidence rejected") }
+        a.mu.Lock()
+        a.resetLocked()
+        a.mu.Unlock()
+        next := a.chooseSocketLive(tc.host,tc.candidates,tc.transport)
+        a.observeSocketEvidence(current,localdpi.SocketDownstream(adaptivePayloadThreshold))
+        if a.entries[canonicalAdaptiveKey(tc.host)].preferred!="" || next.flow.Generation==current.flow.Generation {
+            t.Fatal("previous-network evidence accepted")
+        }
+    }
 }
