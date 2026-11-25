@@ -747,3 +747,7 @@ CI d6bf709: Go/Linux/Windows #45668692129 and Android #45668681351 succeeded. Ca
 ### CI correction — bound streaming-copy test fixture
 
 CI 8aa28f6 failed in both Linux Go runs (#45670240927 and #45670224995), while portable Windows passed. TestTCPWriteToCountsDownloadedPayload constructed a synthetic pick without the newly required cache-entry ID, so its observation was correctly rejected. The fixture now uses the real locked socket-selection path with a single admitted method and checks the captured ID. Existing pre-Close and post-Close payload assertions remain unchanged. No production guard is weakened. New CI pending.
+
+## A6 — batched AUTO correctness work (one CI cycle)
+
+CI d4f75cf: Go/Linux/Windows #45670976937 and Android #45670965324 succeeded. Per author request, collect multiple finished changes before pushing the branch and running CI. This batch: (1) canonicalize the destination separately from HTTP/UDP namespaces, normalize DNS trailing dots after port stripping, and bind live picks to the canonical key; (2) exclude cooled candidates before neural ranking, preserve deterministic fallback when all are cooled; (3) discard obsolete diagnostic fallback/plain-reachability metadata when a preference is superseded or demoted, clear the newly verified fixed-probe method's stale cooldown, and reset site-commit reachability metadata. Regression coverage added for each behavior. No package/signature, subscription VPN or model layout changes. New CI pending. Actual network/device performance remains unverified.

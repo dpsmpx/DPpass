@@ -155,6 +155,7 @@ func canonicalAdaptiveHost(host string) string {
         for _, c := range host[i+1:] { if c < '0' || c > '9' { validPort = false; break } }
         if validPort { host = host[:i] }
     }
+    host = strings.TrimSuffix(host, ".")
     if len(host) == 0 || len(host) > 253 { return "" }
     for _, r := range host {
         if r > unicode.MaxASCII || !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '.' || r == '-' || r == ':' || r == '[' || r == ']') { return "" }
@@ -176,11 +177,23 @@ func mediaAdaptiveHost(key string) bool {
 }
 func canonicalAdaptiveKey(key string) string {
     parts := strings.SplitN(key, "|", 2)
-    host := canonicalAdaptiveHost(parts[0])
-    if host == "" || len(parts) == 1 { return host }
+    raw := strings.ToLower(strings.TrimSpace(parts[0]))
+    prefix := ""
+    for _, p := range []string{"http:", "udp:"} {
+        if strings.HasPrefix(raw,p) {
+            prefix, raw = p, strings.TrimPrefix(raw,p)
+            break
+        }
+    }
+    // Normalize the destination, not the transport namespace. In particular
+    // HTTP host:port and a literal QUIC IPv4 must not collapse into TLS keys.
+    host := canonicalAdaptiveHost(raw)
+    if host == "" { return "" }
+    key = prefix + host
+    if len(parts) == 1 { return key }
     ip := net.ParseIP(parts[1])
     if ip == nil { return "" }
-    return host + "|" + ip.String()
+    return key + "|" + ip.String()
 }
 
 // A suffix match is allowed only at a DNS-label boundary. User overrides
@@ -270,6 +283,7 @@ func (a *adaptiveSelector) chooseLive(host string, candidates []string) (string,
 
 // Capture cache identity in the same critical section as method selection.
 func (a *adaptiveSelector) chooseSocketLive(host string, candidates []string, transport localdpi.Transport) *adaptivePick {
+    host = canonicalAdaptiveKey(host)
     choice, generation, entryID := a.choosePolicy(host, candidates, true)
     pick := newSocketPick(host, choice, generation, transport)
     pick.entryID = entryID
@@ -363,10 +377,12 @@ func (a *adaptiveSelector) choosePolicy(host string, candidates []string, direct
     index := e.index
     if directFirst && index > 0 { index-- }
     tag := candidates[index%len(candidates)]
+    available := false
     for offset := 0; offset < len(candidates); offset++ {
         choice := candidates[(index+offset)%len(candidates)]
         if !blocked(choice) {
             tag = choice
+            available = true
             break
         }
     }
@@ -374,11 +390,23 @@ func (a *adaptiveSelector) choosePolicy(host string, candidates []string, direct
     // every fifth connection still explores the deterministic rotation.
     // A local neural prior must not suppress the plain TCP baseline.
     // Always try "pass" when its deterministic turn arrives, even with MLP.
-    if tag != "pass" && e.index%5 != 4 {
-        if ranked, ok := zapret2Neural.rank(adaptiveHostOnly(host), candidates, e.usage); ok && !blocked(ranked) {
+    if available && tag != "pass" && e.index%5 != 4 {
+        rankCandidates := candidates
+        // Filter before ranking, otherwise a cooled highest score prevents
+        // the model from considering its next eligible choice.
+        if len(e.cooldown) != 0 {
+            var scratch [8]string
+            rankCandidates = scratch[:0]
+            for _, candidate := range candidates {
+                if !blocked(candidate) { rankCandidates = append(rankCandidates,candidate) }
+            }
+        }
+        if ranked, ok := zapret2Neural.rank(adaptiveHostOnly(host), rankCandidates, e.usage); ok {
             tag = ranked
         }
     }
+    // If every candidate is cooled, keep deterministic rotation rather
+    // than inventing a method or indefinitely starving a new connection.
     e.index++
     if e.usage == nil { e.usage = make(map[string]int) }
     if e.usage[tag] < 100 { e.usage[tag]++ }
@@ -401,6 +429,7 @@ func (a *adaptiveSelector) retainPlainReplyLocked(host string) {
     e.preferred = "pass"
     e.plainReachable = true
     e.probeSeeded = false
+    e.verifiedFallback = ""
     delete(e.stalls, "pass")
     delete(e.cooldown, "pass")
 }
@@ -511,7 +540,11 @@ func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int
         // A different candidate with a full-sized downstream flow may
         // supersede the HTML hint. The SAME verified candidate should not
         // lose its small-success threshold after one large response.
-        if e.preferred != strategy { e.probeSeeded = false }
+        if e.preferred != strategy {
+            e.probeSeeded = false
+            e.verifiedFallback = ""
+            e.plainReachable = false
+        }
         e.preferred = strategy
         e.weakFailures = 0
         e.smallResponses = nil
@@ -534,6 +567,7 @@ func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int
                     e.cooldown["pass"] = time.Now().Add(adaptiveStallCooldown)
                 }
                 e.probeSeeded = false
+                e.verifiedFallback = ""
                 e.weakFailures = 0
                 e.smallResponses = nil
             }
@@ -627,8 +661,12 @@ func (a *adaptiveSelector) observeVerifiedProbe(host, requiredHost, validOutcome
     e := a.entryLocked(host)
     e.preferred = strategy
     e.probeSeeded = true
+    e.plainReachable = false
+    e.verifiedFallback = ""
     e.weakFailures = 0
     e.smallResponses = nil
+    delete(e.cooldown,strategy)
+    delete(e.stalls,strategy)
     // On two weak live connections, fall back to a *different* candidate.
     // If the other successful method was observed, try it first.
     backup := "fake-5"

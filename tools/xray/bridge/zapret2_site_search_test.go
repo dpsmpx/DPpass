@@ -150,7 +150,7 @@ func TestSiteSearchRestoresPlainBaselineWhenStable(t *testing.T) {
     inst,gen:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1","8.8.8.8"})
     // Simulate a stale prior workaround without disabling existing streams.
     zapret2Auto.mu.Lock()
-    zapret2Auto.entries[host]=&adaptiveEntry{preferred:"fake-5"}
+    zapret2Auto.entries[host]=&adaptiveEntry{preferred:"fake-5",plainReachable:true,verifiedFallback:"split"}
     zapret2Auto.mu.Unlock()
     for ip:=0;ip<2;ip++ {
         for attempt:=1;attempt<=3;attempt++ {
@@ -162,6 +162,11 @@ func TestSiteSearchRestoresPlainBaselineWhenStable(t *testing.T) {
     }
     if got:=zapret2Auto.choose(host);got!="pass" {
         t.Fatalf("AUTO failed to restore original unmodified TCP, got %s",got)
+    }
+    zapret2Auto.mu.Lock()
+    defer zapret2Auto.mu.Unlock()
+    if e:=zapret2Auto.entries[host];e.plainReachable || e.verifiedFallback!="" {
+        t.Fatal("site result retained stale preference metadata")
     }
 }
 

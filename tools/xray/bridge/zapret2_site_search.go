@@ -284,6 +284,7 @@ func siteSearchCommit(inst *core.Instance,host,method string,gen uint64) bool {
     if selected=="plain" {selected="pass"}
     entry.preferred=selected
     entry.verifiedFallback=backup
+    entry.plainReachable=false
     entry.probeSeeded=method!="plain"
     entry.weakFailures=0
     entry.smallResponses=nil

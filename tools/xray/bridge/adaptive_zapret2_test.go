@@ -583,3 +583,80 @@ func TestEvictedSocketEvidenceCannotMutateRecreatedEntry(t *testing.T) {
         }
     }
 }
+
+func TestCanonicalAdaptiveKeyPreservesTransportAndNormalizesDestination(t *testing.T) {
+    for _,tc:=range []struct{raw,want string}{
+        {"EXAMPLE.test.:443|2001:0db8::1","example.test|2001:db8::1"},
+        {"HTTP:EXAMPLE.test.:80|203.0.113.9","http:example.test|203.0.113.9"},
+        {"udp:203.0.113.9","udp:203.0.113.9"},
+        {"udp:2001:db8::1","udp:2001:db8::1"},
+        {"http:",""},
+        {"udp:",""},
+        {"http:example.test|invalid",""},
+    } {
+        if got:=canonicalAdaptiveKey(tc.raw);got!=tc.want { t.Fatalf("%q: got %q want %q",tc.raw,got,tc.want) }
+    }
+    a:=newProbeAdaptiveSelector()
+    pick:=a.chooseSocketLive("HTTP:EXAMPLE.test:80|203.0.113.9",adaptiveHTTPCandidates,localdpi.HTTP)
+    if pick.host!="http:example.test|203.0.113.9" || !socketPickAdmissible(pick) { t.Fatal("wrong socket identity",pick) }
+    a.observeSocketEvidence(pick,localdpi.SocketDownstream(adaptivePayloadThreshold))
+    if a.entries[pick.host].preferred!=pick.flow.MethodID || a.entries["example.test|203.0.113.9"]!=nil {
+        t.Fatal("HTTP result escaped transport namespace")
+    }
+}
+
+func TestAdaptiveNeuralRanksOnlyAvailableCandidates(t *testing.T) {
+    defer ConfigureZapret2NeuralModel(nil)
+    if err:=ConfigureZapret2NeuralModel(generatedTestModel(t,32));err!=nil {t.Fatal(err)}
+    // Give the two best candidates deliberately distinct scores.
+    zapret2Neural.mu.Lock()
+    zapret2Neural.weights.OutputBias[localdpi.NeuralIndex("tlsrec-split",localdpi.TLS)]=3
+    zapret2Neural.weights.OutputBias[localdpi.NeuralIndex("fake-5",localdpi.TLS)]=2
+    zapret2Neural.mu.Unlock()
+    a:=newProbeAdaptiveSelector()
+    const host="rank-cooled.example.test"
+    a.mu.Lock()
+    e:=a.entryLocked(host)
+    e.cooldown=map[string]time.Time{"tlsrec-split":time.Now().Add(time.Hour)}
+    a.mu.Unlock()
+    if got:=a.chooseFrom(host,[]string{"split","fake-5","tlsrec-split"});got!="fake-5" {
+        t.Fatal("cooled neural winner hid available runner-up",got)
+    }
+    e.cooldown["split"]=time.Now().Add(time.Hour)
+    e.cooldown["fake-5"]=time.Now().Add(time.Hour)
+    e.index=0
+    if got:=a.chooseFrom(host,[]string{"split","fake-5","tlsrec-split"});got!="split" {
+        t.Fatal("all-cooled fallback no longer deterministic",got)
+    }
+}
+
+func TestAdaptiveReplacementClearsUnrelatedVerifiedFallback(t *testing.T) {
+    a:=newProbeAdaptiveSelector()
+    const host="www.youtube.com"
+    a.choose(host)
+    e:=a.entries[host]
+    e.preferred="tlsrec-split"
+    e.verifiedFallback="fake-5"
+    e.probeSeeded=true
+    a.observe(host,"split",adaptivePayloadThreshold)
+    if e.preferred!="split" || e.verifiedFallback!="" || e.probeSeeded {
+        t.Fatal("live replacement retained unrelated diagnostic fallback")
+    }
+    e.verifiedFallback="fake-5"
+    e.probeSeeded=true
+    a.observe(host,"split",0)
+    a.observe(host,"split",0)
+    if e.preferred!="" || e.verifiedFallback!="" { t.Fatal("demotion retained old fallback") }
+    e.preferred="pass"
+    e.plainReachable=true
+    e.verifiedFallback="split"
+    e.cooldown=map[string]time.Time{"fake-5":time.Now().Add(time.Hour)}
+    e.stalls=map[string]int{"fake-5":1}
+    g:=a.generationSnapshot()
+    for i:=0;i<2;i++ { a.observeHTMLProbe(host,"plain","timeout",1000,g) }
+    for i:=0;i<2;i++ { a.observeHTMLProbe(host,"fake-5","ok",100,g) }
+    if e.preferred!="fake-5" || e.plainReachable || e.verifiedFallback!="" ||
+        len(e.cooldown)!=0 || len(e.stalls)!=0 {
+        t.Fatal("verified replacement retained contradictory old state")
+    }
+}
