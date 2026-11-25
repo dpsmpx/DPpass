@@ -23,6 +23,7 @@ func TestTCPPlanEvidenceMatchesExecutedMethod(t *testing.T) {
         {"example.test","pass",localdpi.TLS,false,0,true},
         {"http:example.test","pass",localdpi.HTTP,false,0,true},
         {"http:example.test","split-1",localdpi.HTTP,false,0,false},
+        {"http:example.test","split",localdpi.HTTP,false,0,false},
         {"example.test","split-1",localdpi.TLS,true,1,true},
         {"example.test","tlsrec-split",localdpi.TLS,false,0,false},
         {"example.test","tlsrec-split",localdpi.TLS,true,40,true},
@@ -45,11 +46,11 @@ func TestTCPPublishesEvidenceOnlyAfterMatchingWrite(t *testing.T) {
     prev:=zapret2.PlannerSocket()
     if err:=zapret2.SetPlannerSocket("");err!=nil {t.Fatal(err)}
     t.Cleanup(func(){_ = zapret2.SetPlannerSocket(prev)})
-    for _,tc:=range []struct{method string; want bool; closeBeforeWrite bool}{
-        {"pass",true,false},
-        {"split",true,false},
-        {"split-1",false,false},
-        {"pass",false,true},
+    for _,tc:=range []struct{method, executed string; want bool; closeBeforeWrite bool}{
+        {"pass","pass",true,false},
+        {"split","split",true,false},
+        {"split-1","pass",true,false},
+        {"pass","pass",false,true},
     } {
         out,peer:=tcpCopyPair(t)
         if err:=out.SetDeadline(time.Now().Add(time.Second));err!=nil {t.Fatal(err)}
@@ -80,9 +81,24 @@ func TestTCPPublishesEvidenceOnlyAfterMatchingWrite(t *testing.T) {
                 if _,err:=io.ReadFull(peer,received);err!=nil || !bytes.Equal(first,received) {t.Fatal("wire bytes changed",err)}
             }
             pick:=conn.adaptiveSelection.Load()
-            if (pick!=nil)!=tc.want || pick!=nil && pick.flow.MethodID!=tc.method {
+            if (pick!=nil)!=tc.want || pick!=nil && pick.flow.MethodID!=tc.executed {
                 t.Fatal("incorrect completed-method evidence",tc.method,tc.closeBeforeWrite,pick)
             }
         }()
+    }
+}
+
+func TestHTTPUnavailableLegacyMethodIsNotAdvertised(t *testing.T) {
+    first:=[]byte("GET / HTTP/1.1\r\nHost: evidence-local.example.test\r\n\r\n")
+    p,err:=zapret2.BuildPlan(zapret2.TagPrefix+"split-1","tcp",first)
+    if err!=nil || p.Applied {t.Fatal("legacy HTTP split-1 planner contract changed",err)}
+    if socketCapabilities.Allows(localdpi.HTTP,"split-1") || !socketCapabilities.Allows(localdpi.TLS,"split-1") {
+        t.Fatal("runtime capabilities do not match planner")
+    }
+    if localdpi.NeuralIndex("split-1",localdpi.HTTP)!=0 || localdpi.NeuralIndex("split-1",localdpi.TLS)!=0 {
+        t.Fatal("historical model ABI changed")
+    }
+    if socketEvidenceAdmissible(newSocketPick("http:example.test","split-1",1,localdpi.HTTP),localdpi.SocketDownstream(4096)) {
+        t.Fatal("unsupported HTTP evidence admitted")
     }
 }

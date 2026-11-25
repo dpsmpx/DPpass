@@ -36,7 +36,10 @@ func newSocketCapabilities() localdpi.Capabilities {
     for _, id := range []string{"split-1","split","fake-3","fake-5","disorder","tlsrec-split","pass"} {
         entries = append(entries, localdpi.Support{Transport:localdpi.TLS,MethodID:id})
     }
-    for _, id := range []string{"split-1","split","fake-3","fake-5","disorder","pass"} {
+    // The legacy catalog/ABI retains split-1 for historical models.
+    // The current socket planner implements split-1 only for TLS, so
+    // do not advertise it as a supported HTTP action.
+    for _, id := range []string{"split","fake-3","fake-5","disorder","pass"} {
         entries = append(entries, localdpi.Support{Transport:localdpi.HTTP,MethodID:id})
     }
     for _, id := range []string{"fake-3","fake-5","pass"} {

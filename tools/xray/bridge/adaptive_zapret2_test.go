@@ -155,7 +155,7 @@ func TestAdaptiveTCPPlainBaselineFollowsLegacyStrategies(t *testing.T) {
     }
     a.observe(host, "pass", adaptivePayloadThreshold)
     if got := a.choose(host); got != "pass" { t.Fatalf("plain TCP should be learnable: %q", got) }
-    for _, want := range []string{"split-1", "split", "fake-3", "fake-5", "disorder", "pass"} {
+    for _, want := range []string{"split", "fake-3", "fake-5", "disorder", "pass"} {
         if got, _ := a.chooseHTTPTracked("feeds.example.org"); got != want {
             t.Fatalf("HTTP candidate %q, expected %q", got, want)
         }
@@ -426,9 +426,9 @@ func TestCapabilityFilteredSelectorDoesNotInventBaseline(t *testing.T) {
     if got,_:=a.chooseLive("",[]string{"split"});got!="split" { t.Fatal(got) }
 }
 
-func TestSocketCapabilitiesPreserveCurrentCandidates(t *testing.T) {
+func TestSocketCapabilitiesReflectImplementedCandidates(t *testing.T) {
     wantTLS:=[]string{"split-1","split","fake-3","fake-5","disorder","tlsrec-split","pass"}
-    wantHTTP:=[]string{"split-1","split","fake-3","fake-5","disorder","pass"}
+    wantHTTP:=[]string{"split","fake-3","fake-5","disorder","pass"}
     wantQUIC:=[]string{"fake-3","fake-5","pass"}
     for _,p:=range []struct{got,want []string}{
         {adaptiveCandidates,wantTLS},{adaptiveHTTPCandidates,wantHTTP},{adaptiveQuicCandidates,wantQUIC},
