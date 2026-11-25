@@ -440,3 +440,7 @@ CI ee299ac: Go/Linux/Windows #45565787079 passed; Android status not independent
 ## A3/A5 — structured cancellation test CI fix
 
 CI 83c7c0d: Go/Linux/Windows #45566942468 passed; Android #45566933130 failed at compileDebugUnitTestKotlin because launch(Job, ...) is deprecated and -Werror is enabled. The fixture now launches a structured child, captures its own Job before NonCancellable startup and cancels the returned task while start is suspended. Rollback assertions remain unchanged. No production code, compiler flags or network behavior changed. New CI pending.
+
+## A3/A5 — coroutine exception assertion CI fix
+
+CI bc1b0d7: Go/Linux/Windows #45567617213 passed; Android #45567608307 compiled successfully, then 100/101 app JVM tests passed. The failing acceptanceExceptionStillRollsBack fixture compared exception references across a suspend boundary. Coroutine stack recovery may copy the exception; the fixture now asserts exact exception class and message and retains the exactly-once rollback assertion. The exact failing assertion details were not exposed by the job log. No production behavior, compiler settings or test count changed. New CI pending.

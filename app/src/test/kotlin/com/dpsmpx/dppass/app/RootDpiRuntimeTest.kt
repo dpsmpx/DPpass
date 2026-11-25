@@ -80,7 +80,10 @@ class RootDpiRuntimeTest {
         val result = runCatching {
             runtime.startAndAccept({ throw expected }, { throw AssertionError(it) })
         }
-        assertTrue(result.exceptionOrNull() === expected)
+        val actual = result.exceptionOrNull()
+        // Coroutine stack-trace recovery may copy the exception at a suspend boundary.
+        assertEquals(expected.javaClass, actual?.javaClass)
+        assertEquals(expected.message, actual?.message)
         assertEquals(1, runtime.stops)
     }
 
