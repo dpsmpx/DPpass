@@ -3,6 +3,8 @@ package com.dpsmpx.dppass.app
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -60,12 +62,12 @@ class RootDpiRuntimeTest {
             entered.complete(Unit)
             release.await()
         })
-        val owner = Job()
-        val task = launch(owner, start = CoroutineStart.UNDISPATCHED) {
+        val task = launch(start = CoroutineStart.UNDISPATCHED) {
+            val owner = currentCoroutineContext().job
             runtime.startAndAccept({ !owner.isCancelled }, { throw AssertionError(it) })
         }
         entered.await()
-        owner.cancel()
+        task.cancel()
         release.complete(Unit)
         task.join()
         assertTrue(task.isCancelled)

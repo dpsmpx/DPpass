@@ -436,3 +436,7 @@ CI 9995ae7: Go/Linux/Windows #45564388925 и Android #45564383603 success. RootD
 ## A3/A5 — ROOT rollback exception and cancellation coverage
 
 CI ee299ac: Go/Linux/Windows #45565787079 passed; Android status not independently confirmed. The ownership helper now reports both returned failures and exceptions thrown by rollback through the same diagnostic callback. Three host JVM fixtures cover cancellation during a suspended start, acceptance throwing, and rollback throwing. No changes to firewall, network methods, process commands or ordinary VPN. This does not guarantee privileged cleanup or resolve cross-process watchdog races; device verification and CI remain pending.
+
+## A3/A5 — structured cancellation test CI fix
+
+CI 83c7c0d: Go/Linux/Windows #45566942468 passed; Android #45566933130 failed at compileDebugUnitTestKotlin because launch(Job, ...) is deprecated and -Werror is enabled. The fixture now launches a structured child, captures its own Job before NonCancellable startup and cancels the returned task while start is suspended. Rollback assertions remain unchanged. No production code, compiler flags or network behavior changed. New CI pending.
