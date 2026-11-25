@@ -636,3 +636,7 @@ Generation-preserving restart now rejects a strict prior owner unless the initia
 ## A3/A5 — no-signal migration of missing child identity
 
 If the installed native helper is available, missing legacy or interrupted-launch sidecars no longer permit a numeric-PID/path-only stop. The helper must positively prove that the PID is absent or dead on the current boot before removing its record; a visible live task or ambiguous error remains blocked without a signal. Strict sessions never fall back. Non-Alpine sessions that never installed a helper retain the previous compatibility path. Added a host shell regression for both strict and legacy records, verifying the sole native command is `absent` and its failure retains metadata. Actual live legacy daemons without trustworthy identity still require old-version cleanup or a verified reboot; do not manufacture identity. CI pending.
+
+## CI — repair ROOT firewall regression fixture
+
+Android run #45627049008 attempt 1 failed during Gradle Kotlin DSL plugin resolution; attempt 2 resolved dependencies but failed compiling RootFirewallCleanupTest.kt at line 22. Repaired the malformed shell parameter interpolation and removed the accidentally duplicated fixture tail. All cleanup assertions remain enabled, no production behavior or dependency versions changed. Go/Linux/Windows #45627060646 succeeded. New CI pending.
