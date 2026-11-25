@@ -588,7 +588,9 @@ class DPpassVpnService : VpnService() {
                 "В отдельной сборке Local DPI (test) доступен только тест VpnService; ROOT отключён"))
             return
         }
-        val root: RootDpiRuntime = if (useByeDpi) RootByeDpi(this) else RootZapret2(this)
+        val root = processRootRuntimeCoordinator.bind(
+            if (useByeDpi) RootByeDpi(this) else RootZapret2(this),
+        )
         // Capture the original job before entering NonCancellable.
         // Startup and registration/rollback form one ownership transaction.
         val job = currentCoroutineContext().job

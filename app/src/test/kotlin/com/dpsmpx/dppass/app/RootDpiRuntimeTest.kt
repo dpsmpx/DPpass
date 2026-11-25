@@ -21,7 +21,9 @@ class RootDpiRuntimeTest {
         private val stopException: Throwable? = null,
     ) : RootDpiRuntime {
         var stops = 0
+        var starts = 0
         override suspend fun start(): Result<Unit> {
+            starts++
             duringStart()
             return startResult
         }
@@ -31,6 +33,80 @@ class RootDpiRuntimeTest {
             return stopResult
         }
         override suspend fun alive() = true
+    }
+
+    @Test fun coordinatorRejectsAnotherOwnerAndIgnoresObsoleteStop() = runBlocking {
+        val coordinator = RootRuntimeCoordinator()
+        val first = Fake()
+        val second = Fake()
+        val a = coordinator.bind(first)
+        val b = coordinator.bind(second)
+        assertTrue(a.start().isSuccess)
+        assertTrue(b.start().isFailure)
+        assertEquals(0, second.starts)
+        assertTrue(a.stop().isSuccess)
+        assertTrue(b.start().isSuccess)
+        assertTrue(a.stop().isSuccess)
+        assertTrue(!a.alive())
+        assertTrue(b.alive())
+        assertEquals(1, first.stops)
+        assertEquals(0, second.stops)
+        assertTrue(b.stop().isSuccess)
+    }
+
+    @Test fun coordinatorRetainsOwnerAfterFailedCleanup() = runBlocking {
+        val coordinator = RootRuntimeCoordinator()
+        val first = Fake(stopResult = Result.failure(IllegalStateException("cleanup failed")))
+        val second = Fake()
+        val a = coordinator.bind(first)
+        val b = coordinator.bind(second)
+        assertTrue(a.start().isSuccess)
+        assertTrue(a.stop().isFailure)
+        assertTrue(b.start().isFailure)
+        assertTrue(b.stop().isSuccess)
+        assertEquals(0, second.starts)
+        assertEquals(0, second.stops)
+        assertEquals(1, first.stops)
+    }
+
+    @Test fun coordinatorRetainsOwnerForIncompleteStartupCompensation() = runBlocking {
+        val coordinator = RootRuntimeCoordinator()
+        val failure = RootStartupCleanupFailure(
+            IllegalStateException("start failed"), IllegalStateException("cleanup failed"),
+        )
+        val first = Fake(startResult = Result.failure(failure))
+        val second = Fake()
+        val a = coordinator.bind(first)
+        val b = coordinator.bind(second)
+        assertTrue(a.start().isFailure)
+        assertTrue(b.start().isFailure)
+        assertEquals(0, second.starts)
+        assertTrue(a.stop().isSuccess)
+        assertTrue(b.start().isSuccess)
+        assertTrue(b.stop().isSuccess)
+    }
+
+    @Test fun coordinatorSerializesConcurrentStarts() = runBlocking {
+        val coordinator = RootRuntimeCoordinator()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val first = Fake(duringStart = { entered.complete(Unit); release.await() })
+        val second = Fake()
+        val a = coordinator.bind(first)
+        val b = coordinator.bind(second)
+        val task = launch(start = CoroutineStart.UNDISPATCHED) {
+            assertTrue(a.start().isSuccess)
+        }
+        entered.await()
+        val contender = launch(start = CoroutineStart.UNDISPATCHED) {
+            assertTrue(b.start().isFailure)
+        }
+        assertTrue(!contender.isCompleted)
+        release.complete(Unit)
+        task.join()
+        contender.join()
+        assertEquals(0, second.starts)
+        assertTrue(a.stop().isSuccess)
     }
 
     @Test fun cleanupSuccessAndReturnedFailureRemainDistinguishable() = runBlocking {

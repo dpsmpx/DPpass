@@ -1,6 +1,8 @@
 package com.dpsmpx.dppass.app
 
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 internal interface RootDpiRuntime {
@@ -68,3 +70,42 @@ internal suspend fun RootDpiRuntime.stopForCleanup(): Result<Unit> =
             Result.failure(error)
         }
     }
+
+/** Process-wide ownership for the legacy ROOT resources. A fresh service
+ * instance must not start while another instance owns (or is cleaning) them.
+ * An obsolete handle must never stop a newer owner. This does not lock
+ * external watchdog scripts or survive process death.
+ */
+internal class RootRuntimeCoordinator {
+    private val mutex = Mutex()
+    private var owner: Any? = null
+
+    fun bind(delegate: RootDpiRuntime): RootDpiRuntime = object : RootDpiRuntime {
+        private val token = Any()
+
+        override suspend fun start(): Result<Unit> = mutex.withLock {
+            if (owner != null) {
+                return@withLock Result.failure(IllegalStateException("ROOT: previous owner has not completed cleanup"))
+            }
+            val result = delegate.start()
+            if (result.isSuccess || result.exceptionOrNull() is RootStartupCleanupFailure) {
+                owner = token
+            }
+            result
+        }
+
+        override suspend fun stop(): Result<Unit> = mutex.withLock {
+            // No owned resources remain for this handle.
+            if (owner !== token) return@withLock Result.success(Unit)
+            val result = delegate.stopForCleanup()
+            if (result.isSuccess) owner = null
+            result
+        }
+
+        override suspend fun alive(): Boolean = mutex.withLock {
+            owner === token && delegate.alive()
+        }
+    }
+}
+
+internal val processRootRuntimeCoordinator = RootRuntimeCoordinator()
