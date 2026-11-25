@@ -60,9 +60,14 @@ func TestTCPReadFromCannotBypassClientHelloStrategy(t *testing.T) {
 func TestTCPWriteToCountsDownloadedPayload(t *testing.T) {
     outgoing, incoming := tcpCopyPair(t)
     const host = "adaptive-copy-test.example.org"
-    _, generation := zapret2Auto.chooseTracked(host)
+    // Exercise actual selection so the socket carries the cache incarnation
+    // captured under the selector lock, just like production connections.
+    pick := zapret2Auto.chooseSocketLive(host, []string{"fake-5"}, localdpi.TLS)
+    if pick.entryID == 0 || pick.flow.MethodID != "fake-5" {
+        t.Fatal("failed to select a bound socket method")
+    }
     conn := &desyncConn{TCPConn: outgoing}
-    conn.adaptiveSelection.Store(newSocketPick(host,"fake-5",generation,localdpi.TLS))
+    conn.adaptiveSelection.Store(pick)
     payload := bytes.Repeat([]byte("video-payload-"), 12000)
     sent := make(chan error, 1)
     go func() {

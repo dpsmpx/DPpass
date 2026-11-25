@@ -743,3 +743,7 @@ CI 0b09788: Go/Linux/Windows #45667254873 and Android #45667240157 succeeded. Sh
 ## A6 — bind live feedback to cache-entry incarnation
 
 CI d6bf709: Go/Linux/Windows #45668692129 and Android #45668681351 succeeded. Capture a nonzero cache-entry ID atomically with live selection; retain network generation and transport identity. Both first-reply retention and downstream/timeout observations validate the entry ID under the selector lock before mutating state. An evicted flow cannot update a recreated key within the same generation. Socket fixtures capture the ID; regression tests cover TLS, HTTP, QUIC, eviction/recreation and network reset. Live transport methods and model formats are unchanged. New CI pending; physical performance and networking remain unverified.
+
+### CI correction — bound streaming-copy test fixture
+
+CI 8aa28f6 failed in both Linux Go runs (#45670240927 and #45670224995), while portable Windows passed. TestTCPWriteToCountsDownloadedPayload constructed a synthetic pick without the newly required cache-entry ID, so its observation was correctly rejected. The fixture now uses the real locked socket-selection path with a single admitted method and checks the captured ID. Existing pre-Close and post-Close payload assertions remain unchanged. No production guard is weakened. New CI pending.
