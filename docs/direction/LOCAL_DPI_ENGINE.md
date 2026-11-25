@@ -492,3 +492,7 @@ CI b9eb655: Go/Linux/Windows #45585056051 and Android #45585047360 succeeded. Sh
 ## CI — recurring Gradle plugin resolution failures
 
 CI e28b241: Go/Linux/Windows #45586465280 passed; Android #45586450425 failed to resolve Kotlin DSL plugin marker 6.7.6 before compilation, after three attempts. Enable Gradle dependency caching with existing actions/setup-java@v4. The retry helper now refreshes dependency metadata only on retries, uses four bounded attempts with 15/30/60-second backoff, and still stops immediately on task/test failures or unrelated errors. Fixtures verify first attempt uses normal cache, subsequent attempts refresh, arguments are preserved, late recovery succeeds, and persistent failure retains status. No version, repository, checksum, compiler flags or source changes. A cold cache still depends on upstream availability; new CI pending.
+
+## CI — Android-compatible host test PID acquisition
+
+CI 3cde1bf: Go/Linux/Windows #45587114906 succeeded; Android #45587100225 resolved dependencies and compiled main Kotlin, but compileDebugUnitTestKotlin rejected Process.pid() in two new host fixtures. Use the existing shell PID announcement followed by exec, preserving process identity, rather than the unavailable Java API. Both failure/retry and unrelated-process assertions remain intact; no production source, Android API level, dependency or compiler changes. New CI pending.

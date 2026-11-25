@@ -91,11 +91,11 @@ class RootProcessIdentityTest {
     @Test fun failedSignalRetainsPidAndSuccessfulRetryRemovesIt() {
         if (!File("/bin/sh").canExecute() || !File("/proc/self/exe").exists()) return
         val sleep = listOf("/bin/sleep", "/usr/bin/sleep").firstOrNull { File(it).canExecute() } ?: return
-        val child = ProcessBuilder(sleep, "15").start()
+        val child = ProcessBuilder("/bin/sh", "-c", "echo \$\$; exec \"\$1\" 15", "identity-test", sleep).start()
         val dir = Files.createTempDirectory("dppass-root-stop")
         val pidFile = dir.resolve("daemon.pid").toFile()
         try {
-            val pid = child.pid()
+            val pid = child.inputStream.bufferedReader().readLine().toLong()
             val executable = File(sleep).canonicalPath
             val link = File("/proc/$pid/exe")
             val deadline = System.nanoTime() + 2_000_000_000L
@@ -129,11 +129,12 @@ class RootProcessIdentityTest {
     @Test fun mismatchedExecutableNeverSignalsUnrelatedProcess() {
         if (!File("/bin/sh").canExecute() || !File("/proc/self/exe").exists()) return
         val sleep = listOf("/bin/sleep", "/usr/bin/sleep").firstOrNull { File(it).canExecute() } ?: return
-        val child = ProcessBuilder(sleep, "15").start()
+        val child = ProcessBuilder("/bin/sh", "-c", "echo \$\$; exec \"\$1\" 15", "identity-test", sleep).start()
         val dir = Files.createTempDirectory("dppass-root-unrelated")
         val pidFile = dir.resolve("daemon.pid").toFile()
         try {
-            pidFile.writeText(child.pid().toString())
+            val pid = child.inputStream.bufferedReader().readLine().toLong()
+            pidFile.writeText(pid.toString())
             val result = RootCommandRunner.run(listOf("/bin/sh", "-c",
                 "kill() { echo unexpected_signal; exit 42; }\n" +
                     RootProcessIdentity.stopExecutable(pidFile.path, "/not-the-owned-executable"),
