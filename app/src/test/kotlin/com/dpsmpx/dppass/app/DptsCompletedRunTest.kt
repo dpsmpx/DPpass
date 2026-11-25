@@ -23,6 +23,13 @@ class DptsCompletedRunTest {
         assertNotNull(run)
         val captured = requireNotNull(run)
         assertTrue(captured.matches(source, "MOBILE", 10L, 20L))
+        assertTrue(captured.trainingNetworkSupported)
+        for (network in listOf("WIFI", "OTHER", "UNKNOWN")) {
+            val other = requireNotNull(DptsCompletedRun.capture(source, plan, prepared,
+                rows, network, 10L, 20L))
+            assertTrue(other.matches(source, network, 10L, 20L))
+            assertTrue(other.trainingNetworkSupported == (network == "WIFI"))
+        }
         assertFalse(captured.matches(source + "\n# edit", "MOBILE", 10L, 20L))
         assertFalse(captured.matches(source, "WIFI", 10L, 20L))
         assertFalse(captured.matches(source, "MOBILE", 11L, 20L))

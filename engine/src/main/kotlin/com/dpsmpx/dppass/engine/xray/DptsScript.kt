@@ -40,7 +40,7 @@ data class DptsProbe(
     fun boundedHttpsSuccess(result: Zapret2GoogleProbe): Boolean =
         phase == "https" && protocol in setOf("h1", "h2") &&
             handshakeVerified(result) && result.outcome == "ok" &&
-            result.httpStatus in 200..299 && result.bodyBytes >= 128
+            result.httpStatus in 200..299 && result.bodyBytes in 128L..256L
 }
 
 data class DptsPlan(

@@ -14,6 +14,9 @@ internal class DptsCompletedRun private constructor(
     private val handle: Long,
     val generation: Long,
 ) {
+    // Native supervised calibration supports only these two network heads.
+    val trainingNetworkSupported: Boolean get() = network == "MOBILE" || network == "WIFI"
+
     fun matchesSource(currentSource: String): Boolean = source == currentSource
 
     fun matches(currentSource: String, currentNetwork: String, currentHandle: Long?,

@@ -306,6 +306,11 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             appendTrainingLog("not_applied reason=no_matching_completed_run")
             return
         }
+        if (!run.trainingNetworkSupported) {
+            statusText.text = context.getString(R.string.dpts_train_no_run)
+            appendTrainingLog("not_applied reason=unsupported_training_network")
+            return
+        }
         val evidence = DptsLearning.analyze(run.plan, run.rows)
         val candidates = evidence.winners
         if (candidates.isEmpty()) {
@@ -321,16 +326,35 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         }
         val kind = Zapret2NeuralModel.Kind.STRATEGY
         // Generate once if the user has not created a local strategy model.
-        val installed = Zapret2NeuralModel.readVerified(context, kind)
-        if (installed == null) {
+        // Pin exact durable bytes before native mutation, never afterwards.
+        // A regenerated or independently persisted model must not be replaced
+        // using a later baseline that was not part of this training action.
+        val expected = Zapret2NeuralModel.readVerified(context, kind) ?: run {
             val generated = Zapret2NeuralModel.generate(context, kind,
                 Zapret2NeuralModel.DEFAULT_HIDDEN).getOrNull()
             if (generated == null ||
-                JniXrayRuntime.configureZapret2NeuralModel(generated) != XrayResult.Ok) {
+                runCatching { JniXrayRuntime.configureZapret2NeuralModel(generated) }
+                    .getOrNull() != XrayResult.Ok) {
                 statusText.text = context.getString(R.string.dpts_train_model_error)
                 appendTrainingLog("not_applied reason=local_model_unavailable")
                 return
             }
+            generated
+        }
+        val beforeTraining = NetworkCheck.underlying(context)
+        if (!ready(TunnelState.status.value) ||
+            !run.matches(dptsEditor.text.toString(), beforeTraining.type.toString(),
+                beforeTraining.network?.networkHandle,
+                runCatching { JniXrayRuntime.dptsGeneration() }.getOrNull())) {
+            invalidateDptsRun()
+            statusText.text = context.getString(R.string.dpts_train_no_run)
+            appendTrainingLog("not_applied reason=session_changed_before_training")
+            return
+        }
+        if (Zapret2NeuralModel.readVerified(context, kind)?.contentEquals(expected) != true) {
+            statusText.text = context.getString(R.string.dpts_train_model_error)
+            appendTrainingLog("not_applied reason=model_changed_before_training")
+            return
         }
         val trained = runCatching {
             JniXrayRuntime.trainZapret2NeuralFromDPTS(run.network, candidates, run.generation)
@@ -344,11 +368,10 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         // training twice even if durable storage fails.
         lastTrainingSubmitted = true
         dptsTrainButton.isEnabled = false
-        val expected = Zapret2NeuralModel.readVerified(context, kind)
         val snapshot = runCatching {
             JniXrayRuntime.snapshotZapret2NeuralModel()
         }.getOrNull()
-        val stored = expected != null && snapshot != null &&
+        val stored = snapshot != null &&
             Zapret2NeuralModel.storeLearnedSnapshot(context, kind, snapshot, expected)
         if (!stored) {
             statusText.text = context.getString(R.string.dpts_train_save_error)

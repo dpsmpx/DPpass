@@ -119,4 +119,25 @@ class DptsLearningTest {
                 "learn observe\nsuite api_ipv4_sweep")
         assertTrue(DptsLearning.confirmedWinners(plan, emptyList()).isEmpty())
     }
+
+    @Test fun impossibleBodySizesCannotProvideHtmlProof() {
+        val plan = DptsScript.compile(source)
+        val rows = observations(plan)
+        for (size in listOf(-1L, 127L, 257L, Long.MAX_VALUE)) {
+            val changed = rows.map { row ->
+                if (row.strategy == "plain") row
+                else row.copy(result = row.result.copy(bodyBytes = size))
+            }
+            val evidence = DptsLearning.analyze(plan, changed)
+            assertEquals(0, evidence.htmlVerified)
+            assertTrue(evidence.winners.isEmpty())
+        }
+        for (size in listOf(128L, 256L)) {
+            val changed = rows.map { row ->
+                if (row.strategy == "plain") row
+                else row.copy(result = row.result.copy(bodyBytes = size))
+            }
+            assertEquals(listOf("tlsrec-split"), DptsLearning.confirmedWinners(plan, changed))
+        }
+    }
 }
