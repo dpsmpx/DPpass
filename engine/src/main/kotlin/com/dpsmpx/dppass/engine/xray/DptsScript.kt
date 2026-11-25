@@ -16,7 +16,32 @@ data class DptsProbe(
     val ipIndex: Int,
     val attempt: Int,
     val timeoutMs: Int,
-)
+) {
+    // TLS version is a plan dimension, not a wire protocol.
+    val wireProtocol: String get() = when (protocol) {
+        "tls12", "tls13" -> "h1"
+        else -> protocol
+    }
+
+    fun matches(row: Zapret2GoogleAttempt): Boolean =
+        row.target == target && row.strategy == method &&
+            row.attempt == attempt && row.result.ipIndex == ipIndex &&
+            row.result.protocol == wireProtocol
+
+    fun handshakeVerified(result: Zapret2GoogleProbe): Boolean =
+        when (wireProtocol) {
+            "quic" -> result.outcome == "quic_verified" &&
+                result.tlsStage == "quic_tls_verified" && result.alpn == "h3"
+            "h1" -> result.tlsStage == "tls_verified" && result.alpn == "http/1.1"
+            "h2" -> result.tlsStage == "tls_verified" && result.alpn == "h2"
+            else -> false
+        }
+
+    fun boundedHttpsSuccess(result: Zapret2GoogleProbe): Boolean =
+        phase == "https" && protocol in setOf("h1", "h2") &&
+            handshakeVerified(result) && result.outcome == "ok" &&
+            result.httpStatus in 200..299 && result.bodyBytes >= 128
+}
 
 data class DptsPlan(
     val title: String,
@@ -255,24 +280,9 @@ object DptsScript {
         appendLine("Сеть: $network; host=${plan.host}")
         appendLine("DoH: ${prepared.outcome}; IPv4=${prepared.dnsAnswers};" +
             " fingerprint=${prepared.dnsFingerprint}")
-        // TLS version is a plan dimension, not a wire ALPN protocol.
-        fun wireProtocol(spec: DptsProbe): String =
-            if (spec.protocol in setOf("tls12", "tls13")) "h1" else spec.protocol
-        fun matches(spec: DptsProbe, row: Zapret2GoogleAttempt): Boolean =
-            row.target == spec.target && row.strategy == spec.method &&
-                row.attempt == spec.attempt && row.result.ipIndex == spec.ipIndex &&
-                row.result.protocol == wireProtocol(spec)
-        fun tlsVerified(spec: DptsProbe, r: Zapret2GoogleProbe): Boolean =
-            when (wireProtocol(spec)) {
-                "quic" -> r.outcome == "quic_verified" &&
-                    r.tlsStage == "quic_tls_verified" && r.alpn == "h3"
-                "h1" -> r.tlsStage == "tls_verified" && r.alpn == "http/1.1"
-                "h2" -> r.tlsStage == "tls_verified" && r.alpn == "h2"
-                else -> false
-            }
         val matched = plan.probes.indices.mapNotNull { i ->
             val row = observations.getOrNull(i) ?: return@mapNotNull null
-            if (matches(plan.probes[i], row)) i to row.result else null
+            if (plan.probes[i].matches(row)) i to row.result else null
         }.toMap()
         appendLine("Выполнено: ${observations.size}/${plan.probes.size};" +
             " worst_case_budget_ms=${plan.budgetMs}")
@@ -280,14 +290,12 @@ object DptsScript {
         for (phase in plan.probes.map { it.phase }.distinct()) {
             val indices = plan.probes.indices.filter { plan.probes[it].phase == phase }
             val results = indices.mapNotNull { i -> matched[i]?.let { plan.probes[i] to it } }
-            val verified = results.count { (spec, r) -> tlsVerified(spec, r) }
+            val verified = results.count { (spec, r) -> spec.handshakeVerified(r) }
             val transport = results.count { (spec, r) ->
-                tlsVerified(spec, r) && (wireProtocol(spec) == "quic" || r.httpStatus in 200..499)
+                spec.handshakeVerified(r) && (spec.wireProtocol == "quic" || r.httpStatus in 200..499)
             }
             val bounded = results.count { (spec, r) ->
-                phase == "https" && tlsVerified(spec, r) &&
-                    r.outcome == "ok" && r.httpStatus in 200..299 && r.bodyBytes >= 128 &&
-                    plan.host != Zapret2SiteSearch.YOUTUBE_API_HOST
+                spec.boundedHttpsSuccess(r) && plan.host != Zapret2SiteSearch.YOUTUBE_API_HOST
             }
             // The native verifier checks HTML for the fixed YouTube home
             // and JPEG for the fixed thumbnail. Generic site_http checks

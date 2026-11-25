@@ -22,8 +22,8 @@ class DptsLearningTest {
             httpStatus = if (good) candidateHTTP else 0,
             bodyBytes = if (good) 256 else 0,
             elapsedMillis = if (good) 260 else 5000,
-            appliedDelta = 0, skippedDelta = 0, dnsFingerprint = "sample",
-            dnsAnswers = 8, ipIndex = spec.ipIndex, protocol = spec.protocol,
+            appliedDelta = 0, skippedDelta = 0, dnsFingerprint = "abcdef12",
+            dnsAnswers = 8, ipIndex = spec.ipIndex, protocol = spec.wireProtocol,
             tlsStage = if (good) "tls_verified" else "clienthello_sent",
             alpn = if (!good) "-" else if (spec.protocol == "h2") "h2" else "http/1.1"
         )
@@ -73,6 +73,43 @@ class DptsLearningTest {
         val evidence = DptsLearning.analyze(plan, partial)
         assertEquals("verified_single_ip_only", evidence.reason)
         assertEquals(listOf(DptsLearning.AddressProof(1, "h2", "tlsrec-split")), evidence.addressProofs)
+        assertTrue(evidence.winners.isEmpty())
+    }
+
+    @Test fun mixedTlsVersionAndHttpsRowsUseTheSameWireBinding() {
+        val plan = DptsScript.compile(source + "\ntls versions=12,13 methods=plain ips=1 attempts=1")
+        val rows = observations(plan)
+        val evidence = DptsLearning.analyze(plan, rows)
+        assertEquals("verified_two_ips", evidence.reason)
+        assertEquals(6, evidence.htmlVerified)
+        assertEquals(listOf("tlsrec-split"), evidence.winners)
+        val wrongProtocol = rows.mapIndexed { i, row ->
+            if (plan.probes[i].phase == "tls") row.copy(result = row.result.copy(protocol = "h2")) else row
+        }
+        assertEquals("mismatched_probe_rows", DptsLearning.analyze(plan, wrongProtocol).reason)
+    }
+
+    @Test fun malformedDnsOrContradictoryBaselineCannotTrain() {
+        val plan = DptsScript.compile(source)
+        val rows = observations(plan)
+        for (change in listOf<(Zapret2GoogleProbe) -> Zapret2GoogleProbe>(
+            { it.copy(dnsFingerprint = "invalid") },
+            { it.copy(dnsAnswers = 1) },
+            { it.copy(dnsAnswers = 9) },
+        )) {
+            val changed = rows.map { it.copy(result = change(it.result)) }
+            assertEquals("dns_address_set_changed", DptsLearning.analyze(plan, changed).reason)
+        }
+        val contradictory = rows.map { row ->
+            if (row.strategy == "plain") row.copy(result = row.result.copy(tlsStage = "tls_verified")) else row
+        }
+        assertTrue(DptsLearning.confirmedWinners(plan, contradictory).isEmpty())
+        val wrongAlpn = rows.map { row ->
+            if (row.strategy != "plain") row.copy(result = row.result.copy(alpn = "h2")) else row
+        }
+        val evidence = DptsLearning.analyze(plan, wrongAlpn)
+        assertEquals(0, evidence.transportVerified)
+        assertEquals(0, evidence.htmlVerified)
         assertTrue(evidence.winners.isEmpty())
     }
 
