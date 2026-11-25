@@ -15,6 +15,7 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
     private val lifecycle = RootLifecycleTransaction(
         ROOT, lockDirectory = RootLifecycleTransaction.SHARED_LOCK_DIRECTORY,
         peerDirectory = RootLifecycleTransaction.ZAPRET_DIRECTORY,
+        peerCleanup = RootAdapterCleanup.zapret2(),
     )
 
     override suspend fun start(): Result<Unit> = withContext(Dispatchers.IO) {
@@ -76,17 +77,7 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
             " && { ! test -e " + quote("$ROOT/pid6") + " || ip6tables -t nat -C OUTPUT " + RULE + "; }")) }.isSuccess
     }
 
-    private fun cleanup(stopWatch: Boolean = true): String = buildString {
-        appendLine("set +e")
-        appendLine(RootFirewallCleanup.remove(RootFirewallCleanup.Kind.SOCKET, "iptables", listOf(RULE)))
-        appendLine(RootFirewallCleanup.remove(RootFirewallCleanup.Kind.SOCKET, "ip6tables", listOf(RULE),
-            optional = true, intentFile = "$ROOT/ipv6.intent"))
-        if (stopWatch) appendLine(RootPidfdCleanup.stopWatchdog(ROOT, "$ROOT/watch.sh"))
-        for (name in listOf("pid", "pid6")) {
-            appendLine(RootPidfdCleanup.stopExecutable(ROOT, name, "$ROOT/ciadpi"))
-        }
-        appendLine("exit 0")
-    }
+    private fun cleanup(stopWatch: Boolean = true): String = RootAdapterCleanup.byeDpi(stopWatch)
 
     private fun execute(script: String) {
         val result = RootCommandRunner.run(listOf("su", "-c", script))
@@ -99,6 +90,6 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
         const val ROOT = RootLifecycleTransaction.BYEDPI_DIRECTORY
         const val PORT = 40529
         // Exclude daemon's root-owned sockets and local destinations to avoid recursion.
-        const val RULE = "-p tcp -m owner ! --uid-owner 0 -m addrtype ! --dst-type LOCAL -m multiport --dports 80,443 -m comment --comment dppass-byedpi -j REDIRECT --to-ports 40529"
+        const val RULE = RootAdapterCleanup.BYEDPI_RULE
     }
 }

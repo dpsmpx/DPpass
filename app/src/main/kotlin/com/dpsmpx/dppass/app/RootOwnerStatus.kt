@@ -24,6 +24,10 @@ internal object RootOwnerStatus {
     fun sameBootOrphaned(directory: String, procRoot: String = "/proc"): String =
         probe(directory, procRoot, Proof.SAME_BOOT_ORPHAN) + " >/dev/null"
 
+    /** Strict recovery also covers an owner already reaped by the kernel. */
+    fun sameBootOrphanedWithPidfd(directory: String, procRoot: String = "/proc"): String =
+        probe(directory, procRoot, Proof.SAME_BOOT_ORPHAN, "$directory/root-pidfd") + " >/dev/null"
+
     // The generation file is the commit point. V2 stores the complete
     // identity there; legacy records use a separate owner.identity file.
     private fun readGeneration(directory: String, fail: String): String = listOf(
@@ -72,7 +76,7 @@ internal object RootOwnerStatus {
         readIdentity(directory, "exit 1", allowLegacyMissing = true), ")",
     ).joinToString("\n")
 
-    private fun probe(directory: String, procRoot: String, proof: Proof): String = listOf(
+    private fun probe(directory: String, procRoot: String, proof: Proof, nativeHelper: String? = null): String = listOf(
         "(",
         "set +e",
         "set -f",
@@ -89,6 +93,13 @@ internal object RootOwnerStatus {
         "if test \"\$saved_boot\" != \"\$current_boot\"; then echo 'ROOT: owner identity stale (boot changed)'; exit " +
             (if (proof == Proof.SAME_BOOT_ORPHAN) "1" else "0") + "; fi",
         if (proof == Proof.PREVIOUS_BOOT) "exit 1" else ":",
+        if (nativeHelper != null) {
+            val helper = quote(nativeHelper)
+            "test -f $helper && test ! -L $helper && test -x $helper || unknown\n" +
+                "test \"\$(stat -c %u $helper)\" = \"\$(id -u)\" || unknown\n" +
+                "test \"\$( $helper --version )\" = dppass-root-pidfd/1 || unknown\n" +
+                "if $helper gone \"\$pid\" \"\$ticks\" \"\$saved_boot\"; then exit 0; else unknown; fi"
+        } else ":",
         "stat=\$(cat " + quote(procRoot) + "/\$pid/stat 2>/dev/null) || unknown",
         "case \"\$stat\" in \"\$pid (\"*) ;; *) unknown ;; esac",
         "rest=\${stat##*) }; test \"\$rest\" != \"\$stat\" || unknown",

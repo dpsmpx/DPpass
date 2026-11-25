@@ -21,6 +21,7 @@ internal class RootLifecycleTransaction(
     private val lockDirectory: String = directory,
     private val peerDirectory: String? = null,
     private val procRoot: String = "/proc",
+    private val peerCleanup: String? = null,
 ) {
     private val lock = "$lockDirectory/lifecycle.lock"
     private val record = "$directory/generation"
@@ -43,11 +44,12 @@ internal class RootLifecycleTransaction(
      * lock. Do not unlink it or create it on a fresh install. A previous
      * watchdog holding it must finish before we replace the generation.
      */
-    private fun migrationStartup(body: String): String {
-        if (lockDirectory == directory) return body
-        val legacy = "$directory/lifecycle.lock"
+    private fun migrationStartup(body: String, dir: String = directory): String {
+        if (lockDirectory == dir) return body
+        val legacy = "$dir/lifecycle.lock"
         return listOf(
             "dppass_migration_body() {\n$body\n}",
+            metadataCheck(legacy),
             "if test -e " + quote(legacy) + "; then",
             RootProcessIdentity.lockedTransaction(legacy, "dppass_migration_body", 1),
             "else",
@@ -77,6 +79,33 @@ internal class RootLifecycleTransaction(
         ).joinToString("\n")
     }
 
+    /** Only strict, positively orphaned peers can be reconciled automatically.
+     * No fallback to legacy cleanup when owner proof is missing. The caller
+     * holds the shared lock; also honor a peer's older per-adapter lock. */
+    private fun recoverStrictPeer(peer: String, cleanup: String): String {
+        val strict = quote("$peer/pidfd.required")
+        val generationFile = quote("$peer/generation")
+        val owner = quote("$peer/owner.identity")
+        val pids = childPidRecords(peer)
+        val absent = (pids + "$peer/ipv6.intent").joinToString(" && ") {
+            "test ! -e " + quote(it) + " && test ! -L " + quote(it)
+        }
+        return migrationStartup(listOf(
+            "test -d " + quote(peer) + " && test ! -L " + quote(peer) + " || exit 1",
+            metadataCheck("$peer/generation", "$peer/owner.identity", "$peer/pidfd.required",
+                "$peer/ipv6.intent", *(pids + childIdentityRecords(peer)).toTypedArray()),
+            "test -f $strict && test \"\$(cat $strict)\" = v1 || exit 1",
+            RootOwnerStatus.sameBootOrphanedWithPidfd(peer, procRoot) +
+                " || { echo 'ROOT: peer orphan ownership unproven'; exit 1; }",
+            "(\n$cleanup\n) || exit 1",
+            absent + " || { echo 'ROOT: peer cleanup incomplete'; exit 1; }",
+            retireChildIdentities(peer),
+            "rm -f $owner || exit 1",
+            "rm -f $generationFile || exit 1",
+            "echo 'ROOT: recovered orphaned strict peer'",
+        ).joinToString("\n"), peer)
+    }
+
     private fun peerAdmissionCheck(): String {
         val peer = peerDirectory ?: return ":"
         // Older adapters did not publish a generation. An outstanding PID
@@ -103,9 +132,10 @@ internal class RootLifecycleTransaction(
             "rm -f " + quote("$peer/generation") + " || exit 1",
             "echo 'ROOT: retired previous-boot owner metadata'",
             "else",
-            "echo 'ROOT: other adapter cleanup pending or active'",
-            RootOwnerStatus.inspect(peer, procRoot),
-            "exit 1",
+            if (peerCleanup != null) "(\n" + recoverStrictPeer(peer, peerCleanup) + "\n) || { " +
+                "echo 'ROOT: other adapter cleanup pending or active'; exit 1; }"
+            else "echo 'ROOT: other adapter cleanup pending or active'\n" +
+                RootOwnerStatus.inspect(peer, procRoot) + "\nexit 1",
             "fi",
             "fi",
             absent("owner.identity") +
@@ -155,21 +185,21 @@ internal class RootLifecycleTransaction(
     // an outstanding IPv6/watchdog PID must not erase the primary evidence.
     // A filesystem failure during unlink remains retryable; this is not
     // an atomic multi-file deletion.
-    private fun retireChildIdentities(): String {
-        val identities = childIdentityRecords()
-        val checks = childPidRecords().map { pid ->
+    private fun retireChildIdentities(dir: String = directory): String {
+        val identities = childIdentityRecords(dir)
+        val checks = childPidRecords(dir).map { pid ->
             val identity = quote("$pid.identity")
             val file = quote(pid)
             "if test -e $identity; then " +
                 "test ! -e $file && test ! -L $file " +
                 "|| { echo 'ROOT: child PID record remains'; exit 1; }; fi"
         }
-        val strictMarker = quote("$directory/pidfd.required")
+        val strictMarker = quote("$dir/pidfd.required")
         val strictCheck = "if test -e $strictMarker; then " +
-            childPidRecords().joinToString(" && ") { "test ! -e " + quote(it) + " && test ! -L " + quote(it) } +
+            childPidRecords(dir).joinToString(" && ") { "test ! -e " + quote(it) + " && test ! -L " + quote(it) } +
             " || exit 1; fi"
-        return (listOf(metadataCheck(*identities.toTypedArray(), "$directory/pidfd.required")) + checks + strictCheck +
-            ("rm -f " + (identities + "$directory/pidfd.required").joinToString(" ") { quote(it) } + " || exit 1"))
+        return (listOf(metadataCheck(*identities.toTypedArray(), "$dir/pidfd.required")) + checks + strictCheck +
+            ("rm -f " + (identities + "$dir/pidfd.required").joinToString(" ") { quote(it) } + " || exit 1"))
             .joinToString("\n")
     }
 

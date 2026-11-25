@@ -20,6 +20,7 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
     private val lifecycle = RootLifecycleTransaction(
         ROOT, lockDirectory = RootLifecycleTransaction.SHARED_LOCK_DIRECTORY,
         peerDirectory = RootLifecycleTransaction.BYEDPI_DIRECTORY,
+        peerCleanup = RootAdapterCleanup.byeDpi(),
     )
 
     override suspend fun start(): Result<Unit> = withContext(Dispatchers.IO) {
@@ -118,15 +119,7 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
         return parts.joinToString("\n")
     }
 
-    private fun cleanup(stopWatch: Boolean = true): String = buildString {
-        appendLine("set +e")
-        appendLine(RootFirewallCleanup.remove(RootFirewallCleanup.Kind.PACKET, "iptables", listOf(TCP, UDP)))
-        appendLine(RootFirewallCleanup.remove(RootFirewallCleanup.Kind.PACKET, "ip6tables", listOf(TCP, UDP),
-            optional = true, intentFile = "$ROOT/ipv6.intent"))
-        if (stopWatch) appendLine(RootPidfdCleanup.stopWatchdog(ROOT, "$ROOT/watchdog.sh"))
-        appendLine(RootPidfdCleanup.stopExecutable(ROOT, "pid", "$ROOT/nfqws2"))
-        appendLine("exit 0")
-    }
+    private fun cleanup(stopWatch: Boolean = true): String = RootAdapterCleanup.zapret2(stopWatch)
 
     private fun execute(script: String) {
         val result = RootCommandRunner.run(listOf("su", "-c", script))
@@ -137,8 +130,8 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
 
     private companion object {
         const val ROOT = RootLifecycleTransaction.ZAPRET_DIRECTORY
-        const val TCP = "-p tcp -m mark ! --mark 0x40000000/0x40000000 -m multiport --dports 80,443 -j NFQUEUE --queue-num 20529 --queue-bypass"
-        const val UDP = "-p udp -m mark ! --mark 0x40000000/0x40000000 --dport 443 -j NFQUEUE --queue-num 20529 --queue-bypass"
+        const val TCP = RootAdapterCleanup.ZAPRET_TCP
+        const val UDP = RootAdapterCleanup.ZAPRET_UDP
         val ARCH = setOf("arm64-v8a", "armeabi-v7a", "x86_64")
         val LUA = listOf("zapret-lib.lua", "zapret-antidpi.lua", "zapret-auto.lua", "zapret-obfs.lua")
     }

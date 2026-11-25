@@ -624,3 +624,7 @@ New bundled-helper sessions require a successful pidfd probe before launching ch
 ## A3/A5 — pidfd proof of reused child PID
 
 Added a no-signal `gone` command for a generation-bound, persisted same-boot PID/start-ticks record. A pinned task with a positively different start time, exited descriptor or ESRCH proves the recorded child is no longer running; unknown proc data and kernel errors remain unproven. Strict adapter cleanup uses this proof before considering TERM, so a reused live PID is never signaled. CLI tests cover matching and mismatched ticks, wrong boot and invalid numeric arguments with an isolated child. New CI pending.
+
+## A3/A5 — automatic recovery of strict orphaned peer adapters
+
+Both ROOT adapters share one exact cleanup implementation with their rule constants. Peer admission can now reconcile a strict previous adapter under the shared lifecycle lock and any legacy adapter lock: validate metadata and strict marker, require same-boot V2 owner death/reuse proof from the installed root-owned pidfd helper, run the peer's normal verified firewall/process cleanup, require all PIDs and IPv6 intent absent, and retire sidecars/owner only after success. Legacy, active, ambiguous or failed peers remain blocked. A host fixture proves denial without a strict marker, owner proof failure, cleanup failure, residual PID, and successful recovery. Real cross-mode transitions, SELinux and kernel availability still require device tests. New CI pending.
