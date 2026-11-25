@@ -940,6 +940,7 @@
     <string name="dpts_train_model_error">Local strategy neural model could not be initialized or trained.</string>
     <string name="dpts_train_save_error">Neural model updated in memory, but snapshot could not be stored. No duplicate training will be performed.</string>
     <string name="dpts_train_success">Local strategy neural trained and saved for: %1$s (verified HTML, not guaranteed video).</string>
+    <string name="dpts_training_copy_failed">Training result is shown below, but clipboard is unavailable.</string>
     <string name="dpts_train_ack_error">Model snapshot stored, but the native acknowledgement failed.</string>
     <string name="byedpi_root">ByeDPI · root (TCP transparent, IPv6 if supported)</string>
     <string name="byedpi_vpn">ByeDPI · VpnService (original SOCKS)</string>

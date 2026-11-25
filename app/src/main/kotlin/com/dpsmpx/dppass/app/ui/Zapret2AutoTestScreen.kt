@@ -17,6 +17,7 @@ import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.DptsCompletedRun
 import com.dpsmpx.dppass.app.DptsDiagnosticJob
 import com.dpsmpx.dppass.app.DptsSavedScripts
+import com.dpsmpx.dppass.app.DptsReportCopy
 import com.dpsmpx.dppass.app.NetworkCheck
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.TunnelStatus
@@ -274,6 +275,24 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         statusText.text = context.getString(R.string.dpts_script_saved)
     }
 
+    private fun copyReport(label: String, report: String): Boolean =
+        DptsReportCopy.attempt {
+            val clipboard = context.getSystemService(ClipboardManager::class.java)
+                ?: return@attempt false
+            clipboard.setPrimaryClip(ClipData.newPlainText(label, report))
+            true
+        }
+
+    private fun publishCompletedReport(label: String, report: String,
+        successMessage: Int = R.string.zapret2_autotest_done) {
+        resultText.text = report
+        resultText.visibility = View.VISIBLE
+        val copied = copyReport(label, report)
+        statusText.text = context.getString(
+            if (copied) successMessage else R.string.zapret2_autotest_copy_failed)
+        host.toast(statusText.text)
+    }
+
     /**
      * Training is opt-in and supervised by native evidence, never by the
      * script itself: 3/3 independent verified YouTube HTML responses on
@@ -288,11 +307,9 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             "\nTRAINING: " + event + "\n"
         resultText.text = updated
         resultText.visibility = View.VISIBLE
-        try {
-            context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(
-                ClipData.newPlainText("DPpass DPTS + training", updated))
-        } catch (_: SecurityException) { }
-          catch (_: IllegalStateException) { }
+        if (!copyReport("DPpass DPTS + training", updated)) {
+            host.toast(context.getString(R.string.dpts_training_copy_failed))
+        }
     }
 
     private fun trainFromLastScript() {
@@ -456,24 +473,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 val report = if (dnsComparison)
                     Zapret2DNSComparisonReport.render(stamp, network, rows)
                 else Zapret2GoogleReport.render(stamp, network, quic, rows, stages)
-                resultText.text = report
-                resultText.visibility = View.VISIBLE
-                val copied = try {
-                    val clipboard = context.getSystemService(ClipboardManager::class.java)
-                    if (clipboard == null) false else {
-                        clipboard.setPrimaryClip(ClipData.newPlainText(
-                            if (dnsComparison) "DPpass protected DoH comparison" else "DPpass Zapret2 HTTPS diagnostics",
-                            report))
-                        true
-                    }
-                } catch (_: SecurityException) {
-                    false
-                } catch (_: IllegalStateException) {
-                    false
-                }
-                statusText.text = context.getString(
-                    if (copied) R.string.zapret2_autotest_done else R.string.zapret2_autotest_copy_failed)
-                host.toast(statusText.text)
+                publishCompletedReport(if (dnsComparison) "DPpass protected DoH comparison" else "DPpass Zapret2 HTTPS diagnostics", report)
             } catch (_: CancellationException) {
                 statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
                 throw CancellationException("Google autotest cancelled")
@@ -568,18 +568,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     progress.progress = done + 1
                 }
                 val report = Zapret2MatrixReport.render(stamp, network, rows)
-                resultText.text = report
-                resultText.visibility = View.VISIBLE
-                val copied = try {
-                    context.getSystemService(ClipboardManager::class.java)?.let {
-                        it.setPrimaryClip(ClipData.newPlainText("DPpass IPv4 TLS HTTP2 QUIC", report))
-                        true
-                    } ?: false
-                } catch (_: SecurityException) { false }
-                  catch (_: IllegalStateException) { false }
-                statusText.text = context.getString(
-                    if (copied) R.string.zapret2_autotest_done else R.string.zapret2_autotest_copy_failed)
-                host.toast(statusText.text)
+                publishCompletedReport("DPpass IPv4 TLS HTTP2 QUIC", report)
             } catch (_: CancellationException) {
                 statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
                 throw CancellationException("IP matrix cancelled")
@@ -775,16 +764,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 resultText.visibility = View.VISIBLE
                 progress.max = done.coerceAtLeast(1)
                 progress.progress = done
-                val copied = try {
-                    context.getSystemService(ClipboardManager::class.java)?.let {
-                        it.setPrimaryClip(ClipData.newPlainText("DPpass protected HTTP3 YouTube API", report))
-                        true
-                    } ?: false
-                } catch (_: SecurityException) { false }
-                  catch (_: IllegalStateException) { false }
-                statusText.text = context.getString(
-                    if (copied) R.string.zapret2_autotest_done else R.string.zapret2_autotest_copy_failed)
-                host.toast(statusText.text)
+                publishCompletedReport("DPpass protected HTTP3 YouTube API", report)
             } catch (_: CancellationException) {
                 statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
                 throw CancellationException("YouTube H3 diagnostic cancelled")
@@ -896,21 +876,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 val commit: Zapret2GoogleProbe? = null
                 val report = Zapret2SiteSearch.report(
                     domain, network, quic, prepared, rows, selection, commit)
-                resultText.text = report
-                resultText.visibility = View.VISIBLE
-                val copied = try {
-                    val clipboard = context.getSystemService(ClipboardManager::class.java)
-                    if (clipboard == null) false else {
-                        clipboard.setPrimaryClip(ClipData.newPlainText(
-                            "DPpass site strategy search", report))
-                        true
-                    }
-                } catch (_: SecurityException) { false }
-                  catch (_: IllegalStateException) { false }
-                statusText.text = context.getString(if (copied)
-                    R.string.zapret2_autotest_done
-                    else R.string.zapret2_autotest_copy_failed)
-                host.toast(statusText.text)
+                publishCompletedReport("DPpass site strategy search", report)
             } catch (_: CancellationException) {
                 statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
                 throw CancellationException("Any-site strategy search cancelled")
@@ -1032,20 +998,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 progress.progress = rows.size
                 val report = Zapret2SiteSearch.apiSweepReport(
                     network, prepared, rows, ipCount)
-                resultText.text = report
-                resultText.visibility = View.VISIBLE
-                val copied = try {
-                    context.getSystemService(ClipboardManager::class.java)?.let {
-                        it.setPrimaryClip(ClipData.newPlainText(
-                            "DPpass API IP/H2 sweep", report))
-                        true
-                    } ?: false
-                } catch (_: SecurityException) { false }
-                  catch (_: IllegalStateException) { false }
-                statusText.text = context.getString(if (copied)
-                    R.string.zapret2_autotest_done
-                    else R.string.zapret2_autotest_copy_failed)
-                host.toast(statusText.text)
+                publishCompletedReport("DPpass API IP/H2 sweep", report)
             } catch (_: CancellationException) {
                 statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
                 throw CancellationException("API IPv4/H2 sweep cancelled")
@@ -1169,20 +1122,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 progress.progress = rows.size
                 val report = Zapret2SiteSearch.sameIpControlReport(
                     network, prepared, ownControl, ownPrepared, rows, ipCount)
-                resultText.text = report
-                resultText.visibility = View.VISIBLE
-                val copied = try {
-                    context.getSystemService(ClipboardManager::class.java)?.let {
-                        it.setPrimaryClip(ClipData.newPlainText(
-                            "DPpass same-IP TLS SNI control", report))
-                        true
-                    } ?: false
-                } catch (_: SecurityException) { false }
-                  catch (_: IllegalStateException) { false }
-                statusText.text = context.getString(if (copied)
-                    R.string.zapret2_autotest_done
-                    else R.string.zapret2_autotest_copy_failed)
-                host.toast(statusText.text)
+                publishCompletedReport("DPpass same-IP TLS SNI control", report)
             } catch (_: CancellationException) {
                 statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
                 throw CancellationException("Same-IP SNI control cancelled")
@@ -1268,20 +1208,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 }
                 val report = Zapret2SiteSearch.tlsVersionReport(
                     network, prepared, rows, count)
-                resultText.text = report
-                resultText.visibility = View.VISIBLE
-                val copied = try {
-                    context.getSystemService(ClipboardManager::class.java)?.let {
-                        it.setPrimaryClip(ClipData.newPlainText(
-                            "DPpass same-IP TLS 1.2/1.3", report))
-                        true
-                    } ?: false
-                } catch (_: SecurityException) { false }
-                  catch (_: IllegalStateException) { false }
-                statusText.text = context.getString(if (copied)
-                    R.string.zapret2_autotest_done
-                    else R.string.zapret2_autotest_copy_failed)
-                host.toast(statusText.text)
+                publishCompletedReport("DPpass same-IP TLS 1.2/1.3", report)
             } catch (_: CancellationException) {
                 statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
                 throw CancellationException("TLS version control cancelled")
@@ -1405,18 +1332,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 // but never expose training for an unbound experiment.
                 lastDptsRun = DptsCompletedRun.capture(source, plan, prepared, rows,
                     network, handle, generation)
-                resultText.text = report
-                resultText.visibility = View.VISIBLE
-                val copied = try {
-                    context.getSystemService(ClipboardManager::class.java)?.let {
-                        it.setPrimaryClip(ClipData.newPlainText("DPpass DPTS", report))
-                        true
-                    } ?: false
-                } catch (_: SecurityException) { false }
-                  catch (_: IllegalStateException) { false }
-                statusText.text = context.getString(if (copied)
-                    R.string.dpts_copied else R.string.zapret2_autotest_copy_failed)
-                host.toast(statusText.text)
+                publishCompletedReport("DPpass DPTS", report, R.string.dpts_copied)
             } catch (_: CancellationException) {
                 statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
                 throw CancellationException("DPTS interrupted")
