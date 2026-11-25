@@ -45,13 +45,16 @@ internal object RootProcessIdentity {
         startTime(java.io.File("/proc/self/stat").readText())
             ?: error("ROOT: app process start time unavailable")
 
-    fun appAlive(appPid: Int, appStartTime: String): String {
+    fun appAlive(appPid: Int, appStartTime: String, procRoot: String = "/proc"): String {
         require(appPid > 1 && appStartTime.isNotEmpty() && appStartTime.all { it in '0'..'9' })
-        // Disable globbing before splitting the stat suffix in a subshell.
-        return "( set -f; stat=\$(cat /proc/$appPid/stat 2>/dev/null) || exit 1; " +
+        // A zombie can still satisfy kill -0. Verify the exact PID prefix,
+        // a recognized running state and start ticks before the probe.
+        return "( set -f; stat=\$(cat " + quote("$procRoot/$appPid/stat") + " 2>/dev/null) || exit 1; " +
+            "case \"\$stat\" in " + quote("$appPid (") + "*) ;; *) exit 1 ;; esac; " +
             "rest=\${stat##*) }; test \"\$rest\" != \"\$stat\" || exit 1; " +
-            "set -- \$rest; test \"\$#\" -ge 20 && test \"\${20}\" = " +
-            quote(appStartTime) + " && kill -0 $appPid 2>/dev/null )"
+            "set -- \$rest; test \"\$#\" -ge 20 || exit 1; " +
+            "case \"\$1\" in R|S|D|T|t|I|W|P) ;; *) exit 1 ;; esac; " +
+            "test \"\${20}\" = " + quote(appStartTime) + " && kill -0 $appPid 2>/dev/null )"
     }
 
     fun watchdogCondition(appPid: Int, appStartTime: String, pidFile: String, executable: String,

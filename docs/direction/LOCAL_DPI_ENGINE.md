@@ -644,3 +644,7 @@ Android run #45627049008 attempt 1 failed during Gradle Kotlin DSL plugin resolu
 ## A3/A5 — generation-bound ROOT foreground and watchdog health
 
 CI dbc7bfe: Go/Linux/Windows #45629152506 and Android #45629141104 succeeded (release publication job skipped). Both adapters now use the same foreground and watchdog health predicates. Strict sessions require the saved generation, boot, PID and start ticks to match each live child; path alone cannot make a reused PID healthy. Optional IPv6 child absence requires both records absent, and installed IPv6 intent requires the corresponding rules still be present. Legacy sessions without the strict marker keep the previous process probe. Host fixture covers missing identity, reused PID, zombie, incomplete optional metadata and invalid marker. No new signaling path or changes to ordinary VPN. Real device behavior and final release remain unverified; new CI pending.
+
+## A3/A5 — application-owner health rejects dead tasks
+
+Hardened the common watchdog application liveness probe: require matching PID prefix, a recognized live task state and saved start ticks before the zero-signal check. A zombie/dead/malformed or reused owner cannot be reported healthy solely because kill -0 succeeds. Synthetic /proc host fixture intercepts kill and verifies no probe for invalid identities. This is read-only health logic, not new signaling or automatic ownership recovery. New combined CI pending.

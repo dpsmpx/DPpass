@@ -9,6 +9,43 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class RootProcessIdentityTest {
+    @Test fun appHealthRejectsZombieMalformedAndReusedOwnerBeforeProbing() {
+        if (!File("/bin/sh").canExecute()) return
+        val dir = Files.createTempDirectory("dppass-app-health").toFile()
+        val stat = File(dir, "123/stat").apply { parentFile?.mkdirs() }
+        val checked = File(dir, "checked")
+        val command = RootProcessIdentity.appAlive(123, "456", dir.path)
+        fun run(): Int {
+            checked.delete()
+            return RootCommandRunner.run(listOf("/bin/sh", "-c",
+                "kill() { test \"\$1 \$2\" = '-0 123' || exit 1; touch '${checked.path}'; }\n" + command)).exitCode
+        }
+        fun write(state: String, ticks: String = "456", pid: Int = 123) {
+            stat.writeText("$pid (owner ) name) $state " + List(18) { "0" }.joinToString(" ") + " $ticks 0")
+        }
+        try {
+            write("S")
+            assertEquals(0, run())
+            assertTrue(checked.exists())
+            for (state in listOf("Z", "X", "x", "?")) {
+                write(state)
+                assertFalse(run() == 0)
+                assertFalse(checked.exists())
+            }
+            write("S", "789")
+            assertFalse(run() == 0)
+            assertFalse(checked.exists())
+            write("S", pid = 124)
+            assertFalse(run() == 0)
+            assertFalse(checked.exists())
+            stat.delete()
+            assertFalse(run() == 0)
+            assertFalse(checked.exists())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     @Test fun executableCleanupChecksNumericPidAndExactPath() {
         val command = RootProcessIdentity.stopExecutable("/root/pid", "/root/daemon")
         assertTrue(command.contains("[!0-9]"))
