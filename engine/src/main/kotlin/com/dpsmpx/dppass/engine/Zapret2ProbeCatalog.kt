@@ -9,9 +9,9 @@ package com.dpsmpx.dppass.engine
  */
 object Zapret2ProbeCatalog {
     const val PLAIN_TAG: String = "dppass:test-plain"
-    // native parity tests check the trainable method set. The diagnostic order is not the model layout.
+    // The order of trainable methods also defines the current model layout.
     val siteTcpMethods: List<String> = listOf(
-        "plain", "split-1", "split", "tlsrec-split", "fake-3", "fake-5", "disorder",
+        "plain", "split-1", "split", "fake-3", "fake-5", "disorder", "tlsrec-split",
     )
     val siteQuicMethods: List<String> = listOf("plain", "fake-3", "fake-5")
     val strategies: List<String> = siteTcpMethods + "auto"
@@ -23,10 +23,15 @@ object Zapret2ProbeCatalog {
     val scriptTcpMethods: Set<String> = (siteTcpMethods + scriptOnlyStrategies).toSet()
     val scriptQuicMethods: Set<String> = (siteQuicMethods + scriptOnlyQuicStrategies).toSet()
 
-    // Calibration requires an current TLS output. 'plain' is a
+    // Calibration requires a current TLS output. 'plain' is a
     // control, 'auto' is a selector, and script-only methods have no slot.
-    val verifiedHtmlMethods: Set<String> = siteTcpMethods.filterNot { it == "plain" }.toSet()
-    val modelOutputs: Int = verifiedHtmlMethods.size + siteQuicMethods.size
+    val modelTcpMethods: List<String> = siteTcpMethods.filterNot { it == "plain" }
+    // The diagnostic baseline is first in the UI, but last in the model.
+    val modelQuicMethods: List<String> = siteQuicMethods.filterNot { it == "plain" } + "pass"
+    val verifiedHtmlMethods: Set<String> = modelTcpMethods.toSet()
+    val modelOutputs: Int = modelTcpMethods.size + modelQuicMethods.size
+    val modelFormat: String = "dppass-strategy-mlp-v4:tcp=" +
+        modelTcpMethods.joinToString(",") + ";quic=" + modelQuicMethods.joinToString(",")
 
     /** Dedicated test ingress; routes through the real protected exp dialer. */
     /** Fixed safe HTTPS destinations; no user-provided URL or redirect chain. */

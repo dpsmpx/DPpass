@@ -338,7 +338,8 @@ func TestNeuralAcknowledgementRejectsReplacedCleanModel(t *testing.T) {
 
 func TestRejectPreviousModelFormats(t *testing.T) {
     raw := generatedTestModel(t, 32)
-    for _, previous := range []string{"dppass-zapret2-mlp-v2", "dppass-zapret2-mlp-v3"} {
+    for _, previous := range []string{"dppass-zapret2-mlp-v2", "dppass-zapret2-mlp-v3",
+        "dppass-strategy-mlp-v4", strings.Replace(adaptiveNNFormat, "split-1,split,", "split,split-1,", 1)} {
         if _,err := parseAdaptiveNN([]byte(strings.Replace(string(raw), adaptiveNNFormat, previous, 1))); err == nil { t.Fatal("previous format accepted", previous) }
     }
 }

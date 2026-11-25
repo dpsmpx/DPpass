@@ -11,7 +11,8 @@ import (
 
 // The Android diagnostic catalog preserves UI ordering and the wire name
 // "plain" for the native pass control. Verify the actual declaration,
-// not a hand-maintained copy of the current neural output set.
+// not a hand-maintained copy of the current neural output set. Also check
+// ordered model slots and schema prefix to catch same-width layout drift.
 func TestAndroidDiagnosticCatalogParity(t *testing.T) {
     path := filepath.Join("..", "..", "..", "engine", "src", "main", "kotlin",
         "com", "dpsmpx", "dppass", "engine", "Zapret2ProbeCatalog.kt")
@@ -33,6 +34,10 @@ func TestAndroidDiagnosticCatalogParity(t *testing.T) {
         }
         return ids
     }
+    prefix := strings.SplitN(ModelFormat(), ":tcp=", 2)[0]
+    if !strings.Contains(string(source), "\"" + prefix + ":tcp=\"") {
+        t.Fatal("Android model schema prefix mismatch")
+    }
     for _, tc := range []struct{name string; transport Transport}{
         {"siteTcpMethods", TLS}, {"siteQuicMethods", QUIC},
     } {
@@ -48,6 +53,11 @@ func TestAndroidDiagnosticCatalogParity(t *testing.T) {
         for _, id := range Candidates(tc.transport) { expected[id] = true }
         if !reflect.DeepEqual(seen, expected) {
             t.Fatalf("%s: Android %v native %v", tc.name, seen, expected)
+        }
+        ordered := append([]string(nil), ids[1:]...)
+        if tc.transport == QUIC { ordered = append(ordered, "pass") }
+        if !reflect.DeepEqual(ordered, ModelMethods(tc.transport)) {
+            t.Fatalf("ordered model layout mismatch: %v vs %v", ordered, ModelMethods(tc.transport))
         }
         if tc.transport == TLS {
             for _, id := range ids[1:] {

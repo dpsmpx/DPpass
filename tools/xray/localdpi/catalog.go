@@ -2,7 +2,10 @@
 // It has no socket, platform, or third-party dependencies.
 package localdpi
 
-import "sort"
+import (
+    "sort"
+    "strings"
+)
 
 type Transport uint8
 
@@ -29,7 +32,7 @@ type method struct {
 }
 
 // Entries declare the current socket candidates and learning eligibility.
-// A layout change requires a new model format, never migration of old weights.
+// A changed learning layout invalidates old models through ModelFormat.
 // Packet-level ROOT capabilities are separate.
 var methods = [...]method{
     {"split-1", tlsMask | httpMask, true, false, 4},
@@ -60,29 +63,37 @@ func Candidates(t Transport) []string {
 }
 
 // Model output positions follow the current catalog: TCP first, then QUIC.
-// HTTP uses the TCP output when the method supports HTTP.
-func TCPOutputCount() int {
-    count := 0
-    for _, m := range methods { if m.trainTCP { count++ } }
-    return count
+// HTTP uses a TCP output only if the method also supports HTTP.
+func ModelMethods(t Transport) []string {
+    out := []string{}
+    for _, m := range methods {
+        if (t == TLS && m.trainTCP) || (t == QUIC && m.trainQUIC) {
+            out = append(out, m.id)
+        }
+    }
+    return out
 }
 
-func ModelOutputCount() int {
-    count := TCPOutputCount()
-    for _, m := range methods { if m.trainQUIC { count++ } }
-    return count
+func TCPOutputCount() int { return len(ModelMethods(TLS)) }
+
+func ModelOutputCount() int { return TCPOutputCount() + len(ModelMethods(QUIC)) }
+
+// Include the ordered method IDs, not merely the number of outputs.
+// Bump the schema prefix for changes to feature or training semantics.
+func ModelFormat() string {
+    return "dppass-strategy-mlp-v4:tcp=" + strings.Join(ModelMethods(TLS), ",") +
+        ";quic=" + strings.Join(ModelMethods(QUIC), ",")
 }
 
 func NeuralIndex(id string, t Transport) int {
     if mask(t) == 0 { return -1 }
-    index := 0
-    if t == QUIC { index = TCPOutputCount() }
-    for _, m := range methods {
-        train := m.trainTCP
-        if t == QUIC { train = m.trainQUIC }
-        if !train { continue }
-        if m.id == id && m.transports & mask(t) != 0 { return index }
-        index++
+    group, offset := TLS, 0
+    if t == QUIC { group, offset = QUIC, TCPOutputCount() }
+    for index, candidate := range ModelMethods(group) {
+        if candidate != id { continue }
+        for _, m := range methods {
+            if m.id == id && m.transports & mask(t) != 0 { return offset + index }
+        }
     }
     return -1
 }

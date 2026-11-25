@@ -41,17 +41,17 @@ PR #59. Переход выполняется поэтапно; RC6 (162) — н
    тайм-аут, отмена и недоступность маршрута — отдельные категории.
    Нулевое закрытие не равно отрицательному обучению; наблюдения
    привязаны к поколению сети и исполнителю.
-5. Хранилище: миграция модели по стабильным ID, сохранение старых
-   весов/наблюдений, rollback, отдельный контекст ROOT/VpnService.
-   Существующий автоподбор серверов остаётся независимым.
+5. Хранилище: только актуальный формат модели; при изменении архитектуры
+   старые веса/наблюдения отбрасываются без миграции. Отдельный контекст
+   ROOT/VpnService. Автоподбор серверов остаётся независимым.
 6. DPTS: общий каталог и воспроизводимые тестовые пресеты, без
    размножения экранов и кнопок.
 
 ## План и критерии
 
 - [x] Зафиксировать архитектуру, границы миграции и исходные лицензии.
-- [x] A1. Единый каталог существующих методов; сохранение порядка
-  кандидатов и индексов модели, тесты уникальности и совместимости.
+- [x] A1. Единый каталог текущих методов, тесты уникальности и
+  согласованности исполнителей и модели.
 - [ ] A2. Инвентаризация всех методов закреплённых версий; разделить
   эквивалентные, частично эквивалентные и уникальные. Проверить
   возможности Android и происхождение каждого переносимого файла.
@@ -62,7 +62,7 @@ PR #59. Переход выполняется поэтапно; RC6 (162) — н
 - [ ] A5. Интеграция переносимых модулей Zapret2; собственный ROOT
   helper и проверка необходимых возможностей.
 - [ ] A6. Единый AUTO: выбор на новое соединение; валидация
-  совместимых комбинаций, расширение модели, миграция/откат.
+  допустимых комбинаций, расширение модели без миграции.
 - [ ] A7. DPTS и пользовательский интерфейс общего локального режима.
 - [ ] A8. Физические испытания Android с ROOT и без ROOT, Linux,
   Windows где применимо; сравнительные тесты сети, скорости, памяти,
@@ -91,8 +91,9 @@ copyright в репозитории и APK; не переименовывать 
 
 Каждый законченный шаг — отдельный коммит, обновление PR и CI.
 Этапы физической проверки не закрываются по результату CI. Сохранять
-applicationId, ключ подписи, совместимость установленных моделей,
-подписок и настроек. До выполнения A8–A9 оставить рабочие реализации
+applicationId, ключ подписи и данные подписок для обновления поверх
+установленного APK. Старые модели и их настройки сохранять не требуется.
+До выполнения A8–A9 оставить рабочие реализации
 как эталон и возможность отката. RC5: ByeDPI воспроизвёл новое видео и
 перемотку; Zapret2 не прошёл этот тест. RC6 опубликован, физический
 результат пока не получен.
@@ -676,3 +677,7 @@ Owner decision: preserve applicationId, release signing and existing subscriptio
 ## A6 — current catalog defines neural layout
 
 CI 7ed8c1a: Go/Linux/Windows #45640091557 and Android #45640077962 succeeded. Removed legacy ABI constant and hand-assigned output indices. Current catalog learning flags determine TCP/QUIC index positions and counts; Android derives its model size and HTML calibration width from its diagnostic registry, whose method sets are checked against Go in CI. No model migration requirement; change format if the layout changes. This refactor retains the current method set and behavior; no new strategy, package, signing or subscription changes. New CI pending.
+
+## A6 — current model layout invalidates incompatible snapshots
+
+CI 5dc913a: Go/Linux/Windows #45642233879 and Android #45642213528 succeeded. Derive the strategy format identifier from the ordered TCP/QUIC output IDs, with a schema prefix for changes to feature semantics. Same-width reorder is rejected, just like a removed/added output; no migration. Android diagnostic TCP order is now aligned with Go, the QUIC baseline remains first in diagnostics and last in the model. CI checks ordered lists and schema prefix; regression rejects previous plain format and same-width reordered identifiers. Updated the original architectural requirements and release gates to remove superseded compatibility policy. No changes to method set, VPN profile, package or signing. New CI pending.

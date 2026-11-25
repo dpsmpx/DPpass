@@ -20,7 +20,7 @@ object Zapret2NeuralModel {
         val filename: String, val format: String,
         val outputs: Int, val contexts: Int,
     ) {
-        STRATEGY("strategy-v2.json", "dppass-strategy-mlp-v4", Zapret2ProbeCatalog.modelOutputs, 9),
+        STRATEGY("strategy-v2.json", Zapret2ProbeCatalog.modelFormat, Zapret2ProbeCatalog.modelOutputs, 9),
         SERVER("server-v1.json", "dppass-server-mlp-v3", 1, 6),
     }
 

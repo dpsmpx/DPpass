@@ -46,12 +46,17 @@ class DptsScriptTest {
 
     @Test fun sharedCatalogPreservesDiagnosticOrderAndCalibrationBoundary() {
         val catalog = Zapret2ProbeCatalog
-        assertEquals(listOf("plain", "split-1", "split", "tlsrec-split", "fake-3", "fake-5", "disorder"), catalog.siteTcpMethods)
+        assertEquals(listOf("plain", "split-1", "split", "fake-3", "fake-5", "disorder", "tlsrec-split"), catalog.siteTcpMethods)
         assertEquals(listOf("plain", "fake-3", "fake-5"), catalog.siteQuicMethods)
         assertEquals(catalog.siteTcpMethods + "auto", catalog.strategies)
         assertEquals(catalog.siteTcpMethods, Zapret2SiteSearch.tcpMethods)
         assertEquals(catalog.siteQuicMethods, Zapret2SiteSearch.quicMethods)
         assertEquals(catalog.siteTcpMethods.drop(1), DptsLearning.trainable.toList())
+        assertEquals(catalog.siteTcpMethods.drop(1), catalog.modelTcpMethods)
+        assertEquals(catalog.siteQuicMethods.drop(1) + "pass", catalog.modelQuicMethods)
+        assertEquals(catalog.modelTcpMethods.size + catalog.modelQuicMethods.size, catalog.modelOutputs)
+        assertEquals("dppass-strategy-mlp-v4:tcp=" + catalog.modelTcpMethods.joinToString(",") +
+            ";quic=" + catalog.modelQuicMethods.joinToString(","), catalog.modelFormat)
         assertEquals(setOf("split-2", "fake-2", "fake-4", "fake-8"), catalog.scriptOnlyStrategies.toSet())
         assertEquals(setOf("fake-2", "fake-4", "fake-8"), catalog.scriptOnlyQuicStrategies.toSet())
         for ((kind, methods) in listOf("https" to catalog.scriptTcpMethods, "quic" to catalog.scriptQuicMethods)) {

@@ -98,7 +98,7 @@ func nnDenseCount(w *adaptiveNNWeights) int64 {
         int64(adaptiveNNOutput)*(int64(last)+1) + int64(adaptiveNNContexts*adaptiveNNOutput)
 }
 
-const adaptiveNNFormat = "dppass-strategy-mlp-v4"
+var adaptiveNNFormat = localdpi.ModelFormat()
 
 func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
     if len(raw) == 0 || len(raw) > adaptiveNNMaxBytes {
