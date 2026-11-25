@@ -10,7 +10,6 @@ import android.os.SystemClock
 import android.view.View
 import android.text.InputType
 import android.widget.EditText
-import android.widget.Button
 import android.widget.Spinner
 import android.widget.ArrayAdapter
 import android.widget.ProgressBar
@@ -58,38 +57,6 @@ import java.util.Locale
  * bounded timeouts but cannot be interrupted inside JNI.
  */
 class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autotest_title) {
-    private val runButton: Button = Ui.button(
-        context, R.string.zapret2_autotest_full_button, Ui.Style.PRIMARY, R.drawable.ic_speed)
-    private val dnsButton: Button = Ui.button(
-        context, R.string.zapret2_dns_compare_button, Ui.Style.PRIMARY, R.drawable.ic_dns)
-    private val matrixButton: Button = Ui.button(
-        context, R.string.zapret2_matrix_button, Ui.Style.PRIMARY, R.drawable.ic_speed)
-    private val h3Button: Button = Ui.button(
-        context, R.string.zapret2_h3_button, Ui.Style.PRIMARY, R.drawable.ic_speed)
-    private val siteInput = EditText(context).apply {
-        hint = context.getString(R.string.zapret2_site_search_host_hint)
-        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI or
-            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-        isSingleLine = true
-        maxLines = 1
-        contentDescription = context.getString(R.string.zapret2_site_search_host_hint)
-    }
-    private val siteButton: Button = Ui.button(
-        context, R.string.zapret2_site_search_button, Ui.Style.PRIMARY, R.drawable.ic_speed)
-    private val siteQuicButton: Button = Ui.button(
-        context, R.string.zapret2_site_quic_button, Ui.Style.OUTLINE, R.drawable.ic_speed)
-    private val youtubeHomeButton: Button = Ui.button(
-        context, R.string.zapret2_youtube_home_button, Ui.Style.OUTLINE, R.drawable.ic_speed)
-    private val youtubeApiButton: Button = Ui.button(
-        context, R.string.zapret2_youtube_api_button, Ui.Style.OUTLINE, R.drawable.ic_speed)
-    private val youtubeThumbnailButton: Button = Ui.button(
-        context, R.string.zapret2_youtube_thumbnail_button, Ui.Style.OUTLINE, R.drawable.ic_speed)
-    private val youtubeApiSweepButton: Button = Ui.button(
-        context, R.string.zapret2_youtube_api_sweep_button, Ui.Style.OUTLINE, R.drawable.ic_speed)
-    private val apiSniControlButton: Button = Ui.button(
-        context, R.string.zapret2_youtube_api_sni_control_button, Ui.Style.OUTLINE, R.drawable.ic_dns)
-    private val apiTLSVersionButton: Button = Ui.button(
-        context, R.string.zapret2_youtube_api_tls_version_button, Ui.Style.OUTLINE, R.drawable.ic_dns)
     private val dptsEditor = EditText(context).apply {
         hint = context.getString(R.string.dpts_script_hint)
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or
@@ -202,18 +169,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
 
     override fun render(status: TunnelStatus) {
         if (job?.isActive == true) return
-        runButton.isEnabled = ready(status)
-        dnsButton.isEnabled = ready(status)
-        matrixButton.isEnabled = ready(status)
-        h3Button.isEnabled = ready(status)
-        siteButton.isEnabled = ready(status)
-        siteQuicButton.isEnabled = ready(status)
-        youtubeHomeButton.isEnabled = ready(status)
-        youtubeApiButton.isEnabled = ready(status)
-        youtubeThumbnailButton.isEnabled = ready(status)
-        youtubeApiSweepButton.isEnabled = ready(status)
-        apiSniControlButton.isEnabled = ready(status)
-        apiTLSVersionButton.isEnabled = ready(status)
         dptsRunButton.isEnabled = ready(status)
         dptsLoadButton.isEnabled = true
         dptsSaveButton.isEnabled = true
@@ -245,14 +200,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             "dns_compare" -> start(dnsComparison = true)
             "ip_matrix" -> startMatrix()
             "h3_api" -> startH3()
-            "site_https" -> {
-                siteInput.setText(plan.host)
-                startSiteSearch(quic = false)
-            }
-            "site_quic" -> {
-                siteInput.setText(plan.host)
-                startSiteSearch(quic = true)
-            }
+            "site_https" -> startSiteSearch(plan.host, quic = false)
+            "site_quic" -> startSiteSearch(plan.host, quic = true)
             "api_ipv4_sweep" -> startYoutubeApiSweep()
             "sni_control" -> startSameIpSniControl()
             "tls_versions" -> startTLSVersionControl()
@@ -442,18 +391,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         val total = targets.size * strategies.size * REPEATS
         val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ROOT).format(Date())
         val rows = mutableListOf<Zapret2GoogleAttempt>()
-        runButton.isEnabled = false
-        dnsButton.isEnabled = false
-        matrixButton.isEnabled = false
-        h3Button.isEnabled = false
-        siteButton.isEnabled = false
-        siteQuicButton.isEnabled = false
-        youtubeHomeButton.isEnabled = false
-        youtubeApiButton.isEnabled = false
-        youtubeThumbnailButton.isEnabled = false
-        youtubeApiSweepButton.isEnabled = false
-        apiSniControlButton.isEnabled = false
-        apiTLSVersionButton.isEnabled = false
         progress.max = total
         progress.progress = 0
         progress.visibility = View.VISIBLE
@@ -525,18 +462,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 throw CancellationException("Google autotest cancelled")
             } finally {
                 job = null
-                runButton.isEnabled = ready(TunnelState.status.value)
-                dnsButton.isEnabled = ready(TunnelState.status.value)
-                matrixButton.isEnabled = ready(TunnelState.status.value)
-                h3Button.isEnabled = ready(TunnelState.status.value)
-                siteButton.isEnabled = ready(TunnelState.status.value)
-                siteQuicButton.isEnabled = ready(TunnelState.status.value)
-                youtubeHomeButton.isEnabled = ready(TunnelState.status.value)
-                youtubeApiButton.isEnabled = ready(TunnelState.status.value)
-                youtubeThumbnailButton.isEnabled = ready(TunnelState.status.value)
-                youtubeApiSweepButton.isEnabled = ready(TunnelState.status.value)
-                apiSniControlButton.isEnabled = ready(TunnelState.status.value)
-                apiTLSVersionButton.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
@@ -554,18 +479,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         }
         val network = NetworkCheck.underlying(context).type.toString()
         val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ROOT).format(Date())
-        runButton.isEnabled = false
-        dnsButton.isEnabled = false
-        matrixButton.isEnabled = false
-        h3Button.isEnabled = false
-        siteButton.isEnabled = false
-        siteQuicButton.isEnabled = false
-        youtubeHomeButton.isEnabled = false
-        youtubeApiButton.isEnabled = false
-        youtubeThumbnailButton.isEnabled = false
-        youtubeApiSweepButton.isEnabled = false
-        apiSniControlButton.isEnabled = false
-        apiTLSVersionButton.isEnabled = false
         progress.visibility = View.VISIBLE
         progress.max = Zapret2ProbeCatalog.matrixProviders.size
         progress.progress = 0
@@ -657,18 +570,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 throw CancellationException("IP matrix cancelled")
             } finally {
                 job = null
-                runButton.isEnabled = ready(TunnelState.status.value)
-                dnsButton.isEnabled = ready(TunnelState.status.value)
-                matrixButton.isEnabled = ready(TunnelState.status.value)
-                h3Button.isEnabled = ready(TunnelState.status.value)
-                siteButton.isEnabled = ready(TunnelState.status.value)
-                siteQuicButton.isEnabled = ready(TunnelState.status.value)
-                youtubeHomeButton.isEnabled = ready(TunnelState.status.value)
-                youtubeApiButton.isEnabled = ready(TunnelState.status.value)
-                youtubeThumbnailButton.isEnabled = ready(TunnelState.status.value)
-                youtubeApiSweepButton.isEnabled = ready(TunnelState.status.value)
-                apiSniControlButton.isEnabled = ready(TunnelState.status.value)
-                apiTLSVersionButton.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
@@ -691,18 +592,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         }
         val network = NetworkCheck.underlying(context).type.toString()
         val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ROOT).format(Date())
-        runButton.isEnabled = false
-        dnsButton.isEnabled = false
-        matrixButton.isEnabled = false
-        h3Button.isEnabled = false
-        siteButton.isEnabled = false
-        siteQuicButton.isEnabled = false
-        youtubeHomeButton.isEnabled = false
-        youtubeApiButton.isEnabled = false
-        youtubeThumbnailButton.isEnabled = false
-        youtubeApiSweepButton.isEnabled = false
-        apiSniControlButton.isEnabled = false
-        apiTLSVersionButton.isEnabled = false
         progress.max = 1
         progress.progress = 0
         progress.visibility = View.VISIBLE
@@ -888,18 +777,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 throw CancellationException("YouTube H3 diagnostic cancelled")
             } finally {
                 job = null
-                runButton.isEnabled = ready(TunnelState.status.value)
-                dnsButton.isEnabled = ready(TunnelState.status.value)
-                matrixButton.isEnabled = ready(TunnelState.status.value)
-                h3Button.isEnabled = ready(TunnelState.status.value)
-                siteButton.isEnabled = ready(TunnelState.status.value)
-                siteQuicButton.isEnabled = ready(TunnelState.status.value)
-                youtubeHomeButton.isEnabled = ready(TunnelState.status.value)
-                youtubeApiButton.isEnabled = ready(TunnelState.status.value)
-                youtubeThumbnailButton.isEnabled = ready(TunnelState.status.value)
-                youtubeApiSweepButton.isEnabled = ready(TunnelState.status.value)
-                apiSniControlButton.isEnabled = ready(TunnelState.status.value)
-                apiTLSVersionButton.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
@@ -913,14 +790,14 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
      * diagnostic only because routing by shared IPv4 cannot be attributed
      * safely to the user's specific hostname.
      */
-    private fun startSiteSearch(quic: Boolean) {
+    private fun startSiteSearch(hostname: String, quic: Boolean) {
         if (job?.isActive == true) return
         if (!ready(TunnelState.status.value)) {
             statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
             host.toast(statusText.text)
             return
         }
-        val domain = Zapret2SiteSearch.normalizedHost(siteInput.text.toString())
+        val domain = Zapret2SiteSearch.normalizedHost(hostname)
         if (domain == null) {
             statusText.text = context.getString(R.string.zapret2_site_search_invalid)
             host.toast(statusText.text)
@@ -928,19 +805,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         }
         val network = NetworkCheck.underlying(context).type.toString()
         val methods = if (quic) Zapret2SiteSearch.quicMethods else Zapret2SiteSearch.tcpMethods
-        runButton.isEnabled = false
-        dnsButton.isEnabled = false
-        matrixButton.isEnabled = false
-        h3Button.isEnabled = false
-        siteButton.isEnabled = false
-        siteQuicButton.isEnabled = false
-        youtubeHomeButton.isEnabled = false
-        youtubeApiButton.isEnabled = false
-        youtubeThumbnailButton.isEnabled = false
-        youtubeApiSweepButton.isEnabled = false
-        apiSniControlButton.isEnabled = false
-        apiTLSVersionButton.isEnabled = false
-        siteInput.isEnabled = false
         progress.visibility = View.VISIBLE
         progress.progress = 0
         progress.max = methods.size * Zapret2SiteSearch.MAX_IPS * Zapret2SiteSearch.ATTEMPTS
@@ -1041,19 +905,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 throw CancellationException("Any-site strategy search cancelled")
             } finally {
                 job = null
-                siteInput.isEnabled = true
-                runButton.isEnabled = ready(TunnelState.status.value)
-                dnsButton.isEnabled = ready(TunnelState.status.value)
-                matrixButton.isEnabled = ready(TunnelState.status.value)
-                h3Button.isEnabled = ready(TunnelState.status.value)
-                siteButton.isEnabled = ready(TunnelState.status.value)
-                siteQuicButton.isEnabled = ready(TunnelState.status.value)
-                youtubeHomeButton.isEnabled = ready(TunnelState.status.value)
-                youtubeApiButton.isEnabled = ready(TunnelState.status.value)
-                youtubeThumbnailButton.isEnabled = ready(TunnelState.status.value)
-                youtubeApiSweepButton.isEnabled = ready(TunnelState.status.value)
-                apiSniControlButton.isEnabled = ready(TunnelState.status.value)
-                apiTLSVersionButton.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
@@ -1072,19 +923,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             return
         }
         val network = NetworkCheck.underlying(context).type.toString()
-        runButton.isEnabled = false
-        dnsButton.isEnabled = false
-        matrixButton.isEnabled = false
-        h3Button.isEnabled = false
-        siteButton.isEnabled = false
-        siteQuicButton.isEnabled = false
-        youtubeHomeButton.isEnabled = false
-        youtubeApiButton.isEnabled = false
-        youtubeThumbnailButton.isEnabled = false
-        youtubeApiSweepButton.isEnabled = false
-        apiSniControlButton.isEnabled = false
-        apiTLSVersionButton.isEnabled = false
-        siteInput.isEnabled = false
         resultText.visibility = View.GONE
         progress.visibility = View.VISIBLE
         progress.progress = 0
@@ -1204,19 +1042,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 throw CancellationException("API IPv4/H2 sweep cancelled")
             } finally {
                 job = null
-                siteInput.isEnabled = true
-                runButton.isEnabled = ready(TunnelState.status.value)
-                dnsButton.isEnabled = ready(TunnelState.status.value)
-                matrixButton.isEnabled = ready(TunnelState.status.value)
-                h3Button.isEnabled = ready(TunnelState.status.value)
-                siteButton.isEnabled = ready(TunnelState.status.value)
-                siteQuicButton.isEnabled = ready(TunnelState.status.value)
-                youtubeHomeButton.isEnabled = ready(TunnelState.status.value)
-                youtubeApiButton.isEnabled = ready(TunnelState.status.value)
-                youtubeThumbnailButton.isEnabled = ready(TunnelState.status.value)
-                youtubeApiSweepButton.isEnabled = ready(TunnelState.status.value)
-                apiSniControlButton.isEnabled = ready(TunnelState.status.value)
-                apiTLSVersionButton.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
@@ -1236,19 +1061,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             return
         }
         val network = NetworkCheck.underlying(context).type.toString()
-        runButton.isEnabled = false
-        dnsButton.isEnabled = false
-        matrixButton.isEnabled = false
-        h3Button.isEnabled = false
-        siteButton.isEnabled = false
-        siteQuicButton.isEnabled = false
-        youtubeHomeButton.isEnabled = false
-        youtubeApiButton.isEnabled = false
-        youtubeThumbnailButton.isEnabled = false
-        youtubeApiSweepButton.isEnabled = false
-        apiSniControlButton.isEnabled = false
-        apiTLSVersionButton.isEnabled = false
-        siteInput.isEnabled = false
         progress.visibility = View.VISIBLE
         progress.progress = 0
         resultText.visibility = View.GONE
@@ -1369,19 +1181,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 throw CancellationException("Same-IP SNI control cancelled")
             } finally {
                 job = null
-                siteInput.isEnabled = true
-                runButton.isEnabled = ready(TunnelState.status.value)
-                dnsButton.isEnabled = ready(TunnelState.status.value)
-                matrixButton.isEnabled = ready(TunnelState.status.value)
-                h3Button.isEnabled = ready(TunnelState.status.value)
-                siteButton.isEnabled = ready(TunnelState.status.value)
-                siteQuicButton.isEnabled = ready(TunnelState.status.value)
-                youtubeHomeButton.isEnabled = ready(TunnelState.status.value)
-                youtubeApiButton.isEnabled = ready(TunnelState.status.value)
-                youtubeThumbnailButton.isEnabled = ready(TunnelState.status.value)
-                youtubeApiSweepButton.isEnabled = ready(TunnelState.status.value)
-                apiSniControlButton.isEnabled = ready(TunnelState.status.value)
-                apiTLSVersionButton.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
@@ -1398,19 +1197,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             return
         }
         val network = NetworkCheck.underlying(context).type.toString()
-        runButton.isEnabled = false
-        dnsButton.isEnabled = false
-        matrixButton.isEnabled = false
-        h3Button.isEnabled = false
-        siteButton.isEnabled = false
-        siteQuicButton.isEnabled = false
-        youtubeHomeButton.isEnabled = false
-        youtubeApiButton.isEnabled = false
-        youtubeThumbnailButton.isEnabled = false
-        youtubeApiSweepButton.isEnabled = false
-        apiSniControlButton.isEnabled = false
-        apiTLSVersionButton.isEnabled = false
-        siteInput.isEnabled = false
         progress.visibility = View.VISIBLE
         progress.progress = 0
         resultText.visibility = View.GONE
@@ -1496,19 +1282,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 throw CancellationException("TLS version control cancelled")
             } finally {
                 job = null
-                siteInput.isEnabled = true
-                runButton.isEnabled = ready(TunnelState.status.value)
-                dnsButton.isEnabled = ready(TunnelState.status.value)
-                matrixButton.isEnabled = ready(TunnelState.status.value)
-                h3Button.isEnabled = ready(TunnelState.status.value)
-                siteButton.isEnabled = ready(TunnelState.status.value)
-                siteQuicButton.isEnabled = ready(TunnelState.status.value)
-                youtubeHomeButton.isEnabled = ready(TunnelState.status.value)
-                youtubeApiButton.isEnabled = ready(TunnelState.status.value)
-                youtubeThumbnailButton.isEnabled = ready(TunnelState.status.value)
-                youtubeApiSweepButton.isEnabled = ready(TunnelState.status.value)
-                apiSniControlButton.isEnabled = ready(TunnelState.status.value)
-                apiTLSVersionButton.isEnabled = ready(TunnelState.status.value)
             }
         }
     }
@@ -1562,17 +1335,14 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 current.network?.networkHandle == handle &&
                 runCatching { JniXrayRuntime.dptsGeneration() }.getOrNull() == generation
         }
-        val allButtons = listOf(runButton, dnsButton, matrixButton, h3Button,
-            siteButton, siteQuicButton, youtubeHomeButton, youtubeApiButton,
-            youtubeThumbnailButton, youtubeApiSweepButton, apiSniControlButton,
-            apiTLSVersionButton, dptsLoadButton, dptsRunButton,
-            dptsSaveButton, dptsTrainButton)
-        allButtons.forEach { it.isEnabled = false }
+        dptsRunButton.isEnabled = false
+        dptsLoadButton.isEnabled = false
+        dptsSaveButton.isEnabled = false
+        dptsTrainButton.isEnabled = false
         dptsStopButton.isEnabled = true
         dptsNameInput.isEnabled = false
         dptsEditor.isEnabled = false
         dptsPresetSpinner.isEnabled = false
-        siteInput.isEnabled = false
         progress.visibility = View.VISIBLE
         progress.max = plan.probes.size
         progress.progress = 0
@@ -1660,12 +1430,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 dptsPresetSpinner.isEnabled = true
                 dptsStopButton.isEnabled = false
                 dptsLoadButton.isEnabled = true
-                siteInput.isEnabled = true
                 val connected = ready(TunnelState.status.value)
-                allButtons.filter {
-                    it !== dptsLoadButton && it !== dptsSaveButton &&
-                        it !== dptsTrainButton
-                }.forEach { it.isEnabled = connected }
+                dptsRunButton.isEnabled = connected
                 dptsSaveButton.isEnabled = true
                 dptsTrainButton.isEnabled = connected &&
                     hasCurrentDptsRun() && !lastTrainingSubmitted

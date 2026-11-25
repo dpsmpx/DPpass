@@ -719,3 +719,7 @@ CI e9464da: Go/Linux/Windows #45653362071 and Android #45653343045 succeeded. Re
 ## A6/A7 — bind DPTS training to the current editor source and completed session
 
 CI 421c354: Go/Linux/Windows #45654766129 and Android #45654754181 succeeded. Consolidate completed script evidence into one in-memory record bound to exact source, underlying network handle/type, native generation and DNS-validated rows. Any editor text change, load, screen exit or new run attempt (including compilation failure) discards the previous training record. Training also rechecks the exact source and session before native submission. Tests cover edited source, session changes, incomplete rows and detached list ownership. No persistence of evidence; no changes to probe methods, model layout, signing or subscription. New CI pending.
+
+## A7 — remove hidden legacy diagnostic controls
+
+CI 5d52e12: Go/Linux/Windows #45656408777 and Android #45656392397 succeeded. Remove the 12 never-attached diagnostic buttons and hidden hostname EditText, plus all their repeated enabled-state updates. Dynamic site suites pass the compiled hostname directly to the existing site search implementation. The visible DPTS editor controls retain their existing behavior and the suite dispatcher and test algorithms remain unchanged. No resource IDs removed at this step, no network/model/subscription/signing changes. Android CI and physical UI verification remain required.
