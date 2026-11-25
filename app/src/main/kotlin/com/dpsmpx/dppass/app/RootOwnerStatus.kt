@@ -71,6 +71,18 @@ internal object RootOwnerStatus {
         "(", "set -f", readGeneration(directory, "exit 1"), "printf '%s\\n' \"\$generation\"", ")",
     ).joinToString("\n")
 
+    /** Match a currently initiating app instance, never just its numeric PID. */
+    fun ownedBy(directory: String, owner: RootOwnerIdentity, procRoot: String = "/proc"): String = listOf(
+        "(", "set -f", validBoot(), readGeneration(directory, "exit 1"),
+        "test -n \"\$identity\" || exit 1",
+        readIdentity(directory, "exit 1", allowLegacyMissing = false),
+        "valid_boot \"\$saved_boot\" || exit 1",
+        "current_boot=\$(cat " + quote("$procRoot/sys/kernel/random/boot_id") + " 2>/dev/null) || exit 1",
+        "test \"\$saved_boot\" = \"\$current_boot\" || exit 1",
+        "test \"\$pid\" = " + quote(owner.pid.toString()) + " && test \"\$ticks\" = " + quote(owner.startTime),
+        ")",
+    ).joinToString("\n")
+
     fun consistent(directory: String): String = listOf(
         "(", "set -f", validBoot(), readGeneration(directory, "exit 1"),
         readIdentity(directory, "exit 1", allowLegacyMissing = true), ")",

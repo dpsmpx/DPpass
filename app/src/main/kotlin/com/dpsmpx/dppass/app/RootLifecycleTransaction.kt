@@ -106,6 +106,21 @@ internal class RootLifecycleTransaction(
         ).joinToString("\n"), peer)
     }
 
+    // Use the same previous-boot validation for either adapter. No signal
+    // is sent to any previous-boot PID, even if the path would match.
+    private fun previousBootRecordsSafe(dir: String): String =
+        RootOwnerStatus.previousBoot(dir, procRoot) + " && " +
+            previousBootPidRecordsSafe(dir) + " && " +
+            regularOrAbsent("$dir/ipv6.intent") + " && " + regularOrAbsent("$dir/pidfd.required") + " && " +
+            "prior_generation=\$( " + RootOwnerStatus.generation(dir) + " ) && " +
+            childPidRecords(dir).joinToString(" && ") {
+                RootChildIdentity.previousBootRecordSafe(it, "\"\$prior_generation\"", procRoot)
+            }
+
+    private fun retirePreviousBootRecords(dir: String): String =
+        "rm -f " + (childPidRecords(dir) + childIdentityRecords(dir) +
+            listOf("$dir/ipv6.intent", "$dir/pidfd.required")).joinToString(" ") { quote(it) } + " || exit 1"
+
     private fun peerAdmissionCheck(): String {
         val peer = peerDirectory ?: return ":"
         // Older adapters did not publish a generation. An outstanding PID
@@ -121,13 +136,8 @@ internal class RootLifecycleTransaction(
         // signal processes, touch firewall rules, or attempt same-boot recovery.
         return listOf(
             "if ! ( " + absent("generation") + " ); then",
-            "if " + RootOwnerStatus.previousBoot(peer, procRoot) + " && " +
-                previousBootPidRecordsSafe(peer) + " && " + regularOrAbsent("$peer/ipv6.intent") + " && " + regularOrAbsent("$peer/pidfd.required") + " && " +
-                "peer_generation=\$( " + RootOwnerStatus.generation(peer) + " ) && " +
-                childPidRecords(peer).joinToString(" && ") {
-                    RootChildIdentity.previousBootRecordSafe(it, "\"\$peer_generation\"", procRoot)
-                } + "; then",
-            "rm -f " + (childPidRecords(peer) + childIdentityRecords(peer) + listOf("$peer/ipv6.intent", "$peer/pidfd.required")).joinToString(" ") { quote(it) } + " || exit 1",
+            "if " + previousBootRecordsSafe(peer) + "; then",
+            retirePreviousBootRecords(peer),
             "rm -f " + quote("$peer/owner.identity") + " || exit 1",
             "rm -f " + quote("$peer/generation") + " || exit 1",
             "echo 'ROOT: retired previous-boot owner metadata'",
@@ -220,9 +230,22 @@ internal class RootLifecycleTransaction(
         val temporary = "$record.$generation.tmp"
         val publish = "mv -f " + quote(temporary) + " " + quote(record)
         val cleanupBody = "(\n$cleanup\n) || exit 1"
+        val strict = quote("$directory/pidfd.required")
+        val ownerCheck = if (owner != null) RootOwnerStatus.ownedBy(directory, owner, procRoot) else "false"
+        val reconcilePrevious = listOf(
+            "if " + RootOwnerStatus.previousBoot(directory, procRoot) + "; then",
+            previousBootRecordsSafe(directory) + " || { echo 'ROOT: previous boot records unproven'; exit 1; }",
+            retirePreviousBootRecords(directory),
+            "elif test -e $strict || test -L $strict; then",
+            "test -f $strict && test ! -L $strict && test \"\$(cat $strict)\" = v1 || exit 1",
+            "( $ownerCheck ) || " + RootOwnerStatus.sameBootOrphanedWithPidfd(directory, procRoot) +
+                " || { echo 'ROOT: previous strict owner active or unproven'; exit 1; }",
+            "fi",
+        ).joinToString("\n")
         val handover = if (preservePreviousOwner) listOf(
             "if test -e " + quote(record) + "; then",
             RootOwnerStatus.consistent(directory) + " || { echo 'ROOT: previous owner metadata inconsistent'; exit 1; }",
+            reconcilePrevious,
             // Keep the previous generation authoritative until the cleanup
             // callback and all child retirement postconditions succeed.
             cleanupBody,
@@ -250,7 +273,8 @@ internal class RootLifecycleTransaction(
                 "mkdir -p " + quote(directory),
                 "chmod 700 " + quote(directory),
                 migrationStartup(listOf(
-                    metadataCheck(record, ownerRecord, temporary, "$ownerRecord.$generation.tmp", *childIdentityRecords().toTypedArray()),
+                    metadataCheck(record, ownerRecord, temporary, "$ownerRecord.$generation.tmp", "$directory/pidfd.required",
+                        "$directory/ipv6.intent", *childIdentityRecords().toTypedArray()),
                     stageGeneration(temporary, owner),
                     prepare,
                     handover,
