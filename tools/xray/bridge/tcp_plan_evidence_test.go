@@ -4,6 +4,10 @@ package bridge
 
 import (
     "testing"
+    "bytes"
+    "io"
+    "net"
+    "time"
     "github.com/dpsmpx/dppass/tools/xray/localdpi"
     "github.com/dpsmpx/dppass/tools/xray/zapret2"
 )
@@ -35,4 +39,50 @@ func TestTCPPlanEvidenceMatchesExecutedMethod(t *testing.T) {
         if tcpPlanMatchesSelection(pick,p) {t.Fatal("mismatched plan admitted")}
     }
     if tcpPlanMatchesSelection(nil,zapret2.Plan{}) {t.Fatal("missing selection admitted")}
+}
+
+func TestTCPPublishesEvidenceOnlyAfterMatchingWrite(t *testing.T) {
+    prev:=zapret2.PlannerSocket()
+    if err:=zapret2.SetPlannerSocket("");err!=nil {t.Fatal(err)}
+    t.Cleanup(func(){_ = zapret2.SetPlannerSocket(prev)})
+    for _,tc:=range []struct{method string; want bool; closeBeforeWrite bool}{
+        {"pass",true,false},
+        {"split",true,false},
+        {"split-1",false,false},
+        {"pass",false,true},
+    } {
+        out,peer:=tcpCopyPair(t)
+        if err:=out.SetDeadline(time.Now().Add(time.Second));err!=nil {t.Fatal(err)}
+        if err:=peer.SetDeadline(time.Now().Add(time.Second));err!=nil {t.Fatal(err)}
+        host:="http:evidence-local.example.test|"+out.RemoteAddr().(*net.TCPAddr).IP.String()
+        key:=canonicalAdaptiveKey(host)
+        zapret2Auto.mu.Lock()
+        old,exists:=zapret2Auto.entries[key]
+        zapret2Auto.entries[key]=&adaptiveEntry{preferred:tc.method}
+        zapret2Auto.mu.Unlock()
+        func(){
+            defer func(){
+                zapret2Auto.mu.Lock()
+                defer zapret2Auto.mu.Unlock()
+                if exists {zapret2Auto.entries[key]=old} else {delete(zapret2Auto.entries,key)}
+            }()
+            conn:=&desyncConn{TCPConn:out,mode:desyncMode{kind:desyncAuto}}
+            first:=[]byte("GET / HTTP/1.1\r\nHost: evidence-local.example.test\r\n\r\n")
+            if tc.closeBeforeWrite {
+                if err:=out.Close();err!=nil {t.Fatal(err)}
+            }
+            n,err:=conn.Write(first)
+            if tc.closeBeforeWrite {
+                if err==nil {t.Fatal("closed socket reported successful write")}
+            } else {
+                if err!=nil || n!=len(first) {t.Fatal("unexpected write result",n,err)}
+                received:=make([]byte,len(first))
+                if _,err:=io.ReadFull(peer,received);err!=nil || !bytes.Equal(first,received) {t.Fatal("wire bytes changed",err)}
+            }
+            pick:=conn.adaptiveSelection.Load()
+            if (pick!=nil)!=tc.want || pick!=nil && pick.flow.MethodID!=tc.method {
+                t.Fatal("incorrect completed-method evidence",tc.method,tc.closeBeforeWrite,pick)
+            }
+        }()
+    }
 }

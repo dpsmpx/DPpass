@@ -388,3 +388,7 @@ ModelNumericFields removes JSONObject numeric coercions in storage validation fo
 ## A3/A6 — атрибуция результата фактически выполненного TCP метода
 
 CI e6d67e8: Go/Linux/Windows #45508151656 и Android #45508142746 успешны. В protected TCP executor adaptiveSelection публикуется только после полного успешного first write и совпадения выбранного метода с проверенным планом. Unapplied non-pass и fallback one-byte split вместо выбранных fake/disorder/split/tlsrec-split не обучают исходный метод. Intentional pass допускается, когда план unapplied. Маршрутизация, отправляемые байты, выбор кандидатов и модель ABI неизменны. TCP evidence tests проверяют matching/unapplied/fallback/transport mismatch; UDP path не менялся. Это исправление атрибуции, не подтверждение прикладного контента или новая стратегия. CI ожидается.
+
+## A3/A6 — loopback regression фактической TCP атрибуции
+
+Добавлен тест настоящих локальных TCP sockets: intentional pass и применённый split публикуют selection после записи; HTTP split-1 (unapplied) и ошибка записи на закрытом сокете не публикуют selection. Проверяется побайтовая сохранность полученного HTTP запроса. Только synthetic localhost, без обращения к внешним сервисам. CI ожидается.
