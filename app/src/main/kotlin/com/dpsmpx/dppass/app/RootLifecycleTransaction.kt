@@ -150,15 +150,22 @@ internal class RootLifecycleTransaction(
     fun captureWatchdog(script: String): String =
         captureChild(RootChildIdentity.captureScript("$directory/watch.pid", generation, script, procRoot))
 
-    // Sidecars are diagnostic in this version. Retire them only after
-    // successful cleanup and removal of their corresponding PID records.
-    private fun retireChildIdentities(): String = childPidRecords().joinToString("\n") { pid ->
-        val identity = "$pid.identity"
-        metadataCheck(identity) + "\n" +
-            "if test -e " + quote(identity) + "; then " +
-            "test ! -e " + quote(pid) + " && test ! -L " + quote(pid) +
-            " || { echo 'ROOT: child PID record remains'; exit 1; }; " +
-            "rm -f " + quote(identity) + " || exit 1; fi"
+    // Validate the entire set before removing any sidecar. In particular,
+    // an outstanding IPv6/watchdog PID must not erase the primary evidence.
+    // A filesystem failure during unlink remains retryable; this is not
+    // an atomic multi-file deletion.
+    private fun retireChildIdentities(): String {
+        val identities = childIdentityRecords()
+        val checks = childPidRecords().map { pid ->
+            val identity = quote("$pid.identity")
+            val file = quote(pid)
+            "if test -e $identity; then " +
+                "test ! -e $file && test ! -L $file " +
+                "|| { echo 'ROOT: child PID record remains'; exit 1; }; fi"
+        }
+        return (listOf(metadataCheck(*identities.toTypedArray())) + checks +
+            ("rm -f " + identities.joinToString(" ") { quote(it) } + " || exit 1"))
+            .joinToString("\n")
     }
 
     // Stage the entire V2 record in the same directory and publish with

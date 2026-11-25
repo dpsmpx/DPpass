@@ -1064,6 +1064,89 @@ class RootProcessIdentityTest {
         }
     }
 
+    @Test fun childIdentityRetirementChecksEverySidecarBeforeDeletingAny() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-child-retirement").toFile()
+        val lifecycle = RootLifecycleTransaction(dir.path, "owner")
+        val generation = File(dir, "generation")
+        val primary = File(dir, "pid.identity")
+        val ipv6 = File(dir, "pid6.identity")
+        val watchdog = File(dir, "watch.pid.identity")
+        val pid6 = File(dir, "pid6")
+        val watchPid = File(dir, "watch.pid")
+        val boot = "11111111-1111-1111-1111-111111111111"
+        val records = listOf(primary, ipv6, watchdog)
+        val values = records.mapIndexed { i, _ -> "v1 owner " + (123 + i) + " 456 $boot\n" }
+        fun run(script: String) = RootCommandRunner.run(
+            listOf("/bin/sh", "-c", script), timeoutMillis = 10_000,
+        )
+        fun assertPreserved() {
+            assertTrue(generation.exists())
+            assertEquals(values, records.map { it.readText() })
+        }
+        try {
+            assertEquals(0, run(lifecycle.start(":", ":")).exitCode)
+            records.zip(values).forEach { (file, value) -> file.writeText(value) }
+            pid6.writeText("124\n")
+            assertFalse(run(lifecycle.stop(":")).exitCode == 0)
+            assertPreserved()
+            assertTrue(pid6.delete())
+
+            // A dangling symlink is still an outstanding PID record.
+            Files.createSymbolicLink(watchPid.toPath(), File(dir, "absent").toPath())
+            assertFalse(run(lifecycle.stop(":")).exitCode == 0)
+            assertPreserved()
+            Files.delete(watchPid.toPath())
+
+            // Cleanup can itself leave an invalid later sidecar; check all
+            // file types again after the callback, before any deletion.
+            val invalid = "rm -f '${watchdog.path}'; mkdir '${watchdog.path}'"
+            assertFalse(run(lifecycle.stop(invalid)).exitCode == 0)
+            assertEquals(values[0], primary.readText())
+            assertEquals(values[1], ipv6.readText())
+            assertTrue(watchdog.isDirectory)
+            assertTrue(generation.exists())
+            assertTrue(watchdog.delete())
+            watchdog.writeText(values[2])
+            assertEquals(0, run(lifecycle.stop(":")).exitCode)
+            assertTrue(records.none { it.exists() })
+            assertFalse(generation.exists())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test fun failedChildCaptureDoesNotInventIdentityOrAbortExistingLaunch() {
+        if (!File("/bin/sh").canExecute()) return
+        if (RootCommandRunner.run(listOf("/bin/sh", "-c", "command -v flock")).exitCode != 0) return
+        val dir = Files.createTempDirectory("dppass-child-capture-failure").toFile()
+        val proc = File(dir, "proc").apply { mkdir() }
+        val adapter = File(dir, "adapter")
+        val pid = File(adapter, "pid")
+        val identity = File(adapter, "pid.identity")
+        val marker = File(adapter, "launched")
+        val lifecycle = RootLifecycleTransaction(adapter.path, "owner", procRoot = proc.path)
+        fun run(script: String) = RootCommandRunner.run(
+            listOf("/bin/sh", "-c", script), timeoutMillis = 10_000,
+        )
+        try {
+            val launch = "echo 123 > '${pid.path}'\n" +
+                lifecycle.captureExecutable("pid", "/fixture/daemon") +
+                "\necho launched > '${marker.path}'"
+            val result = run(lifecycle.start(":", launch, RootOwnerIdentity(234, "567")))
+            assertEquals(0, result.exitCode)
+            assertTrue(result.outputTail.contains("ROOT: child identity unavailable"))
+            assertTrue(marker.exists())
+            assertTrue(pid.exists())
+            assertFalse(identity.exists())
+            assertEquals(0, run(lifecycle.stop("rm -f '${pid.path}'")).exitCode)
+            assertFalse(pid.exists())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     @Test fun lockAndGenerationGuardRejectInvalidInputs() {
         val invalidTimeout = runCatching { RootProcessIdentity.lockedTransaction("/tmp/lock", ":", 0) }
         assertTrue(invalidTimeout.isFailure)
