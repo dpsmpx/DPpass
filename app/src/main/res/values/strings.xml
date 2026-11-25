@@ -918,6 +918,7 @@
     <string name="dpts_load_preset">Load selected DPTS preset</string>
     <string name="dpts_run_script">Validate and run DPTS</string>
     <string name="dpts_diagnostic_failed">Diagnostic failed before completion. No report was copied or training submitted.</string>
+    <string name="dpts_incomplete_report">DPTS stopped: network changed, native execution failed, or time limit expired. Partial diagnostics are not submitted as complete.</string>
     <string name="dpts_stopped">DPTS stopped: network changed or diagnostic expired</string>
     <string name="dpts_copied">DPTS complete. Redacted log automatically copied.</string>
     <string name="dpts_unified_note">One script editor for all protected diagnostics. Choose a preset or paste/edit your own DPTS/1 text; save drafts, run, stop, and train the installed local strategy neural model only after strong, repeated verified HTML evidence. The report auto-copies.</string>

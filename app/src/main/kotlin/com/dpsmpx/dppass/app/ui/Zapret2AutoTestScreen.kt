@@ -18,6 +18,7 @@ import com.dpsmpx.dppass.app.DptsCompletedRun
 import com.dpsmpx.dppass.app.DptsDiagnosticJob
 import com.dpsmpx.dppass.app.DptsSavedScripts
 import com.dpsmpx.dppass.app.DptsReportCopy
+import com.dpsmpx.dppass.app.DptsRunWindow
 import com.dpsmpx.dppass.app.NetworkCheck
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.TunnelStatus
@@ -1271,6 +1272,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         statusText.text = "DPTS: DoH · ${plan.host}"
         launchDiagnostic {
             try {
+                val window = DptsRunWindow(SystemClock.elapsedRealtime(), DNS_TIMEOUT_MILLIS)
                 val prepared = try {
                     withContext(Dispatchers.IO) {
                         JniXrayRuntime.probeZapret2Google("plain",
@@ -1278,6 +1280,10 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     }
                 } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
                 ensureActive()
+                if (!sameSession() || !window.canFinish(SystemClock.elapsedRealtime())) {
+                    showIncompleteDpts()
+                    return@launchDiagnostic
+                }
                 val requiredIPs = (plan.probes.maxOfOrNull { it.ipIndex } ?: 0) + 1
                 if (!DptsScript.preparationValid(plan, prepared)) {
                     statusText.text = "DPTS: DoH ${prepared.outcome}, " +
@@ -1286,15 +1292,12 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     resultText.visibility = View.VISIBLE
                     return@launchDiagnostic
                 }
-                val preparedAt = SystemClock.elapsedRealtime()
                 val rows = mutableListOf<Zapret2GoogleAttempt>()
                 var expired = false
                 for ((index, probe) in plan.probes.withIndex()) {
                     ensureActive()
                     if (!sameSession() ||
-                        SystemClock.elapsedRealtime() - preparedAt >=
-                            minOf(Zapret2SiteSearch.TTL_MS - probe.timeoutMs,
-                                DptsScript.MAX_BUDGET_MS + DNS_TIMEOUT_MILLIS)) {
+                        !window.canStart(SystemClock.elapsedRealtime(), probe.timeoutMs)) {
                         expired = true
                         break
                     }
@@ -1307,8 +1310,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                         }
                     } catch (_: LinkageError) { Zapret2GoogleProbe.unavailable() }
                     ensureActive()
-                    if (response.outcome in setOf("engine_off", "dns_not_prepared",
-                            "invalid_target", "invalid_strategy", "invalid_index")) {
+                    if (!sameSession() || !window.canFinish(SystemClock.elapsedRealtime()) ||
+                        DptsRunWindow.invalidExecution(response.outcome)) {
                         expired = true
                         break
                     }
@@ -1316,12 +1319,9 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                         response, probe.target)
                     progress.progress = rows.size
                 }
-                if (expired || rows.size != plan.probes.size || !sameSession()) {
-                    statusText.text = context.getString(R.string.dpts_stopped)
-                    resultText.text = "DPTS stopped: network changed, " +
-                        "native target rejected, or test expired. " +
-                        "Partial diagnostics are never submitted as complete."
-                    resultText.visibility = View.VISIBLE
+                if (expired || rows.size != plan.probes.size || !sameSession() ||
+                    !window.canFinish(SystemClock.elapsedRealtime())) {
+                    showIncompleteDpts()
                     return@launchDiagnostic
                 }
                 val report = DptsScript.report(plan, network, prepared, rows)
@@ -1335,6 +1335,13 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 throw CancellationException("DPTS interrupted")
             }
         }
+    }
+
+    private fun showIncompleteDpts() {
+        invalidateDptsRun()
+        statusText.text = context.getString(R.string.dpts_stopped)
+        resultText.text = context.getString(R.string.dpts_incomplete_report)
+        resultText.visibility = View.VISIBLE
     }
 
     private companion object {
