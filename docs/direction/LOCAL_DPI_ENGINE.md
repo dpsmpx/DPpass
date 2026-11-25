@@ -428,3 +428,7 @@ CI e3168d8: Go/Linux/Windows #45561686778 и Android #45561676931 успешны
 ## A3/A5 — identity поколения процесса приложения
 
 CI d53fc9a: Go/Linux/Windows #45563239864 и Android #45563229916 успешны. Оба watchdog захватывают starttime Linux /proc/self/stat, поле 22, и сравнивают его вместе с PID. Host JVM fixtures проверяют совпадающее и ошибочное starttime, malformed stat и имена с пробелами/скобками. При недоступном proc stat ROOT launch fails closed; Android/SELinux compatibility требует физической проверки. Не pidfd; cleanup/startup race remains. Firewall, strategies and ordinary VPN unchanged. CI pending.
+
+## A3/A5 — ROOT start ownership transaction
+
+CI 9995ae7: Go/Linux/Windows #45564388925 и Android #45564383603 success. RootDpiRuntime.startAndAccept executes start and ownership registration or rollback inside NonCancellable. Original connection Job captured before entry; rejected registration triggers cleanup, failure logged. Shutdown joins cancelled ROOT observer and late observer after pending connection join before stopping daemon. Observer checks cancellation before publishing stale failure. JVM tests fake runtimes accepted/declined, start failure and rollback failure; no privileged operations. Does not provide inter-process locks or atomic shell watchdog cleanup; physical ROOT tests remain. No firewall or strategy changes. CI pending.

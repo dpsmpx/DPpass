@@ -64,8 +64,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
@@ -581,25 +583,31 @@ class DPpassVpnService : VpnService() {
             return
         }
         val root: RootDpiRuntime = if (useByeDpi) RootByeDpi(this) else RootZapret2(this)
-        // Root-команда завершается или откатывается, даже если пользователь нажал «Стоп».
-        val result = withContext(NonCancellable) { root.start() }
+        // Capture the original job before entering NonCancellable.
+        // Startup and registration/rollback form one ownership transaction.
+        val job = currentCoroutineContext().job
+        val result = root.startAndAccept(
+            accept = {
+                state.withLock {
+                    if (job.isCancelled) false else {
+                        rootZapret2 = root
+                        true
+                    }
+                }
+            },
+            onRollbackFailure = { error ->
+                DeviceLog.log.diagnostic(Diagnostic.fromThrowable(
+                    DiagCode.BACKEND_NOT_AVAILABLE, "не удалось снять ROOT-правила отменённого подключения", error,
+                ))
+            },
+        ) ?: return
+        job.ensureActive()
         if (result.isFailure) {
             fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE,
                 name + ": " + (result.exceptionOrNull()?.message?.let { message ->
                     if (message.contains("Permission denied") && message.contains("su"))
                         "root-доступ недоступен: Android отказал в запуске su" else message
                 } ?: "движок недоступен")))
-            return
-        }
-        val job = currentCoroutineContext().job
-        val accepted = state.withLock {
-            if (job.isCancelled) false else {
-                rootZapret2 = root
-                true
-            }
-        }
-        if (!accepted) {
-            root.stop()
             return
         }
         progress(TunnelStatus.Connected(ProfileId(if (useByeDpi) "byedpi-root" else "zapret2-root"), name,
@@ -613,6 +621,9 @@ class DPpassVpnService : VpnService() {
                             DiagCode.BACKEND_NOT_AVAILABLE, "не удалось снять правила Zapret2 после сбоя", error,
                         ))
                     }
+                    // A cancelled observer must not publish a stale failure
+                    // after shutdown has begun.
+                    currentCoroutineContext().ensureActive()
                     rootZapret2 = null
                     fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE, name + ": процесс больше не работает"))
                     break
@@ -1596,7 +1607,8 @@ class DPpassVpnService : VpnService() {
         alpineWatch = null
         byeDpiWatch?.cancel()
         byeDpiWatch = null
-        rootWatch?.cancel()
+        val pendingRootWatch = rootWatch
+        pendingRootWatch?.cancel()
         rootWatch = null
         val hadStrategySession = zapret2FinalState != null
         stopObservers()
@@ -1609,6 +1621,12 @@ class DPpassVpnService : VpnService() {
             session = null
             pending
         }?.join()
+        // A successful ROOT start could have installed its observer just
+        // before cancellation. Join both early and late observers before
+        // touching the daemon or starting another session.
+        pendingRootWatch?.join()
+        rootWatch?.cancelAndJoin()
+        rootWatch = null
         withContext(Dispatchers.IO) { runCatching { byeDpi?.close() } }
         byeDpi = null
         // The protected-socket engine must stop before the Alpine strategy

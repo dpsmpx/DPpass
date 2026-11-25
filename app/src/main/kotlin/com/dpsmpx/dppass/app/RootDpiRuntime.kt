@@ -1,7 +1,28 @@
 package com.dpsmpx.dppass.app
 
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+
 internal interface RootDpiRuntime {
     suspend fun start(): Result<Unit>
     suspend fun stop(): Result<Unit>
     suspend fun alive(): Boolean
+}
+
+/** A successful privileged start must be owned by the service or rolled
+ * back before cancellation can escape. Null means the owner declined.
+ */
+internal suspend fun RootDpiRuntime.startAndAccept(
+    accept: suspend () -> Boolean,
+    onRollbackFailure: (Throwable) -> Unit,
+): Result<Unit>? = withContext(NonCancellable) {
+    val result = start()
+    if (result.isFailure) return@withContext result
+    var accepted = false
+    try {
+        accepted = accept()
+        if (accepted) result else null
+    } finally {
+        if (!accepted) stop().onFailure(onRollbackFailure)
+    }
 }
