@@ -640,3 +640,7 @@ If the installed native helper is available, missing legacy or interrupted-launc
 ## CI — repair ROOT firewall regression fixture
 
 Android run #45627049008 attempt 1 failed during Gradle Kotlin DSL plugin resolution; attempt 2 resolved dependencies but failed compiling RootFirewallCleanupTest.kt at line 22. Repaired the malformed shell parameter interpolation and removed the accidentally duplicated fixture tail. All cleanup assertions remain enabled, no production behavior or dependency versions changed. Go/Linux/Windows #45627060646 succeeded. New CI pending.
+
+## A3/A5 — generation-bound ROOT foreground and watchdog health
+
+CI dbc7bfe: Go/Linux/Windows #45629152506 and Android #45629141104 succeeded (release publication job skipped). Both adapters now use the same foreground and watchdog health predicates. Strict sessions require the saved generation, boot, PID and start ticks to match each live child; path alone cannot make a reused PID healthy. Optional IPv6 child absence requires both records absent, and installed IPv6 intent requires the corresponding rules still be present. Legacy sessions without the strict marker keep the previous process probe. Host fixture covers missing identity, reused PID, zombie, incomplete optional metadata and invalid marker. No new signaling path or changes to ordinary VPN. Real device behavior and final release remain unverified; new CI pending.

@@ -360,6 +360,32 @@ internal class RootLifecycleTransaction(
         ).joinToString("\n")),
     ).joinToString("\n")
 
+    /** Foreground and watchdog use identical generation-bound child health.
+     * Legacy launches without a strict marker retain their old probe.
+     * For strict launches, an optional child is absent only if both records
+     * are absent; a dangling sidecar or symlink is not healthy. */
+    fun executableHealthy(name: String, executable: String, optional: Boolean = false): String {
+        require(name in listOf("pid", "pid6"))
+        val pidPath = "$directory/$name"
+        val pid = quote(pidPath)
+        val identity = quote("$pidPath.identity")
+        val strict = quote("$directory/pidfd.required")
+        val legacy = if (optional) RootProcessIdentity.optionalExecutableAlive(pidPath, executable)
+            else RootProcessIdentity.executableAlive(pidPath, executable)
+        return listOf(
+            "(",
+            metadataCheck("$directory/pidfd.required", pidPath, "$pidPath.identity"),
+            "if ! test -e $strict; then",
+            legacy,
+            "exit \$?",
+            "fi",
+            "test \"\$(cat $strict)\" = v1 || exit 1",
+            if (optional) "if test ! -e $pid && test ! -e $identity; then exit 0; fi" else ":",
+            RootChildIdentity.matchesExecutable(pidPath, generation, executable, procRoot),
+            ")",
+        ).joinToString("\n")
+    }
+
     fun alive(check: String): String = transaction(
         metadataCheck(record) + "\n" +
             "current=\$( " + RootOwnerStatus.generation(directory) + " ) && test \"\$current\" = " + quote(generation) + " && " +

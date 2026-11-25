@@ -8,6 +8,52 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class RootChildIdentityTest {
+    @Test fun strictLifecycleHealthRejectsReusedPidAndIncompleteOptionalIdentity() {
+        if (!File("/bin/sh").canExecute()) return
+        val dir = Files.createTempDirectory("dppass-strict-health").toFile()
+        val proc = File(dir, "proc")
+        val bootId = "11111111-1111-1111-1111-111111111111"
+        File(proc, "sys/kernel/random/boot_id").apply { parentFile?.mkdirs(); writeText(bootId) }
+        val task = File(proc, "123").apply { mkdirs() }
+        val stat = File(task, "stat")
+        val daemon = File(dir, "daemon").apply { writeText("fixture") }
+        val pid = File(dir, "pid")
+        val optional = File(dir, "pid6")
+        val optionalIdentity = File(dir, "pid6.identity")
+        val marker = File(dir, "pidfd.required")
+        val tx = RootLifecycleTransaction(dir.path, "launch", procRoot = proc.path)
+        val primary = tx.executableHealthy("pid", daemon.path)
+        val secondary = tx.executableHealthy("pid6", daemon.path, optional = true)
+        fun run(script: String) = RootCommandRunner.run(listOf("/bin/sh", "-c", script)).exitCode
+        fun taskStat(ticks: String, state: String = "S") {
+            stat.writeText("123 (daemon) $state " + List(18) { "0" }.joinToString(" ") + " $ticks 0")
+        }
+        try {
+            marker.writeText("v1\n")
+            pid.writeText("123\n")
+            taskStat("456")
+            Files.createSymbolicLink(File(task, "exe").toPath(), daemon.toPath())
+            assertFalse(run(primary) == 0)
+            assertEquals(0, run(secondary))
+            assertEquals(0, run(tx.captureExecutable("pid", daemon.path)))
+            assertEquals(0, run(primary))
+            taskStat("789")
+            assertFalse(run(primary) == 0)
+            taskStat("456", "Z")
+            assertFalse(run(primary) == 0)
+            taskStat("456")
+            optionalIdentity.writeText("v1 launch 123 456 $bootId\n")
+            assertFalse(run(secondary) == 0)
+            optional.writeText("123\n")
+            assertEquals(0, run(secondary))
+            marker.writeText("invalid")
+            assertFalse(run(primary) == 0)
+            assertFalse(run(secondary) == 0)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     @Test fun childRecordsBindGenerationPidStartTicksBootAndExpectedExecutable() {
         if (!File("/bin/sh").canExecute()) return
         val dir = Files.createTempDirectory("dppass-child-identity").toFile()

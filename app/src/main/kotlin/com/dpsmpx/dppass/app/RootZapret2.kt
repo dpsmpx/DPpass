@@ -55,10 +55,17 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
     }
 
     override suspend fun alive(): Boolean = withContext(Dispatchers.IO) {
-        runCatching { execute(lifecycle.alive(RootProcessIdentity.executableAlive(ROOT + "/pid", ROOT + "/nfqws2") +
-            " && iptables -t mangle -C OUTPUT " + TCP +
-            (if (rootQuic) " && iptables -t mangle -C OUTPUT " + UDP else ""))) }.isSuccess
+        runCatching { execute(lifecycle.alive(healthy())) }.isSuccess
     }
+
+    private fun healthy(): String =
+        lifecycle.executableHealthy("pid", "$ROOT/nfqws2") +
+            " && iptables -t mangle -C OUTPUT " + TCP +
+            (if (rootQuic) " && iptables -t mangle -C OUTPUT " + UDP else "") +
+            " && { if test -e " + quote("$ROOT/ipv6.intent") + " || test -L " + quote("$ROOT/ipv6.intent") +
+            "; then test -f " + quote("$ROOT/ipv6.intent") + " && test ! -L " + quote("$ROOT/ipv6.intent") +
+            " && ip6tables -t mangle -C OUTPUT " + TCP +
+            (if (rootQuic) " && ip6tables -t mangle -C OUTPUT " + UDP else "") + "; else :; fi; }"
 
     private fun stageAsset(name: String, target: File): File {
         context.assets.open(name).use { input ->
@@ -93,9 +100,10 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
         )
         // A root-owned watchdog removes our NFQUEUE hooks after force-stop or
         // process crash. An Android app cannot rely on onDestroy in that case.
-        val watchdogScript = lifecycle.watchdog(RootProcessIdentity.watchdogCondition(
-            owner.pid, owner.startTime, "$ROOT/pid", "$ROOT/nfqws2",
-        ), cleanup(stopWatch = false))
+        val watchdogScript = lifecycle.watchdog(
+            RootProcessIdentity.appAlive(owner.pid, owner.startTime) + " && " + healthy(),
+            cleanup(stopWatch = false),
+        )
         parts += listOf(
             "cat > " + quote(ROOT + "/watchdog.sh") +
                 " <<'DPPASS_WATCHDOG'\n#!/system/bin/sh\n" + watchdogScript + "\nDPPASS_WATCHDOG",

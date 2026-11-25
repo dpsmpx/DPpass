@@ -37,9 +37,10 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
                 val cmd = command("127.0.0.1")
                 val cmd6 = command("::1")
                 val owner = RootOwnerIdentity(android.os.Process.myPid(), RootProcessIdentity.currentAppStartTime())
-                val watch = lifecycle.watchdog(RootProcessIdentity.watchdogCondition(
-                    owner.pid, owner.startTime, "$ROOT/pid", "$ROOT/ciadpi", "$ROOT/pid6",
-                ), cleanup(false))
+                val watch = lifecycle.watchdog(
+                    RootProcessIdentity.appAlive(owner.pid, owner.startTime) + " && " + healthy(),
+                    cleanup(false),
+                )
                 execute(lifecycle.start(cleanup(), listOf("set -eu", "umask 077", "mkdir -p " + quote(ROOT),
                     "chmod 700 " + quote(ROOT), if (helper != null) RootPidfdCleanup.requireForLaunch(ROOT) else ":",
                     "cp " + quote(binary.absolutePath) + " " + quote("$ROOT/ciadpi"),
@@ -71,11 +72,17 @@ internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
 
     override suspend fun stop(): Result<Unit> = withContext(Dispatchers.IO) { runCatching { execute(lifecycle.stop(cleanup())) } }
     override suspend fun alive(): Boolean = withContext(Dispatchers.IO) {
-        runCatching { execute(lifecycle.alive(RootProcessIdentity.executableAlive("$ROOT/pid", "$ROOT/ciadpi") +
-            " && iptables -t nat -C OUTPUT " + RULE +
-            " && " + RootProcessIdentity.optionalExecutableAlive("$ROOT/pid6", "$ROOT/ciadpi") +
-            " && { ! test -e " + quote("$ROOT/pid6") + " || ip6tables -t nat -C OUTPUT " + RULE + "; }")) }.isSuccess
+        runCatching { execute(lifecycle.alive(healthy())) }.isSuccess
     }
+
+    private fun healthy(): String =
+        lifecycle.executableHealthy("pid", "$ROOT/ciadpi") +
+            " && iptables -t nat -C OUTPUT " + RULE +
+            " && " + lifecycle.executableHealthy("pid6", "$ROOT/ciadpi", optional = true) +
+            " && { if test -e " + quote("$ROOT/pid6") + " || test -e " + quote("$ROOT/ipv6.intent") +
+            " || test -L " + quote("$ROOT/ipv6.intent") + "; then " +
+            "test -f " + quote("$ROOT/pid6") + " && test ! -L " + quote("$ROOT/ipv6.intent") +
+            " && ip6tables -t nat -C OUTPUT " + RULE + "; else :; fi; }"
 
     private fun cleanup(stopWatch: Boolean = true): String = RootAdapterCleanup.byeDpi(stopWatch)
 
