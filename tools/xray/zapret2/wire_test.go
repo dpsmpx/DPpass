@@ -67,3 +67,46 @@ func TestReadResponseBoundedAndStrict(t *testing.T) {
     if _,err:=readResponse(reader);err==nil {t.Fatal("oversize response accepted")}
     if before-reader.Len()>MaxResponseFrame+1 {t.Fatal("unbounded read")}
 }
+
+func TestPlannerWireRejectsAmbiguousFieldRepresentations(t *testing.T) {
+    for _,raw:=range []string{
+        `{"tag":"dppass:exp-pass","tag":"dppass:exp-split","network":"tcp"}`,
+        `{"tag":"dppass:exp-pass","network":"tcp","Network":"udp"}`,
+        `{"Tag":"dppass:exp-pass","network":"tcp"}`,
+        `{"tag":"dppass:exp-pass","network":"tcp","first":[1,2,3]}`,
+        `{"tag":"dppass:exp-pass","network":"tcp","first":{"nested":true}}`,
+        `[]`,
+    } {
+        if _,err:=ReadRequest(strings.NewReader(raw+"\n"));err==nil {t.Fatal("ambiguous request accepted",raw)}
+        if _,err:=ReadStandaloneRequest(strings.NewReader(raw));err==nil {t.Fatal("ambiguous CLI request accepted",raw)}
+    }
+    for _,raw:=range []string{
+        `{"plan":{"strategy":"dppass:exp-pass","network":"tcp","applied":false,"applied":true}}`,
+        `{"plan":{"strategy":"dppass:exp-pass","network":"tcp","Cut":1}}`,
+        `{"plan":{"strategy":"dppass:exp-pass","network":"tcp","fake":[0]}}`,
+        `{"plan":{"strategy":"dppass:exp-pass","network":"tcp"},"plan":{"strategy":"dppass:exp-split","network":"tcp"}}`,
+        `{"plan":null}`,
+        `{"Error":"failed"}`,
+    } {
+        if _,err:=readResponse(strings.NewReader(raw+"\n"));err==nil {t.Fatal("ambiguous response accepted",raw)}
+    }
+}
+
+func TestStandalonePlannerRequestBoundedAndSingleObject(t *testing.T) {
+    valid:=`{"tag":"dppass:exp-pass","network":"tcp","first":"AQID"}`
+    for _,raw:=range []string{valid,valid+"\n","  "+valid+"\n  "} {
+        got,err:=ReadStandaloneRequest(strings.NewReader(raw))
+        if err!=nil || got.Tag!=TagPrefix+"pass" || !bytes.Equal(got.First,[]byte{1,2,3}) {
+            t.Fatal("valid standalone request rejected",err)
+        }
+    }
+    for _,raw:=range []string{valid+" "+valid,valid+" garbage",`{"tag":"dppass:exp-auto","network":"tcp"}`,
+        strings.Repeat(" ",MaxRequestFrame)+valid} {
+        if _,err:=ReadStandaloneRequest(strings.NewReader(raw));err==nil {t.Fatal("invalid standalone request accepted")}
+    }
+    stream:=strings.NewReader(strings.Repeat(" ",MaxRequestFrame*4))
+    before:=stream.Len()
+    if _,err:=ReadStandaloneRequest(stream);err==nil || before-stream.Len()>MaxRequestFrame+1 {
+        t.Fatal("standalone reader did not enforce input bound")
+    }
+}

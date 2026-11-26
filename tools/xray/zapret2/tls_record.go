@@ -17,8 +17,16 @@ func SplitTLSRecordClientHello(first []byte) (rewritten []byte, firstRecordEnd i
 }
 
 func splitTLSRecordClientHello(first []byte, diagnostic bool) ([]byte,int,bool) {
+    recordLen,split,ok:=tlsRecordSplitPosition(first)
+    if !ok {return nil,0,false}
+    return encodeTLSRecordSplit(first, recordLen, split, diagnostic)
+}
+
+// Pure position calculation: validation must not invoke the native encoder
+// a second time or change its accounting.
+func tlsRecordSplitPosition(first []byte) (int,int,bool) {
     recordLen,complete:=localdpi.CompleteTLSClientHelloRecordLen(first)
-    if !complete {return nil,0,false}
+    if !complete {return 0,0,false}
 
     // Break inside the SNI when available, otherwise in the handshake body.
     // Keep the complete 4-byte handshake header inside the first record.
@@ -26,7 +34,6 @@ func splitTLSRecordClientHello(first []byte, diagnostic bool) ([]byte,int,bool) 
     if s, e, found := SNIRange(first[:5+recordLen]); found {
         split = s - 5 + (e-s)/2
     }
-    if split <= 4 || split >= recordLen { return nil, 0, false }
-
-    return encodeTLSRecordSplit(first, recordLen, split, diagnostic)
+    if split <= 4 || split >= recordLen { return 0,0,false }
+    return recordLen,split,true
 }

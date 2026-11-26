@@ -18,7 +18,6 @@ import (
 )
 
 func request(req zapret2.Request) zapret2.Response {
-    if len(req.First) > zapret2.MaxFirst { return zapret2.Response{Error:"first packet too large"} }
     plan, err := zapret2.BuildPlan(req.Tag, req.Network, req.First)
     if err != nil { return zapret2.Response{Error:err.Error()} }
     return zapret2.Response{Plan:plan}
@@ -58,9 +57,8 @@ func main() {
         return
     }
     if len(os.Args) == 2 && os.Args[1] == "--plan" {
-        dec := json.NewDecoder(os.Stdin)
-        var req zapret2.Request
-        if err := dec.Decode(&req); err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(2) }
+        req,err:=zapret2.ReadStandaloneRequest(os.Stdin)
+        if err!=nil {fmt.Fprintln(os.Stderr,err);os.Exit(2)}
         _ = json.NewEncoder(os.Stdout).Encode(request(req))
         return
     }

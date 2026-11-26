@@ -55,7 +55,7 @@ func PlanForDiagnostic(tag, network string, first []byte) (Plan,error) {
 }
 
 func planFor(tag,network string,first []byte,diagnostic bool) (Plan,error) {
-    if len(first) > MaxFirst { return Plan{}, errors.New("first packet too large") }
+    if _,err:=validateRequest(tag,network,first);err!=nil {return Plan{},err}
     // The explicitly tagged test build owns this one encoder in-process.
     // This is a predetermined dispatch rule, not a fallback after an IPC
     // failure. All other selected Alpine methods still fail closed.

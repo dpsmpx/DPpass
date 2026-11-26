@@ -6,6 +6,7 @@ import (
     "bytes"
     "encoding/json"
     "net"
+    "strings"
     "path/filepath"
     "testing"
     "time"
@@ -99,5 +100,72 @@ func TestLocalDispatchChecksPlanContract(t *testing.T) {
     }
     if _,err:=PlanFor(TagPrefix+"pass","invalid",first);err==nil {
         t.Fatal("unrecognized transport accepted")
+    }
+}
+
+func TestPlannerActionMustMatchInputAndSelectedMethod(t *testing.T) {
+    hello:=tlsClientHelloFixture(t,"example.test")
+    http:=[]byte("GET / HTTP/1.1\r\nHost: example.test\r\n\r\n")
+    for _,tc:=range []struct{method string;first []byte}{
+        {"split-1",hello},{"split-2",hello},{"split",http},{"disorder",http},
+        {"fake-5",http},{"tlsrec-split",hello},
+    } {
+        tag:=TagPrefix+tc.method
+        good,err:=BuildPlan(tag,"tcp",tc.first)
+        if err!=nil || !good.Applied {t.Fatal("fixture",tc.method,err)}
+        wrong:=good
+        wrong.Applied=false
+        wrong.Cut=0
+        wrong.Fake=nil
+        wrong.Rewrite=nil
+        if validatePlan(tag,"tcp",tc.first,wrong)==nil {t.Fatal("eligible action silently skipped",tc.method)}
+        wrong=good
+        wrong.Cut++
+        if validatePlan(tag,"tcp",tc.first,wrong)==nil {t.Fatal("wrong action position accepted",tc.method)}
+    }
+    for _,method:=range []string{"split-1","split-2","tlsrec-split"} {
+        tag:=TagPrefix+method
+        forged:=Plan{Strategy:tag,Network:"tcp",Applied:true,Cut:1}
+        if validatePlan(tag,"tcp",http,forged)==nil {t.Fatal("TLS-only action on HTTP accepted",method)}
+    }
+    tag:=TagPrefix+"split"
+    if validatePlan(tag,"tcp",[]byte("unknown"),Plan{Strategy:tag,Network:"tcp",Applied:true,Cut:1})==nil {
+        t.Fatal("action on unrecognized input accepted")
+    }
+}
+
+func TestPlannerAuxiliaryDataValidation(t *testing.T) {
+    http:=[]byte("GET / HTTP/1.1\r\nHost: example.test\r\n\r\n")
+    tag:=TagPrefix+"fake-5"
+    good,err:=BuildPlan(tag,"tcp",http)
+    if err!=nil || !good.Applied {t.Fatal(err)}
+    good.Fake[0]^=1
+    if validatePlan(tag,"tcp",http,good)==nil {t.Fatal("changed auxiliary prefix accepted")}
+    initial:=make([]byte,1200)
+    initial[0],initial[4]=0xc0,1
+    good,err=BuildPlan(tag,"udp",initial)
+    if err!=nil || !good.Applied {t.Fatal(err)}
+    wrong:=good
+    wrong.Repeats++
+    if validatePlan(tag,"udp",initial,wrong)==nil {t.Fatal("unexpected UDP repeat count accepted")}
+    wrong=good
+    wrong.Fake=bytes.Clone(good.Fake)
+    wrong.Fake[5]^=1
+    if validatePlan(tag,"udp",initial,wrong)==nil {t.Fatal("changed UDP header accepted")}
+}
+
+func TestPlannerRejectsInvalidMetadataBeforeDispatch(t *testing.T) {
+    prev:=PlannerSocket()
+    t.Cleanup(func(){_ = SetPlannerSocket(prev)})
+    if err:=SetPlannerSocket(filepath.Join(t.TempDir(),"missing.sock"));err!=nil {t.Fatal(err)}
+    for _,tc:=range []struct{tag,network string;first []byte}{
+        {"unknown","tcp",nil},{TagPrefix+"auto","tcp",nil},
+        {TagPrefix+"pass","invalid",nil},{TagPrefix+"pass","tcp",make([]byte,MaxFirst+1)},
+    } {
+        if _,err:=BuildPlan(tc.tag,tc.network,tc.first);err==nil {t.Fatal("invalid direct request accepted")}
+        if _,err:=PlanFor(tc.tag,tc.network,tc.first);err==nil || strings.Contains(err.Error(),"Alpine strategy daemon unavailable") {
+            t.Fatal("invalid request not rejected",err)
+        }
+        if _,err:=PlanForDiagnostic(tc.tag,tc.network,tc.first);err==nil {t.Fatal("invalid diagnostic request accepted")}
     }
 }

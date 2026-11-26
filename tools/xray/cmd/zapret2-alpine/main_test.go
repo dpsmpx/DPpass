@@ -16,3 +16,14 @@ func TestLineProtocol(t *testing.T) {
     huge := request(zapret2.Request{Tag:zapret2.TagPrefix+"fake-5",Network:"tcp",First:make([]byte,zapret2.MaxFirst+1)})
     if huge.Error == "" {t.Fatal("oversized payload accepted")}
 }
+
+func TestDirectPlannerCommandRejectsInvalidRequests(t *testing.T) {
+    for _,req:=range []zapret2.Request{
+        {Tag:"not-a-method",Network:"tcp"},
+        {Tag:zapret2.TagPrefix+"auto",Network:"tcp"},
+        {Tag:zapret2.TagPrefix+"pass",Network:"unknown"},
+    } {
+        r:=request(req)
+        if r.Error=="" || r.Plan.Applied || r.Plan.Strategy!="" {t.Fatal("invalid request returned plan")}
+    }
+}

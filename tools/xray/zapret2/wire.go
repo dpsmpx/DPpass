@@ -20,7 +20,23 @@ func readFrame(r io.Reader, limit int, dst any) error {
     reader:=bufio.NewReaderSize(r,limit+1)
     line,err:=reader.ReadSlice('\n')
     if err!=nil || len(line)>limit {return errors.New("invalid or oversized planner frame")}
-    dec:=json.NewDecoder(bytes.NewReader(line))
+    return decodePlannerJSON(line,dst)
+}
+
+// The wire uses exact object field names and base64 byte strings. Go's
+// default decoder accepts duplicate/case-folded keys and numeric arrays;
+// reject these ambiguous representations before decoding the typed value.
+func decodePlannerJSON(raw []byte,dst any) error {
+    fields:=json.NewDecoder(bytes.NewReader(raw))
+    var schema string
+    switch dst.(type) {
+    case *Request: schema="request"
+    case *Response: schema="response"
+    default: return errors.New("invalid planner JSON type")
+    }
+    if err:=checkPlannerObject(fields,schema);err!=nil {return err}
+    if _,err:=fields.Token();err!=io.EOF {return errors.New("trailing planner JSON")}
+    dec:=json.NewDecoder(bytes.NewReader(raw))
     dec.DisallowUnknownFields()
     if err:=dec.Decode(dst);err!=nil {return errors.New("invalid planner JSON")}
     var extra json.RawMessage
@@ -28,16 +44,64 @@ func readFrame(r io.Reader, limit int, dst any) error {
     return nil
 }
 
+func checkPlannerObject(dec *json.Decoder,schema string) error {
+    token,err:=dec.Token()
+    if err!=nil || token!=json.Delim('{') {return errors.New("planner JSON object required")}
+    seen:=map[string]bool{}
+    for dec.More() {
+        key,err:=dec.Token()
+        name,ok:=key.(string)
+        if err!=nil || !ok || seen[name] {return errors.New("invalid or duplicate planner field")}
+        seen[name]=true
+        allowed:=false
+        switch schema {
+        case "request": allowed=name=="tag" || name=="network" || name=="first"
+        case "response": allowed=name=="plan" || name=="error"
+        case "plan":
+            switch name {
+            case "strategy","network","applied","cut","fake","rewrite","ttl","repeats","reason": allowed=true
+            }
+        }
+        if !allowed {return errors.New("unknown planner field")}
+        if schema=="response" && name=="plan" {
+            if err:=checkPlannerObject(dec,"plan");err!=nil {return err}
+            continue
+        }
+        value,err:=dec.Token()
+        if err!=nil {return errors.New("invalid planner value")}
+        if _,nested:=value.(json.Delim);nested {return errors.New("unexpected nested planner value")}
+    }
+    end,err:=dec.Token()
+    if err!=nil || end!=json.Delim('}') {return errors.New("invalid planner object")}
+    return nil
+}
+
+// validateRequest is shared by IPC, the local planner and standalone CLI.
+func validateRequest(tag,network string,first []byte) (Mode,error) {
+    if len(first)>MaxFirst {return Mode{},errors.New("first packet too large")}
+    mode,known,err:=ParseTag(tag)
+    if err!=nil || !known || mode.Kind==Auto || (network!="tcp" && network!="udp") {
+        return Mode{},errors.New("invalid planner request metadata")
+    }
+    return mode,nil
+}
+
 // ReadRequest validates framing before allocating any decoded payload.
 func ReadRequest(r io.Reader) (Request,error) {
     var req Request
     if err:=readFrame(r,MaxRequestFrame,&req);err!=nil {return Request{},err}
-    if len(req.First)>MaxFirst {return Request{},errors.New("first packet too large")}
-    mode,known,err:=ParseTag(req.Tag)
-    if err!=nil || !known || mode.Kind==Auto ||
-        (req.Network!="tcp" && req.Network!="udp") {
-        return Request{},errors.New("invalid planner request metadata")
-    }
+    if _,err:=validateRequest(req.Tag,req.Network,req.First);err!=nil {return Request{},err}
+    return req,nil
+}
+
+// ReadStandaloneRequest accepts a single bounded JSON object at EOF, with
+// or without a final newline, for the existing --plan command.
+func ReadStandaloneRequest(r io.Reader) (Request,error) {
+    raw,err:=io.ReadAll(io.LimitReader(r,MaxRequestFrame+1))
+    if err!=nil || len(raw)>MaxRequestFrame {return Request{},errors.New("invalid or oversized planner frame")}
+    var req Request
+    if err:=decodePlannerJSON(raw,&req);err!=nil {return Request{},err}
+    if _,err:=validateRequest(req.Tag,req.Network,req.First);err!=nil {return Request{},err}
     return req,nil
 }
 
