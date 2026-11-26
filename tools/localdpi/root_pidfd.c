@@ -45,6 +45,28 @@ int dppass_pidfd_namespace_status(const char *status, pid_t pid) {
     return found;
 }
 
+int dppass_pidfd_valid_boot_id(const char *s) {
+    if (!s || strlen(s) != 36) return 0;
+    for (size_t i = 0; i < 36; ++i) {
+        char ch = s[i];
+        if (i == 8 || i == 13 || i == 18 || i == 23) {
+            if (ch != '-') return 0;
+        } else if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'))) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int dppass_pidfd_valid_path(const char *s) {
+    if (!s || s[0] != '/' || s[1] == '\0' || strlen(s) > 4095) return 0;
+    for (; *s; ++s) {
+        unsigned char ch = (unsigned char)*s;
+        if (ch < 32 || ch == 127) return 0;
+    }
+    return 1;
+}
+
 #if defined(SYS_pidfd_open) && defined(SYS_pidfd_send_signal)
 static ssize_t read_bytes(const char *path, char *buf, size_t capacity) {
     int fd = open(path, O_RDONLY | O_CLOEXEC);
@@ -52,6 +74,7 @@ static ssize_t read_bytes(const char *path, char *buf, size_t capacity) {
     size_t used = 0;
     while (used < capacity - 1) {
         ssize_t n = read(fd, buf + used, capacity - 1 - used);
+        if (n < 0 && errno == EINTR) continue;
         if (n < 0) { close(fd); return -1; }
         if (n == 0) break;
         used += (size_t)n;
@@ -87,27 +110,14 @@ static int proc_namespace_matches(void) {
         dppass_pidfd_namespace_status(status, pid);
 }
 
-static int valid_boot_id(const char *s) {
-    if (strlen(s) != 36) return 0;
-    for (size_t i = 0; i < 36; ++i) {
-        char ch = s[i];
-        if (i == 8 || i == 13 || i == 18 || i == 23) {
-            if (ch != '-') return 0;
-        } else if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'))) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
 static int boot_matches(const char *expected) {
     char actual[64];
-    if (!valid_boot_id(expected) ||
+    if (!dppass_pidfd_valid_boot_id(expected) ||
         read_text("/proc/sys/kernel/random/boot_id", actual, sizeof(actual)) != 0)
         return 0;
     size_t len = strlen(actual);
     if (len && actual[len - 1] == '\n') actual[len - 1] = '\0';
-    return valid_boot_id(actual) && strcmp(actual, expected) == 0;
+    return dppass_pidfd_valid_boot_id(actual) && strcmp(actual, expected) == 0;
 }
 
 static int read_start_ticks(pid_t pid, uint64_t *value) {
@@ -181,8 +191,9 @@ static int exited(int fd, int timeout_ms) {
 static enum dppass_pidfd_result stop_child(
     pid_t pid, uint64_t start_ticks, const char *boot_id,
     const char *executable, const char *script, int timeout_ms) {
-    if (pid <= 1 || !boot_id || !executable || executable[0] != '/' ||
-        (script && script[0] != '/') || timeout_ms < 0 || timeout_ms > 5000)
+    if (pid <= 1 || pid == getpid() || !dppass_pidfd_valid_boot_id(boot_id) ||
+        !dppass_pidfd_valid_path(executable) ||
+        (script && !dppass_pidfd_valid_path(script)) || timeout_ms < 0 || timeout_ms > 5000)
         return DPPASS_PIDFD_UNPROVEN;
 #if defined(SYS_pidfd_open) && defined(SYS_pidfd_send_signal)
     if (!proc_namespace_matches()) return DPPASS_PIDFD_UNPROVEN;
@@ -194,7 +205,9 @@ static enum dppass_pidfd_result stop_child(
     if (!boot_matches(boot_id) || !start_matches(pid, start_ticks) ||
         !executable_matches(pid, executable) ||
         (script && !script_matches(pid, executable, script)) ||
-        !start_matches(pid, start_ticks))
+        !start_matches(pid, start_ticks) ||
+        !executable_matches(pid, executable) ||
+        (script && !script_matches(pid, executable, script)))
         goto done;
     // If the original task exited while proc was read, those reads may
     // refer to a reused PID. Never signal or report validated ownership.
@@ -247,7 +260,7 @@ enum dppass_pidfd_result dppass_pidfd_probe(void) {
 }
 
 enum dppass_pidfd_result dppass_pidfd_absent(pid_t pid, const char *boot_id) {
-    if (pid <= 1 || !boot_id) return DPPASS_PIDFD_UNPROVEN;
+    if (pid <= 1 || !dppass_pidfd_valid_boot_id(boot_id)) return DPPASS_PIDFD_UNPROVEN;
 #if defined(SYS_pidfd_open) && defined(SYS_pidfd_send_signal)
     if (!proc_namespace_matches() || !boot_matches(boot_id)) return DPPASS_PIDFD_UNPROVEN;
     int fd = (int)syscall(SYS_pidfd_open, pid, 0);
@@ -269,7 +282,7 @@ enum dppass_pidfd_result dppass_pidfd_absent(pid_t pid, const char *boot_id) {
  * different ticks cannot be the recorded task. Ambiguous proc data stays
  * unproven. */
 enum dppass_pidfd_result dppass_pidfd_gone(pid_t pid, uint64_t ticks, const char *boot_id) {
-    if (pid <= 1 || !boot_id) return DPPASS_PIDFD_UNPROVEN;
+    if (pid <= 1 || !dppass_pidfd_valid_boot_id(boot_id)) return DPPASS_PIDFD_UNPROVEN;
 #if defined(SYS_pidfd_open) && defined(SYS_pidfd_send_signal)
     if (!proc_namespace_matches() || !boot_matches(boot_id)) return DPPASS_PIDFD_UNPROVEN;
     int fd = (int)syscall(SYS_pidfd_open, pid, 0);

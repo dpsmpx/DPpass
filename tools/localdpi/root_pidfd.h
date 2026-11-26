@@ -27,6 +27,10 @@ enum dppass_pidfd_result dppass_pidfd_stop_script(
     pid_t pid, uint64_t start_ticks, const char *boot_id,
     const char *interpreter, const char *script, int timeout_ms);
 
+// Shared, pure validation for the CLI and direct library callers.
+int dppass_pidfd_valid_boot_id(const char *boot_id);
+int dppass_pidfd_valid_path(const char *path);
+
 // Pure parser for a single namespace-relative PID in proc status.
 int dppass_pidfd_namespace_status(const char *status, pid_t pid);
 

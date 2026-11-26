@@ -119,6 +119,51 @@ static void test_script(const char *boot) {
     free(shell);
 }
 
+static void test_argument_validation(void) {
+    const char *boot = "01234567-89ab-cdef-0123-456789abcdef";
+    assert(dppass_pidfd_valid_boot_id(boot));
+    assert(!dppass_pidfd_valid_boot_id(NULL));
+    assert(!dppass_pidfd_valid_boot_id(""));
+    assert(!dppass_pidfd_valid_boot_id("01234567-89ab-Cdef-0123-456789abcdef"));
+    assert(!dppass_pidfd_valid_boot_id("01234567_89ab-cdef-0123-456789abcdef"));
+    assert(!dppass_pidfd_valid_boot_id("01234567-89ab-cdef-0123-456789abcdef\n"));
+    assert(dppass_pidfd_valid_path("/data/adb/dppass/helper"));
+    assert(!dppass_pidfd_valid_path(NULL));
+    assert(!dppass_pidfd_valid_path(""));
+    assert(!dppass_pidfd_valid_path("/"));
+    assert(!dppass_pidfd_valid_path("relative"));
+    assert(!dppass_pidfd_valid_path("/bad\npath"));
+    assert(!dppass_pidfd_valid_path("/bad\177path"));
+    char long_path[4097];
+    memset(long_path,'x',sizeof(long_path));
+    long_path[0]='/';
+    long_path[4096]='\0';
+    assert(!dppass_pidfd_valid_path(long_path));
+    long_path[4095]='\0';
+    assert(dppass_pidfd_valid_path(long_path));
+}
+
+static void test_no_signal_proofs(const char *boot, const char *exe) {
+    pid_t pid=child(0);
+    uint64_t ticks=child_ticks(pid);
+    assert(dppass_pidfd_absent(pid,boot)==DPPASS_PIDFD_UNPROVEN);
+    assert(dppass_pidfd_gone(pid,ticks,boot)==DPPASS_PIDFD_UNPROVEN);
+    assert(dppass_pidfd_gone(pid,ticks+1,boot)==DPPASS_PIDFD_EXITED);
+    assert_running(pid);
+    assert(dppass_pidfd_gone(pid,ticks,"bad")==DPPASS_PIDFD_UNPROVEN);
+    assert(dppass_pidfd_absent(pid,NULL)==DPPASS_PIDFD_UNPROVEN);
+    assert(dppass_pidfd_stop_executable(pid,ticks,boot,"/",100)==DPPASS_PIDFD_UNPROVEN);
+    assert(dppass_pidfd_stop_script(pid,ticks,boot,exe,"/bad\nscript",100)==DPPASS_PIDFD_UNPROVEN);
+    assert_running(pid);
+    assert(kill(pid,SIGTERM)==0);
+    int status;
+    assert(waitpid(pid,&status,0)==pid);
+    assert(WIFSIGNALED(status) && WTERMSIG(status)==SIGTERM);
+    // A numeric PID could be reused after reaping. gone proves absence or
+    // different start ticks; absent intentionally makes no reuse claim.
+    assert(dppass_pidfd_gone(pid,ticks,boot)==DPPASS_PIDFD_EXITED);
+}
+
 static void test_namespace_status(void) {
     assert(dppass_pidfd_namespace_status("Name:\tfixture\nNSpid:\t123\nThreads:\t1\n", 123));
     assert(dppass_pidfd_namespace_status("NSpid: 123\t", 123));
@@ -135,6 +180,7 @@ static void test_namespace_status(void) {
 
 int main(void) {
     test_namespace_status();
+    test_argument_validation();
     assert(dppass_pidfd_probe() == DPPASS_PIDFD_EXITED);
     char boot[64], exe[4096];
     FILE *f = fopen("/proc/sys/kernel/random/boot_id", "r");
@@ -146,6 +192,8 @@ int main(void) {
     exe[len] = '\0';
     assert(dppass_pidfd_stop_executable(1, 0, boot, exe, 100) == DPPASS_PIDFD_UNPROVEN);
     assert(dppass_pidfd_stop_executable(getpid(), 0, boot, exe, 5001) == DPPASS_PIDFD_UNPROVEN);
+    assert(dppass_pidfd_stop_executable(getpid(), child_ticks(getpid()), boot, exe, 100) == DPPASS_PIDFD_UNPROVEN);
+    test_no_signal_proofs(boot,exe);
 
     pid_t pid = child(0);
     uint64_t ticks = child_ticks(pid);

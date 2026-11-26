@@ -21,28 +21,6 @@ static int decimal(const char *s, uint64_t limit, uint64_t *out) {
     return 1;
 }
 
-static int boot_valid(const char *s) {
-    if (strlen(s) != 36) return 0;
-    for (size_t i = 0; i < 36; ++i) {
-        char ch = s[i];
-        if (i == 8 || i == 13 || i == 18 || i == 23) {
-            if (ch != '-') return 0;
-        } else if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'))) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
-static int path_valid(const char *s) {
-    if (s[0] != '/' || s[1] == '\0' || strlen(s) > 4095) return 0;
-    for (; *s; ++s) {
-        unsigned char ch = (unsigned char)*s;
-        if (ch < 32 || ch == 127) return 0;
-    }
-    return 1;
-}
-
 static int invalid(void) {
     puts("invalid_arguments");
     return 64;
@@ -67,13 +45,13 @@ int main(int argc, char **argv) {
     if (argc == 5 && strcmp(argv[1], "gone") == 0) {
         uint64_t pid, ticks;
         if (!decimal(argv[2], INT32_MAX, &pid) || pid <= 1 ||
-            !decimal(argv[3], UINT64_MAX, &ticks) || !boot_valid(argv[4]))
+            !decimal(argv[3], UINT64_MAX, &ticks) || !dppass_pidfd_valid_boot_id(argv[4]))
             return invalid();
         return report(dppass_pidfd_gone((pid_t)pid, ticks, argv[4]));
     }
     if (argc == 4 && strcmp(argv[1], "absent") == 0) {
         uint64_t pid;
-        if (!decimal(argv[2], INT32_MAX, &pid) || pid <= 1 || !boot_valid(argv[3]))
+        if (!decimal(argv[2], INT32_MAX, &pid) || pid <= 1 || !dppass_pidfd_valid_boot_id(argv[3]))
             return invalid();
         return report(dppass_pidfd_absent((pid_t)pid, argv[3]));
     }
@@ -90,8 +68,8 @@ int main(int argc, char **argv) {
     if (!decimal(argv[2], INT32_MAX, &pid) || pid <= 1 ||
         pid == (uint64_t)getpid() ||
         !decimal(argv[3], UINT64_MAX, &ticks) ||
-        !boot_valid(argv[4]) || !path_valid(argv[5]) ||
-        (script && !path_valid(argv[6])) ||
+        !dppass_pidfd_valid_boot_id(argv[4]) || !dppass_pidfd_valid_path(argv[5]) ||
+        (script && !dppass_pidfd_valid_path(argv[6])) ||
         !decimal(argv[6 + script], 5000, &timeout))
         return invalid();
 
