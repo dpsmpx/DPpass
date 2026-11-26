@@ -47,6 +47,30 @@ def routes(downstream, tun, table, priority):
     }
 
 
+def forward_guard(downstream, tun, generation):
+    """Те же строки, что строит RootHotspotForwardGuard.kt (тест сверяет формат)."""
+    if not (NAME.fullmatch(downstream) and NAME.fullmatch(tun)) or "lo" in (downstream, tun) or downstream == tun:
+        raise ValueError("недопустимое имя интерфейса")
+    if not re.fullmatch(r"[a-f0-9]{16}", generation):
+        raise ValueError("недопустимое поколение")
+    text = (APP / "RootHotspotForwardGuard.kt").read_text(encoding="utf-8")
+    for fragment in ('"-i $downstream", "-o $downstream"', '"-i $downstream -o $tun", "-i $tun -o $downstream"',
+                     '-I FORWARD 1 $it $marker -j DROP', '-I FORWARD 1 $it $marker -j ACCEPT'):
+        if fragment not in text:
+            raise RuntimeError("RootHotspotForwardGuard.kt изменился: обновите root_hotspot_plan.py")
+    marker = f"-m comment --comment dppass-hotspot-{generation}"
+    drops = [f"-i {downstream}", f"-o {downstream}"]
+    allowed = [f"-i {downstream} -o {tun}", f"-i {tun} -o {downstream}"]
+    install = [f"{tool} -t filter -I FORWARD 1 {d} {marker} -j DROP" for tool in ("iptables", "ip6tables") for d in drops]
+    attach = [f"iptables -t filter -I FORWARD 1 {a} {marker} -j ACCEPT" for a in allowed]
+    return {
+        "install": install,
+        "attach": attach,
+        "detach": [c.replace(" -I FORWARD 1 ", " -D FORWARD ") for c in attach],
+        "retire": [c.replace(" -I FORWARD 1 ", " -D FORWARD ") for c in install],
+    }
+
+
 def input_guard(downstream, generation):
     if not NAME.fullmatch(downstream) or downstream == "lo" or not re.fullmatch(r"[a-f0-9]{16}", generation):
         raise ValueError("недопустимые параметры входного фильтра")

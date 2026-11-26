@@ -38,7 +38,7 @@ def main():
 
     installed = []
     guard_down = None
-    routes = inputs = None
+    routes = inputs = forwards = None
 
     if adb(args.router, "shell", "getprop ro.product.model").stdout.strip() != "Zenfone Max Pro M1":
         raise SystemExit("Expected Zenfone Max Pro M1 as router")
@@ -131,13 +131,18 @@ def main():
                     downstream = fields[1]
             if downstream is None or not plan.NAME.fullmatch(downstream):
                 raise SystemExit("AP interface not identified")
+            local_only = re.findall(r"^\s*(\S+) - LocalHotspotState - lastError = 0\s*$", tether, re.M)
+            if local_only != [downstream]:
+                raise SystemExit("AP address does not identify the sole system local-only interface")
+            generation = secrets.token_hex(8)
             routes = plan.routes(downstream, "dpgateway", 10120, 100)
-            inputs = plan.input_guard(downstream, secrets.token_hex(8))
+            inputs = plan.input_guard(downstream, generation)
+            forwards = plan.forward_guard(downstream, "dpgateway", generation)
             if router_root_script(routes["check_vacant"]).returncode != 0:
                 raise SystemExit("Routing table or priority already in use")
             guard_down = downstream
-            # Сначала INPUT, затем маршрутные запреты: до lookup клиент уже без выхода.
-            for command in inputs["install"] + routes["guard"]:
+            # Сначала INPUT и FORWARD DROP, затем маршрутные запреты: до lookup клиент уже без выхода.
+            for command in inputs["install"] + forwards["install"] + routes["guard"]:
                 installed.append(command)
                 router_root_script(command + "\n", check=True)
             print(f"router: guard installed on {downstream}")
@@ -162,12 +167,13 @@ def main():
                     break
                 time.sleep(0.5)
             if stopped:
-                retire = routes["retire"] + inputs["retire"]
+                retire = routes["retire"] + forwards["retire"] + inputs["retire"]
                 for command in retire:
                     router_root_script(command + "\n", check=False)
                 leftover = router_root_script(
                     f"ip -4 rule show | grep -c 'iif {guard_down}' ; ip -6 rule show | grep -c 'iif {guard_down}' ;"
-                    f" iptables -S INPUT | grep -c {inputs['marker']} ; ip6tables -S INPUT | grep -c {inputs['marker']}\n",
+                    f" iptables -S INPUT | grep -c {inputs['marker']} ; ip6tables -S INPUT | grep -c {inputs['marker']} ;"
+                    f" iptables -S FORWARD | grep -c {inputs['marker']} ; ip6tables -S FORWARD | grep -c {inputs['marker']}\n",
                     check=False).stdout.split()
                 print("router: guard retired, leftover counts", leftover)
             else:
