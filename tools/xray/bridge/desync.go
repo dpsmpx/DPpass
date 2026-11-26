@@ -62,6 +62,7 @@ func isDiagnosticDialerTag(tag string) bool {
 // Check the complete outbound chain, since a plain diagnostic has no
 // experimental adapter and a non-plain probe uses a nested dialer.
 func isDiagnosticOutbound(ctx context.Context) bool {
+    if diagnosticRequestFromContext(ctx)!=nil {return true}
     for _,outbound:=range session.OutboundsFromContext(ctx) {
         if outbound!=nil && (isDiagnosticDialerTag(outbound.Tag) || strings.HasPrefix(outbound.Tag,"dppass:test-")) {
             return true
@@ -186,14 +187,18 @@ type desyncDialer struct {
 
 func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Destination, sockopt *internet.SocketConfig) (net.Conn, error) {
 	generation := passiveQualityGeneration()
+    diagnostic := isDiagnosticOutbound(ctx)
+    request := diagnosticRequestFromContext(ctx)
+    // Read the final adapter identity once. An empty or nil final outbound
+    // is not an experimental adapter, even if earlier hops have tags.
+    tag:=""
+    obs:=session.OutboundsFromContext(ctx)
+    if len(obs)>0 && obs[len(obs)-1]!=nil {tag=obs[len(obs)-1].Tag}
     ip := net.ParseIP(dest.Address.String())
     var routeGeneration uint64
     localExperimental := false
-    if dest.Network == xnet.Network_TCP && isIPv6Peer(ip) {
-        obs := session.OutboundsFromContext(ctx)
-        if len(obs) > 0 && !isDiagnosticDialerTag(obs[len(obs)-1].Tag) {
-            _, localExperimental, _ = parseDesyncTag(obs[len(obs)-1].Tag)
-        }
+    if dest.Network == xnet.Network_TCP && isIPv6Peer(ip) && !diagnostic {
+        _, localExperimental, _ = parseDesyncTag(tag)
         if localExperimental {
             routeGeneration = zapret2Auto.generationSnapshot()
             if liveIPv6.skip(ip, routeGeneration, time.Now()) { return nil, syscall.ENETUNREACH }
@@ -204,17 +209,14 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
 	if err != nil {
         // Count failed experimental dials, never ordinary Xray or DoH sockets.
         if dest.Network == xnet.Network_TCP {
-            obs := session.OutboundsFromContext(ctx)
-            if len(obs) > 0 {
-                if _, ok, _ := parseDesyncTag(obs[len(obs)-1].Tag); ok {
-                    stagesFor(isDiagnosticDialerTag(obs[len(obs)-1].Tag)).recordDialFailure(err, net.ParseIP(dest.Address.String()))
-                }
+            if _, ok, _ := parseDesyncTag(tag); ok {
+                stagesFor(diagnostic).recordDialFailure(err, ip)
             }
         }
 		return conn, err
 	}
 	if dest.Network == xnet.Network_TCP {
-        if tcp, ok := conn.(*net.TCPConn); ok && !isDiagnosticOutbound(ctx) && !tcp.RemoteAddr().(*net.TCPAddr).IP.IsLoopback() {
+        if tcp, ok := conn.(*net.TCPConn); ok && !diagnostic && !tcp.RemoteAddr().(*net.TCPAddr).IP.IsLoopback() {
             trackPassiveTCP(tcp, generation)
         }
     }
@@ -223,14 +225,6 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
 	if dest.Network != xnet.Network_TCP && dest.Network != xnet.Network_UDP {
 		return conn, nil
 	}
-	obs := session.OutboundsFromContext(ctx)
-	if len(obs) == 0 {
-		return conn, nil
-	}
-    tag := obs[len(obs)-1].Tag
-    diagnostic := isDiagnosticDialerTag(tag)
-    var request *diagnosticRequestCounters
-    if diagnostic {request=diagnosticRequestFromContext(ctx)}
 	mode, ok, perr := parseDesyncTag(tag)
 	if !ok {
 		return conn, nil

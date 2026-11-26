@@ -264,8 +264,32 @@ func TestDesyncDialerWrapsOnlyExperimentOutbounds(t *testing.T) {
 	if _, s := DesyncStats(); s != skipped+1 {
 		t.Error("неверный тег не засчитан пропуском")
 	}
-	if n := len(rec.fds); n != 3 {
-		t.Errorf("защитник видел %d сокетов из 3: обёртка обошла хук защиты", n)
+    // A request marker must survive the system dialer and prevent a
+    // diagnostic chain from being treated as live, even with a live tag.
+    requestCtx,counters:=newDiagnosticRequestContext(context.Background())
+    ctx:=session.ContextWithOutbounds(requestCtx,[]*session.Outbound{{Tag:"dppass:exp-split"}})
+    liveApplied,liveSkipped:=DesyncStats()
+    conn,err:=d.Dial(ctx,nil,dest,nil)
+    if err!=nil {t.Fatal(err)}
+    defer conn.Close()
+    wrapped,ok:=conn.(*desyncConn)
+    if !ok || !wrapped.diagnostic || wrapped.request!=counters {
+        t.Fatal("request ownership lost at protected adapter")
+    }
+    // An invalid diagnostic adapter must charge only the request.
+    invalidCtx:=session.ContextWithOutbounds(requestCtx,[]*session.Outbound{{Tag:"dppass:diag-exp-unknown"}})
+    invalid,err=d.Dial(invalidCtx,nil,dest,nil)
+    if err==nil || invalid!=nil {t.Fatal("invalid diagnostic adapter accepted")}
+    if a,b:=counters.finish();a!=0 || b!=1 {t.Fatal("incorrect request counts",a,b)}
+    if a,b:=DesyncStats();a!=liveApplied || b!=liveSkipped {t.Fatal("diagnostic changed live stats")}
+    // A nil final outbound is not a strategy and must not panic.
+    nilCtx:=session.ContextWithOutbounds(context.Background(),[]*session.Outbound{nil})
+    ordinary,err:=d.Dial(nilCtx,nil,dest,nil)
+    if err!=nil {t.Fatal(err)}
+    defer ordinary.Close()
+    if _,ok:=ordinary.(*desyncConn);ok {t.Fatal("nil outbound was wrapped")}
+	if n := len(rec.fds); n != 6 {
+		t.Errorf("защитник видел %d сокетов из 6: обёртка обошла хук защиты", n)
 	}
 }
 
@@ -825,6 +849,10 @@ func TestDiagnosticDialerTagsUseSamePlannerWithoutLiveSelection(t *testing.T) {
 }
 
 func TestDiagnosticOutboundChainClassification(t *testing.T) {
+    ctx,_:=newDiagnosticRequestContext(context.Background())
+    if !isDiagnosticOutbound(ctx) {t.Fatal("request without outbound tags lost diagnostic identity")}
+    ctx=session.ContextWithOutbounds(ctx,[]*session.Outbound{nil,{Tag:"dppass:exp-auto"}})
+    if !isDiagnosticOutbound(ctx) {t.Fatal("request marker lost in live outbound chain")}
     for _,tc:=range []struct{tags []string; want bool}{
         {nil,false},
         {[]string{"proxy","dppass:exp-auto"},false},
