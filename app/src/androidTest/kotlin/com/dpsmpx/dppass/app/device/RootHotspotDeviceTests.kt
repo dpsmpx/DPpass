@@ -34,7 +34,11 @@ object RootHotspotDeviceTests : DeviceSuite {
         } finally {
             result.cancel(false)
         }
-    }, DeviceCase("holdAccessPoint") { device ->
+    }, DeviceCase("holdAccessPoint") { device -> withAccessPoint(device, false) },
+        DeviceCase("accessPointAndTun") { device -> withAccessPoint(device, true) },
+        DeviceCase("receiveTun", ::receiveTun))
+
+    private fun withAccessPoint(device: Device, testTun: Boolean) {
         // Ручной стенд: параметры временной AP — только в приватном каталоге приложения.
         val activity = device.launch()
         val wifi = device.context.getSystemService(android.net.wifi.WifiManager::class.java)
@@ -58,6 +62,7 @@ object RootHotspotDeviceTests : DeviceSuite {
                 @Suppress("DEPRECATION")
                 val ssid = if (android.os.Build.VERSION.SDK_INT >= 33) config.wifiSsid.toString().trim('"') else config.ssid
                 info.writeText("$ssid\n${config.passphrase}\n")
+                if (testTun) receiveTun(device)
                 val deadline = android.os.SystemClock.elapsedRealtime() + 180_000
                 while (!release.exists() && stopped.count > 0 && android.os.SystemClock.elapsedRealtime() < deadline) {
                     android.os.SystemClock.sleep(200)
@@ -70,7 +75,9 @@ object RootHotspotDeviceTests : DeviceSuite {
             info.delete()
             release.delete()
         }
-    }, DeviceCase("receiveTun") { device ->
+    }
+
+    private fun receiveTun(device: Device) {
         val path = File(device.context.cacheDir, "dppass-tun-probe.sock")
         expect(!path.exists()) { "Тестовый сокет уже существует" }
         var bound = false
@@ -130,5 +137,5 @@ object RootHotspotDeviceTests : DeviceSuite {
         } finally {
             if (bound) path.delete()
         }
-    })
+    }
 }
