@@ -195,6 +195,17 @@ func probeHTTPSWithConn(ctx context.Context, c net.Conn, target zapret2TestTarge
     return result
 }
 
+// finalizeHTTPSDiagnostic is report-only: fixed-target probe outcomes
+// must not publish selector preferences. Explicit site commit and supervised
+// DPTS calibration have separate evidence gates.
+func finalizeHTTPSDiagnostic(r Zapret2HTTPSResult, elapsed time.Duration,
+    beforeApplied, beforeSkipped, nowApplied, nowSkipped int64) Zapret2HTTPSResult {
+    r.AppliedDelta = max(0, nowApplied-beforeApplied)
+    r.SkippedDelta = max(0, nowSkipped-beforeSkipped)
+    r.Elapsed = elapsed
+    return r
+}
+
 // ProbeZapret2HTTPS performs exactly one network request via an allowlisted
 // private outbound, without changing the active VPN routing or strategy.
 // The UI calls this serially on a background thread, per-attempt timeout.
@@ -236,26 +247,10 @@ func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2
         return out
     }
     beforeApplied, beforeSkipped := DesyncStats()
-    generation := zapret2Auto.generationSnapshot()
     finish := func(r Zapret2HTTPSResult) Zapret2HTTPSResult {
         nowApplied, nowSkipped := DesyncStats()
-        r.AppliedDelta = max(0, nowApplied-beforeApplied)
-        r.SkippedDelta = max(0, nowSkipped-beforeSkipped)
-        r.Elapsed = time.Since(started)
-        // Only the hardcoded www.youtube.com HTML target may teach AUTO.
-        // Verified page bytes, not TCP/TLS or a 301, are required.
-        // The selector rejects late evidence from a previous VPN session.
-        switch targetID {
-        case "youtube_home":
-            zapret2Auto.observeHTMLProbe(target.host, strategy, r.Outcome,
-                r.Elapsed.Milliseconds(), generation)
-        case "youtube_api_transport":
-            // A 4xx with valid TLS proves HTTP transport only. Learn a
-            // different exact-host preference; never call it API success.
-            zapret2Auto.observeAPITransportProbe(target.host, strategy, r.Outcome,
-                r.Elapsed.Milliseconds(), generation)
-        }
-        return r
+        return finalizeHTTPSDiagnostic(r, time.Since(started),
+            beforeApplied, beforeSkipped, nowApplied, nowSkipped)
     }
     mu.Lock()
     inst := current

@@ -134,3 +134,16 @@ func TestZapret2IPv4ProbeIsTheSameHostAndHTTPRoute(t *testing.T) {
         t.Fatal("Google search test path is not a fixed, nonpersonal query")
     }
 }
+
+func TestFixedHTTPSDiagnosticFinalizationPreservesEvidenceWithoutPublishing(t *testing.T) {
+    for _,outcome:=range []string{"ok","http_reachable","timeout_tls","engine_off"} {
+        input:=Zapret2HTTPSResult{Outcome:outcome,HTTPStatus:200,BodyBytes:256,
+            DnsFingerprint:"abcdef12",DnsAnswers:2,Protocol:"h1",TLSStage:"tls_verified",ALPN:"http/1.1"}
+        got:=finalizeHTTPSDiagnostic(input,500*time.Millisecond,10,20,13,19)
+        want:=input
+        want.Elapsed=500*time.Millisecond
+        want.AppliedDelta=3
+        want.SkippedDelta=0
+        if got!=want {t.Fatalf("diagnostic %q changed evidence: %+v",outcome,got)}
+    }
+}
