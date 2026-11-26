@@ -6,6 +6,8 @@
 """
 import argparse
 import re
+import secrets
+import root_hotspot_plan as plan
 import subprocess
 import time
 
@@ -19,6 +21,7 @@ def main():
     parser.add_argument("--adb", default="adb")
     parser.add_argument("--router", required=True)
     parser.add_argument("--client", required=True)
+    parser.add_argument("--guard", action="store_true", help="install the D-120 guard on the AP interface")
     args = parser.parse_args()
 
     def adb(serial, *command, check=True, timeout=30):
@@ -27,6 +30,15 @@ def main():
 
     def router_root(script, check=True):
         return adb(args.router, "shell", f"su -c '{script}'", check=check)
+
+    def router_root_script(script, check=False):
+        # Скрипт через stdin: без вложенных кавычек оболочки adb и su.
+        return subprocess.run([args.adb, "-s", args.router, "shell", "-T", "su -c 'sh -s'"],
+                              input=script, capture_output=True, encoding="utf-8", timeout=30, check=check)
+
+    installed = []
+    guard_down = None
+    routes = inputs = None
 
     if adb(args.router, "shell", "getprop ro.product.model").stdout.strip() != "Zenfone Max Pro M1":
         raise SystemExit("Expected Zenfone Max Pro M1 as router")
@@ -110,7 +122,56 @@ def main():
             print(f"client ping {label}:", "reachable" if ping.returncode == 0 else "unreachable")
         v6 = adb(args.client, "shell", "ip -6 -o addr show wlan0 scope global", check=False).stdout.strip()
         print("client global IPv6:", "present" if v6 else "none")
+
+        if args.guard:
+            downstream = None
+            for line in links.splitlines():
+                fields = line.split()
+                if len(fields) > 3 and gateway and fields[3].split("/")[0] == gateway:
+                    downstream = fields[1]
+            if downstream is None or not plan.NAME.fullmatch(downstream):
+                raise SystemExit("AP interface not identified")
+            routes = plan.routes(downstream, "dpgateway", 10120, 100)
+            inputs = plan.input_guard(downstream, secrets.token_hex(8))
+            if router_root_script(routes["check_vacant"]).returncode != 0:
+                raise SystemExit("Routing table or priority already in use")
+            guard_down = downstream
+            # Сначала INPUT, затем маршрутные запреты: до lookup клиент уже без выхода.
+            for command in inputs["install"] + routes["guard"]:
+                installed.append(command)
+                router_root_script(command + "\n", check=True)
+            print(f"router: guard installed on {downstream}")
+            for label, target in (("gateway", gateway), ("internet", "1.1.1.1")):
+                ping = adb(args.client, "shell", f"ping -I wlan0 -c 2 -W 2 {target}", check=False, timeout=15)
+                print(f"guarded client ping {label}:", "reachable" if ping.returncode == 0 else "unreachable")
     finally:
+        if process is not None and guard_down is not None:
+            # Порядок D-120: сначала остановить AP и подтвердить, затем снять защиту.
+            router_root(f"touch {INFO}.stop", check=False)
+            try:
+                process.communicate(timeout=20)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate()
+            process = None
+            stopped = False
+            for _ in range(20):
+                tether = adb(args.router, "shell", "dumpsys tethering", check=False).stdout
+                if f"{guard_down} - LocalHotspotState" not in tether:
+                    stopped = True
+                    break
+                time.sleep(0.5)
+            if stopped:
+                retire = routes["retire"] + inputs["retire"]
+                for command in retire:
+                    router_root_script(command + "\n", check=False)
+                leftover = router_root_script(
+                    f"ip -4 rule show | grep -c 'iif {guard_down}' ; ip -6 rule show | grep -c 'iif {guard_down}' ;"
+                    f" iptables -S INPUT | grep -c {inputs['marker']} ; ip6tables -S INPUT | grep -c {inputs['marker']}\n",
+                    check=False).stdout.split()
+                print("router: guard retired, leftover counts", leftover)
+            else:
+                print("router: AP NOT confirmed stopped, guard RETAINED")
         if network_id is not None:
             adb(args.client, "shell", f"cmd wifi forget-network {network_id}", check=False)
         router_root(f"touch {INFO}.stop", check=False)
