@@ -352,9 +352,9 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     started:=time.Now()
     result:=Zapret2HTTPSResult{Outcome:"invalid_target",DnsFingerprint:"-",
         Protocol:"dns",TLSStage:"none",ALPN:"-"}
+    requestCtx,counters:=newDiagnosticRequestContext(context.Background())
     finish:=func(r Zapret2HTTPSResult) Zapret2HTTPSResult {
-        r.Elapsed=time.Since(started)
-        return r
+        return finalizeHTTPSDiagnostic(r,time.Since(started),counters)
     }
     request,ok:=parseSiteSearchRequest(targetID)
     if !ok {return finish(result)}
@@ -368,7 +368,7 @@ func probeSiteSearchHTTPS(strategy,targetID string,timeout time.Duration) Zapret
     mu.Unlock()
     if inst==nil {result.Outcome="engine_off";return finish(result)}
     gen:=zapret2Auto.generationSnapshot()
-    ctx,cancel:=context.WithTimeout(context.Background(),timeout)
+    ctx,cancel:=context.WithTimeout(requestCtx,timeout)
     defer cancel()
 
     if request.kind=="site_prepare" {

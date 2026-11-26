@@ -131,7 +131,8 @@ func TestDiagnosticSocketCountersDoNotChangeLiveStatistics(t *testing.T) {
     diagHello:=diagnosticStage.tcpHelloSent.Load()
     diagReply:=diagnosticStage.tcpFirstReply.Load()
     outgoing,incoming:=tcpCopyPair(t)
-    conn:=&desyncConn{TCPConn:outgoing,mode:desyncMode{kind:desyncSplitFirst},diagnostic:true}
+    _,request:=newDiagnosticRequestContext(context.Background())
+    conn:=&desyncConn{TCPConn:outgoing,mode:desyncMode{kind:desyncSplitFirst},diagnostic:true,request:request}
     defer conn.Close()
     hello:=clientHello(t,"example.org")
     if err:=incoming.SetDeadline(time.Now().Add(2*time.Second));err!=nil {t.Fatal(err)}
@@ -148,6 +149,7 @@ func TestDiagnosticSocketCountersDoNotChangeLiveStatistics(t *testing.T) {
     }
     applied,skipped:=DesyncStats()
     if applied!=liveApplied || skipped!=liveSkipped {t.Fatal("diagnostic changed live action counts")}
+    if a,b:=request.finish();a!=1 || b!=0 {t.Fatalf("request counts %d/%d",a,b)}
     applied,skipped=diagnosticDesyncStats()
     if applied!=diagApplied+1 || skipped!=diagSkipped ||
         diagnosticStage.tcpHelloSent.Load()!=diagHello+1 || diagnosticStage.tcpFirstReply.Load()!=diagReply+1 {

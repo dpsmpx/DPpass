@@ -199,9 +199,8 @@ func probeHTTPSWithConn(ctx context.Context, c net.Conn, target zapret2TestTarge
 // must not publish selector preferences. Explicit site commit and supervised
 // DPTS calibration have separate evidence gates.
 func finalizeHTTPSDiagnostic(r Zapret2HTTPSResult, elapsed time.Duration,
-    beforeApplied, beforeSkipped, nowApplied, nowSkipped int64) Zapret2HTTPSResult {
-    r.AppliedDelta = max(0, nowApplied-beforeApplied)
-    r.SkippedDelta = max(0, nowSkipped-beforeSkipped)
+    counters *diagnosticRequestCounters) Zapret2HTTPSResult {
+    r.AppliedDelta,r.SkippedDelta = counters.finish()
     r.Elapsed = elapsed
     return r
 }
@@ -246,11 +245,9 @@ func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2
         out.Outcome = "invalid_timeout"
         return out
     }
-    beforeApplied, beforeSkipped := diagnosticDesyncStats()
+    requestCtx,counters:=newDiagnosticRequestContext(context.Background())
     finish := func(r Zapret2HTTPSResult) Zapret2HTTPSResult {
-        nowApplied, nowSkipped := diagnosticDesyncStats()
-        return finalizeHTTPSDiagnostic(r, time.Since(started),
-            beforeApplied, beforeSkipped, nowApplied, nowSkipped)
+        return finalizeHTTPSDiagnostic(r,time.Since(started),counters)
     }
     mu.Lock()
     inst := current
@@ -259,7 +256,7 @@ func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2
         out.Outcome = "engine_off"
         return finish(out)
     }
-    ctx, cancel := context.WithTimeout(context.Background(), timeout)
+    ctx, cancel := context.WithTimeout(requestCtx, timeout)
     defer cancel()
     if dohProvider!="" {
         return finish(probeWithFixedDoH(ctx,inst,strategy,dohProvider,target))
