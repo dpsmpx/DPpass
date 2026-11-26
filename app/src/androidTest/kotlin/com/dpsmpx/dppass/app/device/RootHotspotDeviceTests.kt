@@ -36,9 +36,75 @@ object RootHotspotDeviceTests : DeviceSuite {
         }
     }, DeviceCase("holdAccessPoint") { device -> withAccessPoint(device, false) },
         DeviceCase("accessPointAndTun") { device -> withAccessPoint(device, true) },
+        DeviceCase("clientThroughTun") { device -> withAccessPoint(device, false, client = true) },
         DeviceCase("receiveTun", ::receiveTun))
 
-    private fun withAccessPoint(device: Device, testTun: Boolean) {
+    /**
+     * Стенд D-120 с реальным клиентом: TUN приходит из основного namespace, выход —
+     * blackhole. Пишет источники и цели соединений, увиденных ядром, без содержимого.
+     */
+    private fun clientThroughTun(device: Device, release: File, stopped: java.util.concurrent.CountDownLatch) {
+        val cache = device.context.cacheDir
+        val path = File(cache, "dppass-tun-probe.sock")
+        val ready = File(cache, "dppass-lab-ap.ready")
+        val seen = File(cache, "dppass-lab-ap.seen")
+        expect(!path.exists()) { "Тестовый сокет уже существует" }
+        ready.delete()
+        seen.delete()
+        var bound = false
+        try {
+            LocalSocket().use { socket ->
+                socket.bind(LocalSocketAddress(path.absolutePath, LocalSocketAddress.Namespace.FILESYSTEM))
+                bound = true
+                val server = LocalServerSocket(socket.fileDescriptor)
+                val poll = StructPollfd().apply {
+                    this.fd = socket.fileDescriptor
+                    events = OsConstants.POLLIN.toShort()
+                }
+                expect(Os.poll(arrayOf(poll), 60_000) == 1) { "ROOT-помощник не подключился" }
+                server.accept().use { peer ->
+                    RootHotspotTunReceiver.receive(peer, "dpgateway").use { tun ->
+                        val loaded = JniXrayRuntime.load({ System.loadLibrary(JniXrayRuntime.LIBRARY) }, cache.path)
+                        expect(loaded is Outcome.Success) { "Не удалось загрузить ядро" }
+                        val runtime = (loaded as Outcome.Success).value
+                        // Выход заблокирован: здесь проверяется только вход клиента в ядро.
+                        val config = """
+                            {
+                              "stats": {},
+                              "policy": {"system": {"statsOutboundUplink": true, "statsOutboundDownlink": true}},
+                              "inbounds": [{"tag":"tun-in","protocol":"tun","settings":{"name":"dpgateway","mtu":1500}}],
+                              "outbounds": [{"tag":"proxy","protocol":"blackhole"}]
+                            }
+                        """.trimIndent()
+                        runtime.setConnectionTracking(true)
+                        val started = runtime.start(config.encodeToByteArray(), tun.fd, 1500) { false }
+                        expect(started == XrayResult.Ok) { "Ядро не приняло TUN: ${(started as? XrayResult.Failed)?.text ?: started}" }
+                        try {
+                            ready.writeText("ready\n")
+                            val deadline = android.os.SystemClock.elapsedRealtime() + 120_000
+                            while (!release.exists() && stopped.count > 0 && android.os.SystemClock.elapsedRealtime() < deadline) {
+                                android.os.SystemClock.sleep(200)
+                            }
+                            // Адрес клиента и тестовую цель пишет стенд; содержимое потоков не сохраняется.
+                            val expected = File(cache, "dppass-lab-ap.client").takeIf { it.isFile }?.readLines().orEmpty()
+                            val matched = expected.size == 2 && runtime.connections().connections.any {
+                                it.source.substringAfterLast("://").substringBeforeLast(':') == expected[0] &&
+                                    it.target.substringAfterLast("://") == expected[1]
+                            }
+                            seen.writeText(if (matched) "matched\n" else "absent\n")
+                        } finally {
+                            expect(runtime.stop() == XrayResult.Ok) { "Ядро не остановилось" }
+                        }
+                    }
+                }
+            }
+        } finally {
+            ready.delete()
+            if (bound) path.delete()
+        }
+    }
+
+    private fun withAccessPoint(device: Device, testTun: Boolean, client: Boolean = false) {
         // Ручной стенд: параметры временной AP — только в приватном каталоге приложения.
         val activity = device.launch()
         val wifi = device.context.getSystemService(android.net.wifi.WifiManager::class.java)
@@ -63,6 +129,7 @@ object RootHotspotDeviceTests : DeviceSuite {
                 val ssid = if (android.os.Build.VERSION.SDK_INT >= 33) config.wifiSsid.toString().trim('"') else config.ssid
                 info.writeText("$ssid\n${config.passphrase}\n")
                 if (testTun) receiveTun(device)
+                if (client) clientThroughTun(device, release, stopped)
                 val deadline = android.os.SystemClock.elapsedRealtime() + 180_000
                 while (!release.exists() && stopped.count > 0 && android.os.SystemClock.elapsedRealtime() < deadline) {
                     android.os.SystemClock.sleep(200)

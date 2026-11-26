@@ -22,7 +22,13 @@ def main():
     parser.add_argument("--router", required=True)
     parser.add_argument("--client", required=True)
     parser.add_argument("--guard", action="store_true", help="install the D-120 guard on the AP interface")
+    parser.add_argument("--tun-helper", help="ARM64 helper: dispatch a client test flow into a blackhole TUN")
     args = parser.parse_args()
+    if args.tun_helper and not args.guard:
+        parser.error("--tun-helper requires --guard")
+    case = "clientThroughTun" if args.tun_helper else "holdAccessPoint"
+    staging = None
+    attached = []
 
     def adb(serial, *command, check=True, timeout=30):
         return subprocess.run([args.adb, "-s", serial, *command], capture_output=True,
@@ -55,7 +61,7 @@ def main():
         adb(args.router, "shell", "settings put secure location_mode 3")
         process = subprocess.Popen(
             [args.adb, "-s", args.router, "shell", "am", "instrument", "-w", "-e", "tests",
-             "RootHotspotManual.holdAccessPoint", RUNNER],
+             f"RootHotspotManual.{case}", RUNNER],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8")
         deadline = time.monotonic() + 30
         lines = []
@@ -149,7 +155,31 @@ def main():
             for label, target in (("gateway", gateway), ("internet", "1.1.1.1")):
                 ping = adb(args.client, "shell", f"ping -I wlan0 -c 2 -W 2 {target}", check=False, timeout=15)
                 print(f"guarded client ping {label}:", "reachable" if ping.returncode == 0 else "unreachable")
+            if args.tun_helper:
+                tmp = adb(args.router, "shell", "mktemp -d /data/local/tmp/dppass-tun.XXXXXXXX").stdout.strip()
+                if not re.fullmatch(r"/data/local/tmp/dppass-tun\.[A-Za-z0-9]{8}", tmp):
+                    raise SystemExit("Invalid helper directory")
+                staging = tmp
+                adb(args.router, "push", args.tun_helper, tmp + "/probe")
+                adb(args.router, "shell", f"chmod 700 {tmp}/probe")
+                router_root_script(f"printf '%s\\n' {client_ip.group(1)} 192.0.2.2:5353 > {INFO}.client\nchmod 644 {INFO}.client\n", check=True)
+                router_root(f"{tmp}/probe send-main /data/user/0/{PKG}/cache/dppass-tun-probe.sock")
+                for _ in range(30):
+                    if router_root(f"test -s {INFO}.ready", check=False).returncode == 0:
+                        break
+                    time.sleep(.2)
+                else:
+                    raise SystemExit("Core not ready")
+                for add, remove in zip(forwards['attach'] + [routes['attach']], forwards['detach'] + [routes['detach']]):
+                    router_root_script(add + '\n', check=True)
+                    attached.append(remove)
+                if adb(args.client, 'shell', 'curl --interface wlan0 --noproxy "*" -fsS --connect-timeout 3 --max-time 4 http://192.0.2.2:5353/ -o /dev/null', check=False).returncode == 0:
+                    raise SystemExit('Unexpected response on blackhole path')
     finally:
+        for remove in reversed(attached):
+            router_root_script(remove + '\n', check=False)
+        if staging:
+            adb(args.router, 'shell', f'rm -f {staging}/probe && rmdir {staging}', check=False)
         if process is not None and guard_down is not None:
             # Порядок D-120: сначала остановить AP и подтвердить, затем снять защиту.
             router_root(f"touch {INFO}.stop", check=False)
@@ -159,6 +189,10 @@ def main():
                 process.kill()
                 process.communicate()
             process = None
+            if args.tun_helper:
+                seen = router_root(f"cat {INFO}.seen", check=False).stdout.strip()
+                print("core saw client flow:", seen or "no report")
+                router_root(f"rm -f {INFO}.seen {INFO}.client", check=False)
             stopped = False
             for _ in range(20):
                 snapshot = adb(args.router, "shell", "dumpsys tethering", check=False)

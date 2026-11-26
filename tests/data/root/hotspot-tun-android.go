@@ -28,6 +28,20 @@ func main() {
 		receive(3)
 		return
 	}
+	if len(os.Args) == 3 && os.Args[1] == "send-main" {
+		// Стенд D-120: TUN в основном namespace, без адреса и маршрутов.
+		// Маршрут к нему ставит только стенд в таблице iif клиента; закрытие
+		// последнего fd в DPpass удаляет интерфейс и этот маршрут.
+		if strings.Contains(links(), " dpgateway:") {
+			panic("dpgateway already exists")
+		}
+		fd := openTun()
+		check(os.WriteFile("/proc/sys/net/ipv6/conf/dpgateway/disable_ipv6", []byte("1\n"), 0))
+		check(exec.Command("ip", "link", "set", "dpgateway", "up").Run())
+		sendToLocalReceiver(fd, os.Args[2])
+		check(syscall.Close(fd))
+		return
+	}
 	for _, line := range strings.Split(strings.TrimSpace(links()), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 3 || strings.Contains(","+strings.Trim(fields[2], "<>")+",", ",UP,") {
@@ -39,18 +53,7 @@ func main() {
 			panic("unexpected interface")
 		}
 	}
-	fd, err := syscall.Open("/dev/net/tun", syscall.O_RDWR|syscall.O_CLOEXEC, 0)
-	check(err)
-	var req [40]byte
-	copy(req[:], "dpgateway")
-	binary.LittleEndian.PutUint16(req[16:], 0x1001)
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), 0x400454ca, uintptr(unsafe.Pointer(&req[0])))
-	if errno != 0 {
-		panic(errno)
-	}
-	if !strings.Contains(links(), " dpgateway:") {
-		panic("missing TUN")
-	}
+	fd := openTun()
 	if len(os.Args) == 3 && os.Args[1] == "send" {
 		check(os.WriteFile("/proc/sys/net/ipv6/conf/dpgateway/disable_ipv6", []byte("1\n"), 0))
 		check(exec.Command("ip", "addr", "add", "192.0.2.1/24", "dev", "dpgateway").Run())
@@ -138,4 +141,20 @@ func receive(fd int) {
 		panic("TUN not removed")
 	}
 	fmt.Fprintln(os.Stdout, "Android TUN descriptor lifetime passed")
+}
+
+func openTun() int {
+	fd, err := syscall.Open("/dev/net/tun", syscall.O_RDWR|syscall.O_CLOEXEC, 0)
+	check(err)
+	var req [40]byte
+	copy(req[:], "dpgateway")
+	binary.LittleEndian.PutUint16(req[16:], 0x9001)
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), 0x400454ca, uintptr(unsafe.Pointer(&req[0])))
+	if errno != 0 {
+		panic(errno)
+	}
+	if !strings.Contains(links(), " dpgateway:") {
+		panic("missing TUN")
+	}
+	return fd
 }
