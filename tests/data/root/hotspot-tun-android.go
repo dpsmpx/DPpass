@@ -52,6 +52,14 @@ func main() {
 		panic("missing TUN")
 	}
 	if len(os.Args) == 3 && os.Args[1] == "send" {
+		check(os.WriteFile("/proc/sys/net/ipv6/conf/dpgateway/disable_ipv6", []byte("1\n"), 0))
+		check(exec.Command("ip", "addr", "add", "192.0.2.1/24", "dev", "dpgateway").Run())
+		check(exec.Command("ip", "link", "set", "dpgateway", "up").Run())
+		udp, err := net.Dial("udp4", "192.0.2.2:5353")
+		check(err)
+		_, err = udp.Write([]byte("dppass-tun-probe"))
+		check(err)
+		check(udp.Close())
 		sendToLocalReceiver(fd, os.Args[2])
 		check(syscall.Close(fd))
 		return

@@ -29,7 +29,17 @@ object RootHotspotDeviceTests : DeviceSuite {
                 expect(Os.poll(arrayOf(poll), 15_000) == 1) { "ROOT-помощник не подключился" }
                 server.accept().use { peer ->
                     RootHotspotTunReceiver.receive(peer, "dpgateway").use { tun ->
-                        expect(tun.fd >= 0) { "Дескриптор TUN закрыт" }
+                        val tunPoll = StructPollfd().apply {
+                            this.fd = tun.fileDescriptor
+                            events = OsConstants.POLLIN.toShort()
+                        }
+                        expect(Os.poll(arrayOf(tunPoll), 3_000) == 1 &&
+                            tunPoll.revents.toInt() and OsConstants.POLLIN != 0) { "Нет пакета в TUN" }
+                        val packet = ByteArray(1500)
+                        val count = Os.read(tun.fileDescriptor, packet, 0, packet.size)
+                        val payload = "dppass-tun-probe".encodeToByteArray()
+                        expect(count == 28 + payload.size && packet[0] == 0x45.toByte() && packet[9] == 17.toByte() &&
+                            packet.copyOfRange(28, count).contentEquals(payload)) { "Неожиданный пакет TUN" }
                     }
                 }
             }
