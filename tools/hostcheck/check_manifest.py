@@ -49,6 +49,13 @@ PERMISSIONS = {
     "android.permission.CAMERA": "QR камерой (D-71): запрос при первом нажатии, камера — только пока открыт экран сканирования",
     "android.permission.SCHEDULE_EXACT_ALARM": "будильник о конце подписки в точное время (D-76): с Android 14 его включает пользователь; без него — окно в час",
     "android.permission.RECEIVE_BOOT_COMPLETED": "будильник о конце подписки заново после загрузки (D-76): приёмник включён, только пока напоминание включено",
+    # D-120: локальная точка доступа ROOT-роутера (startLocalOnlyHotspot). Запрос —
+    # только при явном включении режима; геолокация — лишь до Android 12L включительно.
+    "android.permission.ACCESS_WIFI_STATE": "состояние Wi-Fi для локальной точки доступа ROOT-роутера (D-120)",
+    "android.permission.CHANGE_WIFI_STATE": "запуск локальной точки доступа ROOT-роутера (D-120)",
+    "android.permission.ACCESS_FINE_LOCATION": "startLocalOnlyHotspot до Android 13 требует точную геолокацию (D-120); maxSdkVersion 32",
+    "android.permission.ACCESS_COARSE_LOCATION": "вместе с точной геолокацией на Android 12 (D-120); maxSdkVersion 32",
+    "android.permission.NEARBY_WIFI_DEVICES": "startLocalOnlyHotspot с Android 13 (D-120); neverForLocation",
 }
 # Приёмники → (события фильтра, выключен ли по умолчанию). Все — не экспортированы:
 # события загрузки шлёт система, остальное — свои PendingIntent.
