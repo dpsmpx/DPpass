@@ -24,14 +24,17 @@ def main():
     parser.add_argument("--guard", action="store_true", help="install the D-120 guard on the AP interface")
     parser.add_argument("--tun-helper", help="ARM64 helper: dispatch a client test flow into a blackhole TUN")
     parser.add_argument('--local-baseline', action='store_true', help='Test captured freedom egress (not DPI strategies)')
+    parser.add_argument('--auto', action='store_true', help='Use the compiled serverless AUTO plan for the HTTPS check')
     args = parser.parse_args()
+    if args.auto and not args.local_baseline:
+        parser.error('--auto requires --local-baseline')
     if args.local_baseline and not args.tun_helper:
         parser.error('--local-baseline requires --tun-helper')
     if args.tun_helper and not args.guard:
         parser.error("--tun-helper requires --guard")
     case = "clientThroughTun" if args.tun_helper else "holdAccessPoint"
     if args.local_baseline:
-        case = 'clientThroughLocal'
+        case = 'clientThroughAuto' if args.auto else 'clientThroughLocal'
     staging = None
     attached = []
 
