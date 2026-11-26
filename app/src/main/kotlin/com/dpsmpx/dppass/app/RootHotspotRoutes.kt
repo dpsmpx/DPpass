@@ -19,4 +19,13 @@ internal class RootHotspotRoutes(downstream: String, tun: String, table: Int, pr
     )
     val attach = "ip -4 route add default dev $tun metric 100 table $table"
     val detach = "ip -4 route del default dev $tun metric 100 table $table"
+
+    // Только после подтверждённой остановки AP. Пока клиент может передавать
+    // пакеты, терминальные правила должны остаться даже после detach.
+    val retireAfterAccessPointStopped = listOf(
+        "ip -4 rule del iif $downstream priority $priority lookup $table",
+        "ip -4 route del unreachable default metric 32767 table $table",
+        "ip -6 rule del iif $downstream priority ${priority + 1} unreachable",
+        "ip -4 rule del iif $downstream priority ${priority + 1} unreachable",
+    )
 }
