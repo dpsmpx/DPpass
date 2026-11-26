@@ -25,7 +25,11 @@ def main():
     parser.add_argument("--tun-helper", help="ARM64 helper: dispatch a client test flow into a blackhole TUN")
     parser.add_argument('--local-baseline', action='store_true', help='Test captured freedom egress (not DPI strategies)')
     parser.add_argument('--auto', action='store_true', help='Use the compiled serverless AUTO plan for the HTTPS check')
+    parser.add_argument('--dns-helper', help='ARM64 guest DNS probe; requires --auto')
     args = parser.parse_args()
+    if args.dns_helper and not args.auto:
+        parser.error('--dns-helper requires --auto')
+    client_stage = None
     if args.auto and not args.local_baseline:
         parser.error('--auto requires --local-baseline')
     if args.local_baseline and not args.tun_helper:
@@ -184,6 +188,23 @@ def main():
                     attached.append(remove)
                 if args.local_baseline:
                     probe = 'curl --interface wlan0 --noproxy "*" --connect-timeout 5 --max-time 10 --resolve one.one.one.one:443:1.1.1.1 -fsS https://one.one.one.one/cdn-cgi/trace'
+                    if args.dns_helper:
+                        for proto in ('udp', 'tcp'):
+                            rule = f'-i {downstream} -d {gateway}/32 -p {proto} --dport 53 -m comment --comment {inputs["marker"]} -j DNAT --to-destination 172.19.0.2:53'
+                            router_root_script('iptables -t nat -I PREROUTING 1 ' + rule, check=True)
+                            attached.append('iptables -t nat -D PREROUTING ' + rule)
+                        tmp = adb(args.client, 'shell', 'mktemp -d /data/local/tmp/dppass-dns.XXXXXXXX').stdout.strip()
+                        if not re.fullmatch(r'/data/local/tmp/dppass-dns\.[A-Za-z0-9]{8}', tmp):
+                            raise SystemExit('Unexpected guest staging path')
+                        client_stage = tmp
+                        adb(args.client, 'push', args.dns_helper, tmp + '/dns')
+                        adb(args.client, 'shell', f'chmod 700 {tmp}/dns')
+                        answer = adb(args.client, 'shell', f'{tmp}/dns {gateway}').stdout.strip()
+                        if answer not in ('1.1.1.1', '1.0.0.1'):
+                            raise SystemExit('Guest DNS failed')
+                        print('client DNS via gateway: verified A answer')
+                        probe = probe.replace(':443:1.1.1.1', ':443:' + answer)
+                        router_root_script(f"printf '%s\\n' {client_ip.group(1)} {answer}:443 > {INFO}.client", check=True)
                     response = adb(args.client, 'shell', probe, check=False)
                     if response.returncode or 'h=one.one.one.one' not in response.stdout.splitlines():
                         raise SystemExit(f'Captured HTTPS control failed (curl={response.returncode})')
@@ -198,9 +219,13 @@ def main():
                     if adb(args.client, 'shell', probe, check=False).returncode == 0:
                         raise SystemExit('HTTPS still available after engine stop')
                     print('client HTTPS after engine stop: unavailable')
+                    if client_stage and adb(args.client, 'shell', f'{client_stage}/dns {gateway}', check=False).returncode == 0:
+                        raise SystemExit('Guest DNS unexpectedly available after shutdown')
                 elif adb(args.client, 'shell', 'curl --interface wlan0 --noproxy "*" -fsS --connect-timeout 3 --max-time 4 http://192.0.2.2:5353/ -o /dev/null', check=False).returncode == 0:
                     raise SystemExit('Unexpected response on blackhole path')
     finally:
+        if client_stage:
+            adb(args.client, 'shell', f'rm -f {client_stage}/dns && rmdir {client_stage}', check=False)
         for remove in reversed(attached):
             router_root_script(remove + '\n', check=False)
         if staging:
