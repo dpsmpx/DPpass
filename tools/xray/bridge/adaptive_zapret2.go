@@ -109,6 +109,29 @@ type adaptiveEntry struct {
     cooldown map[string]time.Time // short-lived per-method circuit breaker
 }
 
+// clearPreference retires only preference-local state. Per-method health
+// and exploration history belong to the destination, not to its winner.
+func (e *adaptiveEntry) clearPreference() {
+    e.preferred = ""
+    e.verifiedFallback = ""
+    e.plainReachable = false
+    e.probeSeeded = false
+    e.weakFailures = 0
+    e.smallResponses = nil
+}
+
+// A verified alternate is host-only TLS evidence from the same scan.
+// Consume it once and never promote an unavailable or suspended method.
+func (e *adaptiveEntry) retireWithFallback(host string, now time.Time) string {
+    backup:=e.verifiedFallback
+    eligible:=e.probeSeeded && backup!="" && backup!=e.preferred && backup!="pass" &&
+        host==adaptiveHostOnly(host) && nnHostTransport(host)==localdpi.TLS &&
+        socketCapabilities.Allows(localdpi.TLS,backup) && !now.Before(e.cooldown[backup])
+    e.clearPreference()
+    if eligible {return backup}
+    return ""
+}
+
 // Probe evidence is distinct from transport-byte heuristics. It comes from
 // certificate-verified HTTPS HTML in the one-button test, for *one exact*
 // allowlisted host, and expires at network/session reconfiguration.
@@ -392,12 +415,8 @@ func (a *adaptiveSelector) choosePolicy(host string, candidates []string, direct
             // The alternate was verified 3/3 on the same pinned addresses
             // during the same explicit scan. It remains scoped to this
             // host and generation; no retry within an existing TCP flow.
-            fallback := e.verifiedFallback
-            e.preferred = ""
-            e.plainReachable = false
-            e.probeSeeded = false
-            e.verifiedFallback = ""
-            if fallback != "" && !blocked(fallback) {
+            fallback := e.retireWithFallback(host,now)
+            if fallback != "" {
                 for _, candidate := range candidates {
                     if candidate == fallback {
                         e.preferred = fallback
@@ -468,6 +487,7 @@ func (a *adaptiveSelector) retainPlainReplyLocked(host string) {
     if e == nil { return }
     if e.preferred != "" && e.preferred != "pass" { return }
     if e.cooldown != nil && time.Now().Before(e.cooldown["pass"]) { return }
+    if e.preferred != "pass" { e.clearPreference() }
     e.preferred = "pass"
     e.plainReachable = true
     e.probeSeeded = false
@@ -512,19 +532,9 @@ func (a *adaptiveSelector) observeStallLocked(host, strategy string) {
         if e.preferred == strategy {
             // Promote only a second profile that independently passed 3/3
             // HTTPS on every same-run pinned IP. Never use it for QUIC.
-            backup := e.verifiedFallback
-            e.verifiedFallback = ""
-            e.preferred = ""
-            e.plainReachable = false
-            e.probeSeeded = false
-            e.weakFailures = 0
-            e.smallResponses = nil
-            if backup != "" {
-                until := e.cooldown[backup]
-                if !time.Now().Before(until) {
-                    e.preferred = backup
-                    e.probeSeeded = true
-                }
+            if backup:=e.retireWithFallback(host,time.Now());backup!="" {
+                e.preferred = backup
+                e.probeSeeded = true
             }
         }
     }
@@ -602,16 +612,11 @@ func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int
         } else {
             e.weakFailures++
             if e.weakFailures >= 2 {
-                e.preferred = ""
-                e.plainReachable = false
+                e.clearPreference()
                 if strategy == "pass" && mediaAdaptiveHost(host) {
                     if e.cooldown == nil { e.cooldown = make(map[string]time.Time) }
                     e.cooldown["pass"] = time.Now().Add(adaptiveStallCooldown)
                 }
-                e.probeSeeded = false
-                e.verifiedFallback = ""
-                e.weakFailures = 0
-                e.smallResponses = nil
             }
         }
     } else if e.preferred == "" && payloadBytes >= adaptiveSmallResponseThreshold {

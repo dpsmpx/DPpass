@@ -746,3 +746,50 @@ func TestAdaptiveAddressOverridesAreExactAndTransactional(t *testing.T) {
         t.Fatal("invalid update changed active selection")
     }
 }
+
+func TestRetireVerifiedFallbackRequiresExactEligibleContext(t *testing.T) {
+    for _,tc:=range []struct{
+        host,primary,backup string
+        verified,cooled,want bool
+    }{
+        {"example.test","split","fake-5",true,false,true},
+        {"example.test","split","fake-5",true,true,false},
+        {"example.test","split","fake-5",false,false,false},
+        {"example.test","split","unknown",true,false,false},
+        {"example.test","split","split",true,false,false},
+        {"example.test","split","pass",true,false,false},
+        {"http:example.test","split","fake-5",true,false,false},
+        {"udp:example.test","fake-3","fake-5",true,false,false},
+        {"example.test|203.0.113.9","split","fake-5",true,false,false},
+    } {
+        e:=adaptiveEntry{preferred:tc.primary,verifiedFallback:tc.backup,probeSeeded:tc.verified,
+            weakFailures:1,smallResponses:map[string]int{"split":2},
+            stalls:map[string]int{"split":1},usage:map[string]int{"split":3}}
+        now:=time.Now()
+        if tc.cooled {e.cooldown=map[string]time.Time{tc.backup:now.Add(time.Hour)}}
+        got:=e.retireWithFallback(tc.host,now)
+        if (got==tc.backup)!=tc.want {t.Fatalf("%+v fallback=%q",tc,got)}
+        if e.preferred!="" || e.verifiedFallback!="" || e.probeSeeded || e.plainReachable ||
+            e.weakFailures!=0 || e.smallResponses!=nil || e.stalls["split"]!=1 || e.usage["split"]!=3 {
+            t.Fatal("retirement did not isolate preference-local state",e)
+        }
+    }
+}
+
+func TestCooledPreferenceRetirementResetsWeakEvidence(t *testing.T) {
+    a:=newProbeAdaptiveSelector()
+    const host="fallback.example.test"
+    e:=a.entryLocked(host)
+    e.preferred="split"
+    e.probeSeeded=true
+    e.verifiedFallback="fake-5"
+    e.weakFailures=1
+    e.smallResponses=map[string]int{"fake-5":2}
+    e.cooldown=map[string]time.Time{"split":time.Now().Add(time.Hour)}
+    if got:=a.choose(host);got!="fake-5" {t.Fatal("eligible backup not selected",got)}
+    if e.weakFailures!=0 || e.smallResponses!=nil || e.verifiedFallback!="" {
+        t.Fatal("backup inherited retired preference evidence")
+    }
+    a.observe(host,"fake-5",1)
+    if e.preferred!="fake-5" || e.weakFailures!=1 {t.Fatal("backup demoted on stale failure")}
+}
