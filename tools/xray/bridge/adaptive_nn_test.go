@@ -62,10 +62,16 @@ func TestOptionalNeuralSizedLocalGenerationAndBaseline(t *testing.T) {
     }
     // The repeated-host observation count must allow exploration, not pin an
     // untrained prior forever. A verified exact-host preference outranks MLP.
-    g := a.generationSnapshot()
-    for i:=0;i<2;i++ { a.observeHTMLProbe("www.youtube.com", "plain", "timeout", 8000, g) }
-    for i:=0;i<2;i++ { a.observeHTMLProbe("www.youtube.com", "fake-5", "ok", 1100, g) }
-    if got := a.choose("www.youtube.com"); got != "fake-5" {
+    const host="www.youtube.com"
+    inst,g:=newSiteSearchTestRun(t,host,[]string{"1.1.1.1","8.8.8.8"})
+    for ip:=0;ip<2;ip++ {
+        for attempt:=1;attempt<=3;attempt++ {
+            recordSiteSearchTestSample(inst,host,g,ip,attempt,"h1","plain","timeout_tls",8000)
+            recordSiteSearchTestSample(inst,host,g,ip,attempt,"h1","fake-5","ok",1100)
+        }
+    }
+    if !commitSiteSearchTestRun(inst,host,"fake-5",g) {t.Fatal("verified site preference rejected")}
+    if got := zapret2Auto.choose(host); got != "fake-5" {
         t.Fatalf("probe winner must override model: %s", got)
     }
     _ = ConfigureZapret2NeuralModel(nil)

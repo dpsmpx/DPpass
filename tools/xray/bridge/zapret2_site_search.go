@@ -322,16 +322,7 @@ func siteSearchCommit(prepared *siteSearchRun,method string) bool {
     entry:=zapret2Auto.entryLocked(r.host)
     selected:=method
     if selected=="plain" {selected="pass"}
-    entry.preferred=selected
-    entry.verifiedFallback=backup
-    entry.plainReachable=false
-    entry.probeSeeded=method!="plain"
-    entry.weakFailures=0
-    entry.smallResponses=nil
-    // Any existing timeout suspension for this exact, freshly proven
-    // candidate is cleared; unrelated host/method health is untouched.
-    if entry.cooldown!=nil {delete(entry.cooldown,selected)}
-    if entry.stalls!=nil {delete(entry.stalls,selected)}
+    entry.installVerifiedPreference(selected,backup)
     return true
 }
 

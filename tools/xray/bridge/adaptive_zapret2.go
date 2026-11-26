@@ -121,6 +121,18 @@ func (e *adaptiveEntry) clearPreference() {
     e.smallResponses = nil
 }
 
+// installVerifiedPreference is called only after the explicit site-run
+// evidence gate. Reset preference-local state, but keep health for other
+// methods; a freshly verified winner may clear its own cooldown.
+func (e *adaptiveEntry) installVerifiedPreference(selected, backup string) {
+    e.clearPreference()
+    e.preferred=selected
+    e.verifiedFallback=backup
+    e.probeSeeded=selected!="pass"
+    delete(e.cooldown,selected)
+    delete(e.stalls,selected)
+}
+
 // A verified alternate is host-only TLS evidence from the same scan.
 // Consume it once and never promote an unavailable or suspended method.
 func (e *adaptiveEntry) retireWithFallback(host string, now time.Time) string {
@@ -133,29 +145,10 @@ func (e *adaptiveEntry) retireWithFallback(host string, now time.Time) string {
     return ""
 }
 
-// Probe evidence is distinct from transport-byte heuristics. It comes from
-// certificate-verified HTTPS HTML in the one-button test, for *one exact*
-// allowlisted host, and expires at network/session reconfiguration.
-type adaptiveProbeSample struct {
-    tried int
-    verified int
-    totalMillis int64
-}
-
-type adaptiveProbeEvidence struct {
-    lastStrategy string
-    plainFailures int
-    plainSuccesses int
-    candidates map[string]adaptiveProbeSample
-    winner string
-    winnerMillis int64
-}
-
 type adaptiveSelector struct {
     mu sync.Mutex
     entries map[string]*adaptiveEntry
     selected map[string]struct{}
-    probe map[string]*adaptiveProbeEvidence
     generation uint64 // invalidates observations from old network sessions
     entryClock uint64
 }
@@ -662,97 +655,12 @@ func (a *adaptiveSelector) generationSnapshot() uint64 {
     return a.generation
 }
 
-// Two independent exact-host kinds of diagnostic evidence:
-// - www.youtube.com: validated HTTP 200 HTML content (outcome=ok)
-// - youtubei.googleapis.com: TLS-verified HTTP 2xx/4xx response
-//   (outcome=http_reachable), which proves transport ONLY, not a feed.
-// Neither permits promoting strategies for unrelated Googlevideo/CDN/Google
-// domains. Do not train from redirects, one success, or TLS bytes alone.
-func (a *adaptiveSelector) observeHTMLProbe(host, strategy, outcome string, elapsedMillis int64, generation uint64) {
-    a.observeVerifiedProbe(host, "www.youtube.com", "ok",
-        strategy, outcome, elapsedMillis, generation)
-}
-
-func (a *adaptiveSelector) observeAPITransportProbe(host, strategy, outcome string, elapsedMillis int64, generation uint64) {
-    a.observeVerifiedProbe(host, "youtubei.googleapis.com", "http_reachable",
-        strategy, outcome, elapsedMillis, generation)
-}
-
-func (a *adaptiveSelector) observeVerifiedProbe(host, requiredHost, validOutcome,
-    strategy, outcome string, elapsedMillis int64, generation uint64) {
-    if host != requiredHost || strategy == "auto" || elapsedMillis < 0 { return }
-    if strategy != "plain" {
-        recognized := false
-        for _, candidate := range adaptiveCandidates {
-            if strategy == candidate { recognized = true; break }
-        }
-        if !recognized { return }
-    }
-
-    a.mu.Lock()
-    defer a.mu.Unlock()
-    if a.generation != generation { return }
-    if a.probe == nil { a.probe = make(map[string]*adaptiveProbeEvidence) }
-    evidence := a.probe[host]
-    // Start a new trial on the first plain attempt after another strategy.
-    // A test runs one baseline pair, then candidate pairs, serially.
-    if evidence == nil || strategy == "plain" && evidence.lastStrategy != "plain" ||
-        strategy == "plain" && evidence.plainFailures+evidence.plainSuccesses >= 2 {
-        evidence = &adaptiveProbeEvidence{candidates: make(map[string]adaptiveProbeSample)}
-        a.probe[host] = evidence
-    }
-    evidence.lastStrategy = strategy
-    if strategy == "plain" {
-        if outcome == validOutcome { evidence.plainSuccesses++ }
-        // A timeout in any transport stage is still a failed baseline.
-        // Keep specific outcome codes for diagnostics, not as proof of DPI.
-        if outcome == "timeout" || strings.HasPrefix(outcome, "timeout_") ||
-            outcome == "dial_failed" || outcome == "tls_failed" {
-            evidence.plainFailures++
-        }
-        return
-    }
-    sample := evidence.candidates[strategy]
-    sample.tried++
-    if outcome == validOutcome {
-        sample.verified++
-        sample.totalMillis += elapsedMillis
-    }
-    evidence.candidates[strategy] = sample
-
-    if evidence.plainFailures != 2 || evidence.plainSuccesses != 0 ||
-        sample.tried != 2 || sample.verified != 2 {
-        return
-    }
-    // Prefer a confirmed same-host transport/content winner with lower
-    // total latency; do not mistake a redirect or a single success for proof.
-    if evidence.winner != "" && sample.totalMillis >= evidence.winnerMillis { return }
-    evidence.winner, evidence.winnerMillis = strategy, sample.totalMillis
-    e := a.entryLocked(host)
-    e.preferred = strategy
-    e.probeSeeded = true
-    e.plainReachable = false
-    e.verifiedFallback = ""
-    e.weakFailures = 0
-    e.smallResponses = nil
-    delete(e.cooldown,strategy)
-    delete(e.stalls,strategy)
-    // On two weak live connections, fall back to a *different* candidate.
-    // If the other successful method was observed, try it first.
-    backup := "fake-5"
-    if strategy == "fake-5" { backup = "tlsrec-split" }
-    for i, candidate := range adaptiveCandidates {
-        if candidate == backup { e.index = i; break }
-    }
-}
-
 // Reset all temporary knowledge when the network changes. Never persist
 // the target's browsing history or the probe winner to preferences.
 // Caller holds the selector lock. Configured targets are not transient.
 func (a *adaptiveSelector) resetLocked() {
     a.entries = make(map[string]*adaptiveEntry)
     a.entryClock = 0
-    a.probe = nil
     a.generation++
 }
 

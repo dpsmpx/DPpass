@@ -652,9 +652,7 @@ func TestAdaptiveReplacementClearsUnrelatedVerifiedFallback(t *testing.T) {
     e.verifiedFallback="split"
     e.cooldown=map[string]time.Time{"fake-5":time.Now().Add(time.Hour)}
     e.stalls=map[string]int{"fake-5":1}
-    g:=a.generationSnapshot()
-    for i:=0;i<2;i++ { a.observeHTMLProbe(host,"plain","timeout",1000,g) }
-    for i:=0;i<2;i++ { a.observeHTMLProbe(host,"fake-5","ok",100,g) }
+    e.installVerifiedPreference("fake-5","")
     if e.preferred!="fake-5" || e.plainReachable || e.verifiedFallback!="" ||
         len(e.cooldown)!=0 || len(e.stalls)!=0 {
         t.Fatal("verified replacement retained contradictory old state")
