@@ -26,8 +26,11 @@ def main():
     parser.add_argument('--local-baseline', action='store_true', help='Test captured freedom egress (not DPI strategies)')
     parser.add_argument('--auto', action='store_true', help='Use the compiled serverless AUTO plan for the HTTPS check')
     parser.add_argument('--dns-helper', help='ARM64 guest DNS probe; requires --auto')
+    parser.add_argument('--vpn', action='store_true', help='Use a single profile staged in the app-private cache')
     args = parser.parse_args()
-    if args.dns_helper and not args.auto:
+    if args.vpn and (args.auto or not args.local_baseline):
+        parser.error('--vpn requires --local-baseline and excludes --auto')
+    if args.dns_helper and not (args.auto or args.vpn):
         parser.error('--dns-helper requires --auto')
     client_stage = None
     if args.auto and not args.local_baseline:
@@ -38,7 +41,7 @@ def main():
         parser.error("--tun-helper requires --guard")
     case = "clientThroughTun" if args.tun_helper else "holdAccessPoint"
     if args.local_baseline:
-        case = 'clientThroughAuto' if args.auto else 'clientThroughLocal'
+        case = 'clientThroughVpn' if args.vpn else ('clientThroughAuto' if args.auto else 'clientThroughLocal')
     staging = None
     attached = []
 

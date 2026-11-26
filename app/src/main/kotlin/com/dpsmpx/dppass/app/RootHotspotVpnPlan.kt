@@ -13,6 +13,13 @@ import com.dpsmpx.dppass.routing.RoutingPolicy
 
 /** D-120: гостевой VPN использует только выбранный профиль, без правил direct с телефона. */
 internal object RootHotspotVpnPlan {
+    /** Для одноразового стенда: не выбираем сервер произвольно из нескольких. */
+    fun decodeSingle(body: ByteArray): ServerProfile {
+        val decoded = com.dpsmpx.dppass.subscriptions.PayloadDecoder.decode(body, "guest", 128)
+        check(decoded is com.dpsmpx.dppass.diagnostics.Outcome.Success) { "Неподдерживаемый формат профиля" }
+        return decoded.value.profiles.single()
+    }
+
     fun compile(profile: ServerProfile) = XrayCompiler(dnsHijackAnyAddress = true).compile(
         ConfigIr(
             name = null,

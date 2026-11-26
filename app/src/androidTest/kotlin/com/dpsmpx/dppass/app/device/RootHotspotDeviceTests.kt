@@ -39,13 +39,14 @@ object RootHotspotDeviceTests : DeviceSuite {
         DeviceCase("clientThroughTun") { device -> withAccessPoint(device, false, client = true) },
         DeviceCase("clientThroughLocal") { device -> withAccessPoint(device, false, client = true, egress = true) },
         DeviceCase("clientThroughAuto") { device -> withAccessPoint(device, false, client = true, egress = true, auto = true) },
+        DeviceCase("clientThroughVpn") { device -> withAccessPoint(device, false, client = true, egress = true, vpn = true) },
         DeviceCase("receiveTun", ::receiveTun))
 
     /**
      * Стенд D-120 с реальным клиентом: TUN приходит из основного namespace, выход —
      * blackhole. Пишет источники и цели соединений, увиденных ядром, без содержимого.
      */
-    private fun clientThroughTun(device: Device, release: File, stopped: java.util.concurrent.CountDownLatch, egress: Boolean, auto: Boolean) {
+    private fun clientThroughTun(device: Device, release: File, stopped: java.util.concurrent.CountDownLatch, egress: Boolean, auto: Boolean, vpn: Boolean) {
         val cache = device.context.cacheDir
         val path = File(cache, "dppass-tun-probe.sock")
         val ready = File(cache, "dppass-lab-ap.ready")
@@ -91,7 +92,23 @@ object RootHotspotDeviceTests : DeviceSuite {
                         } else {
                             com.dpsmpx.dppass.engine.SocketProtector { false }
                         }
-                        val engineConfig = if (auto) {
+                        val engineConfig = if (vpn) {
+                            val source = File(cache, "dppass-lab-vpn.body")
+                            val bytes = try {
+                                check(source.length() in 1..1_048_576)
+                                source.readBytes()
+                            } finally {
+                                check(source.delete()) { "Не удалось удалить тестовый профиль" }
+                            }
+                            val profile = try {
+                                com.dpsmpx.dppass.app.RootHotspotVpnPlan.decodeSingle(bytes)
+                            } finally {
+                                bytes.fill(0)
+                            }
+                            val plan = com.dpsmpx.dppass.app.RootHotspotVpnPlan.compile(profile)
+                            check(plan is Outcome.Success) { "Профиль не прошёл проверку компилятора" }
+                            plan.value.payloadForEngine()
+                        } else if (auto) {
                             val dns = com.dpsmpx.dppass.routing.DnsPolicy(
                                 listOf(com.dpsmpx.dppass.routing.DnsServer("doh",
                                     com.dpsmpx.dppass.routing.DnsTransport.Https("https://1.1.1.1/dns-query"),
@@ -102,7 +119,7 @@ object RootHotspotDeviceTests : DeviceSuite {
                             plan.value.payloadForEngine()
                         } else config
                         val started = runtime.start(engineConfig.encodeToByteArray(), tun.fd, 1500, protector)
-                        expect(started == XrayResult.Ok) { "Ядро не приняло TUN: ${(started as? XrayResult.Failed)?.text ?: started}" }
+                        expect(started == XrayResult.Ok) { "Ядро не приняло конфигурацию TUN" }
                         try {
                             ready.writeText("ready\n")
                             val deadline = android.os.SystemClock.elapsedRealtime() + 120_000
@@ -131,7 +148,7 @@ object RootHotspotDeviceTests : DeviceSuite {
         }
     }
 
-    private fun withAccessPoint(device: Device, testTun: Boolean, client: Boolean = false, egress: Boolean = false, auto: Boolean = false) {
+    private fun withAccessPoint(device: Device, testTun: Boolean, client: Boolean = false, egress: Boolean = false, auto: Boolean = false, vpn: Boolean = false) {
         // Ручной стенд: параметры временной AP — только в приватном каталоге приложения.
         val activity = device.launch()
         val wifi = device.context.getSystemService(android.net.wifi.WifiManager::class.java)
@@ -156,7 +173,7 @@ object RootHotspotDeviceTests : DeviceSuite {
                 val ssid = if (android.os.Build.VERSION.SDK_INT >= 33) config.wifiSsid.toString().trim('"') else config.ssid
                 info.writeText("$ssid\n${config.passphrase}\n")
                 if (testTun) receiveTun(device)
-                if (client) clientThroughTun(device, release, stopped, egress, auto)
+                if (client) clientThroughTun(device, release, stopped, egress, auto, vpn)
                 val deadline = android.os.SystemClock.elapsedRealtime() + 180_000
                 while (!release.exists() && stopped.count > 0 && android.os.SystemClock.elapsedRealtime() < deadline) {
                     android.os.SystemClock.sleep(200)
