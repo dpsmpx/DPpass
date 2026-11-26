@@ -161,8 +161,13 @@ def main():
             process = None
             stopped = False
             for _ in range(20):
-                tether = adb(args.router, "shell", "dumpsys tethering", check=False).stdout
-                if f"{guard_down} - LocalHotspotState" not in tether:
+                snapshot = adb(args.router, "shell", "dumpsys tethering", check=False)
+                # Ошибка ADB, пустой вывод и смена типа раздачи не доказывают остановку.
+                # На Zenfone wlan1 остаётся после остановки AP: проверяем снятие адреса AP.
+                addr = router_root(f"ip -4 -o addr show dev {guard_down}", check=False)
+                if (snapshot.returncode == 0 and "Tether state:" in snapshot.stdout
+                        and not re.search(rf"^\s*{re.escape(guard_down)} - (?:LocalHotspot|Tethered)State", snapshot.stdout, re.M)
+                        and addr.returncode == 0 and f" inet {gateway}/" not in addr.stdout):
                     stopped = True
                     break
                 time.sleep(0.5)
