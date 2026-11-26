@@ -9,7 +9,7 @@ import java.security.MessageDigest
 /** Prepare a verified copy from signed APK assets; no execution as app UID. */
 internal object RootPidfdDeployment {
     private val supported = setOf("arm64-v8a", "armeabi-v7a", "x86_64")
-    private const val MAX_BYTES = 4 * 1024 * 1024
+    private const val MAX_BYTES = RootPidfdCleanup.MAX_HELPER_BYTES
 
     data class Staged(val file: File, val digest: String) {
         fun install(directory: String): String = RootPidfdInstall.script(directory, file.absolutePath, digest)

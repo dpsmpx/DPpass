@@ -42,4 +42,35 @@ class RootPidfdInstallTest {
             dir.deleteRecursively()
         }
     }
+
+    @Test fun installRejectsUnboundedOrNonregularSourcesWithoutReplacingHelper() {
+        if (!File("/bin/sh").canExecute()) return
+        val dir = Files.createTempDirectory("dppass-helper-input").toFile()
+        val source = File(dir, "source")
+        val target = File(dir, "root-pidfd").apply { writeText("old helper") }
+        val digest = "0".repeat(64)
+        fun run() = RootCommandRunner.run(listOf("/bin/sh", "-c",
+            RootPidfdInstall.script(dir.path, source.path, digest)), timeoutMillis = 5000).exitCode
+        try {
+            assertFalse(run() == 0)
+            source.mkdir()
+            assertFalse(run() == 0)
+            assertTrue(source.delete())
+            source.writeBytes(byteArrayOf())
+            assertFalse(run() == 0)
+            java.io.RandomAccessFile(source, "rw").use {
+                it.setLength(RootPidfdCleanup.MAX_HELPER_BYTES.toLong() + 1)
+            }
+            assertFalse(run() == 0)
+            assertTrue(source.delete())
+            val outside = File(dir, "outside").apply { writeText("unchanged") }
+            Files.createSymbolicLink(source.toPath(), outside.toPath())
+            assertFalse(run() == 0)
+            assertEquals("old helper", target.readText())
+            assertEquals("unchanged", outside.readText())
+            assertTrue(dir.listFiles().orEmpty().none { it.name.startsWith(".root-pidfd.") })
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
 }

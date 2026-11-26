@@ -6,14 +6,33 @@ internal object RootPidfdCleanup {
     private fun regularOrAbsent(file: String) =
         "( test ! -L $file && { test ! -e $file || test -f $file; } )"
 
+    internal const val MAX_HELPER_BYTES = 4 * 1024 * 1024
+
+    // Caller supplies a shell-quoted path and its own trusted failure action.
+    // Refuse nonregular, foreign-owned or writable-by-others helpers.
+    internal fun helperAdmission(helper: String, fail: String = "exit 1"): String = listOf(
+        "test -f $helper && test ! -L $helper && test -x $helper || $fail",
+        "test \"\$(stat -c %u $helper)\" = \"\$(id -u)\" || $fail",
+        "mode=\$(stat -c %a $helper) || $fail",
+        "case \"\$mode\" in [0-7][0145][0145]) ;; *) $fail ;; esac",
+        "test \"\$( $helper --version )\" = dppass-root-pidfd/1 || $fail",
+    ).joinToString("\n")
+
     fun requireForLaunch(directory: String): String {
         val helper = quote("$directory/root-pidfd")
         val marker = quote("$directory/pidfd.required")
         return listOf(
-            "test -f $helper && test ! -L $helper && test -x $helper || exit 1",
-            "$helper probe || { echo 'ROOT: pidfd not available'; exit 1; }",
+            "(", "set -f", "umask 077",
             regularOrAbsent(marker) + " || exit 1",
-            "printf '%s\\n' v1 > $marker || exit 1",
+            "if test -e $marker; then test \"\$(cat $marker)\" = v1 || exit 1; fi",
+            helperAdmission(helper),
+            "$helper probe || { echo 'ROOT: pidfd not available'; exit 1; }",
+            "tmp=\$(mktemp " + quote("$directory/.pidfd.required.XXXXXX") + ") || exit 1",
+            "trap 'rm -f \"\$tmp\"' EXIT",
+            "printf '%s\\n' v1 > \"\$tmp\" || exit 1",
+            regularOrAbsent(marker) + " || exit 1",
+            "mv -f \"\$tmp\" $marker || exit 1",
+            ") || exit 1",
         ).joinToString("\n")
     }
 
@@ -57,9 +76,7 @@ internal object RootPidfdCleanup {
             legacy,
             "exit 0",
             "fi",
-            "test -f $helper && test ! -L $helper && test -x $helper || exit 1",
-            "test \"\$(stat -c %u $helper)\" = \"\$(id -u)\" || exit 1",
-            "test \"\$( $helper --version )\" = dppass-root-pidfd/1 || exit 1",
+            helperAdmission(helper),
             // Missing sidecar after a crash/upgrade: do not invent start
             // ticks from a live process. Only a positive kernel absence
             // or death proof permits retirement, with no signal at all.

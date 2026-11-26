@@ -150,4 +150,79 @@ class RootPidfdCleanupTest {
             dir.deleteRecursively()
         }
     }
+
+    @Test fun launchRequiresTrustedHelperBeforePublishingMarker() {
+        if (!File("/bin/sh").canExecute()) return
+        val dir = Files.createTempDirectory("dppass-pidfd-launch").toFile()
+        val helper = File(dir, "root-pidfd")
+        val marker = File(dir, "pidfd.required")
+        val calls = File(dir, "probe")
+        val launch = RootPidfdCleanup.requireForLaunch(dir.path)
+        fun run() = RootCommandRunner.run(listOf("/bin/sh", "-c", launch), timeoutMillis = 5000).exitCode
+        fun install(version: String, probeResult: Int) {
+            helper.writeText("#!/bin/sh\ncase \"\$1\" in --version) echo $version;; " +
+                "probe) touch '" + calls.path + "'; exit $probeResult;; *) exit 99;; esac\n")
+            Files.setPosixFilePermissions(helper.toPath(),
+                java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"))
+        }
+        try {
+            assertFalse(run() == 0)
+            assertFalse(marker.exists())
+            install("unexpected", 0)
+            assertFalse(run() == 0)
+            assertFalse(calls.exists())
+            install("dppass-root-pidfd/1", 0)
+            Files.setPosixFilePermissions(helper.toPath(),
+                java.nio.file.attribute.PosixFilePermissions.fromString("rwxrwxrwx"))
+            assertFalse(run() == 0)
+            assertFalse(calls.exists())
+            install("dppass-root-pidfd/1", 1)
+            assertFalse(run() == 0)
+            assertTrue(calls.delete())
+            assertFalse(marker.exists())
+            install("dppass-root-pidfd/1", 0)
+            marker.writeText("unknown\n")
+            assertFalse(run() == 0)
+            assertEquals("unknown\n", marker.readText())
+            assertFalse(calls.exists())
+            assertTrue(marker.delete())
+            val outside = File(dir, "outside").apply { writeText("unchanged") }
+            Files.createSymbolicLink(marker.toPath(), outside.toPath())
+            assertFalse(run() == 0)
+            assertEquals("unchanged", outside.readText())
+            assertFalse(calls.exists())
+            assertTrue(marker.delete())
+            assertEquals(0, run())
+            assertEquals("v1\n", marker.readText())
+            assertTrue(calls.exists())
+            assertEquals(0, run())
+            assertTrue(dir.listFiles().orEmpty().none { it.name.startsWith(".pidfd.required.") })
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test fun strictRecordedIdentityWithoutHelperNeverUsesLegacyCleanup() {
+        if (!File("/bin/sh").canExecute()) return
+        val dir = Files.createTempDirectory("dppass-recorded-no-helper").toFile()
+        val pid = File(dir, "pid")
+        val identity = File(dir, "pid.identity")
+        val generation = File(dir, "generation")
+        val boot = "11111111-1111-1111-1111-111111111111"
+        val record = "v1 owner 2147483647 456 $boot\n"
+        val stop = RootPidfdCleanup.stopExecutable(dir.path, "pid", "/fixture/daemon")
+        try {
+            generation.writeText("owner\n")
+            pid.writeText("2147483647\n")
+            identity.writeText(record)
+            File(dir, "pidfd.required").writeText("v1\n")
+            val result = RootCommandRunner.run(listOf("/bin/sh", "-c",
+                "kill() { exit 99; }\n" + stop), timeoutMillis = 5000)
+            assertFalse(result.exitCode == 0)
+            assertEquals("2147483647\n", pid.readText())
+            assertEquals(record, identity.readText())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
 }

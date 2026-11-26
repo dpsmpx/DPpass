@@ -107,9 +107,7 @@ internal object RootOwnerStatus {
         if (proof == Proof.PREVIOUS_BOOT) "exit 1" else ":",
         if (nativeHelper != null) {
             val helper = quote(nativeHelper)
-            "test -f $helper && test ! -L $helper && test -x $helper || unknown\n" +
-                "test \"\$(stat -c %u $helper)\" = \"\$(id -u)\" || unknown\n" +
-                "test \"\$( $helper --version )\" = dppass-root-pidfd/1 || unknown\n" +
+            RootPidfdCleanup.helperAdmission(helper, "unknown") + "\n" +
                 "if $helper gone \"\$pid\" \"\$ticks\" \"\$saved_boot\"; then exit 0; else unknown; fi"
         } else ":",
         "stat=\$(cat " + quote(procRoot) + "/\$pid/stat 2>/dev/null) || unknown",
