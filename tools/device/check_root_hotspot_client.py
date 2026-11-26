@@ -92,8 +92,24 @@ def main():
                 print("router iface:", fields[1], fields[3])
         tether = adb(args.router, "shell", "dumpsys tethering").stdout
         for line in tether.splitlines():
-            if re.search(r" - \w+State - |Offload HALs|offload", line):
+            if re.search(r" - \w+State - |Offload HALs not", line):
                 print("router tethering:", line.strip())
+        forward = router_root("cat /proc/sys/net/ipv4/ip_forward").stdout.strip()
+        print("router ip_forward:", forward)
+        # Исходное состояние без DPpass: локальная AP не должна давать интернет.
+        gateway = None
+        for line in links.splitlines():
+            fields = line.split()
+            if len(fields) > 3 and client_ip and fields[3].split("/")[0].rsplit(".", 1)[0] == client_ip.group(1).rsplit(".", 1)[0]:
+                gateway = fields[3].split("/")[0]
+        for label, target in (("gateway", gateway), ("internet", "1.1.1.1")):
+            if target is None:
+                print(f"client ping {label}: no target")
+                continue
+            ping = adb(args.client, "shell", f"ping -I wlan0 -c 2 -W 2 {target}", check=False, timeout=15)
+            print(f"client ping {label}:", "reachable" if ping.returncode == 0 else "unreachable")
+        v6 = adb(args.client, "shell", "ip -6 -o addr show wlan0 scope global", check=False).stdout.strip()
+        print("client global IPv6:", "present" if v6 else "none")
     finally:
         if network_id is not None:
             adb(args.client, "shell", f"cmd wifi forget-network {network_id}", check=False)
