@@ -22,7 +22,7 @@ func TestNativeTLSRecordEncoderMatchesPortable(t *testing.T) {
             want,cut,_:=encodeTLSRecordSplitGo(first,recordLen,offset)
             got,ok:=native.SplitTLSRecord(first,offset)
             if !ok || !bytes.Equal(want,got) {t.Fatalf("native parity length=%d offset=%d",recordLen,offset)}
-            actual,actualCut,ok:=encodeTLSRecordSplit(first,recordLen,offset)
+            actual,actualCut,ok:=encodeTLSRecordSplit(first,recordLen,offset,false)
             if !ok || actualCut!=cut || !bytes.Equal(actual,want) {t.Fatal("planner parity")}
         }
     }
@@ -41,4 +41,17 @@ func TestTaggedTLSPlanUsesNativeWithoutPlannerIPC(t *testing.T) {
     if _,err:=PlanFor(TagPrefix+"split-1","tcp",first);err==nil {t.Fatal("other method silently replaced failed Alpine planner")}
     if _,err:=PlanFor(TagPrefix+"tlsrec-split","udp",first);err==nil {t.Fatal("wrong transport selected local encoder")}
     if _,err:=PlanFor(TagPrefix+"tlsrec-split","tcp",make([]byte,MaxFirst+1));err==nil {t.Fatal("oversize bypassed guard")}
+}
+
+func TestDiagnosticNativeTLSPlanDoesNotChangeLiveCounters(t *testing.T) {
+    first:=tlsClientHelloFixture(t,"example.test")
+    live,liveFallback:=NativeTLSRecordStats()
+    diagnostic,diagnosticFallback:=diagnosticNativeTLSRecordStats()
+    p,err:=PlanForDiagnostic(TagPrefix+"tlsrec-split","tcp",first)
+    if err!=nil || !p.Applied || len(p.Rewrite)!=len(first)+5 {t.Fatal("diagnostic plan failed",err)}
+    n,f:=NativeTLSRecordStats()
+    dn,df:=diagnosticNativeTLSRecordStats()
+    if n!=live || f!=liveFallback || dn!=diagnostic+1 || df!=diagnosticFallback {
+        t.Fatal("diagnostic encoder accounting mixed with live counters")
+    }
 }

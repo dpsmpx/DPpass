@@ -22,6 +22,10 @@ type Plan struct {
 }
 
 func BuildPlan(tag, network string, first []byte) (Plan, error) {
+    return buildPlan(tag,network,first,false)
+}
+
+func buildPlan(tag, network string, first []byte, diagnostic bool) (Plan,error) {
     mode, ok, err := ParseTag(tag)
     if err != nil { return Plan{}, err }
     if !ok { return Plan{}, nil }
@@ -31,7 +35,7 @@ func BuildPlan(tag, network string, first []byte) (Plan, error) {
     switch network {
     case "tcp":
         if mode.Kind == TLSRecordSplit {
-            if payload, cut, ok := SplitTLSRecordClientHello(first); ok {
+            if payload, cut, ok := splitTLSRecordClientHello(first,diagnostic); ok {
                 p.Applied = true
                 p.Rewrite = payload
                 p.Cut = cut

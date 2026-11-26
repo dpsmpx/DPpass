@@ -45,13 +45,23 @@ func PlannerSocket() string { return socketPath.Load().(string) }
 // PlanFor never falls back to a different algorithm when the Alpine
 // process has been selected but is down: a silent bypass would be unsafe.
 func PlanFor(tag, network string, first []byte) (Plan, error) {
+    return planFor(tag,network,first,false)
+}
+
+// PlanForDiagnostic uses the same strategy and validation. Only local
+// native encoder accounting differs; the external planner wire is unchanged.
+func PlanForDiagnostic(tag, network string, first []byte) (Plan,error) {
+    return planFor(tag,network,first,true)
+}
+
+func planFor(tag,network string,first []byte,diagnostic bool) (Plan,error) {
     if len(first) > MaxFirst { return Plan{}, errors.New("first packet too large") }
     // The explicitly tagged test build owns this one encoder in-process.
     // This is a predetermined dispatch rule, not a fallback after an IPC
     // failure. All other selected Alpine methods still fail closed.
     path := PlannerSocket()
     if localNativePlan(tag,network) || path=="" {
-        p,err:=BuildPlan(tag,network,first)
+        p,err:=buildPlan(tag,network,first,diagnostic)
         if err!=nil {return Plan{},err}
         if err:=validatePlan(tag,network,first,p);err!=nil {return Plan{},err}
         return p,nil

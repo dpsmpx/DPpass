@@ -2,7 +2,7 @@
 
 package zapret2
 
-func encodeTLSRecordSplit(first []byte, recordLen, split int) ([]byte, int, bool) {
+func encodeTLSRecordSplit(first []byte, recordLen, split int, _ bool) ([]byte, int, bool) {
     return encodeTLSRecordSplitGo(first,recordLen,split)
 }
 

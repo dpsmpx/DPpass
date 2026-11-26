@@ -59,6 +59,22 @@ func isDiagnosticDialerTag(tag string) bool {
     return strings.HasPrefix(tag,diagnosticTagPrefix)
 }
 
+// Check the complete outbound chain, since a plain diagnostic has no
+// experimental adapter and a non-plain probe uses a nested dialer.
+func isDiagnosticOutbound(ctx context.Context) bool {
+    for _,outbound:=range session.OutboundsFromContext(ctx) {
+        if outbound!=nil && (isDiagnosticDialerTag(outbound.Tag) || strings.HasPrefix(outbound.Tag,"dppass:test-")) {
+            return true
+        }
+    }
+    return false
+}
+
+func socketPlan(diagnostic bool,tag,network string,first []byte) (zapret2.Plan,error) {
+    if diagnostic {return zapret2.PlanForDiagnostic(tag,network,first)}
+    return zapret2.PlanFor(tag,network,first)
+}
+
 // desyncKind — вид приёма.
 type desyncKind uint8
 
@@ -192,7 +208,7 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
 		return conn, err
 	}
 	if dest.Network == xnet.Network_TCP {
-        if tcp, ok := conn.(*net.TCPConn); ok && !tcp.RemoteAddr().(*net.TCPAddr).IP.IsLoopback() {
+        if tcp, ok := conn.(*net.TCPConn); ok && !isDiagnosticOutbound(ctx) && !tcp.RemoteAddr().(*net.TCPAddr).IP.IsLoopback() {
             trackPassiveTCP(tcp, generation)
         }
     }
@@ -463,7 +479,7 @@ func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
     }
     // Strategy decisions and offsets still come from the shared Go planner,
     // including Alpine over its app-private Unix socket.
-    plan, err := zapret2.PlanFor(modeTag(c.mode), "tcp", b)
+    plan, err := socketPlan(c.diagnostic,modeTag(c.mode), "tcp", b)
     if err != nil {
         // Do not silently pass original TLS if the chosen Alpine daemon dies.
         c.plannerErr = err
@@ -884,7 +900,7 @@ func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
     }
     // Alpine remains the strategy authority. Android only checks whether
     // a planner call is needed and performs the protected socket writes.
-    plan, err := zapret2.PlanFor(modeTag(c.mode), "udp", b)
+    plan, err := socketPlan(c.diagnostic,modeTag(c.mode), "udp", b)
     if err != nil {
         c.plannerErr = err
         return 0, err

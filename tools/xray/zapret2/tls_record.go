@@ -13,6 +13,10 @@ import "github.com/dpsmpx/dppass/tools/xray/localdpi"
 // It deliberately declines incomplete/oversized/non-TLS records instead of
 // modifying arbitrary application data. No plaintext is retained or logged.
 func SplitTLSRecordClientHello(first []byte) (rewritten []byte, firstRecordEnd int, ok bool) {
+    return splitTLSRecordClientHello(first,false)
+}
+
+func splitTLSRecordClientHello(first []byte, diagnostic bool) ([]byte,int,bool) {
     recordLen,complete:=localdpi.CompleteTLSClientHelloRecordLen(first)
     if !complete {return nil,0,false}
 
@@ -24,5 +28,5 @@ func SplitTLSRecordClientHello(first []byte) (rewritten []byte, firstRecordEnd i
     }
     if split <= 4 || split >= recordLen { return nil, 0, false }
 
-    return encodeTLSRecordSplit(first, recordLen, split)
+    return encodeTLSRecordSplit(first, recordLen, split, diagnostic)
 }

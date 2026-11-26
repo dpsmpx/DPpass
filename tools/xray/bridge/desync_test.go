@@ -823,3 +823,19 @@ func TestDiagnosticDialerTagsUseSamePlannerWithoutLiveSelection(t *testing.T) {
         t.Fatal("invalid diagnostic tag accepted")
     }
 }
+
+func TestDiagnosticOutboundChainClassification(t *testing.T) {
+    for _,tc:=range []struct{tags []string; want bool}{
+        {nil,false},
+        {[]string{"proxy","dppass:exp-auto"},false},
+        {[]string{"dppass:test-plain"},true},
+        {[]string{"dppass:test-split-ipv4","dppass:diag-exp-split"},true},
+        {[]string{"dppass:diag-exp-auto"},true},
+        {[]string{"dppass:direct"},false},
+    } {
+        var outbounds []*session.Outbound
+        for _,tag:=range tc.tags {outbounds=append(outbounds,&session.Outbound{Tag:tag})}
+        ctx:=session.ContextWithOutbounds(context.Background(),outbounds)
+        if got:=isDiagnosticOutbound(ctx);got!=tc.want {t.Fatalf("%v: diagnostic=%v",tc.tags,got)}
+    }
+}

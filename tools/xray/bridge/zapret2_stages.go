@@ -50,7 +50,8 @@ func stagesFor(diagnostic bool) *zapret2StageCounters {
 
 // Zapret2Stages v3: first fifteen values keep their original indexes,
 // then six address-family counters and two native TLS plan counters.
-// DNS/DoH and app outcomes remain unknown.
+// Live counters exclude tagged diagnostic adapters, including native
+// in-process TLS encoder plans. DNS/DoH and app outcomes remain unknown.
 // Per-family OK and unreachable totals must match corresponding aggregate
 // totals except traffic from older libraries (the entire process shares one).
 func Zapret2Stages() [23]int64 {
