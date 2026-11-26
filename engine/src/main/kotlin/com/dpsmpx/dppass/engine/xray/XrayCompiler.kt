@@ -264,9 +264,8 @@ class XrayCompiler(
         // *actual* adapter instead of a different DNS path.
         val extraExperimentOutbounds = if (plan.withTun && plan.desync != null)
             Zapret2ProbeCatalog.allProbeStrategies.mapNotNull { strategy ->
-                val exp = Zapret2ProbeCatalog.experimentTag(strategy) ?: return@mapNotNull null
-                if (exp == experimentTag(plan.desync)) null
-                else Json.obj("tag" to Json.str(exp), "protocol" to Json.str("freedom"))
+                val exp = Zapret2ProbeCatalog.diagnosticDialerTag(strategy) ?: return@mapNotNull null
+                Json.obj("tag" to Json.str(exp), "protocol" to Json.str("freedom"))
             }
         else emptyList()
         val testOutbounds = if (plan.withTun && plan.desync != null) {
@@ -277,7 +276,7 @@ class XrayCompiler(
                 if (strategy == "plain") {
                     JsonObject(direct.fields + ("tag" to JsonString(tag)))
                 } else {
-                    val experimental = Zapret2ProbeCatalog.experimentTag(strategy)!!
+                    val experimental = Zapret2ProbeCatalog.diagnosticDialerTag(strategy)!!
                     JsonObject(direct.fields + mapOf(
                         "tag" to JsonString(tag),
                         "streamSettings" to JsonObject(stream.fields + ("sockopt" to JsonObject(
@@ -299,7 +298,7 @@ class XrayCompiler(
                 val tag = Zapret2ProbeCatalog.tag(strategy)!! + "-ipv4"
                 val finalSockopt = if (strategy == "plain") ipv4Sockopt else JsonObject(
                     ipv4Sockopt.fields + ("dialerProxy" to JsonString(
-                        Zapret2ProbeCatalog.experimentTag(strategy)!!)))
+                        Zapret2ProbeCatalog.diagnosticDialerTag(strategy)!!)))
                 JsonObject(direct.fields + mapOf(
                     "tag" to JsonString(tag),
                     "streamSettings" to JsonObject(

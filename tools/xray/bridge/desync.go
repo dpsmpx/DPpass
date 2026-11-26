@@ -36,6 +36,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+    "strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -52,6 +53,11 @@ import (
 // expTagPrefix — тег исходящего эксперимента; дальше — вид приёма:
 // "disorder", "split" или "fake-<ttl>". Договор с XrayBackend.TAG_EXPERIMENT (Kotlin).
 const expTagPrefix = "dppass:exp-"
+const diagnosticTagPrefix = "dppass:diag-exp-"
+
+func isDiagnosticDialerTag(tag string) bool {
+    return strings.HasPrefix(tag,diagnosticTagPrefix)
+}
 
 // desyncKind — вид приёма.
 type desyncKind uint8
@@ -111,6 +117,9 @@ func DesyncStats() (applied, skipped int64) {
 // parseDesyncTag adapts the single shared Zapret2 strategy registry to
 // the Xray bridge's legacy transport fields.
 func parseDesyncTag(tag string) (desyncMode, bool, error) {
+    if suffix,ok:=strings.CutPrefix(tag,diagnosticTagPrefix);ok {
+        tag=zapret2.TagPrefix+suffix
+    }
     mode, ok, err := zapret2.ParseTag(tag)
     if !ok || err != nil { return desyncMode{}, ok, err }
     switch mode.Kind {
@@ -145,7 +154,9 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
     localExperimental := false
     if dest.Network == xnet.Network_TCP && isIPv6Peer(ip) {
         obs := session.OutboundsFromContext(ctx)
-        if len(obs) > 0 { _, localExperimental, _ = parseDesyncTag(obs[len(obs)-1].Tag) }
+        if len(obs) > 0 && !isDiagnosticDialerTag(obs[len(obs)-1].Tag) {
+            _, localExperimental, _ = parseDesyncTag(obs[len(obs)-1].Tag)
+        }
         if localExperimental {
             routeGeneration = zapret2Auto.generationSnapshot()
             if liveIPv6.skip(ip, routeGeneration, time.Now()) { return nil, syscall.ENETUNREACH }
@@ -179,7 +190,9 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
 	if len(obs) == 0 {
 		return conn, nil
 	}
-	mode, ok, perr := parseDesyncTag(obs[len(obs)-1].Tag)
+    tag := obs[len(obs)-1].Tag
+    diagnostic := isDiagnosticDialerTag(tag)
+	mode, ok, perr := parseDesyncTag(tag)
 	if !ok {
 		return conn, nil
 	}
@@ -200,14 +213,14 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
 		// TLS ECH or a fragmented ClientHello hides the SNI. No names logged.
         zapret2Stage.tcpDialOK.Add(1)
         recordZapret2DialSuccessFamily(tcp.RemoteAddr().(*net.TCPAddr).IP)
-		return &desyncConn{TCPConn: tcp, mode: mode, host: tcp.RemoteAddr().(*net.TCPAddr).IP.String()}, nil
+		return &desyncConn{TCPConn: tcp, mode: mode, diagnostic:diagnostic, host: tcp.RemoteAddr().(*net.TCPAddr).IP.String()}, nil
 	}
 	udp, isUDP := conn.(*net.UDPConn)
 	if !isUDP {
 		desyncSkipped.Add(1)
 		return conn, nil
 	}
-	return &desyncUDPConn{UDPConn: udp, mode: mode, host: udp.RemoteAddr().(*net.UDPAddr).IP.String()}, nil
+	return &desyncUDPConn{UDPConn: udp, mode: mode, diagnostic:diagnostic, host: udp.RemoteAddr().(*net.UDPAddr).IP.String()}, nil
 }
 
 func (d *desyncDialer) DestIpAddress() net.IP { return d.base.DestIpAddress() }
@@ -216,6 +229,7 @@ func (d *desyncDialer) DestIpAddress() net.IP { return d.base.DestIpAddress() }
 type desyncConn struct {
 	*net.TCPConn
 	mode  desyncMode
+    diagnostic bool
 	// Only the first complete ClientHello is eligible for a strategy. TLS
 	// writers may split that record across several Write calls; accumulate
 	// it briefly instead of consuming the one-shot hook on an incomplete
@@ -397,7 +411,7 @@ func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
     // Read/Close flush the first write under writeMu before consuming
     // evidence. Publish only after the selected action actually completed.
     defer func() {
-        if selected!=nil && matched && writeErr==nil && written==len(b) {
+        if !c.diagnostic && selected!=nil && matched && writeErr==nil && written==len(b) {
             c.adaptiveSelection.Store(selected)
         }
     }()
@@ -413,15 +427,17 @@ func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
         desyncSkipped.Add(1)
         return c.TCPConn.Write(b)
     }
-    if eligible && (c.mode.kind == desyncAuto || zapret2Auto.wants(c.host)) {
+    if eligible && (c.mode.kind == desyncAuto || !c.diagnostic && zapret2Auto.wants(c.host)) {
         // HTTP/1 Host can use the five original TCP strategies. A new TLS
         // record split candidate is meaningful only for TLS ClientHello.
         // Avoid selecting an HTTP no-op when both protocols share a host.
         key := c.host + "|" + c.TCPConn.RemoteAddr().(*net.TCPAddr).IP.String()
-        if zapret2.IsTLSClientHelloPrefix(b) {
-            selected = zapret2Auto.chooseSocketLive(key, localdpi.TLS)
+        transport:=localdpi.TLS
+        if !zapret2.IsTLSClientHelloPrefix(b) { key="http:"+key;transport=localdpi.HTTP }
+        if c.diagnostic {
+            selected=zapret2Auto.chooseDiagnosticSocket(key,transport)
         } else {
-            selected = zapret2Auto.chooseSocketLive("http:"+key, localdpi.HTTP)
+            selected=zapret2Auto.chooseSocketLive(key,transport)
         }
         resolved, ok, err := parseDesyncTag(zapret2.TagPrefix + selected.flow.MethodID)
         if !ok || err != nil || resolved.kind == desyncAuto {
@@ -708,6 +724,7 @@ func waitSent(rc syscall.RawConn) {
 type desyncUDPConn struct {
 	*net.UDPConn
 	mode desyncMode
+    diagnostic bool
 	mu sync.Mutex
     initialFlights int
 	plannerErr error
@@ -797,7 +814,7 @@ func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
         if writeErr != nil || written != len(b) {
             zapret2Stage.udpInitialFailed.Add(1)
         } else {
-            if c.chosen!=nil {
+            if !c.diagnostic && c.chosen!=nil {
                 if !matched {
                     // A successfully sent but unapplied Initial makes
                     // subsequent attribution ambiguous for this flow.
@@ -812,11 +829,16 @@ func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
         }
     }()
     if c.plannerErr != nil { return 0, c.plannerErr }
-    if (c.mode.kind == desyncAuto || zapret2Auto.wants(c.host)) && zapret2.IsQUICInitial(b) {
+    if (c.mode.kind == desyncAuto || !c.diagnostic && zapret2Auto.wants(c.host)) && zapret2.IsQUICInitial(b) {
         // Apply one chosen TTL for this UDP flow, including retransmitted
         // Initials; no silent fallback to unmodified QUIC on injection error.
         if c.chosen == nil {
-            pick := zapret2Auto.chooseSocketLive("udp:"+c.host, localdpi.QUIC)
+            var pick *adaptivePick
+            if c.diagnostic {
+                pick=zapret2Auto.chooseDiagnosticSocket("udp:"+c.host,localdpi.QUIC)
+            } else {
+                pick=zapret2Auto.chooseSocketLive("udp:"+c.host,localdpi.QUIC)
+            }
             resolved, ok, err := parseDesyncTag(zapret2.TagPrefix + pick.flow.MethodID)
             if !ok || err != nil || resolved.kind != desyncFake && resolved.kind != desyncPass {
                 c.plannerErr = fmt.Errorf("adaptive QUIC strategy rejected: %v", err)

@@ -78,6 +78,11 @@ object Zapret2ProbeCatalog {
         else if (strategy == "plain") PLAIN_TAG
         else "dppass:test-$strategy"
 
+    /** Private diagnostic adapter; never shared with live AUTO routing. */
+    fun diagnosticDialerTag(strategy: String): String? =
+        if (strategy == "plain" || strategy !in allProbeStrategies) null
+        else "dppass:diag-exp-$strategy"
+
     fun experimentTag(strategy: String): String? =
         if (strategy == "plain" || strategy !in allProbeStrategies) null
         else "dppass:exp-$strategy"

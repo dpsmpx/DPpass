@@ -793,3 +793,30 @@ func TestCooledPreferenceRetirementResetsWeakEvidence(t *testing.T) {
     a.observe(host,"fake-5",1)
     if e.preferred!="fake-5" || e.weakFailures!=1 {t.Fatal("backup demoted on stale failure")}
 }
+
+func TestDiagnosticSocketSelectionDoesNotMutateLiveEntry(t *testing.T) {
+    a:=newProbeAdaptiveSelector()
+    const host="example.test|203.0.113.9"
+    e:=a.entryLocked(host)
+    e.preferred="split"
+    e.probeSeeded=true
+    e.verifiedFallback="fake-5"
+    e.weakFailures=1
+    e.smallResponses=map[string]int{"split":2}
+    e.cooldown=map[string]time.Time{"split":time.Now().Add(time.Hour)}
+    beforeClock:=a.entryClock
+    beforeUse:=e.lastUsed
+    pick:=a.chooseDiagnosticSocket(host,localdpi.TLS)
+    if pick.entryID!=0 || !socketCapabilities.Allows(localdpi.TLS,pick.flow.MethodID) {
+        t.Fatal("diagnostic selection has learnable identity or unavailable strategy",pick)
+    }
+    a.observeSocketEvidence(pick,localdpi.SocketDownstream(adaptivePayloadThreshold))
+    if e.preferred!="split" || e.verifiedFallback!="fake-5" || e.weakFailures!=1 ||
+        e.smallResponses["split"]!=2 || a.entryClock!=beforeClock || e.lastUsed!=beforeUse {
+        t.Fatal("diagnostic choice mutated live preference")
+    }
+    fresh:=a.chooseDiagnosticSocket("fresh.example.test",localdpi.TLS)
+    if fresh.entryID!=0 || fresh.flow.MethodID!="pass" || a.entries["fresh.example.test"]!=nil {
+        t.Fatal("diagnostic choice created live cache entry")
+    }
+}

@@ -809,3 +809,17 @@ func TestTLSRecordSplitCompletesRealTLSHandshake(t *testing.T) {
     after, _ := DesyncStats()
     if after <= before { t.Fatal("combined TLS strategy was not applied") }
 }
+
+func TestDiagnosticDialerTagsUseSamePlannerWithoutLiveSelection(t *testing.T) {
+    for _,method:=range []string{"split","auto","fake-5","tlsrec-split"} {
+        live,ok,err:=parseDesyncTag(expTagPrefix+method)
+        diagnostic,diagOK,diagErr:=parseDesyncTag(diagnosticTagPrefix+method)
+        if !ok || !diagOK || err!=nil || diagErr!=nil || live!=diagnostic ||
+            !isDiagnosticDialerTag(diagnosticTagPrefix+method) || isDiagnosticDialerTag(expTagPrefix+method) {
+            t.Fatal("diagnostic tag differs from planner contract",method)
+        }
+    }
+    if _,ok,err:=parseDesyncTag(diagnosticTagPrefix+"unknown");!ok || err==nil {
+        t.Fatal("invalid diagnostic tag accepted")
+    }
+}

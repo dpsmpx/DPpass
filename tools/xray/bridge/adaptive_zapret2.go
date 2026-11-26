@@ -11,6 +11,7 @@ import (
     "errors"
     "strings"
     "net"
+    "maps"
     "sync"
     "time"
     "strconv"
@@ -352,6 +353,28 @@ func (a *adaptiveSelector) chooseSocketLive(host string, transport localdpi.Tran
     choice, generation, entryID := a.choosePolicy(host, candidates, true)
     pick := newSocketPick(host, choice, generation, transport)
     pick.entryID = entryID
+    return pick
+}
+
+// Diagnostic AUTO reads a private copy of the relevant live entry. Running
+// the ordinary policy on the copy never advances the real cache or publishes
+// a learnable flow identity. The neural ranker remains a read-only prior.
+func (a *adaptiveSelector) chooseDiagnosticSocket(host string, transport localdpi.Transport) *adaptivePick {
+    host=canonicalAdaptiveKey(host)
+    a.mu.Lock()
+    snapshot:=&adaptiveSelector{generation:a.generation,entries:make(map[string]*adaptiveEntry)}
+    if entry:=a.entries[host];entry!=nil {
+        copyEntry:=*entry
+        copyEntry.smallResponses=maps.Clone(entry.smallResponses)
+        copyEntry.usage=maps.Clone(entry.usage)
+        copyEntry.stalls=maps.Clone(entry.stalls)
+        copyEntry.cooldown=maps.Clone(entry.cooldown)
+        snapshot.entries[host]=&copyEntry
+        snapshot.entryClock=entry.lastUsed
+    }
+    a.mu.Unlock()
+    pick:=snapshot.chooseSocketLive(host,transport)
+    pick.entryID=0
     return pick
 }
 

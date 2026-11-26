@@ -1026,11 +1026,13 @@ class XrayCompilerTest {
         val probeTags = Zapret2ProbeCatalog.allProbeStrategies.mapNotNull(Zapret2ProbeCatalog::tag)
         assertEquals(probeTags.toSet(), tags.toSet().intersect(probeTags.toSet()))
         assertEquals(tags.size, tags.toSet().size, "duplicate Xray outbound tags")
-        assertEquals(5 + (probeTags.size - 2) + probeTags.size * 2, tags.size,
-            "selected experiment registered once; regular and IPv4-only probes stay private")
+        assertEquals(5 + (probeTags.size - 1) + probeTags.size * 2, tags.size,
+            "live and diagnostic adapters are distinct; regular and IPv4-only probes stay private")
         for (strategy in Zapret2ProbeCatalog.allProbeStrategies.filter { it != "plain" }) {
             val testTag = Zapret2ProbeCatalog.tag(strategy)!!
-            val experimentTag = Zapret2ProbeCatalog.experimentTag(strategy)!!
+            val experimentTag = Zapret2ProbeCatalog.diagnosticDialerTag(strategy)!!
+            assertTrue(experimentTag in tags)
+            assertTrue(experimentTag != Zapret2ProbeCatalog.experimentTag(strategy))
             assertEquals(experimentTag,
                 outbound(doc, testTag)["streamSettings"]["sockopt"]["dialerProxy"].text,
                 "test must use the real protected strategy dialer")
@@ -1048,7 +1050,8 @@ class XrayCompilerTest {
         }
         assertTrue(rules(doc).none {
             it["outboundTag"].text in probeTags ||
-                it["outboundTag"].text in probeTags.map { tag -> tag + "-ipv4" }
+                it["outboundTag"].text in probeTags.map { tag -> tag + "-ipv4" } ||
+                it["outboundTag"].text.startsWith("dppass:diag-exp-")
         }, "private regular/IPv4 test outbounds must never become a routing default")
         assertEquals("freedom", outbound(doc, XrayBackend.TAG_PROXY)["protocol"].text)
         assertEquals(
