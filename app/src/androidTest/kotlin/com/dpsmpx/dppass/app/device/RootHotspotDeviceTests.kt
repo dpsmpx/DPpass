@@ -15,7 +15,26 @@ import java.io.File
 /** D-120: отдельный запуск с внешним ROOT-помощником, не входит в обычный прогон. */
 object RootHotspotDeviceTests : DeviceSuite {
     override val name = "RootHotspotManual"
-    override val cases = listOf(DeviceCase("receiveTun") { device ->
+    override val cases = listOf(DeviceCase("localAccessPoint") { device ->
+        val activity = device.launch()
+        val wifi = device.context.getSystemService(android.net.wifi.WifiManager::class.java)
+        val result = java.util.concurrent.CompletableFuture<android.net.wifi.WifiManager.LocalOnlyHotspotReservation>()
+        device.main {
+            com.dpsmpx.dppass.app.RootHotspotLocalAccessPoint.request(
+                wifi, android.os.Handler(android.os.Looper.getMainLooper()),
+                { reservation -> if (!result.complete(reservation)) reservation.close() },
+                { result.completeExceptionally(IllegalStateException("Точка доступа остановилась")) },
+                { reason -> result.completeExceptionally(IllegalStateException("Отказ Android: $reason")) },
+            )
+        }
+        try {
+            result.get(20, java.util.concurrent.TimeUnit.SECONDS).use {
+                expect(!activity.isFinishing) { "Экран закрыт во время запуска точки доступа" }
+            }
+        } finally {
+            result.cancel(false)
+        }
+    }, DeviceCase("receiveTun") { device ->
         val path = File(device.context.cacheDir, "dppass-tun-probe.sock")
         expect(!path.exists()) { "Тестовый сокет уже существует" }
         var bound = false
