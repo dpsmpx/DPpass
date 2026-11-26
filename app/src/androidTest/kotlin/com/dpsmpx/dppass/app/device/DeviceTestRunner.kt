@@ -26,7 +26,10 @@ class DeviceTestRunner : Instrumentation() {
     override fun onStart() {
         super.onStart()
         val cases = DeviceTests.ALL.flatMap { s -> s.cases.map { s.name to it } }
-            .filter { (suite, case) -> filter.isEmpty() || filter.any { "$suite.${case.name}".contains(it) } }
+            .filter { (suite, case) ->
+                if (suite == RootHotspotDeviceTests.name) filter.contains("$suite.${case.name}")
+                else filter.isEmpty() || filter.any { "$suite.${case.name}".contains(it) }
+            }
         val device = Device(this)
         val lines = mutableListOf<String>()
         var failed = 0

@@ -14,7 +14,7 @@ interface DeviceSuite {
  * видно здесь. Набор, которого нет в списке, — ошибка `check_device_tests.py`.
  */
 object DeviceTests {
-    val ALL: List<DeviceSuite> = listOf(LaunchTests, AccessibilityTests, NavigationTests)
+    val ALL: List<DeviceSuite> = listOf(LaunchTests, AccessibilityTests, NavigationTests, RootHotspotDeviceTests)
 }
 
 /** Условие теста; не выполнено — провал с [message]. */
