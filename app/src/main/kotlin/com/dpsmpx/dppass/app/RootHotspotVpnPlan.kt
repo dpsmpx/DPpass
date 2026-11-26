@@ -17,7 +17,17 @@ internal object RootHotspotVpnPlan {
     fun decodeSingle(body: ByteArray): ServerProfile {
         val decoded = com.dpsmpx.dppass.subscriptions.PayloadDecoder.decode(body, "guest", 128)
         check(decoded is com.dpsmpx.dppass.diagnostics.Outcome.Success) { "Неподдерживаемый формат профиля" }
-        return decoded.value.profiles.single()
+        return decoded.value.profiles.single().also { profile ->
+            require(!isLocalPlaceholder(profile.endpoint.host)) { "В подписке нет удалённой точки входа" }
+        }
+    }
+
+    /** Проверка буквального адреса без DNS; частный адрес сам по себе допустим. */
+    internal fun isLocalPlaceholder(host: com.dpsmpx.dppass.core.Host): Boolean = when (host) {
+        is com.dpsmpx.dppass.core.Host.Domain -> host.name == "localhost" || host.name.endsWith(".localhost")
+        is com.dpsmpx.dppass.core.Host.Ip -> java.net.InetAddress.getByAddress(host.address.toBytes()).let {
+            it.isLoopbackAddress || it.isAnyLocalAddress
+        }
     }
 
     fun compile(profile: ServerProfile) = XrayCompiler(dnsHijackAnyAddress = true).compile(
