@@ -815,3 +815,7 @@ CI 28c6651: Go/Windows #45695960306 and Android #45695950054 succeeded. Reject a
 ## A3/A6 — live socket candidate ownership and transport admission
 
 CI 7fc6743: Go/Windows #45697349668 and Android #45697341129 succeeded. Remove the caller-supplied candidate list from live socket selection; the admitted transport determines the existing registered candidate order. Reject unknown transport and mismatched host namespace before cache mutation. An unidentified destination may use only the registered pass baseline without creating cache/evidence identity. Update TCP/UDP callers and regression tests for all three transports, invalid transport/namespace and untracked baseline. No new methods, model layout, provider VPN, package identity or signing changes. New CI and physical tests pending; A3/A6 remain open.
+
+### CI correction — migrate downstream copy regression to registered selection
+
+CI 86470c9: Go regression #45759375714 and Android #45759369168 failed during Go compilation because desync_copy_test.go retained the removed caller-supplied candidate argument. Windows passed. Migrate the test to the new signature, select a non-baseline method via the real direct-first exploration policy without seeding a winner, and assert the observed payload learns that actual method before and after close. Restore the test destination cache entry on cleanup. No production logic change; new CI pending.

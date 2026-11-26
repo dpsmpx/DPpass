@@ -62,10 +62,26 @@ func TestTCPWriteToCountsDownloadedPayload(t *testing.T) {
     const host = "adaptive-copy-test.example.org"
     // Exercise actual selection so the socket carries the cache incarnation
     // captured under the selector lock, just like production connections.
-    pick := zapret2Auto.chooseSocketLive(host, []string{"fake-5"}, localdpi.TLS)
-    if pick.entryID == 0 || pick.flow.MethodID != "fake-5" {
-        t.Fatal("failed to select a bound socket method")
+    zapret2Auto.mu.Lock()
+    old, existed := zapret2Auto.entries[host]
+    delete(zapret2Auto.entries, host)
+    zapret2Auto.mu.Unlock()
+    t.Cleanup(func() {
+        zapret2Auto.mu.Lock()
+        defer zapret2Auto.mu.Unlock()
+        if existed { zapret2Auto.entries[host] = old } else { delete(zapret2Auto.entries, host) }
+    })
+    // Start with the real direct-first policy, then select a non-baseline
+    // method through normal exploration. Do not preseed a preference:
+    // the downstream copy itself must produce the learned winner.
+    pick := zapret2Auto.chooseSocketLive(host, localdpi.TLS)
+    for i := 0; i < len(adaptiveCandidates)*2 && pick.flow.MethodID == "pass"; i++ {
+        pick = zapret2Auto.chooseSocketLive(host, localdpi.TLS)
     }
+    if pick.entryID == 0 || !socketPickAdmissible(pick) || pick.flow.MethodID == "pass" {
+        t.Fatal("failed to select a bound non-baseline socket method")
+    }
+    method := pick.flow.MethodID
     conn := &desyncConn{TCPConn: outgoing}
     conn.adaptiveSelection.Store(pick)
     payload := bytes.Repeat([]byte("video-payload-"), 12000)
@@ -84,7 +100,7 @@ func TestTCPWriteToCountsDownloadedPayload(t *testing.T) {
     zapret2Auto.mu.Lock()
     earlyWinner := zapret2Auto.entries[host].preferred
     zapret2Auto.mu.Unlock()
-    if earlyWinner != "fake-5" { t.Fatalf("streaming payload not observed before Close: %q", earlyWinner) }
+    if earlyWinner != method { t.Fatalf("streaming payload not observed before Close: %q", earlyWinner) }
     _ = conn.Close()
     if conn.received.Load() != int64(len(payload)) {
         t.Fatal("io.WriterTo bypassed observed downstream bytes")
@@ -92,5 +108,5 @@ func TestTCPWriteToCountsDownloadedPayload(t *testing.T) {
     zapret2Auto.mu.Lock()
     preferred := zapret2Auto.entries[host].preferred
     zapret2Auto.mu.Unlock()
-    if preferred != "fake-5" { t.Fatalf("payload evidence not learned: %q", preferred) }
+    if preferred != method { t.Fatalf("payload evidence not learned: %q", preferred) }
 }
