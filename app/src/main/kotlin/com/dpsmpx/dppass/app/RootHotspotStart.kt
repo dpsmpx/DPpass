@@ -13,10 +13,13 @@ internal object RootHotspotStart {
         val ready = try {
             val evidence = prepareGuardedSession()
             RootHotspotAdmission.refusal(session, evidence) == null && attach()
-        } catch (failure: Exception) {
+        } catch (failure: Throwable) {
             try {
-                shutdown()
-            } catch (cleanup: Exception) {
+                val cleanup = shutdown()
+                if (cleanup != RootHotspotShutdown.Result.STOPPED) {
+                    failure.addSuppressed(IllegalStateException("ROOT hotspot cleanup unconfirmed: $cleanup"))
+                }
+            } catch (cleanup: Throwable) {
                 if (cleanup !== failure) failure.addSuppressed(cleanup)
             }
             throw failure

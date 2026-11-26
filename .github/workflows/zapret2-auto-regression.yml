@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'fix/zapret2-*'
+      - 'feature/dppass-0.8.3'
   pull_request:
     paths:
       - 'tools/xray/bridge/**'

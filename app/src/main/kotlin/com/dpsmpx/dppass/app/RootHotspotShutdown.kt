@@ -6,13 +6,21 @@ internal object RootHotspotShutdown {
 
     /** Операции должны быть повторяемыми; отсутствие AP нужно подтвердить, а не предположить. */
     fun run(stopEgress: () -> Boolean, closeAndVerifyAccessPoint: () -> Boolean, retireGuards: () -> Boolean): Result {
-        val egressStopped: Boolean
-        val accessPointStopped: Boolean
-        try {
-            egressStopped = stopEgress()
-        } finally {
-            accessPointStopped = closeAndVerifyAccessPoint()
+        val egressStopped = try {
+            stopEgress()
+        } catch (failure: Throwable) {
+            // Even a failed or interrupted egress stop must attempt AP closure.
+            // A second failure must not replace the original cause.
+            try {
+                if (!closeAndVerifyAccessPoint()) {
+                    failure.addSuppressed(IllegalStateException("ROOT hotspot AP shutdown unconfirmed"))
+                }
+            } catch (cleanup: Throwable) {
+                if (cleanup !== failure) failure.addSuppressed(cleanup)
+            }
+            throw failure
         }
+        val accessPointStopped = closeAndVerifyAccessPoint()
         if (!accessPointStopped) return Result.GUARD_RETAINED
         if (!egressStopped || !retireGuards()) return Result.CLEANUP_PENDING
         return Result.STOPPED
