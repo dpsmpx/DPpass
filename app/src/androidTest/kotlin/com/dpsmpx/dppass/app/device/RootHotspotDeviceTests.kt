@@ -7,6 +7,9 @@ import android.system.Os
 import android.system.OsConstants
 import android.system.StructPollfd
 import com.dpsmpx.dppass.app.RootHotspotTunReceiver
+import com.dpsmpx.dppass.diagnostics.Outcome
+import com.dpsmpx.dppass.engine.xray.JniXrayRuntime
+import com.dpsmpx.dppass.engine.xray.XrayResult
 import java.io.File
 
 /** D-120: отдельный запуск с внешним ROOT-помощником, не входит в обычный прогон. */
@@ -40,6 +43,21 @@ object RootHotspotDeviceTests : DeviceSuite {
                         val payload = "dppass-tun-probe".encodeToByteArray()
                         expect(count == 28 + payload.size && packet[0] == 0x45.toByte() && packet[9] == 17.toByte() &&
                             packet.copyOfRange(28, count).contentEquals(payload)) { "Неожиданный пакет TUN" }
+                        val loaded = JniXrayRuntime.load({ System.loadLibrary(JniXrayRuntime.LIBRARY) }, device.context.cacheDir.path)
+                        expect(loaded is Outcome.Success) { "Не удалось загрузить ядро" }
+                        val runtime = (loaded as Outcome.Success).value
+                        // В этом тесте внешнего выхода нет, и любой сетевой сокет запрещён.
+                        val config = """
+                            {
+                              "stats": {},
+                              "policy": {"system": {"statsOutboundUplink": true, "statsOutboundDownlink": true}},
+                              "inbounds": [{"tag":"tun-in","protocol":"tun","settings":{"name":"dpgateway","mtu":1500}}],
+                              "outbounds": [{"tag":"proxy","protocol":"blackhole"}]
+                            }
+                        """.trimIndent()
+                        val started = runtime.start(config.encodeToByteArray(), tun.fd, 1500) { false }
+                        expect(started == XrayResult.Ok) { "Ядро не приняло ROOT TUN: ${(started as? XrayResult.Failed)?.text ?: started}" }
+                        expect(runtime.stop() == XrayResult.Ok) { "Ядро не остановилось" }
                     }
                 }
             }
