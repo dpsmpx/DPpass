@@ -4,10 +4,12 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -49,6 +51,11 @@ func main() {
 	if !strings.Contains(links(), " dpgateway:") {
 		panic("missing TUN")
 	}
+	if len(os.Args) == 3 && os.Args[1] == "send" {
+		sendToLocalReceiver(fd, os.Args[2])
+		check(syscall.Close(fd))
+		return
+	}
 	pair, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_DGRAM|syscall.SOCK_CLOEXEC, 0)
 	check(err)
 	check(syscall.Sendmsg(pair[0], []byte{'T'}, syscall.UnixRights(fd), nil, 0))
@@ -68,6 +75,22 @@ func main() {
 		panic("TUN not removed")
 	}
 	fmt.Println("Android cross-process TUN descriptor lifetime passed")
+}
+
+// Filesystem socket: abstract sockets would be scoped to the network namespace.
+func sendToLocalReceiver(fd int, path string) {
+	if !strings.HasPrefix(path, "/data/user/0/com.dpsmpx.dppass/") {
+		panic("expected private test socket")
+	}
+	conn, err := net.DialTimeout("unix", path, 3*time.Second)
+	check(err)
+	defer conn.Close()
+	check(conn.SetWriteDeadline(time.Now().Add(3 * time.Second)))
+	n, oob, err := conn.(*net.UnixConn).WriteMsgUnix([]byte{'T'}, syscall.UnixRights(fd), nil)
+	check(err)
+	if n != 1 || oob != syscall.CmsgSpace(4) {
+		panic("incomplete descriptor transfer")
+	}
 }
 
 func receive(fd int) {
