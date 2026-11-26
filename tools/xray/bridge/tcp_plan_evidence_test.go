@@ -88,15 +88,19 @@ func TestTCPPublishesEvidenceOnlyAfterMatchingWrite(t *testing.T) {
     }
 }
 
-func TestHTTPUnavailableLegacyMethodIsNotAdvertised(t *testing.T) {
+func TestTLSOnlySplitFirstIsNotAdvertisedForHTTP(t *testing.T) {
     first:=[]byte("GET / HTTP/1.1\r\nHost: evidence-local.example.test\r\n\r\n")
     p,err:=zapret2.BuildPlan(zapret2.TagPrefix+"split-1","tcp",first)
-    if err!=nil || p.Applied {t.Fatal("legacy HTTP split-1 planner contract changed",err)}
+    if err!=nil || p.Applied {t.Fatal("split-1 must not apply to HTTP",err)}
     if socketCapabilities.Allows(localdpi.HTTP,"split-1") || !socketCapabilities.Allows(localdpi.TLS,"split-1") {
         t.Fatal("runtime capabilities do not match planner")
     }
-    if localdpi.NeuralIndex("split-1",localdpi.HTTP)!=0 || localdpi.NeuralIndex("split-1",localdpi.TLS)!=0 {
-        t.Fatal("historical model ABI changed")
+    if localdpi.SupportsMethod(localdpi.HTTP,"split-1") ||
+        !localdpi.SupportsMethod(localdpi.TLS,"split-1") {
+        t.Fatal("catalog does not match implemented transport support")
+    }
+    if localdpi.NeuralIndex("split-1",localdpi.HTTP)!=-1 || localdpi.NeuralIndex("split-1",localdpi.TLS)!=0 {
+        t.Fatal("unsupported HTTP method must have no neural index; TLS slot must remain unchanged")
     }
     if socketEvidenceAdmissible(newSocketPick("http:example.test","split-1",1,localdpi.HTTP),localdpi.SocketDownstream(4096)) {
         t.Fatal("unsupported HTTP evidence admitted")

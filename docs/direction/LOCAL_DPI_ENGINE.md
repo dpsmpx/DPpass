@@ -859,3 +859,7 @@ CI 3f7e936: Go/Windows #45773626924 and Android #45773616909 succeeded. Derive d
 ## A2/A3/A6 — align catalog admission with actual transport support
 
 CI f263799: Go/Windows #45775285521 and Android #45775277981 succeeded. Remove the obsolete HTTP admission of split-1 from the catalog; the live executor already excluded it. Add allocation-free catalog method/transport membership checking and reuse it when constructing capabilities and copying registered executor snapshots. Invalid entries cannot enter the immutable executor registry even through a malformed capability value. Regression tests cover unsupported transports, wire aliases, ROOT consent not implying transport support, registry validation and exact unchanged ordered model layout. Runtime socket candidates and existing model output positions remain unchanged. No new upstream module or ROOT capability activated. New CI and physical verification pending.
+
+## CI correction — TLS-only split-1 admission regression
+
+CI 08a81d8: Go/Windows #45776512965 and Android #45776505177 failed on the same old assertion in tcp_plan_evidence_test.go:99; portable Windows passed. The bridge test expected the unsupported HTTP split-1 neural index to remain 0. Update it to require rejection by the planner, catalog, executor, neural index and evidence admission while preserving the actual TLS slot 0. No production code changes or restored legacy compatibility. New CI pending.
