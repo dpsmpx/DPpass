@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+"""D-120: поднять временную локальную AP на Zenfone и подключить к ней клиента.
+
+Пароль AP читается из приватного каталога DPpass через ROOT и не печатается.
+После проверки тестовая сеть удаляется на клиенте, AP останавливается.
+"""
+import argparse
+import re
+import subprocess
+import time
+
+PKG = "com.dpsmpx.dppass"
+INFO = f"/data/user/0/{PKG}/cache/dppass-lab-ap"
+RUNNER = f"{PKG}.test/{PKG}.app.device.DeviceTestRunner"
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--adb", default="adb")
+    parser.add_argument("--router", required=True)
+    parser.add_argument("--client", required=True)
+    args = parser.parse_args()
+
+    def adb(serial, *command, check=True, timeout=30):
+        return subprocess.run([args.adb, "-s", serial, *command], capture_output=True,
+                              encoding="utf-8", timeout=timeout, check=check)
+
+    def router_root(script, check=True):
+        return adb(args.router, "shell", f"su -c '{script}'", check=check)
+
+    if adb(args.router, "shell", "getprop ro.product.model").stdout.strip() != "Zenfone Max Pro M1":
+        raise SystemExit("Expected Zenfone Max Pro M1 as router")
+    location = adb(args.router, "shell", "settings get secure location_mode").stdout.strip()
+    if not re.fullmatch(r"[0-3]", location):
+        raise SystemExit("Unexpected location mode")
+    for permission in ("ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"):
+        adb(args.router, "shell", f"pm grant {PKG} android.permission.{permission}")
+
+    ssid = None
+    network_id = None
+    process = None
+    try:
+        adb(args.router, "shell", "settings put secure location_mode 3")
+        process = subprocess.Popen(
+            [args.adb, "-s", args.router, "shell", "am", "instrument", "-w", "-e", "tests",
+             "RootHotspotManual.holdAccessPoint", RUNNER],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8")
+        deadline = time.monotonic() + 30
+        lines = []
+        while time.monotonic() < deadline and process.poll() is None:
+            read = router_root(f"cat {INFO}", check=False)
+            lines = read.stdout.splitlines()
+            if read.returncode == 0 and len(lines) == 2 and all(lines):
+                break
+            time.sleep(0.5)
+        if len(lines) != 2:
+            raise SystemExit("Access point did not start")
+        ssid, passphrase = lines
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", ssid) or not re.fullmatch(r"[A-Za-z0-9_-]{8,63}", passphrase):
+            raise SystemExit("Unexpected access point parameters")
+        print(f"router: local-only AP started ({ssid})")
+
+        before = adb(args.client, "shell", "cmd wifi list-networks").stdout
+        adb(args.client, "shell", f"cmd wifi connect-network {ssid} wpa2 {passphrase}")
+        after = adb(args.client, "shell", "cmd wifi list-networks").stdout
+        for line in after.splitlines():
+            fields = line.split()
+            if len(fields) >= 2 and fields[1] == ssid and line not in before:
+                network_id = fields[0]
+        ok = False
+        for _ in range(40):
+            status = adb(args.client, "shell", "cmd wifi status").stdout
+            if f'connected to "{ssid}"' in status:
+                ok = True
+                break
+            time.sleep(0.5)
+        if not ok:
+            raise SystemExit("Client did not associate with the test AP")
+        client_addr = ""
+        for _ in range(20):
+            client_addr = adb(args.client, "shell", "ip -4 -o addr show wlan0").stdout
+            if " inet " in client_addr:
+                break
+            time.sleep(0.5)
+        client_ip = re.search(r" inet (\d+\.\d+\.\d+\.\d+)/(\d+)", client_addr)
+        print("client: associated, IPv4", f"{client_ip.group(1)}/{client_ip.group(2)}" if client_ip else "missing")
+
+        links = router_root("ip -4 -o addr show").stdout
+        for line in links.splitlines():
+            fields = line.split()
+            if len(fields) > 3 and fields[1] != "lo":
+                print("router iface:", fields[1], fields[3])
+        tether = adb(args.router, "shell", "dumpsys tethering").stdout
+        for line in tether.splitlines():
+            if re.search(r" - \w+State - |Offload HALs|offload", line):
+                print("router tethering:", line.strip())
+    finally:
+        if network_id is not None:
+            adb(args.client, "shell", f"cmd wifi forget-network {network_id}", check=False)
+        router_root(f"touch {INFO}.stop", check=False)
+        if process is not None:
+            try:
+                out, _ = process.communicate(timeout=20)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                out, _ = process.communicate()
+            print(out.strip().splitlines()[-1] if out.strip() else "instrumentation: no output")
+        adb(args.router, "shell", f"settings put secure location_mode {location}", check=False)
+        print("router location_mode restored:", adb(args.router, "shell", "settings get secure location_mode").stdout.strip())
+        for _ in range(30):
+            status = adb(args.client, "shell", "cmd wifi status").stdout
+            if "connected to" in status and (ssid is None or f'"{ssid}"' not in status):
+                break
+            time.sleep(1)
+        state = adb(args.client, "shell", "cmd wifi status").stdout
+        print("client after test:", "reconnected to saved network" if "connected to" in state and (ssid is None or ssid not in state) else "NOT reconnected")
+
+
+if __name__ == "__main__":
+    main()

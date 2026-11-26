@@ -34,6 +34,42 @@ object RootHotspotDeviceTests : DeviceSuite {
         } finally {
             result.cancel(false)
         }
+    }, DeviceCase("holdAccessPoint") { device ->
+        // Ручной стенд: параметры временной AP — только в приватном каталоге приложения.
+        val activity = device.launch()
+        val wifi = device.context.getSystemService(android.net.wifi.WifiManager::class.java)
+        val result = java.util.concurrent.CompletableFuture<android.net.wifi.WifiManager.LocalOnlyHotspotReservation>()
+        val stopped = java.util.concurrent.CountDownLatch(1)
+        device.main {
+            com.dpsmpx.dppass.app.RootHotspotLocalAccessPoint.request(
+                wifi, android.os.Handler(android.os.Looper.getMainLooper()),
+                { reservation -> if (!result.complete(reservation)) reservation.close() },
+                { stopped.countDown() },
+                { reason -> result.completeExceptionally(IllegalStateException("Отказ Android: $reason")) },
+            )
+        }
+        val info = File(device.context.cacheDir, "dppass-lab-ap")
+        val release = File(device.context.cacheDir, "dppass-lab-ap.stop")
+        release.delete()
+        try {
+            result.get(20, java.util.concurrent.TimeUnit.SECONDS).use { reservation ->
+                val config = checkNotNull(reservation.softApConfiguration)
+                // getWifiSsid() появился в API 33; Zenfone — API 32.
+                @Suppress("DEPRECATION")
+                val ssid = if (android.os.Build.VERSION.SDK_INT >= 33) config.wifiSsid.toString().trim('"') else config.ssid
+                info.writeText("$ssid\n${config.passphrase}\n")
+                val deadline = android.os.SystemClock.elapsedRealtime() + 180_000
+                while (!release.exists() && stopped.count > 0 && android.os.SystemClock.elapsedRealtime() < deadline) {
+                    android.os.SystemClock.sleep(200)
+                }
+                expect(stopped.count > 0) { "Android остановил точку доступа раньше времени" }
+                expect(!activity.isFinishing) { "Экран закрыт во время стенда" }
+            }
+        } finally {
+            result.cancel(false)
+            info.delete()
+            release.delete()
+        }
     }, DeviceCase("receiveTun") { device ->
         val path = File(device.context.cacheDir, "dppass-tun-probe.sock")
         expect(!path.exists()) { "Тестовый сокет уже существует" }
