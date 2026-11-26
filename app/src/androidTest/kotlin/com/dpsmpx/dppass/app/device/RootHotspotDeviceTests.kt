@@ -55,9 +55,20 @@ object RootHotspotDeviceTests : DeviceSuite {
                               "outbounds": [{"tag":"proxy","protocol":"blackhole"}]
                             }
                         """.trimIndent()
+                        runtime.setConnectionTracking(true)
                         val started = runtime.start(config.encodeToByteArray(), tun.fd, 1500) { false }
                         expect(started == XrayResult.Ok) { "Ядро не приняло ROOT TUN: ${(started as? XrayResult.Failed)?.text ?: started}" }
-                        expect(runtime.stop() == XrayResult.Ok) { "Ядро не остановилось" }
+                        try {
+                            val deadline = android.os.SystemClock.elapsedRealtime() + 3_000
+                            fun observed() = runtime.connections().connections.any { it.target.contains("192.0.2.2:5353") }
+                            while (!observed() &&
+                                android.os.SystemClock.elapsedRealtime() < deadline) {
+                                android.os.SystemClock.sleep(20)
+                            }
+                            expect(observed()) { "Диспетчер ядра не увидел тестовый UDP-поток" }
+                        } finally {
+                            expect(runtime.stop() == XrayResult.Ok) { "Ядро не остановилось" }
+                        }
                     }
                 }
             }

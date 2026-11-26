@@ -59,6 +59,8 @@ func main() {
 		check(err)
 		_, err = udp.Write([]byte("dppass-tun-probe"))
 		check(err)
+		_, err = udp.Write([]byte("dppass-engine-probe"))
+		check(err)
 		check(udp.Close())
 		sendToLocalReceiver(fd, os.Args[2])
 		check(syscall.Close(fd))
