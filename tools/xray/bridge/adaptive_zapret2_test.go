@@ -697,3 +697,52 @@ func TestLiveSocketSelectionUsesRegisteredTransportAndRejectsMismatch(t *testing
         }
     }
 }
+
+func TestAdaptiveCanonicalAddressValidation(t *testing.T) {
+    for _,tc:=range []struct{ raw,want string }{
+        {"  EXAMPLE.test.:443 ","example.test"},
+        {"[2001:0DB8:0:0::1]:443","2001:db8::1"},
+        {"[2001:db8::1]","2001:db8::1"},
+        {"2001:0DB8::1","2001:db8::1"},
+        {"203.0.113.9:65535","203.0.113.9"},
+        {"localhost","localhost"},
+        {"example.test:0",""},
+        {"example.test:65536",""},
+        {"example.test:abc",""},
+        {"example.test:+443",""},
+        {"[example.test]:443",""},
+        {"[2001:db8::1",""},
+        {"[2001:db8::1]:0",""},
+        {"2001:db8:::1",""},
+        {"a..example.test",""},
+        {"example.test..",""},
+        {"-bad.example.test",""},
+        {"bad-.example.test",""},
+        {strings.Repeat("a",64)+".test",""},
+        {"bad_name.example.test",""},
+    } {
+        if got:=canonicalAdaptiveHost(tc.raw);got!=tc.want {
+            t.Fatalf("host %q: got %q want %q",tc.raw,got,tc.want)
+        }
+    }
+    if got:=canonicalAdaptiveKey("udp:[2001:0db8::1]");got!="udp:2001:db8::1" {
+        t.Fatal("IPv6 transport key not canonical",got)
+    }
+}
+
+func TestAdaptiveAddressOverridesAreExactAndTransactional(t *testing.T) {
+    a:=newProbeAdaptiveSelector()
+    if err:=a.configureHosts("203.0.113.9\n[2001:0db8::1]\nexample.test");err!=nil {t.Fatal(err)}
+    for _,host:=range []string{"203.0.113.9","2001:db8::1","[2001:db8::1]:443","www.example.test"} {
+        if !a.wants(host) {t.Fatal("missing selected destination",host)}
+    }
+    for _,host:=range []string{"203.0.113.10","2001:db8::2","prefix.203.0.113.9","example.test.attacker.test","a..example.test"} {
+        if a.wants(host) {t.Fatal("unexpected selected destination",host)}
+    }
+    _,before:=a.chooseTracked("example.test")
+    if err:=a.configureHosts("new.example\nbad..example");err==nil {t.Fatal("malformed update accepted")}
+    _,after:=a.chooseTracked("example.test")
+    if before!=after || !a.wants("example.test") || a.wants("new.example") {
+        t.Fatal("invalid update changed active selection")
+    }
+}

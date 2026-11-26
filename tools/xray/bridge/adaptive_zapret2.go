@@ -13,7 +13,7 @@ import (
     "net"
     "sync"
     "time"
-    "unicode"
+    "strconv"
 )
 
 // Explicitly register the existing protected socket executor. The catalog
@@ -138,19 +138,42 @@ type adaptiveSelector struct {
 
 var zapret2Auto = &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
 
+func validAdaptivePort(port string) bool {
+    if len(port)==0 || len(port)>5 { return false }
+    for _, c := range port { if c<'0' || c>'9' { return false } }
+    n,err:=strconv.ParseUint(port,10,16)
+    return err==nil && n>0
+}
+
 func canonicalAdaptiveHost(host string) string {
-    host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
-    // The trailing colon in an HTTP/1 Host header is port separation, not
-    // part of an IPv6 address. Do not query DNS to validate or select.
-    if i := strings.LastIndexByte(host, ':'); i > 0 && !strings.Contains(host[:i], ":") {
-        validPort := len(host[i+1:]) > 0
-        for _, c := range host[i+1:] { if c < '0' || c > '9' { validPort = false; break } }
-        if validPort { host = host[:i] }
+    host = strings.ToLower(strings.TrimSpace(host))
+    // Normalize literals before interpreting a colon as port separation.
+    if ip:=net.ParseIP(host);ip!=nil { return ip.String() }
+    if strings.HasPrefix(host,"[") {
+        literal:=host
+        if strings.HasSuffix(host,"]") {
+            literal=host[1:len(host)-1]
+        } else {
+            name,port,err:=net.SplitHostPort(host)
+            if err!=nil || !validAdaptivePort(port) { return "" }
+            literal=name
+        }
+        if ip:=net.ParseIP(literal);ip!=nil && strings.Contains(literal,":") { return ip.String() }
+        return ""
     }
-    host = strings.TrimSuffix(host, ".")
-    if len(host) == 0 || len(host) > 253 { return "" }
-    for _, r := range host {
-        if r > unicode.MaxASCII || !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '.' || r == '-' || r == ':' || r == '[' || r == ']') { return "" }
+    if strings.Contains(host,":") {
+        name,port,err:=net.SplitHostPort(host)
+        if err!=nil || !validAdaptivePort(port) { return "" }
+        host=name
+    }
+    host = strings.TrimSuffix(host,".")
+    if ip:=net.ParseIP(host);ip!=nil { return ip.String() }
+    if len(host)==0 || len(host)>253 { return "" }
+    for _, label:=range strings.Split(host,".") {
+        if len(label)==0 || len(label)>63 || label[0]=='-' || label[len(label)-1]=='-' { return "" }
+        for _, c:=range label {
+            if !(c>='a' && c<='z' || c>='0' && c<='9' || c=='-') { return "" }
+        }
     }
     return host
 }
@@ -195,8 +218,10 @@ func (a *adaptiveSelector) wants(host string) bool {
     if host == "" { return false }
     a.mu.Lock()
     defer a.mu.Unlock()
+    if _,ok:=a.selected[host];ok { return true }
+    if net.ParseIP(host)!=nil { return false }
     for suffix := range a.selected {
-        if host == suffix || strings.HasSuffix(host, "."+suffix) { return true }
+        if net.ParseIP(suffix)==nil && strings.HasSuffix(host, "."+suffix) { return true }
     }
     return false
 }
@@ -208,11 +233,11 @@ func (a *adaptiveSelector) configureHosts(text string) error {
         line = strings.TrimSpace(line)
         if line == "" { continue }
         host := canonicalAdaptiveHost(line)
-        if host == "" || strings.Contains(host, ":") && !strings.Contains(host, "]") {
-            return errors.New("invalid Zapret2 adaptive host")
+        if host == "" { return errors.New("invalid Zapret2 adaptive host") }
+        // Domain suffixes require a DNS name; IP literals match exactly.
+        if net.ParseIP(host)==nil && !strings.Contains(host, ".") {
+            return errors.New("adaptive host requires DNS name or IP")
         }
-        // Domain label boundaries, not substring matches.
-        if !strings.Contains(host, ".") { return errors.New("adaptive host requires DNS name") }
         list[host] = struct{}{}
         if len(list) > adaptiveMaxTargets { return errors.New("too many adaptive hosts") }
     }

@@ -819,3 +819,7 @@ CI 7fc6743: Go/Windows #45697349668 and Android #45697341129 succeeded. Remove t
 ### CI correction — migrate downstream copy regression to registered selection
 
 CI 86470c9: Go regression #45759375714 and Android #45759369168 failed during Go compilation because desync_copy_test.go retained the removed caller-supplied candidate argument. Windows passed. Migrate the test to the new signature, select a non-baseline method via the real direct-first exploration policy without seeding a winner, and assert the observed payload learns that actual method before and after close. Restore the test destination cache entry on cleanup. No production logic change; new CI pending.
+
+## A3/A6 — canonical destination identity and exact literal matching
+
+CI 473edcf: Go/Windows #45759661805 and Android #45759656556 succeeded. Normalize IPv4 and IPv6 literals including bracketed IPv6 authorities to a single cache identity; validate numeric ports in 1..65535, ASCII DNS labels and length before admitting a destination. Keep single-label names valid for live flows, but require a dotted DNS name or valid literal for explicit targets. Explicit IP targets match exactly rather than as DNS suffixes; malformed target updates leave active selection unchanged. Tests cover canonical aliases, malformed labels/ports, exact IPv4/IPv6 matching and transactional configuration rejection. No strategy algorithms, model layout, subscription VPN, package identity or signing changes. CI and physical IPv6 checks for this change pending.
