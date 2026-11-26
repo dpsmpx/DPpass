@@ -13,7 +13,7 @@ import (
     "github.com/dpsmpx/dppass/tools/xray/zapret2"
 )
 
-var zapret2Stage struct {
+type zapret2StageCounters struct {
     tcpDialOK atomic.Int64
     tcpDialTimeout atomic.Int64
     tcpDialRefused atomic.Int64
@@ -38,6 +38,14 @@ var zapret2Stage struct {
     udpInitialFailed atomic.Int64
     udpFirstReply atomic.Int64
     udpClosedNoReply atomic.Int64
+}
+
+var zapret2Stage zapret2StageCounters
+var diagnosticStage zapret2StageCounters
+
+func stagesFor(diagnostic bool) *zapret2StageCounters {
+    if diagnostic {return &diagnosticStage}
+    return &zapret2Stage
 }
 
 // Zapret2Stages v3: first fifteen values keep their original indexes,
@@ -91,23 +99,31 @@ func zapret2AddressFamily(ip net.IP) int {
 }
 
 func recordZapret2DialSuccessFamily(ip net.IP) {
+    zapret2Stage.recordDialSuccessFamily(ip)
+}
+
+func (s *zapret2StageCounters) recordDialSuccessFamily(ip net.IP) {
     switch zapret2AddressFamily(ip) {
-    case 4: zapret2Stage.tcpDialOKV4.Add(1)
-    case 6: zapret2Stage.tcpDialOKV6.Add(1)
-    default: zapret2Stage.tcpDialOKUnknown.Add(1)
+    case 4: s.tcpDialOKV4.Add(1)
+    case 6: s.tcpDialOKV6.Add(1)
+    default: s.tcpDialOKUnknown.Add(1)
     }
 }
 
 func recordZapret2DialFailure(err error) { recordZapret2DialFailureWithIP(err, nil) }
 
 func recordZapret2DialFailureWithIP(err error, ip net.IP) {
+    zapret2Stage.recordDialFailure(err,ip)
+}
+
+func (s *zapret2StageCounters) recordDialFailure(err error, ip net.IP) {
     switch {
     case isZapret2Timeout(err):
-        zapret2Stage.tcpDialTimeout.Add(1)
+        s.tcpDialTimeout.Add(1)
     case errors.Is(err, syscall.ECONNREFUSED):
-        zapret2Stage.tcpDialRefused.Add(1)
+        s.tcpDialRefused.Add(1)
     case errors.Is(err, syscall.ENETUNREACH), errors.Is(err, syscall.EHOSTUNREACH):
-        zapret2Stage.tcpDialUnreachable.Add(1)
+        s.tcpDialUnreachable.Add(1)
         // If the error carries a concrete remote address, trust it instead
         // of the (possibly unresolved) Xray destination. Do not log the IP.
         var opErr *net.OpError
@@ -117,12 +133,12 @@ func recordZapret2DialFailureWithIP(err error, ip net.IP) {
             }
         }
         switch zapret2AddressFamily(ip) {
-        case 4: zapret2Stage.tcpDialUnreachableV4.Add(1)
-        case 6: zapret2Stage.tcpDialUnreachableV6.Add(1)
-        default: zapret2Stage.tcpDialUnreachableUnknown.Add(1)
+        case 4: s.tcpDialUnreachableV4.Add(1)
+        case 6: s.tcpDialUnreachableV6.Add(1)
+        default: s.tcpDialUnreachableUnknown.Add(1)
         }
     default:
-        zapret2Stage.tcpDialOther.Add(1)
+        s.tcpDialOther.Add(1)
     }
 }
 

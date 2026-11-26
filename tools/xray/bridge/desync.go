@@ -104,6 +104,8 @@ const fakeHold = 30 * time.Millisecond
 var (
 	desyncApplied atomic.Int64
 	desyncSkipped atomic.Int64
+    diagnosticApplied atomic.Int64
+    diagnosticSkipped atomic.Int64
 	dialerOnce    sync.Once
 )
 
@@ -112,6 +114,19 @@ var (
 // процесса. Замер А/Б сверяет по ним, что приём действительно был.
 func DesyncStats() (applied, skipped int64) {
 	return desyncApplied.Load(), desyncSkipped.Load()
+}
+
+// Diagnostic counters are not included in live strategy statistics.
+func diagnosticDesyncStats() (int64,int64) {
+    return diagnosticApplied.Load(),diagnosticSkipped.Load()
+}
+
+func recordDesyncApplied(diagnostic bool) {
+    if diagnostic {diagnosticApplied.Add(1)} else {desyncApplied.Add(1)}
+}
+
+func recordDesyncSkipped(diagnostic bool) {
+    if diagnostic {diagnosticSkipped.Add(1)} else {desyncSkipped.Add(1)}
 }
 
 // parseDesyncTag adapts the single shared Zapret2 strategy registry to
@@ -170,7 +185,7 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
             obs := session.OutboundsFromContext(ctx)
             if len(obs) > 0 {
                 if _, ok, _ := parseDesyncTag(obs[len(obs)-1].Tag); ok {
-                    recordZapret2DialFailureWithIP(err, net.ParseIP(dest.Address.String()))
+                    stagesFor(isDiagnosticDialerTag(obs[len(obs)-1].Tag)).recordDialFailure(err, net.ParseIP(dest.Address.String()))
                 }
             }
         }
@@ -199,25 +214,25 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
 	if perr != nil {
 		// An explicitly selected but invalid DPI profile must never be
 		// interpreted as an ordinary unmodified direct connection.
-		desyncSkipped.Add(1)
+		recordDesyncSkipped(diagnostic)
 		_ = conn.Close()
 		return nil, fmt.Errorf("invalid Zapret2 strategy: %w", perr)
 	}
 	if dest.Network == xnet.Network_TCP {
 		tcp, isTCP := conn.(*net.TCPConn)
 		if !isTCP {
-			desyncSkipped.Add(1)
+			recordDesyncSkipped(diagnostic)
 			return conn, nil
 		}
 		// Use the actual protected socket destination only as fallback when
 		// TLS ECH or a fragmented ClientHello hides the SNI. No names logged.
-        zapret2Stage.tcpDialOK.Add(1)
-        recordZapret2DialSuccessFamily(tcp.RemoteAddr().(*net.TCPAddr).IP)
+        stagesFor(diagnostic).tcpDialOK.Add(1)
+        stagesFor(diagnostic).recordDialSuccessFamily(tcp.RemoteAddr().(*net.TCPAddr).IP)
 		return &desyncConn{TCPConn: tcp, mode: mode, diagnostic:diagnostic, host: tcp.RemoteAddr().(*net.TCPAddr).IP.String()}, nil
 	}
 	udp, isUDP := conn.(*net.UDPConn)
 	if !isUDP {
-		desyncSkipped.Add(1)
+		recordDesyncSkipped(diagnostic)
 		return conn, nil
 	}
 	return &desyncUDPConn{UDPConn: udp, mode: mode, diagnostic:diagnostic, host: udp.RemoteAddr().(*net.UDPAddr).IP.String()}, nil
@@ -272,9 +287,9 @@ func (c *desyncConn) Read(b []byte) (int, error) {
     n, err := c.TCPConn.Read(b)
     if n > 0 {
         if c.stageFirstReply.CompareAndSwap(false, true) {
-            zapret2Stage.tcpFirstReply.Add(1)
+            stagesFor(c.diagnostic).tcpFirstReply.Add(1)
             if isTLSAlertRecordHeader(b[:n]) {
-                zapret2Stage.tcpFirstTLSAlert.Add(1)
+                stagesFor(c.diagnostic).tcpFirstTLSAlert.Add(1)
             } else if pick := c.adaptiveSelection.Load(); socketPickAdmissible(pick) && pick.flow.MethodID == "pass" {
                 zapret2Auto.retainSocketReply(pick)
             }
@@ -291,7 +306,7 @@ func (c *desyncConn) Read(b []byte) (int, error) {
     }
     if err != nil && c.stageHelloSent.Load() && !c.stageFirstReply.Load() &&
         isZapret2Timeout(err) && c.stageReadTimedOut.CompareAndSwap(false, true) {
-        zapret2Stage.tcpReadTimeout.Add(1)
+        stagesFor(c.diagnostic).tcpReadTimeout.Add(1)
         // A timed-out ClientHello can remain open indefinitely. Teach AUTO
         // about the zero-byte stall for future flows, not the current stream.
         if c.received.Load() == 0 {
@@ -316,7 +331,7 @@ func (c *desyncConn) Close() error {
     // transmit them before closing; a failure remains sticky.
     pendingErr := c.flushFirstBeforeRead()
     if c.stageHelloSent.Load() && !c.stageFirstReply.Load() && c.stageCloseRecorded.CompareAndSwap(false, true) {
-        zapret2Stage.tcpClosedNoReply.Add(1)
+        stagesFor(c.diagnostic).tcpClosedNoReply.Add(1)
     }
     c.observed.Do(func() {
         if selected := c.adaptiveSelection.Load(); selected != nil {
@@ -365,9 +380,9 @@ func (c *desyncConn) flushFirstLocked() error {
     if isHello {
         if err == nil {
             c.stageHelloSent.Store(true)
-            zapret2Stage.tcpHelloSent.Add(1)
+            stagesFor(c.diagnostic).tcpHelloSent.Add(1)
         } else {
-            zapret2Stage.tcpHelloFailed.Add(1)
+            stagesFor(c.diagnostic).tcpHelloFailed.Add(1)
         }
     }
     if err != nil {
@@ -424,7 +439,7 @@ func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
     }
     eligible := hostnameFound || zapret2.IsTLSClientHelloPrefix(b)
     if c.mode.kind == desyncAuto && !eligible {
-        desyncSkipped.Add(1)
+        recordDesyncSkipped(c.diagnostic)
         return c.TCPConn.Write(b)
     }
     if eligible && (c.mode.kind == desyncAuto || !c.diagnostic && zapret2Auto.wants(c.host)) {
@@ -463,7 +478,7 @@ func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
         if c.mode.kind == desyncTLSRecordSplit && zapret2.IsTLSClientHelloPrefix(b) {
             return c.splitFirstTLS(b)
         }
-        desyncSkipped.Add(1)
+        recordDesyncSkipped(c.diagnostic)
         return c.TCPConn.Write(b)
     }
     if c.mode.kind == desyncTLSRecordSplit {
@@ -504,11 +519,11 @@ func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
         // Never silently turn a failed low-TTL / vmsplice attempt into
         // ordinary direct TLS/HTTP: that bypasses the selected strategy.
         if err == nil { err = errors.New("short Zapret2 TCP injection write") }
-        desyncSkipped.Add(1)
+        recordDesyncSkipped(c.diagnostic)
         c.plannerErr = fmt.Errorf("Zapret2 TCP strategy failed: %w", err)
         return sent, c.plannerErr
     }
-    desyncApplied.Add(1)
+    recordDesyncApplied(c.diagnostic)
     m, err := c.TCPConn.Write(b[plan.Cut:])
     if err != nil || m != len(b)-plan.Cut {
         if err == nil { err = errors.New("short Zapret2 TCP tail write") }
@@ -546,7 +561,7 @@ func (c *desyncConn) writeTLSRecordSplit(payload []byte, cut, originalLen int) (
     if err != nil || n != cut {
         if err == nil { err = errors.New("short first TLS record") }
         c.plannerErr = fmt.Errorf("Zapret2 TLS-record first write failed: %w", err)
-        desyncSkipped.Add(1)
+        recordDesyncSkipped(c.diagnostic)
         return 0, c.plannerErr
     }
     time.Sleep(2 * time.Millisecond)
@@ -554,10 +569,10 @@ func (c *desyncConn) writeTLSRecordSplit(payload []byte, cut, originalLen int) (
     if err != nil || n != len(payload)-cut {
         if err == nil { err = errors.New("short second TLS record") }
         c.plannerErr = fmt.Errorf("Zapret2 TLS-record second write failed: %w", err)
-        desyncSkipped.Add(1)
+        recordDesyncSkipped(c.diagnostic)
         return 0, c.plannerErr
     }
-    desyncApplied.Add(1)
+    recordDesyncApplied(c.diagnostic)
     return originalLen, nil
 }
 
@@ -578,7 +593,7 @@ func (c *desyncConn) splitFirstTLS(b []byte) (int, error) {
         c.plannerErr = fmt.Errorf("Zapret2 TLS split failed: %w", err)
         return n + m, c.plannerErr
     }
-    desyncApplied.Add(1)
+    recordDesyncApplied(c.diagnostic)
 	return n + m, nil
 }
 
@@ -754,7 +769,7 @@ func (c *desyncUDPConn) Read(b []byte) (int, error) {
             return n, err
         }
         if c.stageFirstReply.CompareAndSwap(false, true) {
-            zapret2Stage.udpFirstReply.Add(1)
+            stagesFor(c.diagnostic).udpFirstReply.Add(1)
             if pick := c.adaptiveSelection.Load(); socketPickAdmissible(pick) && pick.flow.MethodID == "pass" {
                 zapret2Auto.retainSocketReply(pick)
             }
@@ -783,7 +798,7 @@ func (c *desyncUDPConn) Read(b []byte) (int, error) {
 
 func (c *desyncUDPConn) Close() error {
     if c.stageInitialSent.Load() && !c.stageFirstReply.Load() && c.stageCloseRecorded.CompareAndSwap(false, true) {
-        zapret2Stage.udpClosedNoReply.Add(1)
+        stagesFor(c.diagnostic).udpClosedNoReply.Add(1)
     }
     c.observed.Do(func() {
         if pick := c.adaptiveSelection.Load(); pick != nil {
@@ -812,7 +827,7 @@ func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
     defer func() {
         if !initial { return }
         if writeErr != nil || written != len(b) {
-            zapret2Stage.udpInitialFailed.Add(1)
+            stagesFor(c.diagnostic).udpInitialFailed.Add(1)
         } else {
             if !c.diagnostic && c.chosen!=nil {
                 if !matched {
@@ -825,7 +840,7 @@ func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
                 }
             }
             c.stageInitialSent.Store(true)
-            zapret2Stage.udpInitialSent.Add(1)
+            stagesFor(c.diagnostic).udpInitialSent.Add(1)
         }
     }()
     if c.plannerErr != nil { return 0, c.plannerErr }
@@ -856,7 +871,7 @@ func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
     if c.mode.kind == desyncPass && zapret2.IsQUICInitial(b) {
         // The explicit AUTO baseline sends real QUIC without malformed decoys.
         matched = c.chosen!=nil && c.chosen.flow.MethodID=="pass"
-        desyncSkipped.Add(1)
+        recordDesyncSkipped(c.diagnostic)
         return c.UDPConn.Write(b)
     }
     if c.mode.kind != desyncFake || !zapret2.IsQUICInitial(b) {
@@ -864,7 +879,7 @@ func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
     }
     if c.initialFlights >= maxQuicInitialFlights {
         c.plannerErr = errors.New("Zapret2 QUIC Initial retry limit reached")
-        desyncSkipped.Add(1)
+        recordDesyncSkipped(c.diagnostic)
         return 0, c.plannerErr
     }
     // Alpine remains the strategy authority. Android only checks whether
@@ -875,19 +890,19 @@ func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
         return 0, err
     }
     if !plan.Applied {
-        desyncSkipped.Add(1)
+        recordDesyncSkipped(c.diagnostic)
         return c.UDPConn.Write(b)
     }
     c.initialFlights++
     if err := c.sendLowTTLDummyQUIC(plan.Fake, plan.Repeats); err != nil {
         // A failed decoy is not a successful strategy; never send
         // this QUIC Initial unmodified as a fallback.
-        desyncSkipped.Add(1)
+        recordDesyncSkipped(c.diagnostic)
         c.plannerErr = fmt.Errorf("Zapret2 QUIC decoy failed: %w", err)
         return 0, c.plannerErr
     }
     matched = c.chosen!=nil && plan.Strategy==zapret2.TagPrefix+c.chosen.flow.MethodID
-    desyncApplied.Add(1)
+    recordDesyncApplied(c.diagnostic)
     return c.UDPConn.Write(b)
 }
 

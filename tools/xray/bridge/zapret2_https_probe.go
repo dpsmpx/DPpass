@@ -246,9 +246,9 @@ func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2
         out.Outcome = "invalid_timeout"
         return out
     }
-    beforeApplied, beforeSkipped := DesyncStats()
+    beforeApplied, beforeSkipped := diagnosticDesyncStats()
     finish := func(r Zapret2HTTPSResult) Zapret2HTTPSResult {
-        nowApplied, nowSkipped := DesyncStats()
+        nowApplied, nowSkipped := diagnosticDesyncStats()
         return finalizeHTTPSDiagnostic(r, time.Since(started),
             beforeApplied, beforeSkipped, nowApplied, nowSkipped)
     }

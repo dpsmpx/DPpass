@@ -123,3 +123,50 @@ func TestZapret2QUICStageEvidence(t *testing.T) {
     after := Zapret2Stages()
     if after[11] < before[11]+1 || after[13] < before[13]+1 { t.Fatal("missing QUIC Initial/UDP reply evidence") }
 }
+
+func TestDiagnosticSocketCountersDoNotChangeLiveStatistics(t *testing.T) {
+    before:=Zapret2Stages()
+    liveApplied,liveSkipped:=DesyncStats()
+    diagApplied,diagSkipped:=diagnosticDesyncStats()
+    diagHello:=diagnosticStage.tcpHelloSent.Load()
+    diagReply:=diagnosticStage.tcpFirstReply.Load()
+    outgoing,incoming:=tcpCopyPair(t)
+    conn:=&desyncConn{TCPConn:outgoing,mode:desyncMode{kind:desyncSplitFirst},diagnostic:true}
+    defer conn.Close()
+    hello:=clientHello(t,"example.org")
+    if err:=incoming.SetDeadline(time.Now().Add(2*time.Second));err!=nil {t.Fatal(err)}
+    if err:=outgoing.SetDeadline(time.Now().Add(2*time.Second));err!=nil {t.Fatal(err)}
+    if n,err:=conn.Write(hello);err!=nil || n!=len(hello) {t.Fatal(n,err)}
+    received:=make([]byte,len(hello))
+    if _,err:=io.ReadFull(incoming,received);err!=nil || !bytes.Equal(received,hello) {t.Fatal("diagnostic payload changed",err)}
+    if _,err:=incoming.Write([]byte("reply"));err!=nil {t.Fatal(err)}
+    if _,err:=io.ReadFull(conn,make([]byte,5));err!=nil {t.Fatal(err)}
+    if err:=conn.Close();err!=nil {t.Fatal(err)}
+    after:=Zapret2Stages()
+    for i:=0;i<21;i++ {
+        if before[i]!=after[i] {t.Fatal("diagnostic changed live stage",i)}
+    }
+    applied,skipped:=DesyncStats()
+    if applied!=liveApplied || skipped!=liveSkipped {t.Fatal("diagnostic changed live action counts")}
+    applied,skipped=diagnosticDesyncStats()
+    if applied!=diagApplied+1 || skipped!=diagSkipped ||
+        diagnosticStage.tcpHelloSent.Load()!=diagHello+1 || diagnosticStage.tcpFirstReply.Load()!=diagReply+1 {
+        t.Fatal("diagnostic stage/action accounting missing")
+    }
+}
+
+func TestDiagnosticDialFailureAndFamilyCountersAreSeparate(t *testing.T) {
+    before:=Zapret2Stages()
+    failed:=diagnosticStage.tcpDialUnreachable.Load()
+    family:=diagnosticStage.tcpDialUnreachableV6.Load()
+    success:=diagnosticStage.tcpDialOKV4.Load()
+    stagesFor(true).recordDialFailure(syscall.ENETUNREACH,net.ParseIP("2001:db8::1"))
+    stagesFor(true).recordDialSuccessFamily(net.ParseIP("192.0.2.1"))
+    if diagnosticStage.tcpDialUnreachable.Load()!=failed+1 ||
+        diagnosticStage.tcpDialUnreachableV6.Load()!=family+1 ||
+        diagnosticStage.tcpDialOKV4.Load()!=success+1 {t.Fatal("diagnostic dial classification missing")}
+    after:=Zapret2Stages()
+    for i:=0;i<21;i++ {
+        if before[i]!=after[i] {t.Fatal("diagnostic dial changed live stage",i)}
+    }
+}
