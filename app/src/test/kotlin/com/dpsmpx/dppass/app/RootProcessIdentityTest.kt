@@ -286,15 +286,21 @@ class RootProcessIdentityTest {
         val release = dir.resolve("release").toFile()
         val marker = dir.resolve("cleanup").toFile()
         generation.writeText("old")
-        val holder = ProcessBuilder("/bin/sh", "-c", RootProcessIdentity.lockedTransaction(
-            lock, "echo ready > '${ready.path}'; while ! test -e '${release.path}'; do sleep 0.05; done; echo new > '${generation.path}'",
+        // Как Android 8.1 toybox: -w не поддерживается, но -n работает.
+        val fixture = generateSequence(File(".").absoluteFile) { it.parentFile }
+            .map { File(it, "tests/data/root/flock-without-w.sh") }
+            .first { it.isFile }.readText()
+        fun transaction(body: String, waitSeconds: Int = 5): String =
+            fixture + "\n" + RootProcessIdentity.lockedTransaction(lock, body, waitSeconds)
+        val holder = ProcessBuilder("/bin/sh", "-c", transaction(
+            "echo ready > '${ready.path}'; while ! test -e '${release.path}'; do sleep 0.05; done; echo new > '${generation.path}'",
         )).start()
         try {
             val deadline = System.nanoTime() + 3_000_000_000L
             while (!ready.exists() && System.nanoTime() < deadline) Thread.sleep(10)
             assertTrue(ready.exists())
             val blocked = RootCommandRunner.run(
-                listOf("/bin/sh", "-c", RootProcessIdentity.lockedTransaction(lock, "echo bad > '${marker.path}'", 1)),
+                listOf("/bin/sh", "-c", transaction("echo bad > '${marker.path}'", 1)),
                 timeoutMillis = 5_000,
             )
             assertFalse(blocked.exitCode == 0)
@@ -303,8 +309,8 @@ class RootProcessIdentityTest {
             assertTrue(holder.waitFor(5, java.util.concurrent.TimeUnit.SECONDS))
             assertEquals(0, holder.exitValue())
             fun guarded(expected: String): Int = RootCommandRunner.run(
-                listOf("/bin/sh", "-c", RootProcessIdentity.lockedTransaction(
-                    lock, RootProcessIdentity.generationMatches(generation.path, expected) + " || exit 0\n echo cleaned > '${marker.path}'",
+                listOf("/bin/sh", "-c", transaction(
+                    RootProcessIdentity.generationMatches(generation.path, expected) + " || exit 0\n echo cleaned > '${marker.path}'",
                 )), timeoutMillis = 5_000,
             ).exitCode
             assertEquals(0, guarded("old"))
@@ -1315,7 +1321,8 @@ class RootProcessIdentityTest {
         assertTrue(runCatching { RootProcessIdentity.generationMatches("/tmp/gen", "") }.isFailure)
         assertTrue(runCatching { RootProcessIdentity.generationMatches("/tmp/gen", "bad token") }.isFailure)
         val command = RootProcessIdentity.lockedTransaction("/tmp/lock", "echo action")
-        assertTrue(command.indexOf("flock -x -w") < command.indexOf("echo action"))
+        assertTrue(command.contains("flock -x -n 9"))
+        assertTrue(command.indexOf("flock -x -n 9") < command.indexOf("echo action"))
         assertFalse(command.contains("rm -f"))
     }
 }

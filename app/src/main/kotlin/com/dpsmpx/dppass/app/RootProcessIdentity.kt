@@ -99,11 +99,16 @@ internal object RootProcessIdentity {
                 "test \"\$(stat -c %u $file)\" = \"\$(id -u)\"; }; } " +
                 "|| { echo 'ROOT: invalid lifecycle lock file'; exit 1; }",
             "command -v flock >/dev/null 2>&1 || { echo 'ROOT: flock unavailable'; exit 1; }",
-            // A POSIX shell may exit immediately on a special-builtin
-            // redirection failure; in either case the body must not run.
-            "exec 9>>" + quote(lockFile) + " || { echo 'ROOT: lifecycle lock file unavailable'; exit 1; }",
-            "flock -x -w $waitSeconds 9 || { echo 'ROOT: lifecycle lock unavailable'; exit 1; }",
+            // Redirection on the compound command keeps fd 9 visible to flock
+            // on older Android shells, unlike a standalone exec redirection.
+            "(",
+            // Старый Android toybox поддерживает -n, но не -w. Повторяем
+            // захват того же fd с ограниченным числом попыток и без смены inode.
+            "lock_wait=$waitSeconds; while ! flock -x -n 9; do " +
+                "test \"\$lock_wait\" -gt 0 || { echo 'ROOT: lifecycle lock unavailable'; exit 1; }; " +
+                "sleep 1 || exit 1; lock_wait=\$((lock_wait-1)); done",
             body,
+            ") 9>>$file",
             ")",
         ).joinToString("\n")
     }
