@@ -555,12 +555,12 @@ func TestEvictedSocketEvidenceCannotMutateRecreatedEntry(t *testing.T) {
         {"udp:203.0.113.9",adaptiveQuicCandidates,localdpi.QUIC},
     } {
         a := &adaptiveSelector{entries:make(map[string]*adaptiveEntry)}
-        old := a.chooseSocketLive(tc.host,tc.candidates,tc.transport)
+        old := a.chooseSocketLive(tc.host,tc.transport)
         for i:=0; i<adaptiveMaxHosts; i++ {
             a.choose("other"+strconv.Itoa(i)+".example.test")
         }
         if a.entries[canonicalAdaptiveKey(tc.host)] != nil { t.Fatal("old entry not evicted") }
-        current := a.chooseSocketLive(tc.host,tc.candidates,tc.transport)
+        current := a.chooseSocketLive(tc.host,tc.transport)
         if current.entryID == old.entryID || current.flow.Generation != old.flow.Generation {
             t.Fatal("cache incarnation not distinct within generation")
         }
@@ -576,7 +576,7 @@ func TestEvictedSocketEvidenceCannotMutateRecreatedEntry(t *testing.T) {
         a.mu.Lock()
         a.resetLocked()
         a.mu.Unlock()
-        next := a.chooseSocketLive(tc.host,tc.candidates,tc.transport)
+        next := a.chooseSocketLive(tc.host,tc.transport)
         a.observeSocketEvidence(current,localdpi.SocketDownstream(adaptivePayloadThreshold))
         if a.entries[canonicalAdaptiveKey(tc.host)].preferred!="" || next.flow.Generation==current.flow.Generation {
             t.Fatal("previous-network evidence accepted")
@@ -597,7 +597,7 @@ func TestCanonicalAdaptiveKeyPreservesTransportAndNormalizesDestination(t *testi
         if got:=canonicalAdaptiveKey(tc.raw);got!=tc.want { t.Fatalf("%q: got %q want %q",tc.raw,got,tc.want) }
     }
     a:=newProbeAdaptiveSelector()
-    pick:=a.chooseSocketLive("HTTP:EXAMPLE.test:80|203.0.113.9",adaptiveHTTPCandidates,localdpi.HTTP)
+    pick:=a.chooseSocketLive("HTTP:EXAMPLE.test:80|203.0.113.9",localdpi.HTTP)
     if pick.host!="http:example.test|203.0.113.9" || !socketPickAdmissible(pick) { t.Fatal("wrong socket identity",pick) }
     a.observeSocketEvidence(pick,localdpi.SocketDownstream(adaptivePayloadThreshold))
     if a.entries[pick.host].preferred!=pick.flow.MethodID || a.entries["example.test|203.0.113.9"]!=nil {
@@ -658,5 +658,42 @@ func TestAdaptiveReplacementClearsUnrelatedVerifiedFallback(t *testing.T) {
     if e.preferred!="fake-5" || e.plainReachable || e.verifiedFallback!="" ||
         len(e.cooldown)!=0 || len(e.stalls)!=0 {
         t.Fatal("verified replacement retained contradictory old state")
+    }
+}
+
+func TestLiveSocketSelectionUsesRegisteredTransportAndRejectsMismatch(t *testing.T) {
+    a:=newProbeAdaptiveSelector()
+    for _,tc:=range []struct{host string; transport localdpi.Transport}{
+        {"http:example.test",localdpi.TLS},
+        {"example.test",localdpi.HTTP},
+        {"udp:203.0.113.9",localdpi.TLS},
+        {"example.test",localdpi.QUIC},
+        {"example.test",localdpi.Transport(255)},
+    } {
+        pick:=a.chooseSocketLive(tc.host,tc.transport)
+        if pick.flow.MethodID!="" || pick.entryID!=0 || socketPickAdmissible(pick) {
+            t.Fatalf("mismatched live selection: %+v",pick)
+        }
+    }
+    if len(a.entries)!=0 {t.Fatal("rejected flow changed destination cache")}
+    for _,transport:=range []localdpi.Transport{localdpi.TLS,localdpi.HTTP,localdpi.QUIC} {
+        pick:=a.chooseSocketLive("",transport)
+        if pick.flow.MethodID!="pass" || pick.entryID!=0 || socketPickAdmissible(pick) {
+            t.Fatal("unidentified destination did not remain untracked baseline",pick)
+        }
+    }
+    if len(a.entries)!=0 {t.Fatal("unidentified flow entered destination cache")}
+    for _,tc:=range []struct{host string; transport localdpi.Transport}{
+        {"example.test",localdpi.TLS},
+        {"http:example.test",localdpi.HTTP},
+        {"udp:203.0.113.9",localdpi.QUIC},
+    } {
+        for i:=0;i<20;i++ {
+            pick:=a.chooseSocketLive(tc.host,tc.transport)
+            if !socketPickAdmissible(pick) || pick.entryID==0 ||
+                !socketCapabilities.Allows(tc.transport,pick.flow.MethodID) {
+                t.Fatal("unregistered live strategy",pick)
+            }
+        }
     }
 }

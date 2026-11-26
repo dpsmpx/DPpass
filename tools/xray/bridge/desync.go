@@ -419,9 +419,9 @@ func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
         // Avoid selecting an HTTP no-op when both protocols share a host.
         key := c.host + "|" + c.TCPConn.RemoteAddr().(*net.TCPAddr).IP.String()
         if zapret2.IsTLSClientHelloPrefix(b) {
-            selected = zapret2Auto.chooseSocketLive(key, adaptiveCandidates[:], localdpi.TLS)
+            selected = zapret2Auto.chooseSocketLive(key, localdpi.TLS)
         } else {
-            selected = zapret2Auto.chooseSocketLive("http:"+key, adaptiveHTTPCandidates[:], localdpi.HTTP)
+            selected = zapret2Auto.chooseSocketLive("http:"+key, localdpi.HTTP)
         }
         resolved, ok, err := parseDesyncTag(zapret2.TagPrefix + selected.flow.MethodID)
         if !ok || err != nil || resolved.kind == desyncAuto {
@@ -816,7 +816,7 @@ func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
         // Apply one chosen TTL for this UDP flow, including retransmitted
         // Initials; no silent fallback to unmodified QUIC on injection error.
         if c.chosen == nil {
-            pick := zapret2Auto.chooseSocketLive("udp:"+c.host, adaptiveQuicCandidates[:], localdpi.QUIC)
+            pick := zapret2Auto.chooseSocketLive("udp:"+c.host, localdpi.QUIC)
             resolved, ok, err := parseDesyncTag(zapret2.TagPrefix + pick.flow.MethodID)
             if !ok || err != nil || resolved.kind != desyncFake && resolved.kind != desyncPass {
                 c.plannerErr = fmt.Errorf("adaptive QUIC strategy rejected: %v", err)

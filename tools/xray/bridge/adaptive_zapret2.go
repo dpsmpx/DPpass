@@ -274,8 +274,33 @@ func (a *adaptiveSelector) chooseLive(host string, candidates []string) (string,
 }
 
 // Capture cache identity in the same critical section as method selection.
-func (a *adaptiveSelector) chooseSocketLive(host string, candidates []string, transport localdpi.Transport) *adaptivePick {
+func (a *adaptiveSelector) chooseSocketLive(host string, transport localdpi.Transport) *adaptivePick {
     host = canonicalAdaptiveKey(host)
+    // Derive candidates from the admitted executor, never from a caller's
+    // independently supplied list. A mismatched namespace cannot enter the
+    // cache or select a method. An unidentifiable destination may use the
+    // registered direct baseline, but cannot contribute evidence.
+    var candidates []string
+    switch transport {
+    case localdpi.TLS:
+        candidates = adaptiveCandidates
+    case localdpi.HTTP:
+        candidates = adaptiveHTTPCandidates
+    case localdpi.QUIC:
+        candidates = adaptiveQuicCandidates
+    }
+    if len(candidates)==0 || host!="" && nnHostTransport(host)!=transport {
+        a.mu.Lock()
+        defer a.mu.Unlock()
+        return newSocketPick("", "", a.generation, transport)
+    }
+    if host=="" {
+        a.mu.Lock()
+        defer a.mu.Unlock()
+        method:=""
+        if socketCapabilities.Allows(transport,"pass") {method="pass"}
+        return newSocketPick("",method,a.generation,transport)
+    }
     choice, generation, entryID := a.choosePolicy(host, candidates, true)
     pick := newSocketPick(host, choice, generation, transport)
     pick.entryID = entryID
