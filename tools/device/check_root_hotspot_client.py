@@ -23,10 +23,15 @@ def main():
     parser.add_argument("--client", required=True)
     parser.add_argument("--guard", action="store_true", help="install the D-120 guard on the AP interface")
     parser.add_argument("--tun-helper", help="ARM64 helper: dispatch a client test flow into a blackhole TUN")
+    parser.add_argument('--local-baseline', action='store_true', help='Test captured freedom egress (not DPI strategies)')
     args = parser.parse_args()
+    if args.local_baseline and not args.tun_helper:
+        parser.error('--local-baseline requires --tun-helper')
     if args.tun_helper and not args.guard:
         parser.error("--tun-helper requires --guard")
     case = "clientThroughTun" if args.tun_helper else "holdAccessPoint"
+    if args.local_baseline:
+        case = 'clientThroughLocal'
     staging = None
     attached = []
 
@@ -162,7 +167,8 @@ def main():
                 staging = tmp
                 adb(args.router, "push", args.tun_helper, tmp + "/probe")
                 adb(args.router, "shell", f"chmod 700 {tmp}/probe")
-                router_root_script(f"printf '%s\\n' {client_ip.group(1)} 192.0.2.2:5353 > {INFO}.client\nchmod 644 {INFO}.client\n", check=True)
+                target = '1.1.1.1:443' if args.local_baseline else '192.0.2.2:5353'
+                router_root_script(f"printf '%s\\n' {client_ip.group(1)} {target} > {INFO}.client\nchmod 644 {INFO}.client\n", check=True)
                 router_root(f"{tmp}/probe send-main /data/user/0/{PKG}/cache/dppass-tun-probe.sock")
                 for _ in range(30):
                     if router_root(f"test -s {INFO}.ready", check=False).returncode == 0:
@@ -173,7 +179,23 @@ def main():
                 for add, remove in zip(forwards['attach'] + [routes['attach']], forwards['detach'] + [routes['detach']]):
                     router_root_script(add + '\n', check=True)
                     attached.append(remove)
-                if adb(args.client, 'shell', 'curl --interface wlan0 --noproxy "*" -fsS --connect-timeout 3 --max-time 4 http://192.0.2.2:5353/ -o /dev/null', check=False).returncode == 0:
+                if args.local_baseline:
+                    probe = 'curl --interface wlan0 --noproxy "*" --connect-timeout 5 --max-time 10 --resolve one.one.one.one:443:1.1.1.1 -fsS https://one.one.one.one/cdn-cgi/trace'
+                    response = adb(args.client, 'shell', probe, check=False)
+                    if response.returncode or 'h=one.one.one.one' not in response.stdout.splitlines():
+                        raise SystemExit(f'Captured HTTPS control failed (curl={response.returncode})')
+                    print('client HTTPS control: verified')
+                    router_root(f'touch {INFO}.kill')
+                    for _ in range(30):
+                        if router_root(f'test -s {INFO}.killed', check=False).returncode == 0:
+                            break
+                        time.sleep(.2)
+                    else:
+                        raise SystemExit('No confirmation of engine stop')
+                    if adb(args.client, 'shell', probe, check=False).returncode == 0:
+                        raise SystemExit('HTTPS still available after engine stop')
+                    print('client HTTPS after engine stop: unavailable')
+                elif adb(args.client, 'shell', 'curl --interface wlan0 --noproxy "*" -fsS --connect-timeout 3 --max-time 4 http://192.0.2.2:5353/ -o /dev/null', check=False).returncode == 0:
                     raise SystemExit('Unexpected response on blackhole path')
     finally:
         for remove in reversed(attached):

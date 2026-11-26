@@ -37,17 +37,22 @@ object RootHotspotDeviceTests : DeviceSuite {
     }, DeviceCase("holdAccessPoint") { device -> withAccessPoint(device, false) },
         DeviceCase("accessPointAndTun") { device -> withAccessPoint(device, true) },
         DeviceCase("clientThroughTun") { device -> withAccessPoint(device, false, client = true) },
+        DeviceCase("clientThroughLocal") { device -> withAccessPoint(device, false, client = true, egress = true) },
         DeviceCase("receiveTun", ::receiveTun))
 
     /**
      * Стенд D-120 с реальным клиентом: TUN приходит из основного namespace, выход —
      * blackhole. Пишет источники и цели соединений, увиденных ядром, без содержимого.
      */
-    private fun clientThroughTun(device: Device, release: File, stopped: java.util.concurrent.CountDownLatch) {
+    private fun clientThroughTun(device: Device, release: File, stopped: java.util.concurrent.CountDownLatch, egress: Boolean) {
         val cache = device.context.cacheDir
         val path = File(cache, "dppass-tun-probe.sock")
         val ready = File(cache, "dppass-lab-ap.ready")
         val seen = File(cache, "dppass-lab-ap.seen")
+        val kill = File(cache, "dppass-lab-ap.kill")
+        val killed = File(cache, "dppass-lab-ap.killed")
+        kill.delete()
+        killed.delete()
         expect(!path.exists()) { "Тестовый сокет уже существует" }
         ready.delete()
         seen.delete()
@@ -67,22 +72,30 @@ object RootHotspotDeviceTests : DeviceSuite {
                         val loaded = JniXrayRuntime.load({ System.loadLibrary(JniXrayRuntime.LIBRARY) }, cache.path)
                         expect(loaded is Outcome.Success) { "Не удалось загрузить ядро" }
                         val runtime = (loaded as Outcome.Success).value
-                        // Выход заблокирован: здесь проверяется только вход клиента в ядро.
+                        // blackhole — только вход клиента в ядро; freedom — локальный выход после захвата,
+                        // сокеты ядра привязаны к физической сети (D-120), без запасного пути.
                         val config = """
                             {
                               "stats": {},
                               "policy": {"system": {"statsOutboundUplink": true, "statsOutboundDownlink": true}},
                               "inbounds": [{"tag":"tun-in","protocol":"tun","settings":{"name":"dpgateway","mtu":1500}}],
-                              "outbounds": [{"tag":"proxy","protocol":"blackhole"}]
+                              "outbounds": [{"tag":"proxy","protocol":"${if (egress) "freedom" else "blackhole"}"}]
                             }
                         """.trimIndent()
                         runtime.setConnectionTracking(true)
-                        val started = runtime.start(config.encodeToByteArray(), tun.fd, 1500) { false }
+                        val protector = if (egress) {
+                            val cm = device.context.getSystemService(android.net.ConnectivityManager::class.java)
+                            val network = checkNotNull(cm.activeNetwork) { "Нет физической сети" }
+                            com.dpsmpx.dppass.app.RootHotspotTunInput.create(tun, 1500, network, cm).protector
+                        } else {
+                            com.dpsmpx.dppass.engine.SocketProtector { false }
+                        }
+                        val started = runtime.start(config.encodeToByteArray(), tun.fd, 1500, protector)
                         expect(started == XrayResult.Ok) { "Ядро не приняло TUN: ${(started as? XrayResult.Failed)?.text ?: started}" }
                         try {
                             ready.writeText("ready\n")
                             val deadline = android.os.SystemClock.elapsedRealtime() + 120_000
-                            while (!release.exists() && stopped.count > 0 && android.os.SystemClock.elapsedRealtime() < deadline) {
+                            while (!release.exists() && !kill.exists() && stopped.count > 0 && android.os.SystemClock.elapsedRealtime() < deadline) {
                                 android.os.SystemClock.sleep(200)
                             }
                             // Адрес клиента и тестовую цель пишет стенд; содержимое потоков не сохраняется.
@@ -98,13 +111,16 @@ object RootHotspotDeviceTests : DeviceSuite {
                     }
                 }
             }
+            // TUN закрыт: интерфейс исчезает, маршрут клиента остаётся unreachable.
+            killed.writeText("closed\n")
         } finally {
             ready.delete()
+            kill.delete()
             if (bound) path.delete()
         }
     }
 
-    private fun withAccessPoint(device: Device, testTun: Boolean, client: Boolean = false) {
+    private fun withAccessPoint(device: Device, testTun: Boolean, client: Boolean = false, egress: Boolean = false) {
         // Ручной стенд: параметры временной AP — только в приватном каталоге приложения.
         val activity = device.launch()
         val wifi = device.context.getSystemService(android.net.wifi.WifiManager::class.java)
@@ -129,7 +145,7 @@ object RootHotspotDeviceTests : DeviceSuite {
                 val ssid = if (android.os.Build.VERSION.SDK_INT >= 33) config.wifiSsid.toString().trim('"') else config.ssid
                 info.writeText("$ssid\n${config.passphrase}\n")
                 if (testTun) receiveTun(device)
-                if (client) clientThroughTun(device, release, stopped)
+                if (client) clientThroughTun(device, release, stopped, egress)
                 val deadline = android.os.SystemClock.elapsedRealtime() + 180_000
                 while (!release.exists() && stopped.count > 0 && android.os.SystemClock.elapsedRealtime() < deadline) {
                     android.os.SystemClock.sleep(200)
