@@ -9,8 +9,29 @@ internal class RootHotspotRoutes(downstream: String, tun: String, table: Int, pr
         require(table in 10_000..20_000 && priority in 100..999)
     }
 
-    // Вызывающий обязан проверить эксклюзивное владение таблицей, приоритетами
-    // и интерфейсом. INPUT и обход через offload проверяются отдельно.
+    // Читать под блокировкой шлюза перед установкой. Используем вывод всех
+    // таблиц: запрос отсутствующей таблицы на разных ядрах имеет разный статус.
+    val checkVacant = """
+        (
+        set -eu
+        for family in -4 -6; do
+            rules=${'$'}(ip "${'$'}family" rule show) || exit 1
+            routes=${'$'}(ip "${'$'}family" route show table all) || exit 1
+            printf '%s\n' "${'$'}rules" | awk -v p=$priority -v t=$table '
+                ${'$'}1 == p ":" || ${'$'}1 == (p+1) ":" { busy=1 }
+                { for (i=1; i<NF; i++) if (${'$'}i == "lookup" && ${'$'}(i+1) == t) busy=1 }
+                END { exit busy }
+            ' || exit 1
+            printf '%s\n' "${'$'}routes" | awk -v t=$table '
+                { for (i=1; i<NF; i++) if (${'$'}i == "table" && ${'$'}(i+1) == t) busy=1 }
+                END { exit busy }
+            ' || exit 1
+        done
+        )
+    """.trimIndent()
+
+    // Эта проверка не резервирует ресурсы у Android/netd. Владение
+    // интерфейсом, INPUT и отсутствие обхода через offload проверяются отдельно.
     val guard = listOf(
         "ip -4 rule add iif $downstream priority ${priority + 1} unreachable",
         "ip -6 rule add iif $downstream priority ${priority + 1} unreachable",
