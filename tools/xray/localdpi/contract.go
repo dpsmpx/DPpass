@@ -45,11 +45,9 @@ func NewCapabilities(kind ExecutorKind, rootAuthorized bool, entries []Support) 
     }
     out := Capabilities{kind: kind, supported: make(map[Support]struct{}, len(entries))}
     for _, entry := range entries {
-        known := false
-        for _, id := range Candidates(entry.Transport) {
-            if id == entry.MethodID { known = true; break }
+        if !SupportsMethod(entry.Transport,entry.MethodID) {
+            return Capabilities{}, fmt.Errorf("unsupported method/transport")
         }
-        if !known { return Capabilities{}, fmt.Errorf("unsupported method/transport") }
         if _, duplicate := out.supported[entry]; duplicate {
             return Capabilities{}, fmt.Errorf("duplicate method/transport")
         }

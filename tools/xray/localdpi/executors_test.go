@@ -58,3 +58,14 @@ func TestExecutorSetOwnsRegistrationSnapshot(t *testing.T) {
         t.Fatal("registered executor without methods should remain unavailable",err)
     }
 }
+
+func TestExecutorRegistryRejectsInvalidCapabilitySnapshot(t *testing.T) {
+    for _,entry:=range []Support{{HTTP,"split-1"},{QUIC,"split"},{Transport(255),"pass"},{TLS,"unknown"}} {
+        c,err:=NewCapabilities(VPNSocket,false,[]Support{{TLS,"pass"}})
+        if err!=nil {t.Fatal(err)}
+        c.supported[entry]=struct{}{}
+        if _,err:=NewExecutorSet(c);err==nil {
+            t.Fatal("registry accepted incompatible capability",entry)
+        }
+    }
+}

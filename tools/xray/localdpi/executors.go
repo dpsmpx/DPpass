@@ -27,7 +27,12 @@ func NewExecutorSet(entries ...Capabilities) (ExecutorSet,error) {
         // Own the registration map even if another package-local caller
         // retains the original capability value.
         owned:=Capabilities{kind:c.kind,supported:make(map[Support]struct{},len(c.supported))}
-        for entry:=range c.supported {owned.supported[entry]=struct{}{}}
+        for entry:=range c.supported {
+            if !SupportsMethod(entry.Transport,entry.MethodID) {
+                return ExecutorSet{},fmt.Errorf("invalid registered method/transport")
+            }
+            owned.supported[entry]=struct{}{}
+        }
         s.byKind[c.kind]=owned
     }
     return s,nil

@@ -35,7 +35,7 @@ type method struct {
 // A changed learning layout invalidates old models through ModelFormat.
 // Packet-level ROOT capabilities are separate.
 var methods = [...]method{
-    {"split-1", tlsMask | httpMask, true, false, 4},
+    {"split-1", tlsMask, true, false, 4},
     {"split", tlsMask | httpMask, true, false, 3},
     {"fake-3", tlsMask | httpMask | quicMask, true, true, 0},
     {"fake-5", tlsMask | httpMask | quicMask, true, true, 1},
@@ -51,6 +51,17 @@ func mask(t Transport) transportMask {
     case QUIC: return quicMask
     default: return 0
     }
+}
+
+// SupportsMethod reports the catalog's protocol admission, not runtime
+// availability. It does not allocate or imply executor registration.
+func SupportsMethod(t Transport,id string) bool {
+    allowed:=mask(t)
+    if allowed==0 {return false}
+    for _,m:=range methods {
+        if m.id==id {return m.transports & allowed != 0}
+    }
+    return false
 }
 
 // Candidates returns an independent slice in the existing selection order.

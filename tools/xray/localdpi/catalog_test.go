@@ -8,7 +8,7 @@ import (
 func TestCandidateOrder(t *testing.T) {
     for _, tc := range []struct{ transport Transport; want []string }{
         {TLS, []string{"split-1","split","fake-3","fake-5","disorder","tlsrec-split","pass"}},
-        {HTTP, []string{"split-1","split","fake-3","fake-5","disorder","pass"}},
+        {HTTP, []string{"split","fake-3","fake-5","disorder","pass"}},
         {QUIC, []string{"fake-3","fake-5","pass"}},
         {0, []string{}},
     } {
@@ -33,7 +33,7 @@ func TestModelOutputMapping(t *testing.T) {
         }
     }
     if NeuralIndex("pass",TLS)!=-1 || NeuralIndex("tlsrec-split",HTTP)!=-1 ||
-        NeuralIndex("split",QUIC)!=-1 || NeuralIndex("unknown",TLS)!=-1 {
+        NeuralIndex("split",QUIC)!=-1 || NeuralIndex("split-1",HTTP)!=-1 || NeuralIndex("unknown",TLS)!=-1 {
         t.Fatal("unsupported method has neural output")
     }
 }
@@ -96,5 +96,26 @@ func TestNeuralLookupMatchesOrderedModelWithoutAllocations(t *testing.T) {
     })
     if allocs != 0 || sum == 0 {
         t.Fatalf("unexpected lookup allocations: %v (sum %d)", allocs, sum)
+    }
+}
+
+func TestCatalogAdmissionAndUnchangedModelPositions(t *testing.T) {
+    for _,transport:=range []Transport{TLS,HTTP,QUIC,0,255} {
+        expected:=map[string]bool{}
+        for _,id:=range Candidates(transport) {expected[id]=true}
+        for _,m:=range methods {
+            if SupportsMethod(transport,m.id)!=expected[m.id] {
+                t.Fatal("catalog admission disagrees with enumeration",transport,m.id)
+            }
+        }
+        if SupportsMethod(transport,"unknown") || SupportsMethod(transport,"plain") {
+            t.Fatal("unregistered wire name admitted")
+        }
+    }
+    if SupportsMethod(HTTP,"split-1") || SupportsMethod(HTTP,"tlsrec-split") ||
+        !SupportsMethod(TLS,"split-1") || NeuralIndex("split-1",TLS)!=0 ||
+        NeuralIndex("tlsrec-split",TLS)!=5 || NeuralIndex("pass",QUIC)!=8 ||
+        ModelFormat()!="dppass-strategy-mlp-v4:tcp=split-1,split,fake-3,fake-5,disorder,tlsrec-split;quic=fake-3,fake-5,pass" {
+        t.Fatal("protocol admission or ordered model layout changed")
     }
 }

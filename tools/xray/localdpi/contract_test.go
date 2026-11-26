@@ -26,6 +26,10 @@ func TestCapabilitiesFailClosed(t *testing.T) {
         {RootSocket,false,[]Support{{TLS,"pass"}}},
         {RootPacket,false,[]Support{{TLS,"pass"}}},
         {VPNSocket,false,[]Support{{QUIC,"split"}}},
+        {VPNSocket,false,[]Support{{HTTP,"split-1"}}},
+        {VPNSocket,false,[]Support{{HTTP,"tlsrec-split"}}},
+        {VPNSocket,false,[]Support{{Transport(255),"pass"}}},
+        {RootPacket,true,[]Support{{HTTP,"split-1"}}},
         {VPNSocket,false,[]Support{{TLS,"unknown"}}},
         {VPNSocket,false,[]Support{{TLS,"pass"},{TLS,"pass"}}},
     } {
