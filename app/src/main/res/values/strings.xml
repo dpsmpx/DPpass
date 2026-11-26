@@ -949,4 +949,6 @@
     <string name="dpts_train_ack_error">Model snapshot stored, but the native acknowledgement failed.</string>
     <string name="byedpi_root">ByeDPI · root (TCP transparent, IPv6 if supported)</string>
     <string name="byedpi_vpn">ByeDPI · VpnService (original SOCKS)</string>
+    <string name="root_share_permissions">Prepare Wi-Fi permissions for the ROOT router</string>
+    <string name="root_share_permissions_ready">Permissions granted. The router has not been started.</string>
 </resources>

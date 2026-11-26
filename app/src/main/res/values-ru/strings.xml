@@ -978,4 +978,6 @@
     <string name="dpts_train_ack_error">Снимок нейросети сохранён, но подтверждение ядра не удалось.</string>
     <string name="byedpi_root">ByeDPI · root (прозрачный TCP, IPv6 при поддержке)</string>
     <string name="byedpi_vpn">ByeDPI · VpnService (оригинальный SOCKS)</string>
+    <string name="root_share_permissions">Подготовить разрешения Wi-Fi для ROOT-роутера</string>
+    <string name="root_share_permissions_ready">Разрешения выданы. Роутер не запущен.</string>
 </resources>

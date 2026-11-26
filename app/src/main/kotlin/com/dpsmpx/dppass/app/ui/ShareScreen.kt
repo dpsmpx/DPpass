@@ -68,6 +68,20 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
                 Ui.matchWidth(),
             )
         }
+        body.addView(Ui.button(context, R.string.root_share_permissions, Ui.Style.OUTLINE).apply {
+            setOnClickListener {
+                val required = if (Build.VERSION.SDK_INT >= 33) {
+                    arrayOf(android.Manifest.permission.NEARBY_WIFI_DEVICES)
+                } else {
+                    arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                }
+                if (required.all { context.checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED }) {
+                    host.toast(context.getString(R.string.root_share_permissions_ready))
+                } else {
+                    host.activity.requestPermissions(required, 120)
+                }
+            }
+        }, Ui.matchWidth())
         val s = settings ?: return
         body.addView(
             Ui.listCard(context).apply {
