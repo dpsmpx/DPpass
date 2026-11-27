@@ -293,6 +293,8 @@ type desyncConn struct {
     observed sync.Once
     stageHelloSent atomic.Bool
     stageFirstReply atomic.Bool
+    readMu sync.Mutex
+    firstReply firstReplyHeader
     stageReadTimedOut atomic.Bool
     stageCloseRecorded atomic.Bool
 }
@@ -317,13 +319,20 @@ func (c *desyncConn) Read(b []byte) (int, error) {
     // Avoid deadlocking a peer that waits for our first partial record before
     // replying: a Read is a request to send any pending handshake fragments.
     if err := c.flushFirstBeforeRead(); err != nil { return 0, err }
+    // Serialize reads so fragmented first-response bytes are classified
+    // in their actual stream order, without buffering or delaying delivery.
+    c.readMu.Lock()
+    defer c.readMu.Unlock()
     n, err := c.TCPConn.Read(b)
     if n > 0 {
         if c.stageFirstReply.CompareAndSwap(false, true) {
             stagesFor(c.diagnostic).tcpFirstReply.Add(1)
-            if isTLSAlertRecordHeader(b[:n]) {
-                stagesFor(c.diagnostic).tcpFirstTLSAlert.Add(1)
-            } else if pick := c.adaptiveSelection.Load(); socketPickAdmissible(pick) && pick.flow.MethodID == "pass" {
+        }
+        switch c.firstReply.observe(b[:n]) {
+        case replyAlert:
+            stagesFor(c.diagnostic).tcpFirstTLSAlert.Add(1)
+        case replyOther:
+            if pick := c.adaptiveSelection.Load(); socketPickAdmissible(pick) && pick.flow.MethodID == "pass" {
                 zapret2Auto.retainSocketReply(pick)
             }
         }

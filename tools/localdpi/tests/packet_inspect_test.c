@@ -134,6 +134,18 @@ int main(void)
         else for (size_t j=0;j<sizeof(http_out);++j) assert(http_out[j]==0xA5);
         assert(authority[0]=='a' && authority[1]==i && authority[2]=='b');
     }
-    puts("DPpass packet inspection ABI: bounded fixtures, TLS splits and HTTP case passed");
+    const uint8_t server_hello[] = {22,3,3,0,40,2};
+    assert(dp_tls_server_hello_prefix(server_hello,sizeof(server_hello))==1);
+    for (size_t n=0;n<sizeof(server_hello);++n)
+        assert(dp_tls_server_hello_prefix(server_hello,n)==0);
+    assert(dp_tls_server_hello_prefix(NULL,sizeof(server_hello))==0);
+    assert(dp_tls_server_hello_prefix(server_hello,sizeof(server_hello)+1)==0);
+    for (unsigned i=0;i<256;++i) {
+        uint8_t candidate[6];
+        memcpy(candidate,server_hello,sizeof(candidate));
+        candidate[5]=(uint8_t)i;
+        assert(dp_tls_server_hello_prefix(candidate,sizeof(candidate))==(i==2));
+    }
+    puts("DPpass packet inspection ABI: bounded fixtures, TLS splits, HTTP case and server prefix passed");
     return 0;
 }

@@ -13,3 +13,5 @@ func TLSNameAgrees(_ []byte) bool {return false}
 
 // No native HTTP mutation is available in the portable build.
 func HTTPHostCase(_ []byte) ([]byte,bool) {return nil,false}
+
+func ServerHelloPrefix(_ []byte) bool {return false}

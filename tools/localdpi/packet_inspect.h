@@ -51,4 +51,8 @@ int dp_tls_name_agrees(const uint8_t *data, size_t size,
 int dp_http_host_case(const uint8_t *host, size_t size,
                       uint8_t *output, size_t capacity);
 
+// Compare a six-byte first-record ServerHello prefix with the original
+// ByeDPI read-only predicate. Not proof of a successful TLS handshake.
+int dp_tls_server_hello_prefix(const uint8_t *data, size_t size);
+
 #endif

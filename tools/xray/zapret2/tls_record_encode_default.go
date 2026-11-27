@@ -13,3 +13,6 @@ func localNativePlan(_, _ string) bool { return false }
 func encodeHTTPHostNameCase(first []byte, _ bool) ([]byte,bool) {
     return localdpi.HTTPHostNameCase(first)
 }
+
+// No native predicate exists in this build; the shared Go check suffices.
+func nativeServerHelloPrefix(_ []byte) bool {return true}

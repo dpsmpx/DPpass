@@ -40,3 +40,5 @@ func encodeHTTPHostNameCase(first []byte, diagnostic bool) ([]byte,bool) {
     }
     return localdpi.HTTPHostNameCase(first)
 }
+
+func nativeServerHelloPrefix(first []byte) bool {return native.ServerHelloPrefix(first)}

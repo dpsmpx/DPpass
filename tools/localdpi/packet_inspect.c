@@ -104,3 +104,11 @@ int dp_http_host_case(const uint8_t *host, size_t size,
     memcpy(output,scratch+field,4);
     return 0;
 }
+
+int dp_tls_server_hello_prefix(const uint8_t *data, size_t size)
+{
+    if (!data || size != 6 || data[2] > 4) return 0;
+    size_t record = ((size_t)data[3] << 8) | data[4];
+    if (record < 4 || record > 16384) return 0;
+    return is_tls_shello((const char *)data,size) ? 1 : 0;
+}

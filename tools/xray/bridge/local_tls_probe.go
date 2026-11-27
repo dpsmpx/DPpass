@@ -13,6 +13,8 @@ import (
     "math/big"
     "net"
     "time"
+
+    "github.com/dpsmpx/dppass/tools/xray/zapret2"
 )
 
 const localTLSName = "example.com"
@@ -111,9 +113,10 @@ func probeLocalTLS(method,target string,timeout time.Duration) Zapret2HTTPSResul
         serverOK=err==nil && n==len(reply)
     }()
     defer func(){_ = server.Close();<-done}()
-    peer:=tls.Client(transport,&tls.Config{RootCAs:roots,ServerName:localTLSName,
+    observed:=&localTLSReadPrefix{Conn:transport}
+    peer:=tls.Client(observed,&tls.Config{RootCAs:roots,ServerName:localTLSName,
         MinVersion:version,MaxVersion:version,NextProtos:[]string{localTLSALPN}})
-    if peer.Handshake()!=nil {return finish("local_tls_mismatch")}
+    if peer.Handshake()!=nil || !observed.verified() {return finish("local_tls_mismatch")}
     state:=peer.ConnectionState()
     if !state.HandshakeComplete || state.Version!=version ||
         state.NegotiatedProtocol!=localTLSALPN || len(state.VerifiedChains)==0 {
@@ -133,4 +136,25 @@ func probeLocalTLS(method,target string,timeout time.Duration) Zapret2HTTPSResul
         result.Outcome="local_tls_mismatch"
     }
     return result
+}
+
+// Capture only the six-byte record/handshake prefix of a local fixture.
+// All bytes are delivered unchanged; no socket or certificate policy is
+// changed. This is not a complete ServerHello parser or trust decision.
+type localTLSReadPrefix struct {
+    net.Conn
+    prefix [6]byte
+    used int
+}
+
+func (c *localTLSReadPrefix) Read(b []byte) (int,error) {
+    n,err:=c.Conn.Read(b)
+    if n>0 && c.used<len(c.prefix) {
+        c.used+=copy(c.prefix[c.used:],b[:n])
+    }
+    return n,err
+}
+
+func (c *localTLSReadPrefix) verified() bool {
+    return c.used==len(c.prefix) && zapret2.VerifyLocalServerHelloPrefix(c.prefix[:])
 }

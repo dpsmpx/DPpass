@@ -90,3 +90,11 @@ func HTTPHostCase(first []byte) ([]byte,bool) {
     if !bytes.Equal(out,expected) {return nil,false}
     return out,true
 }
+
+// ServerHelloPrefix exposes the bounded upstream predicate only.
+// The original input is read-only and the result is not TLS success.
+func ServerHelloPrefix(first []byte) bool {
+    if len(first)!=6 {return false}
+    return C.dp_tls_server_hello_prefix((*C.uint8_t)(unsafe.Pointer(&first[0])),
+        C.size_t(len(first)))==1
+}
