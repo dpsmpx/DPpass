@@ -65,7 +65,9 @@ static int create_tun(void) {
     memcpy(req.ifr_name, TUN_NAME, sizeof(TUN_NAME));
     // Exclusive allocation; never attach to an existing interface or
     // enable persistence. The last descriptor close retires the device.
-    req.ifr_flags = IFF_TUN | IFF_NO_PI | IFF_TUN_EXCL;
+    /* Linux ifreq stores flags in a signed 16-bit field. Preserve the
+     * kernel bit pattern explicitly, including IFF_TUN_EXCL (0x8000). */
+    req.ifr_flags = (short)(IFF_TUN | IFF_NO_PI | IFF_TUN_EXCL);
     if (ioctl(fd, TUNSETIFF, &req) != 0) goto fail;
     if (strncmp(req.ifr_name, TUN_NAME, IFNAMSIZ) != 0 ||
         if_nametoindex(TUN_NAME) == 0) goto fail;

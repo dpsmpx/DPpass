@@ -112,7 +112,7 @@ internal class RootHotspotHealthScheduler(
                      intervalMillis: Long = 10_000,
                      onResult: (RootHotspotLifecycle.Request, RootHotspotServiceOwner.Result) -> Unit) =
             RootHotspotHealthScheduler(owner, { delay, task ->
-                val future = worker.schedule({ task() }, delay, TimeUnit.MILLISECONDS)
+                val future = worker.schedule(Runnable { task() }, delay, TimeUnit.MILLISECONDS)
                 Cancellation { future.cancel(false) }
             }, intervalMillis, onResult)
     }
