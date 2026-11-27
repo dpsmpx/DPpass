@@ -61,6 +61,15 @@ data class DptsPlan(
 class DptsCompileException(val line: Int, reason: String) :
     IllegalArgumentException("DPTS line $line: $reason")
 
+/** Explicit termination of a matrix run; partial evidence is export-only. */
+enum class DptsInterruption(val wire: String) {
+    USER_STOP("user_stop"),
+    SESSION_CHANGED("session_changed"),
+    BUDGET_EXPIRED("budget_expired"),
+    EXECUTION_ERROR("execution_error"),
+    DNS_PREPARATION_FAILED("dns_preparation_failed"),
+}
+
 object DptsScript {
     const val HEADER = "dpts 1"
     const val MAX_SOURCE_LENGTH = 12_000
@@ -366,8 +375,10 @@ object DptsScript {
 
     /** Caller never includes HTTP response bytes, raw IPs, credentials or URLs. */
     fun report(plan: DptsPlan, network: String, prepared: Zapret2GoogleProbe,
-        observations: List<Zapret2GoogleAttempt>): String = buildString {
+        observations: List<Zapret2GoogleAttempt>,
+        interruption: DptsInterruption? = null): String = buildString {
         appendLine("=== DPpass — DPTS/1 ===")
+        if (interruption != null) appendLine("RUN: interrupted; reason=${interruption.wire}; training_eligible=false")
         appendLine("Название: ${plan.title}")
         appendLine("Сеть: $network; host=${plan.host}")
         appendLine("DoH: ${prepared.outcome}; IPv4=${prepared.dnsAnswers};" +
@@ -385,7 +396,7 @@ object DptsScript {
             " extra_rows=${(observations.size - plan.probes.size).coerceAtLeast(0)}")
         appendLine("probe_plan_valid=" + probePlanValid(plan))
         appendLine("dns_preparation_valid=$preparationValid; complete_evidence=" +
-            completeEvidence(plan, prepared, observations))
+            (interruption == null && completeEvidence(plan, prepared, observations)))
         for (phase in plan.probes.map { it.phase }.distinct()) {
             val indices = plan.probes.indices.filter { plan.probes[it].phase == phase }
             val results = indices.mapNotNull { i -> matched[i]?.let { plan.probes[i] to it } }
@@ -442,7 +453,8 @@ object DptsScript {
                 " http=${r.httpStatus} body_bytes_bounded=${r.bodyBytes}" +
                 " elapsed_ms=${r.elapsedMillis}")
         }
-        appendLine(if (plan.observeLearning)
+        appendLine(if (interruption != null)
+            "LEARNING: disabled_for_interrupted_run; model_weights_unchanged." else if (plan.observeLearning)
             "LEARNING: observations_exported_only; model_weights_unchanged." else
             "LEARNING: disabled.")
         appendLine("AUTO: not_applied; DNS/routes/QUIC/VPN profile unchanged.")

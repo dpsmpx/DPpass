@@ -117,6 +117,31 @@ class DptsScriptTest {
         assertTrue(extra.contains("complete_evidence=false"))
     }
 
+    @Test fun interruptedReportCannotClaimCompleteEvidenceEvenWithEveryRow() {
+        val plan = DptsScript.compile("dpts 1\nhost www.youtube.com\nlearn observe\nhttps ips=1 attempts=1")
+        val prepared = Zapret2GoogleProbe("dns_ready", 200, 0, 10, 0, 0, "abcdef12", 1)
+        val spec = plan.probes.single()
+        val row = Zapret2GoogleAttempt(spec.method, spec.attempt,
+            Zapret2GoogleProbe("ok", 200, 256, 10, 0, 0, "abcdef12", 1,
+                spec.ipIndex, spec.wireProtocol, "tls_verified", "http/1.1"), spec.target)
+        assertTrue(DptsScript.completeEvidence(plan, prepared, listOf(row)))
+        for (reason in DptsInterruption.entries) {
+            val report = DptsScript.report(plan, "MOBILE", prepared, listOf(row), reason)
+            assertTrue(report.contains("RUN: interrupted; reason=${reason.wire}; training_eligible=false"))
+            assertTrue(report.contains("complete_evidence=false"))
+            assertTrue(report.contains("matched_rows=1"))
+            assertTrue(report.contains("LEARNING: disabled_for_interrupted_run; model_weights_unchanged."))
+            assertFalse(report.contains("complete_evidence=true"))
+        }
+        val empty = DptsScript.report(plan, "MOBILE", prepared, emptyList(),
+            DptsInterruption.BUDGET_EXPIRED)
+        assertTrue(empty.contains("missing_rows=1"))
+        assertTrue(empty.contains("content_verified=0/1"))
+        val failed = DptsScript.report(plan, "MOBILE", prepared.copy(outcome = "timeout"),
+            emptyList(), DptsInterruption.DNS_PREPARATION_FAILED)
+        assertTrue(failed.contains("dns_preparation_valid=false; complete_evidence=false"))
+    }
+
     @Test fun preparedDnsSetMustCoverThePlanBeforeEvidenceIsAccepted() {
         val plan = DptsScript.compile("dpts 1\nhost www.youtube.com\nhttps ips=2 attempts=1")
         val valid = Zapret2GoogleProbe("dns_ready", 200, 0, 10, 0, 0, "abcdef12", 2)

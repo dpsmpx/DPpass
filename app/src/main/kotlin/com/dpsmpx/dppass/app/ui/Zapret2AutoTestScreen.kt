@@ -39,6 +39,7 @@ import com.dpsmpx.dppass.engine.xray.Zapret2H3Report
 import com.dpsmpx.dppass.engine.xray.Zapret2SiteSearch
 import com.dpsmpx.dppass.app.Zapret2NeuralModel
 import com.dpsmpx.dppass.engine.xray.XrayResult
+import com.dpsmpx.dppass.engine.xray.DptsInterruption
 import com.dpsmpx.dppass.engine.xray.DptsPlan
 import com.dpsmpx.dppass.engine.xray.DptsLearning
 import com.dpsmpx.dppass.engine.xray.DptsScript
@@ -124,6 +125,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     private var started = false
 
     private var activeSession: DptsSession? = null
+    private var manualStopRequested = false
 
     private fun currentSession(): DptsSession? {
         if (!ready(TunnelState.status.value)) return null
@@ -158,6 +160,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     }
 
     private fun launchDiagnostic(block: suspend CoroutineScope.(DptsSession) -> Unit) {
+        manualStopRequested = false
         // Capture on the UI dispatcher at admission, not after scheduling.
         val session = currentSession()
         if (session == null) {
@@ -229,6 +232,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         addView(dptsTrainButton.apply { setOnClickListener { trainFromLastScript() } },
             Ui.matchWidth())
         addView(dptsStopButton.apply { setOnClickListener {
+            manualStopRequested = diagnostic.cancellable
             diagnostic.cancel()
             statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
         } }, Ui.matchWidth())
@@ -273,6 +277,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     }
 
     override fun onHidden() {
+        manualStopRequested = false
         diagnostic.cancel()
         invalidateDptsRun()
         // Persist only the editable draft, never probe results or IPs.
@@ -1376,47 +1381,79 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         statusText.text = "DPTS: DoH · ${plan.host}"
         launchDiagnostic { session ->
             val network = session.network
+            val rows = mutableListOf<Zapret2GoogleAttempt>()
+            var preparation: Zapret2GoogleProbe? = null
+            fun interrupted(reason: DptsInterruption) {
+                invalidateDptsRun()
+                val prepared = preparation
+                if (prepared == null) {
+                    showIncompleteDpts()
+                    return
+                }
+                // Only previously accepted rows are retained. Never append a
+                // result returned after the session or deadline changed.
+                val report = DptsScript.report(plan, network, prepared, rows, reason)
+                resultText.text = report
+                resultText.visibility = View.VISIBLE
+                statusText.text = context.getString(R.string.dpts_stopped)
+                // Copy a deliberate stop or bounded failure in the same
+                // session. A stale network must not replace the clipboard.
+                if (session == currentSession() && source == dptsEditor.text.toString()) {
+                    if (!copyReport("DPpass DPTS partial", report)) {
+                        statusText.text = context.getString(R.string.zapret2_autotest_copy_failed)
+                    }
+                }
+            }
             try {
                 val window = DptsRunWindow(SystemClock.elapsedRealtime(), DNS_TIMEOUT_MILLIS)
                 val prepared = guardedProbe("plain",
                             Zapret2SiteSearch.prepare(plan.host), DNS_TIMEOUT_MILLIS)
                 ensureActive()
-                if (session != currentSession() || !window.canFinish(SystemClock.elapsedRealtime())) {
-                    showIncompleteDpts()
+                preparation = prepared
+                if (session != currentSession()) {
+                    interrupted(DptsInterruption.SESSION_CHANGED)
                     return@launchDiagnostic
                 }
-                val requiredIPs = (plan.probes.maxOfOrNull { it.ipIndex } ?: 0) + 1
+                if (!window.canFinish(SystemClock.elapsedRealtime())) {
+                    interrupted(DptsInterruption.BUDGET_EXPIRED)
+                    return@launchDiagnostic
+                }
                 if (!DptsScript.preparationValid(plan, prepared)) {
-                    statusText.text = "DPTS: DoH ${prepared.outcome}, " +
-                        "${prepared.dnsAnswers}/$requiredIPs IPv4"
-                    resultText.text = statusText.text
-                    resultText.visibility = View.VISIBLE
+                    interrupted(DptsInterruption.DNS_PREPARATION_FAILED)
                     return@launchDiagnostic
                 }
-                val rows = mutableListOf<Zapret2GoogleAttempt>()
-                var expired = false
                 for ((index, probe) in plan.probes.withIndex()) {
                     ensureActive()
-                    if (session != currentSession() ||
-                        !window.canStart(SystemClock.elapsedRealtime(), probe.timeoutMs)) {
-                        expired = true
-                        break
+                    if (session != currentSession()) {
+                        interrupted(DptsInterruption.SESSION_CHANGED)
+                        return@launchDiagnostic
+                    }
+                    if (!window.canStart(SystemClock.elapsedRealtime(), probe.timeoutMs)) {
+                        interrupted(DptsInterruption.BUDGET_EXPIRED)
+                        return@launchDiagnostic
                     }
                     statusText.text = "DPTS: ${plan.title} · ${index + 1}/${plan.probes.size}" +
                         " · ${probe.phase}/${probe.method} IPv4 #${probe.ipIndex}"
                     val response = guardedProbe(probe.method, probe.target, probe.timeoutMs)
                     ensureActive()
-                    if (session != currentSession() || !window.canFinish(SystemClock.elapsedRealtime())) {
-                        expired = true
-                        break
+                    if (session != currentSession()) {
+                        interrupted(DptsInterruption.SESSION_CHANGED)
+                        return@launchDiagnostic
+                    }
+                    if (!window.canFinish(SystemClock.elapsedRealtime())) {
+                        interrupted(DptsInterruption.BUDGET_EXPIRED)
+                        return@launchDiagnostic
                     }
                     rows += Zapret2GoogleAttempt(probe.method, probe.attempt,
                         response, probe.target)
                     progress.progress = rows.size
                 }
-                if (expired || rows.size != plan.probes.size || session != currentSession() ||
-                    !window.canFinish(SystemClock.elapsedRealtime())) {
-                    showIncompleteDpts()
+                if (session != currentSession()) {
+                    interrupted(DptsInterruption.SESSION_CHANGED)
+                    return@launchDiagnostic
+                }
+                if (!window.canFinish(SystemClock.elapsedRealtime())) {
+                    interrupted(DptsInterruption.BUDGET_EXPIRED)
                     return@launchDiagnostic
                 }
                 val report = DptsScript.report(plan, network, prepared, rows)
@@ -1424,9 +1461,21 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 // but never expose training for an unbound experiment.
                 lastDptsRun = DptsCompletedRun.capture(source, plan, prepared, rows, session)
                 publishCompletedReport("DPpass DPTS", report, R.string.dpts_copied)
-            } catch (_: CancellationException) {
-                statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
-                throw CancellationException("DPTS interrupted")
+            } catch (_: DiagnosticIncomplete) {
+                ensureActive()
+                interrupted(if (session != currentSession()) DptsInterruption.SESSION_CHANGED
+                    else DptsInterruption.EXECUTION_ERROR)
+            } catch (cancelled: CancellationException) {
+                // A hidden screen or automatic session-loss cancellation
+                // must not overwrite clipboard or publish late results.
+                if (manualStopRequested && session == currentSession() &&
+                    source == dptsEditor.text.toString()) {
+                    interrupted(DptsInterruption.USER_STOP)
+                } else {
+                    invalidateDptsRun()
+                    statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
+                }
+                throw cancelled
             }
         }
     }
