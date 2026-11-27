@@ -18,11 +18,15 @@ internal object RootHotspotLocalAccessPoint {
         handler: Handler,
         pending: RootHotspotReservation<WifiManager.LocalOnlyHotspotReservation>,
         onStopped: () -> Unit,
+        onStarted: (WifiManager.LocalOnlyHotspotReservation) -> Unit = {},
+        onFailed: () -> Unit = {},
     ) {
         try {
             wifi.startLocalOnlyHotspot(object : WifiManager.LocalOnlyHotspotCallback() {
-                override fun onStarted(reservation: WifiManager.LocalOnlyHotspotReservation) =
+                override fun onStarted(reservation: WifiManager.LocalOnlyHotspotReservation) {
+                    onStarted.invoke(reservation)
                     pending.started(reservation)
+                }
 
                 override fun onStopped() {
                     try {
@@ -32,8 +36,10 @@ internal object RootHotspotLocalAccessPoint {
                     }
                 }
 
-                override fun onFailed(reason: Int) =
+                override fun onFailed(reason: Int) {
+                    onFailed.invoke()
                     pending.failed(IllegalStateException("Отказ Android: $reason"))
+                }
             }, handler)
         } catch (failure: Throwable) {
             try {
