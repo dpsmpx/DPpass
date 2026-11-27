@@ -332,12 +332,12 @@ func (c *desyncConn) Read(b []byte) (int, error) {
         case replyAlert:
             stagesFor(c.diagnostic).tcpFirstTLSAlert.Add(1)
         case replyOther:
-            if pick := c.adaptiveSelection.Load(); socketPickAdmissible(pick) && pick.flow.MethodID == "pass" {
+            if pick := c.adaptiveSelection.Load(); !c.diagnostic && socketPickAdmissible(pick) && pick.flow.MethodID == "pass" {
                 zapret2Auto.retainSocketReply(pick)
             }
         }
         total := c.received.Add(int64(n))
-        if total >= adaptivePayloadThreshold {
+        if !c.diagnostic && c.firstReply.admitsDownstream() && total >= adaptivePayloadThreshold {
             if selected := c.adaptiveSelection.Load(); selected != nil {
                 // Learn from long-lived HTTP/2/QUIC streams before Close.
                 c.observed.Do(func() {
@@ -351,7 +351,7 @@ func (c *desyncConn) Read(b []byte) (int, error) {
         stagesFor(c.diagnostic).tcpReadTimeout.Add(1)
         // A timed-out ClientHello can remain open indefinitely. Teach AUTO
         // about the zero-byte stall for future flows, not the current stream.
-        if c.received.Load() == 0 {
+        if !c.diagnostic && c.received.Load() == 0 {
             if pick := c.adaptiveSelection.Load(); pick != nil {
                 // Distinguish an actual first-reply timeout from a benign
                 // application Close: only the former triggers AUTO backoff.
@@ -392,11 +392,12 @@ func (c *desyncConn) Close() error {
         stagesFor(c.diagnostic).tcpClosedNoReply.Add(1)
     }
     c.observed.Do(func() {
+        // A known first TLS alert or an incomplete alert-like header is
+        // neither verified progress nor a no-reply timeout. Keep raw
+        // transport accounting, but never pass those bytes to learning.
+        if c.diagnostic || !c.firstReply.admitsDownstream() {return}
         if selected := c.adaptiveSelection.Load(); selected != nil {
             total := c.received.Load()
-            // Zero-byte Close is ambiguous: cancellation, reconnect or
-            // shutdown may end a healthy in-flight request. Only the
-            // explicit read-timeout path supplies a negative observation.
             recordLocalSocketEvidence(selected, localdpi.SocketClose(total))
         }
     })
