@@ -16,8 +16,8 @@ internal class RootHotspotAndroidAccessPoint(
     private val gate: RootHotspotPlatformGate<WifiManager.LocalOnlyHotspotReservation>,
     private val notifyStopped: () -> Unit,
     private val platform: RootHotspotPlatformObservationSource,
-) {
-    fun dispatch(pending: RootHotspotReservation<WifiManager.LocalOnlyHotspotReservation>) {
+) : RootHotspotServiceRuntime.AccessPoint<WifiManager.LocalOnlyHotspotReservation> {
+    override fun dispatch(pending: RootHotspotReservation<WifiManager.LocalOnlyHotspotReservation>) {
         check(Looper.myLooper() != handler.looper) { "ROOT hotspot worker must not block callback looper" }
         check(platform.idleBeforeDispatch()) { "ROOT hotspot platform baseline unconfirmed" }
         gate.dispatched()
@@ -33,11 +33,11 @@ internal class RootHotspotAndroidAccessPoint(
         }
     }
 
-    fun release(resource: WifiManager.LocalOnlyHotspotReservation) {
+    override fun release(resource: WifiManager.LocalOnlyHotspotReservation) {
         resource.close()
         gate.released(resource)
     }
 
-    fun discover(resource: WifiManager.LocalOnlyHotspotReservation) = gate.discover(resource)
-    fun verifyStopped(identity: RootHotspotInterfaceEvidence.Identity?) = gate.stopped(identity)
+    override fun discover(resource: WifiManager.LocalOnlyHotspotReservation) = gate.discover(resource)
+    override fun verifyStopped(identity: RootHotspotInterfaceEvidence.Identity?) = gate.stopped(identity)
 }

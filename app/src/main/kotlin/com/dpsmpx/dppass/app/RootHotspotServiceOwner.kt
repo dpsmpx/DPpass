@@ -56,7 +56,15 @@ internal class RootHotspotServiceOwner {
             return Result.STOPPED
         }
         val result = try {
-            runtime.start()
+            val started = runtime.start()
+            if (started == RootHotspotLifecycle.StartResult.READY) {
+                val actual = runtime.snapshot()
+                check(actual.state == RootHotspotLifecycle.State.READY &&
+                    actual.request == operation.request && actual.session?.let(operation.request::matches) == true) {
+                    "ROOT hotspot runtime reported READY without matching bound session"
+                }
+            }
+            started
         } catch (failure: Throwable) {
             // Retain even an apparently idle runtime: a thrown start does not
             // establish absence of external resources.

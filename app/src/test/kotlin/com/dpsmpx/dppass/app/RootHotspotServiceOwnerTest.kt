@@ -31,7 +31,9 @@ class RootHotspotServiceOwnerTest {
                 RootHotspotLifecycle.State.IDLE else RootHotspotLifecycle.State.CLEANUP_PENDING
             return stopResult
         }
-        override fun snapshot() = RootHotspotLifecycle.Snapshot(state, null,
+        override fun snapshot() = RootHotspotLifecycle.Snapshot(state,
+            if (state == RootHotspotLifecycle.State.READY)
+                RootHotspotAdmission.Session(request.generation, 12, request.mode) else null,
             request = request.takeUnless { state == RootHotspotLifecycle.State.IDLE })
     }
 

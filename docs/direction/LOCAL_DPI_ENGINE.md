@@ -989,3 +989,7 @@ CI 174ba03 passed (Go/Windows #45988751240, Android #45988751293). Initialize pr
 ## D-120 — process-local hotspot service ownership boundary
 
 CI 87cac35 passed (Go/Windows #45991210422, Android #45991210401). Add service-level exact-generation owner with one runtime, side-effect-free factory, cancellation during construction/start, rollback before READY, retained cleanup after failures, and stale callback rejection. Six JVM regressions. Cancellation during a bounded runtime start is cooperative at service boundary; no prompt interruption of Android request wait is guaranteed. Actual Android Service registration, process-wide instance wiring, authoritative platform ownership and offload evidence, and physical acceptance are not yet complete. No production activation. New CI pending.
+
+## D-120 — compose service runtime and controller
+
+CI b82c06c passed (Go/Windows #45992981796, Android #45992981878). One-shot service runtime joins bounded ROOT initialization, baseline, claim inspection, boot identity and controller; platform and egress contracts are explicit; Android AP bridge implements the platform contract; service owner verifies bound READY identity. Six fixture regressions plus updated owner fixture. These are injected command tests, not device validation. No actual service registration/activation; no trusted platform ownership or offload provider yet. New CI pending.
