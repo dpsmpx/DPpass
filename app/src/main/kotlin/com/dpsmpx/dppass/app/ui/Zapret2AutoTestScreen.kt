@@ -301,9 +301,39 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             "api_ipv4_sweep" -> startYoutubeApiSweep()
             "sni_control" -> startSameIpSniControl()
             "tls_versions" -> startTLSVersionControl()
+            "local_http_hostcase" -> startLocalHttpHostCase()
             else -> {
                 statusText.text = context.getString(R.string.dpts_suite_unsupported)
             }
+        }
+    }
+
+    private fun startLocalHttpHostCase() {
+        progress.visibility = View.VISIBLE
+        progress.max = 2
+        progress.progress = 0
+        resultText.visibility = View.GONE
+        launchDiagnostic { _ ->
+            val methods = listOf("plain", "http-hostcase")
+            val report = StringBuilder("=== DPpass — local HTTP self-test ===\n")
+            report.appendLine("Loopback only; no DNS, Internet, TLS or external HTTP requests.")
+            report.appendLine("Checks exact request bytes, Host value and request body.")
+            var verified = 0
+            for ((index, method) in methods.withIndex()) {
+                statusText.text = "DPTS: local HTTP · " + method
+                val row = guardedProbe(method, "local_http_hostcase", 5000)
+                val expectedApplied = if (method == "plain") 0L else 1L
+                val ok = row.outcome == "local_http_verified" && row.httpStatus == 0 &&
+                    row.bodyBytes == 0L && row.appliedDelta == expectedApplied &&
+                    row.skippedDelta == 0L
+                if (ok) verified++
+                report.appendLine(method + ": " + (if (ok) "verified" else row.outcome + " / unconfirmed") +
+                    "; applied=" + row.appliedDelta + "; skipped=" + row.skippedDelta)
+                progress.progress = index + 1
+            }
+            report.appendLine("Verified: " + verified + "/2")
+            report.appendLine("AUTO and training unchanged. Not evidence of remote access or DPI bypass.")
+            publishCompletedReport("DPpass local HTTP", report.toString(), R.string.dpts_copied)
         }
     }
 

@@ -181,7 +181,7 @@ class DptsScriptTest {
     }
 
     @Test fun allBundledPresetsCompileToBoundedPublicTargets() {
-        assertEquals(18, DptsPresets.scripts.size)
+        assertEquals(19, DptsPresets.scripts.size)
         for ((name, script) in DptsPresets.scripts) {
             val plan = DptsScript.compile(script)
             assertEquals(name.isNotBlank(), plan.title.isNotBlank())
@@ -278,6 +278,7 @@ class DptsScriptTest {
         for (id in DptsScript.suites) {
             val host = when (id) {
                 "google_youtube" -> "www.google.com"
+                "local_http_hostcase" -> "example.com"
                 "site_https", "site_quic" -> "example.org"
                 else -> "youtubei.googleapis.com"
             }
@@ -302,6 +303,18 @@ class DptsScriptTest {
             assertFailsWith<DptsCompileException>(script) {
                 DptsScript.compile(script)
             }
+        }
+    }
+
+    @Test fun localHttpSuiteCannotBecomeRemoteOrLearningProbe() {
+        val plan = DptsScript.compile("dpts 1\nhost example.com\nlearn off\nsuite local_http_hostcase")
+        assertEquals("local_http_hostcase", plan.suite)
+        assertTrue(plan.probes.isEmpty())
+        assertFailsWith<DptsCompileException> {
+            DptsScript.compile("dpts 1\nhost example.com\nlearn observe\nsuite local_http_hostcase")
+        }
+        assertFailsWith<DptsCompileException> {
+            DptsScript.compile("dpts 1\nhost example.com\nhttps methods=http-hostcase")
         }
     }
 

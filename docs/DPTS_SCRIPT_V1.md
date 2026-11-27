@@ -197,3 +197,7 @@ on the current API `0/32` report, and controlled training on a real
 ## 0.8.2 — additional native diagnostic profiles
 
 DPTS accepts `split-2` (actual TCP split after two TLS bytes), `fake-2`, `fake-4`, `fake-8` (existing native decoy mechanism with distinct TTLs). The fake profiles also accept QUIC. These are Zapret2/ByeDPI-style local techniques, not imports of either upstream executable. Private protected test outbounds are generated for these explicit profiles, and the native DPTS validator independently accepts them. Legacy matrices, AUTO candidate dimensions and verified neural training allowlist remain unchanged. The new bounded preset compares the additional TCP profiles against plain; results do not promote AUTO. Full upstream integration is not yet implemented.
+
+## Local HTTP self-test
+
+`host example.com` and `suite local_http_hostcase` (with `learn off` or omitted) select the fixed local self-test. The host is a fixture label, never resolved. A plain and an HTTP Host field-name case request are checked over loopback for exact bytes, HTTP semantics and request-owned counters. No remote connections or TLS; the result is not learning evidence. `http-hostcase` is not a valid HTTPS/TLS/QUIC method in script matrices.

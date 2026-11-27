@@ -81,6 +81,7 @@ object DptsScript {
         "api_ipv4_sweep" to Zapret2SiteSearch.YOUTUBE_API_HOST,
         "sni_control" to Zapret2SiteSearch.YOUTUBE_API_HOST,
         "tls_versions" to Zapret2SiteSearch.YOUTUBE_API_HOST,
+        "local_http_hostcase" to "example.com",
     )
     val suites: Set<String> = suiteHosts.keys
     private val optionPattern = Regex("[a-z_]+=[a-zA-Z0-9,._-]+")
@@ -169,6 +170,8 @@ object DptsScript {
                     val fixedHost = suiteHosts[id]
                     if (fixedHost != null && currentHost != fixedHost)
                         throw DptsCompileException(lineNo, "this suite requires $fixedHost")
+                    if (id == "local_http_hostcase" && observe)
+                        throw DptsCompileException(lineNo, "local HTTP self-test cannot provide learning evidence")
                     suite = id
                 }
                 else -> {
@@ -442,6 +445,13 @@ object DptsPresets {
             name Original TLS version paired controls
             host youtubei.googleapis.com
             suite tls_versions
+        """.trimIndent(),
+        "HTTP · локальная проверка Host" to """
+            dpts 1
+            name Local HTTP Host field validation
+            host example.com
+            learn off
+            suite local_http_hostcase
         """.trimIndent(),
         "YouTube API · 8 IPv4 H1/H2" to """
             dpts 1

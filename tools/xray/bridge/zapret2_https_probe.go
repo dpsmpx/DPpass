@@ -209,6 +209,9 @@ func finalizeHTTPSDiagnostic(r Zapret2HTTPSResult, elapsed time.Duration,
 // private outbound, without changing the active VPN routing or strategy.
 // The UI calls this serially on a background thread, per-attempt timeout.
 func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2HTTPSResult {
+    if targetID=="local_http_hostcase" {
+        return probeLocalHTTPHostCase(strategy,timeout)
+    }
     // An explicit, validated public-host search is a separate protocol
     // from the legacy hardcoded YouTube/Google targets. It is never
     // reachable by ordinary routing, redirects or Android system DNS.
