@@ -6,6 +6,7 @@ import android.net.LocalSocketAddress
 import android.system.Os
 import android.system.OsConstants
 import android.system.StructPollfd
+import com.dpsmpx.dppass.app.RootHotspotLocalAccessPoint
 import com.dpsmpx.dppass.app.RootHotspotTunReceiver
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.engine.xray.JniXrayRuntime
@@ -18,21 +19,18 @@ object RootHotspotDeviceTests : DeviceSuite {
     override val cases = listOf(DeviceCase("localAccessPoint") { device ->
         val activity = device.launch()
         val wifi = device.context.getSystemService(android.net.wifi.WifiManager::class.java)
-        val result = java.util.concurrent.CompletableFuture<android.net.wifi.WifiManager.LocalOnlyHotspotReservation>()
-        device.main {
-            com.dpsmpx.dppass.app.RootHotspotLocalAccessPoint.request(
-                wifi, android.os.Handler(android.os.Looper.getMainLooper()),
-                { reservation -> if (!result.complete(reservation)) reservation.close() },
-                { result.completeExceptionally(IllegalStateException("Точка доступа остановилась")) },
-                { reason -> result.completeExceptionally(IllegalStateException("Отказ Android: $reason")) },
-            )
-        }
+        val pending = RootHotspotLocalAccessPoint.reservation()
         try {
-            result.get(20, java.util.concurrent.TimeUnit.SECONDS).use {
+            device.main {
+                RootHotspotLocalAccessPoint.request(
+                    wifi, android.os.Handler(android.os.Looper.getMainLooper()), pending, {},
+                )
+            }
+            pending.take(20_000).use {
                 expect(!activity.isFinishing) { "Экран закрыт во время запуска точки доступа" }
             }
         } finally {
-            result.cancel(false)
+            pending.close()
         }
     }, DeviceCase("holdAccessPoint") { device -> withAccessPoint(device, false) },
         DeviceCase("accessPointAndTun") { device -> withAccessPoint(device, true) },
@@ -152,21 +150,19 @@ object RootHotspotDeviceTests : DeviceSuite {
         // Ручной стенд: параметры временной AP — только в приватном каталоге приложения.
         val activity = device.launch()
         val wifi = device.context.getSystemService(android.net.wifi.WifiManager::class.java)
-        val result = java.util.concurrent.CompletableFuture<android.net.wifi.WifiManager.LocalOnlyHotspotReservation>()
+        val pending = RootHotspotLocalAccessPoint.reservation()
         val stopped = java.util.concurrent.CountDownLatch(1)
-        device.main {
-            com.dpsmpx.dppass.app.RootHotspotLocalAccessPoint.request(
-                wifi, android.os.Handler(android.os.Looper.getMainLooper()),
-                { reservation -> if (!result.complete(reservation)) reservation.close() },
-                { stopped.countDown() },
-                { reason -> result.completeExceptionally(IllegalStateException("Отказ Android: $reason")) },
-            )
-        }
         val info = File(device.context.cacheDir, "dppass-lab-ap")
         val release = File(device.context.cacheDir, "dppass-lab-ap.stop")
         release.delete()
         try {
-            result.get(20, java.util.concurrent.TimeUnit.SECONDS).use { reservation ->
+            device.main {
+                RootHotspotLocalAccessPoint.request(
+                    wifi, android.os.Handler(android.os.Looper.getMainLooper()), pending,
+                    { stopped.countDown() },
+                )
+            }
+            pending.take(20_000).use { reservation ->
                 val config = checkNotNull(reservation.softApConfiguration)
                 // getWifiSsid() появился в API 33; Zenfone — API 32.
                 @Suppress("DEPRECATION")
@@ -182,7 +178,7 @@ object RootHotspotDeviceTests : DeviceSuite {
                 expect(!activity.isFinishing) { "Экран закрыт во время стенда" }
             }
         } finally {
-            result.cancel(false)
+            pending.close()
             info.delete()
             release.delete()
         }

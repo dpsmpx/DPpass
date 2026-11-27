@@ -5,30 +5,43 @@ import android.os.Handler
 
 /** D-120: резервируем локальную AP без запроса системной интернет-раздачи. */
 internal object RootHotspotLocalAccessPoint {
-    /** Вызывать после согласия пользователя и выдачи разрешений Wi-Fi.
-     * Получатель владеет reservation и обязан закрыть её, в том числе при отмене запуска.
+    fun reservation() = RootHotspotReservation<WifiManager.LocalOnlyHotspotReservation> { it.close() }
+
+    /**
+     * Вызывать после согласия пользователя и выдачи разрешений Wi-Fi.
+     * pending владеет reservation до take; после take вызывающий обязан закрыть её.
      * onStarted не подтверждает интерфейс, изоляцию или готовность маршрута.
+     * onStopped является уведомлением, а не доказательством исчезновения AP.
      */
     fun request(
         wifi: WifiManager,
         handler: Handler,
-        onStarted: (WifiManager.LocalOnlyHotspotReservation) -> Unit,
+        pending: RootHotspotReservation<WifiManager.LocalOnlyHotspotReservation>,
         onStopped: () -> Unit,
-        onFailed: (Int) -> Unit,
     ) {
-        wifi.startLocalOnlyHotspot(object : WifiManager.LocalOnlyHotspotCallback() {
-            override fun onStarted(reservation: WifiManager.LocalOnlyHotspotReservation) {
-                try {
-                    onStarted.invoke(reservation)
-                } catch (failure: Exception) {
-                    runCatching { reservation.close() }.exceptionOrNull()?.let(failure::addSuppressed)
-                    throw failure
+        try {
+            wifi.startLocalOnlyHotspot(object : WifiManager.LocalOnlyHotspotCallback() {
+                override fun onStarted(reservation: WifiManager.LocalOnlyHotspotReservation) =
+                    pending.started(reservation)
+
+                override fun onStopped() {
+                    try {
+                        pending.failed(IllegalStateException("Точка доступа остановилась"))
+                    } finally {
+                        onStopped.invoke()
+                    }
                 }
+
+                override fun onFailed(reason: Int) =
+                    pending.failed(IllegalStateException("Отказ Android: $reason"))
+            }, handler)
+        } catch (failure: Throwable) {
+            try {
+                pending.failed(failure)
+            } catch (cleanup: Throwable) {
+                if (cleanup !== failure) failure.addSuppressed(cleanup)
             }
-
-            override fun onStopped() = onStopped.invoke()
-
-            override fun onFailed(reason: Int) = onFailed.invoke(reason)
-        }, handler)
+            throw failure
+        }
     }
 }
