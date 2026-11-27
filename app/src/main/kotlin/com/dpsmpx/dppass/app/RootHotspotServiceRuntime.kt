@@ -24,6 +24,8 @@ internal class RootHotspotServiceRuntime<R : Any>(
     }
 
     interface Egress<R : Any> {
+        /** Side-effect-free injection of the exact request claim. */
+        fun bindPendingClaim(claim: RootHotspotClaim) = Unit
         fun prepare(resource: R, identity: RootHotspotInterfaceEvidence.Identity,
                     owned: (String) -> Boolean): RootHotspotAdmission.Evidence
         fun attach(identity: RootHotspotInterfaceEvidence.Identity, owned: (String) -> Boolean): Boolean
@@ -51,6 +53,7 @@ internal class RootHotspotServiceRuntime<R : Any>(
         val owner = root.owner(processIdentity()) ?: return RootHotspotLifecycle.StartResult.REFUSED
         val claim = RootHotspotClaim.pending(request.generation, request.mode, owner, slot)
         pendingClaim = claim
+        egress.bindPendingClaim(claim)
         return controller.start(request, claim, timeoutMillis,
             dispatch = accessPoint::dispatch,
             discover = accessPoint::discover,

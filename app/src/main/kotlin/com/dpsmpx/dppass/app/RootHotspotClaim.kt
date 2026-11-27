@@ -111,6 +111,17 @@ internal class RootHotspotClaim private constructor(
      * A failed command is not proof that the record is absent. */
     fun confirm(): String = transaction(matches() + "\n" + liveOwner())
 
+    /** Recoverable per-claim marker and reserved numeric slot, never
+     * independently chosen by an egress factory. */
+    fun networkPlan(identity: RootHotspotInterfaceEvidence.Identity): RootHotspotNetworkPlan {
+        require(data.session == identity.session)
+        require(identity.name != "dpgateway")
+        val generation = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(data.token.toString().encodeToByteArray())
+            .take(8).joinToString("") { "%02x".format(it.toInt() and 255) }
+        return RootHotspotNetworkPlan(identity, "dpgateway", networkSlot, generation)
+    }
+
     /** Prepare a synchronous, exact-owner helper launch. App PID comes
      * only from the claim, never from a free-form command argument. */
     fun tunLaunch(socketPath: String, appUid: Int, source: String, digest: String): RootHotspotTunLaunch.Command {

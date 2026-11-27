@@ -33,6 +33,7 @@ internal class RootHotspotEngineDriver<R : Any>(
         check(!attempted)
         attempted = true
         selected = plan
+        if (!proof.platformSafe(resource, plan.identity) || !proof.guard(plan)) return false
         val compiled = config(plan.identity.session) ?: return false
         engineAttempted = true
         started = engine.start(compiled) { acquire(resource, plan) }
