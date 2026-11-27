@@ -231,8 +231,8 @@ jobs:
           set -euo pipefail
           baseline="$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)"
           candidate="$(find build/alpine-release-signed -maxdepth 1 -name '*.apk' -print -quit)"
-          python3 tools/localdpi/check_debug_apk.py "$baseline" "$candidate"
-          printf '%s\n' "commit=$GITHUB_SHA" "native_localdpi=enabled" "applicationId=com.dpsmpx.dppass" "physical_acceptance=pending" > build/alpine-release-signed/NATIVE_CANDIDATE.txt
+          python3 tools/localdpi/check_debug_apk.py "$baseline" "$candidate" \
+            --commit "$GITHUB_SHA" --manifest build/alpine-release-signed/NATIVE_CANDIDATE.txt
       - uses: actions/upload-artifact@v4
         with:
           name: DPpass-Alpine-Zapret2-ARM64-release-signed

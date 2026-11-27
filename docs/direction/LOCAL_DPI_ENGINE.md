@@ -1143,3 +1143,7 @@ The two local HTTP/TLS presets now share one finite executor, one pure report bu
 ## A7/A8 — combined local acceptance preset
 
 Extend the shared local suite introduced in d9fd41f with one combined nine-case preset, exact compiler budgets, protocol group totals and explicit PASS/NOT_VERIFIED. Require empty non-local metadata, zero unexpected counters and complete non-interrupted results. Reuse existing UI runner and partial-report handling; no new buttons, network methods, training or routing changes. Compiler/runner agreement and report tests added. New CI and physical Android verification pending.
+
+## A8/A9 — bind native candidate proof to the actual APK
+
+Strengthen the native APK gate beyond comparing debug and release ELF bytes: extract the packaged JNI library from each archive, require ARM64 shared-object ELF headers, and use the CI-pinned Go toolchain's version -m reader to verify main package/module, Android/ARM64/cgo/c-shared settings and presence (candidate) or absence (baseline) of the actual localdpi_native build tag. Reject duplicate relevant ZIP entries and changed pinned notices/reference components. Generate NATIVE_CANDIDATE.txt only after successful verification, recording commit, APK SHA-256 and JNI SHA-256; physical_acceptance remains pending. Unit tests cover malformed build settings, archives and manifest output. No signature, package, strategy, subscription or release publication policy changes. The full Android gate remains subject to CI; embedded settings alone do not establish device runtime success.

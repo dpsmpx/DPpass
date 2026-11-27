@@ -41,6 +41,8 @@ jobs:
           cache-dependency-path: tools/xray/go.sum
       - name: Check JNI local package allowlist and Gradle inputs
         run: python3 tools/xray/check_cgo_exports.py && python3 tools/xray/check_native_inputs.py && python3 tools/xray/native.py check-packages
+      - name: Test native candidate APK verification and manifest
+        run: python3 tools/localdpi/tests/check_debug_apk_test.py
       - name: Compile and test pinned ByeDPI packet module on host
         run: bash tools/localdpi/check_byedpi_packets.sh
       - name: Test ROOT pidfd identity and exit on Linux
