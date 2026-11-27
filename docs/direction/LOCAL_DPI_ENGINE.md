@@ -1155,3 +1155,7 @@ Local HTTP, TLS and combined acceptance DPTS reports now include the installed b
 ### A8 — Android compilation correction
 
 Android CI #46064378391 failed in :app:compileDebugKotlin: the private constructor of DptsBuildIdentity was exposed by the generated data-class copy() (KT-11914, warnings treated as errors). Use an ordinary immutable class with the same private constructor and read-only properties; no generated copy is needed. No warning suppression, compiler flag, digest logic, APK identity or signing change. Go CI #46064378305 passed. New Android CI pending.
+
+## A8 — offline candidate-report comparison
+
+Add a bounded, cross-platform Python verifier for the trusted CI candidate manifest and the combined nine-case DPTS report. Require exact APK/JNI hash matches, single-APK identity, completed run, nine ordered verified rows, exact per-case counters, group totals and aggregate PASS. Reject interrupted, partial, extra, swapped, duplicate or mismatching evidence. Distinguish malformed input from a nonmatching report; never promote the manifest's physical_acceptance=pending to a remote-network result. Include negative fixtures and Go CI host tests. No Android runtime, network methods, signature or subscription changes. Text is not authenticated, so physical acceptance remains open.

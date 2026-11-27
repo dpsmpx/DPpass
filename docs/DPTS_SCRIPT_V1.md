@@ -221,3 +221,13 @@ The fixed local HTTP and TLS suites also retain partial reports, with explicit i
 `host example.com`, `learn off`, `suite local_acceptance` runs all nine existing local HTTP/TLS checks in one report. The compiler and local runner declare 45 seconds of socket budget, with five seconds of scheduling margin in the runner. Per-group counts and overall ACCEPTANCE: PASS require complete successful results; missing, extra, interrupted or failed checks are NOT_VERIFIED. This is loopback integrity only, not physical network acceptance.
 
 Local HTTP/TLS acceptance reports include a BUILD line with the installed base APK SHA-256, split count, APK-contained ARM64 JNI SHA-256 (if unique), and version. Compare `base_apk_sha256` with `apk_sha256` and `apk_arm64_jni_sha256` with `jni_sha256` in NATIVE_CANDIDATE.txt for a single-APK installation. A split installation is explicitly labelled and its base digest is not a digest of the complete split set. Missing/ambiguous artifacts report unavailable, not a fabricated match. Hashing is streamed, cancellable between chunks and performed off the UI thread before starting the local probe budget. No paths or device identifiers are exported. A local PASS still verifies only the local fixtures; build identity and physical network acceptance are separate.
+
+### Offline comparison of a device report with CI
+
+Save the copied combined HTTP/TLS acceptance report as UTF-8 text and download NATIVE_CANDIDATE.txt from the trusted matching CI artifact. Run (Python 3.9+ on Linux or Windows):
+
+```sh
+python tools/localdpi/verify_acceptance_report.py NATIVE_CANDIDATE.txt device-report.txt
+```
+
+Exit 0 means the report's base APK and packaged ARM64 JNI hashes match the manifest, the single-APK installation is declared, and all nine ordered local cases, counters and totals are consistent with a completed PASS. Exit 1 means no verified match; exit 2 means invalid input or I/O failure. The tool does not authenticate a text report, prove actual device execution or certify remote network access. Obtain the manifest directly from trusted CI and retain the original device report. No uploaded data, network calls, subprocesses, or private device paths are required.
