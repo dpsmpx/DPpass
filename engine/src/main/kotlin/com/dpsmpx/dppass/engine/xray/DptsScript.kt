@@ -92,6 +92,7 @@ object DptsScript {
         "tls_versions" to Zapret2SiteSearch.YOUTUBE_API_HOST,
         "local_http_hostcase" to "example.com",
         "local_tls" to "example.com",
+        "local_acceptance" to "example.com",
     )
     val suites: Set<String> = suiteHosts.keys
     private val optionPattern = Regex("[a-z_]+=[a-zA-Z0-9,._-]+")
@@ -180,7 +181,7 @@ object DptsScript {
                     val fixedHost = suiteHosts[id]
                     if (fixedHost != null && currentHost != fixedHost)
                         throw DptsCompileException(lineNo, "this suite requires $fixedHost")
-                    if (id in setOf("local_http_hostcase", "local_tls") && observe)
+                    if (id in setOf("local_http_hostcase", "local_tls", "local_acceptance") && observe)
                         throw DptsCompileException(lineNo, "local self-test cannot provide learning evidence")
                     suite = id
                 }
@@ -294,7 +295,12 @@ object DptsScript {
         if (host == null) throw DptsCompileException(1, "missing host")
         if (probes.isEmpty() && suite == null)
             throw DptsCompileException(1, "no probes declared")
-        return DptsPlan(name, host, probes, budget, observe, suite)
+        return DptsPlan(name, host, probes, when (suite) {
+            "local_http_hostcase" -> 15000L
+            "local_tls" -> 30000L
+            "local_acceptance" -> 45000L
+            else -> budget
+        }, observe, suite)
     }
 
     private fun scriptTarget(host: String, kind: String, ip: Int, attempt: Int): String {
@@ -519,6 +525,13 @@ object DptsPresets {
             name Original TLS version paired controls
             host youtubei.googleapis.com
             suite tls_versions
+        """.trimIndent(),
+        "HTTP и TLS · полная локальная приёмка" to """
+            dpts 1
+            name Local HTTP and TLS executor acceptance
+            host example.com
+            learn off
+            suite local_acceptance
         """.trimIndent(),
         "HTTP · локальная проверка Host" to """
             dpts 1

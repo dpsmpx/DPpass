@@ -14,7 +14,8 @@ internal data class DptsLocalCase(
             row.appliedDelta == (if (method == "plain") 0L else 1L) &&
             row.skippedDelta == 0L && row.elapsedMillis >= 0L &&
             row.dnsFingerprint.isEmpty() && row.dnsAnswers == 0 &&
-            row.protocol.isEmpty()
+            row.protocol.isEmpty() && row.ipIndex == 0 &&
+            row.tlsStage.isEmpty() && row.alpn.isEmpty()
 }
 
 /** Fixed local cases only. Rows are admitted sequentially by the UI. */
@@ -29,15 +30,18 @@ internal enum class DptsLocalSuite(
         listOf("plain", "multisplit", "tlsrec-split").map {
             DptsLocalCase("TLS $version / $it", it, target, "local_tls_verified")
         }
-    });
+    }),
+    ACCEPTANCE("DPpass local HTTP/TLS", HTTP.cases + TLS.cases);
+
+    val budgetMs: Long get() = cases.size * 5000L
 
     fun report(rows: List<Zapret2GoogleProbe>, interruption: DptsInterruption? = null): String =
         buildString {
             appendLine("=== $reportLabel self-test ===")
             appendLine("Loopback only; no DNS, Internet or system trust changes.")
-            appendLine(if (this@DptsLocalSuite == HTTP)
-                "Exact HTTP request bytes, Host value and body."
-                else "Fresh private trust anchor, fixed TLS versions and application bytes.")
+            if (this@DptsLocalSuite != TLS) appendLine("Exact HTTP request bytes, Host value and body.")
+            if (this@DptsLocalSuite != HTTP) appendLine("Fresh private trust anchor, fixed TLS versions and application bytes.")
+            appendLine("budget_ms=$budgetMs")
             val completed = interruption == null && rows.size == cases.size
             appendLine(if (completed) "RUN: completed; training_eligible=false"
                 else "RUN: interrupted; reason=${interruption?.wire ?: "incomplete_rows"}; training_eligible=false")
@@ -52,6 +56,12 @@ internal enum class DptsLocalSuite(
                     " applied=${row.appliedDelta}; skipped=${row.skippedDelta}; elapsed_ms=${row.elapsedMillis}")
             }
             appendLine("Verified: $verified/${cases.size}")
+            for (group in cases.map { it.label.substringBefore(" / ") }.distinct()) {
+                val indices = cases.indices.filter { cases[it].label.substringBefore(" / ") == group }
+                val count = indices.count { i -> rows.getOrNull(i)?.let { cases[i].verified(it) } == true }
+                appendLine("$group: $count/${indices.size}")
+            }
+            appendLine("ACCEPTANCE: " + if (completed && verified == cases.size) "PASS" else "NOT_VERIFIED")
             appendLine("AUTO and training unchanged. No proof of remote access or packet segmentation.")
         }
 }

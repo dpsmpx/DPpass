@@ -309,6 +309,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             "tls_versions" -> startTLSVersionControl()
             "local_http_hostcase" -> startLocalHttpHostCase()
             "local_tls" -> startLocalTLS()
+            "local_acceptance" -> startLocalSuite(DptsLocalSuite.ACCEPTANCE)
             else -> {
                 statusText.text = context.getString(R.string.dpts_suite_unsupported)
             }
@@ -345,7 +346,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 // The monotonic window includes all JNI overhead, not just
                 // the configured per-probe socket timeout.
                 val startedAt = SystemClock.elapsedRealtime()
-                val budget = suite.cases.size * 5000L + 5000L
+                val budget = suite.budgetMs + 5000L
                 for (case in suite.cases) {
                     ensureActive()
                     requireDiagnosticSession()

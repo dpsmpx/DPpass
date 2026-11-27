@@ -1139,3 +1139,7 @@ Align diagnostic UDP admission with TCP: even an accidentally attached valid liv
 ## A7 — unify fixed local suite execution
 
 The two local HTTP/TLS presets now share one finite executor, one pure report builder and strict per-case outcome/counter verification. Preserve the existing three HTTP and six TLS cases and ordering; add an overall monotonic budget (sum of per-case limits plus 5 seconds overhead), partial reports for manual stop, execution failure, session changes and budget expiry, missing counts and automatic same-session clipboard copy. Never create a trainable DPTS run, and never copy stale-session results. No native ABI, model format, external endpoints, subscription or signer change. Host JVM report tests cover full/partial, mismatched outcomes, malformed metadata and counter validation. CI pending.
+
+## A7/A8 — combined local acceptance preset
+
+Extend the shared local suite introduced in d9fd41f with one combined nine-case preset, exact compiler budgets, protocol group totals and explicit PASS/NOT_VERIFIED. Require empty non-local metadata, zero unexpected counters and complete non-interrupted results. Reuse existing UI runner and partial-report handling; no new buttons, network methods, training or routing changes. Compiler/runner agreement and report tests added. New CI and physical Android verification pending.
