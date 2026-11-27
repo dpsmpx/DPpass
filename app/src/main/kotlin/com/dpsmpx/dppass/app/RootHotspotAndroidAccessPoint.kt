@@ -15,9 +15,11 @@ internal class RootHotspotAndroidAccessPoint(
     private val handler: Handler,
     private val gate: RootHotspotPlatformGate<WifiManager.LocalOnlyHotspotReservation>,
     private val notifyStopped: () -> Unit,
+    private val platform: RootHotspotPlatformObservationSource,
 ) {
     fun dispatch(pending: RootHotspotReservation<WifiManager.LocalOnlyHotspotReservation>) {
         check(Looper.myLooper() != handler.looper) { "ROOT hotspot worker must not block callback looper" }
+        check(platform.idleBeforeDispatch()) { "ROOT hotspot platform baseline unconfirmed" }
         gate.dispatched()
         try {
             RootHotspotLocalAccessPoint.request(wifi, handler, pending,
