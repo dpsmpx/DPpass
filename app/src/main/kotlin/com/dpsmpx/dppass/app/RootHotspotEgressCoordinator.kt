@@ -10,6 +10,7 @@ internal class RootHotspotEgressCoordinator<R : Any>(
     private val planFor: (RootHotspotInterfaceEvidence.Identity) -> RootHotspotNetworkPlan,
     private val driver: Driver<R>,
     private val firewall: RootHotspotFirewallEvidence.Observer,
+    private val routing: RootHotspotRoutingEvidence.Observer,
 ) : RootHotspotServiceRuntime.Egress<R> {
     interface Driver<R : Any> {
         fun platformSafe(resource: R, identity: RootHotspotInterfaceEvidence.Identity): Boolean
@@ -46,7 +47,7 @@ internal class RootHotspotEgressCoordinator<R : Any>(
         state = State.GUARD_ATTEMPTED
         guardAttempted = true
         if (!owned(selected.guard()) || !firewall.stable(selected.firewallExpected(false)) ||
-            !driver.verifyGuard(selected)) return refused()
+            !routing.stable(selected, false) || !driver.verifyGuard(selected)) return refused()
         state = State.ENGINE_ATTEMPTED
         engineAttempted = true
         if (!driver.startEngine(resource, selected)) return refused()
@@ -60,12 +61,13 @@ internal class RootHotspotEgressCoordinator<R : Any>(
         val selected = checkNotNull(plan)
         require(selected.identity == identity)
         if (!driver.platformSafe(checkNotNull(resource), identity) ||
-            !firewall.stable(selected.firewallExpected(false)) || !driver.verifyGuard(selected) ||
+            !firewall.stable(selected.firewallExpected(false)) ||
+            !routing.stable(selected, false) || !driver.verifyGuard(selected) ||
             RootHotspotAdmission.refusal(identity.session, driver.evidence(selected)) != null) return false
         state = State.ATTACH_ATTEMPTED
         attachAttempted = true
         if (!owned(selected.attach()) || !firewall.stable(selected.firewallExpected(true)) ||
-            !driver.verifyAttached(selected)) return false
+            !routing.stable(selected, true) || !driver.verifyAttached(selected)) return false
         state = State.READY
         return true
     }
@@ -79,7 +81,7 @@ internal class RootHotspotEgressCoordinator<R : Any>(
         detached = !attachAttempted
         try {
             if (attachAttempted) detached = owned(selected.detach()) &&
-                firewall.stable(selected.firewallExpected(false))
+                firewall.stable(selected.firewallExpected(false)) && routing.stable(selected, false)
         } finally {
             if (engineAttempted && driver.stopEngine(selected) && driver.verifyEngineStopped(selected)) {
                 engineAttempted = false

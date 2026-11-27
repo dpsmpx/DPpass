@@ -31,7 +31,21 @@ class RootHotspotEgressCoordinatorTest {
             RootCommandRunner.CompleteResult(if (firewallAvailable) 0 else 1,
                 (listOf("-P " + chain.chain + " ACCEPT") + rules).joinToString("\n", postfix = "\n"))
         }
-        val coordinator = RootHotspotEgressCoordinator({ plan }, this, firewall)
+        var routingAvailable = true
+        val routing = RootHotspotRoutingEvidence.Observer { args ->
+            val lookup = "400: from all iif wlan1 lookup 12000\n"
+            val terminal = "401: from all iif wlan1 unreachable\n"
+            val result = when {
+                args[2] == "route" -> if (args[1] == "-6") "" else
+                    (if (firewallAttached) "default dev dpgateway scope link metric 100\n" else "") +
+                        "unreachable default metric 32767\n"
+                args.size == 4 -> "0: from all lookup local\n" +
+                    (if (args[1] == "-4") lookup else "") + terminal
+                else -> if (args[1] == "-4") lookup else ""
+            }
+            RootCommandRunner.CompleteResult(if (routingAvailable) 0 else 1, result)
+        }
+        val coordinator = RootHotspotEgressCoordinator({ plan }, this, firewall, routing)
         val resource = Resource()
         val owned: (String) -> Boolean = {
             calls += when (it) {
@@ -122,6 +136,29 @@ class RootHotspotEgressCoordinatorTest {
         f.firewallAvailable = true
         assertTrue(f.stop())
         assertEquals(plan.retire(), f.coordinator.cleanup(identity))
+    }
+
+    @Test fun failedRoutingEvidenceBlocksEngineAndAttachment() {
+        val first = Fixture()
+        first.routingAvailable = false
+        assertFalse(first.prepare().rootBaseline)
+        assertFalse("engine" in first.calls)
+        val second = Fixture()
+        assertEquals(complete, second.prepare())
+        second.routingAvailable = false
+        assertFalse(second.attach())
+        assertFalse("attach-script" in second.calls)
+    }
+
+    @Test fun lostRoutingProofAfterDetachRetainsCleanup() {
+        val f = Fixture()
+        assertEquals(complete, f.prepare())
+        assertTrue(f.attach())
+        f.routingAvailable = false
+        assertFalse(f.stop())
+        assertThrows(IllegalStateException::class.java) { f.coordinator.cleanup(identity) }
+        f.routingAvailable = true
+        assertTrue(f.stop())
     }
 
     @Test fun partialEngineStartRequiresStop() {

@@ -29,7 +29,7 @@ internal class RootHotspotRootAccess(
     /** Only fixed inventory commands are allowed through this read path. */
     fun read(args: List<String>): RootCommandRunner.CompleteResult {
         val fixed = args.toList()
-        require(fixed in READ_COMMANDS) { "ROOT hotspot unsupported observation" }
+        require(fixed in READ_COMMANDS || RootHotspotRoutingEvidence.allowed(fixed)) { "ROOT hotspot unsupported observation" }
         return command(fixed.joinToString(" "))
     }
 
@@ -75,6 +75,7 @@ internal class RootHotspotRootAccess(
     fun inventory() = RootHotspotInventoryObserver(::read)
     fun tethering() = RootHotspotTetherObserver(::read)
     fun firewall() = RootHotspotFirewallEvidence.Observer(::read)
+    fun routing() = RootHotspotRoutingEvidence.Observer(::read)
 
     private inline fun <T> guarded(fallback: T, block: () -> T): T = try {
         block()
