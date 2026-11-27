@@ -210,6 +210,9 @@ func finalizeHTTPSDiagnostic(r Zapret2HTTPSResult, elapsed time.Duration,
 // private outbound, without changing the active VPN routing or strategy.
 // The UI calls this serially on a background thread, per-attempt timeout.
 func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2HTTPSResult {
+    if targetID=="local_tls12" || targetID=="local_tls13" {
+        return probeLocalTLS(strategy,targetID,timeout)
+    }
     if targetID=="local_http_hostcase" {
         return probeLocalHTTPHostCase(strategy,timeout)
     }

@@ -53,6 +53,7 @@ data class Zapret2GoogleProbe(
             "h3_api_http_rejected", "h3_api_content_type", "h3_api_body_failed",
             "h3_api_empty", "h3_api_body_limit", "h3_api_json_invalid",
             "h3_api_json_valid", "local_http_verified", "local_http_mismatch",
+            "local_tls_verified", "local_tls_mismatch",
         )
         fun unavailable(): Zapret2GoogleProbe =
             Zapret2GoogleProbe("contract_error", 0, 0, 0, 0, 0)

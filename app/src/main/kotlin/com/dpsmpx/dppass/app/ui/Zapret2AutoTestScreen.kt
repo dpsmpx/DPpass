@@ -302,9 +302,43 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             "sni_control" -> startSameIpSniControl()
             "tls_versions" -> startTLSVersionControl()
             "local_http_hostcase" -> startLocalHttpHostCase()
+            "local_tls" -> startLocalTLS()
             else -> {
                 statusText.text = context.getString(R.string.dpts_suite_unsupported)
             }
+        }
+    }
+
+    private fun startLocalTLS() {
+        val cases = listOf("1.2" to "local_tls12", "1.3" to "local_tls13").flatMap { (version, target) ->
+            listOf("plain", "multisplit", "tlsrec-split").map { Triple(version, target, it) }
+        }
+        progress.visibility = View.VISIBLE
+        progress.max = cases.size
+        progress.progress = 0
+        resultText.visibility = View.GONE
+        launchDiagnostic { _ ->
+            val report = StringBuilder("=== DPpass — local TLS self-test ===\n")
+            report.appendLine("Loopback only; fresh private trust anchor, fixed TLS versions and application bytes.")
+            report.appendLine("No DNS, Internet, system trust changes or model updates.")
+            var verified = 0
+            for ((index, case) in cases.withIndex()) {
+                val (version, target, method) = case
+                statusText.text = "DPTS: TLS " + version + " · " + method
+                val row = guardedProbe(method, target, 5000)
+                val expectedApplied = if (method == "plain") 0L else 1L
+                val ok = row.outcome == "local_tls_verified" && row.httpStatus == 0 &&
+                    row.bodyBytes == 0L && row.appliedDelta == expectedApplied && row.skippedDelta == 0L
+                if (ok) verified++
+                report.appendLine("TLS " + version + " / " + method + ": " +
+                    (if (ok) "verified" else row.outcome + " / unconfirmed") +
+                    "; applied=" + row.appliedDelta + "; skipped=" + row.skippedDelta +
+                    "; elapsed_ms=" + row.elapsedMillis)
+                progress.progress = index + 1
+            }
+            report.appendLine("Verified: " + verified + "/" + cases.size)
+            report.appendLine("Local TLS/application integrity only; no proof of remote accessibility or packet segmentation.")
+            publishCompletedReport("DPpass local TLS", report.toString(), R.string.dpts_copied)
         }
     }
 

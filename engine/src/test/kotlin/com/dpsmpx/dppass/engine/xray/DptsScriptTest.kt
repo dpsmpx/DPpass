@@ -191,7 +191,7 @@ class DptsScriptTest {
     }
 
     @Test fun allBundledPresetsCompileToBoundedPublicTargets() {
-        assertEquals(19, DptsPresets.scripts.size)
+        assertEquals(20, DptsPresets.scripts.size)
         for ((name, script) in DptsPresets.scripts) {
             val plan = DptsScript.compile(script)
             assertEquals(name.isNotBlank(), plan.title.isNotBlank())
@@ -289,7 +289,7 @@ class DptsScriptTest {
         for (id in DptsScript.suites) {
             val host = when (id) {
                 "google_youtube" -> "www.google.com"
-                "local_http_hostcase" -> "example.com"
+                "local_http_hostcase", "local_tls" -> "example.com"
                 "site_https", "site_quic" -> "example.org"
                 else -> "youtubei.googleapis.com"
             }
@@ -384,5 +384,28 @@ class DptsScriptTest {
         val mismatch = DptsScript.report(plan, "MOBILE", prepared, wrong)
         assertTrue(line(mismatch, "h1", "tlsrec-split").contains("matched=0/2"))
         assertTrue(line(mismatch, "h1", "tlsrec-split").endsWith("verified_reply_median_ms=-"))
+    }
+
+    @Test fun localTlsSuiteIsFixedAndCannotTrain() {
+        val source = "dpts 1\nhost example.com\nlearn off\nsuite local_tls"
+        val plan = DptsScript.compile(source)
+        assertEquals("local_tls", plan.suite)
+        assertTrue(plan.probes.isEmpty())
+        assertFalse(plan.observeLearning)
+        assertTrue(DptsLearning.confirmedWinners(plan, emptyList()).isEmpty())
+        for (invalid in listOf(source.replace("learn off", "learn observe"),
+            source.replace("example.com", "example.org"),
+            source + "\nhttps", source + "\nsuite local_http_hostcase")) {
+            assertFailsWith<DptsCompileException> { DptsScript.compile(invalid) }
+        }
+    }
+
+    @Test fun localTlsWireOutcomesAreNotRemoteContentEvidence() {
+        for (outcome in listOf("local_tls_verified", "local_tls_mismatch")) {
+            val result = Zapret2GoogleProbe.fromWire("v1\t$outcome\t0\t0\t5\t1\t0".encodeToByteArray())
+            assertEquals(outcome, result.outcome)
+            assertFalse(result.success)
+            assertFalse(result.httpReachable)
+        }
     }
 }

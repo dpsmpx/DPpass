@@ -1091,3 +1091,7 @@ CI 3da8182 passed (Go/Windows #46035240638, Android #46035240710). Implement the
 ## A4/A5/A7 — local HTTP leading OWS operation
 
 Add an independent same-length HTTP/1 operation restricted to existing optional whitespace after a single valid Host colon. Shared planner and exact executor validation; existing loopback DPTS suite runs the new operation alongside plain and Host name case. No remote activation, AUTO/model change, imported upstream source or claim of upstream equivalence. Parser and loopback regressions; CI and physical acceptance pending.
+
+## A4/A5/A7 — certificate-verified local TLS executor matrix
+
+Add a fixed loopback TLS 1.2/1.3 self-test, plain/multisplit/tlsrec-split, through the actual TCP adapter and current planner. Use per-case ephemeral ECDSA trust, exact name/version/ALPN and fixed bidirectional application data, bounded sockets and deadline, independent local outcomes and request-owned counters. Wire into the existing DPTS screen and presets without model admission, external DNS or network access. Host tests cover all six combinations, negative admission and unavailable selected planner. No device or remote-network result claimed; CI pending.
