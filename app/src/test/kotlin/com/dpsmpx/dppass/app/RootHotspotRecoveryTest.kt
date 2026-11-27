@@ -15,13 +15,13 @@ class RootHotspotRecoveryTest {
     private val otherBoot = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
     private val token = UUID.fromString("12345678-1234-1234-1234-123456789abc")
     private val owner = RootHotspotOwner(RootOwnerIdentity(123, "456"), boot)
-    private val record = RootHotspotOwnerRecord(session, token, owner)
-    private fun run(script: String) = RootCommandRunner.run(listOf("/bin/sh", "-c", script), 10_000).exitCode
+    private val record = RootHotspotOwnerRecord(session, token, owner, RootHotspotNetworkFixture.slot)
+    private fun run(script: String) = RootCommandRunner.run(listOf("/bin/sh", "-c", RootHotspotNetworkFixture.clean + script), 10_000).exitCode
 
     @Test fun recordIsCanonicalAndBounded() {
         val raw = record.line() + "\n"
         assertEquals(record, RootHotspotOwnerRecord.parse(raw))
-        for (bad in listOf(raw.trimEnd(), raw + "\n", raw.replace("v2", "v1"),
+        for (bad in listOf(raw.trimEnd(), raw + "\n", raw.replace("v3", "v2"), raw.replace(" 12000 ", " 9999 "), raw.replace(" 400\n", " 1000\n"),
             raw.replace(" 7 ", " 07 "), raw.replace(" 123 ", " 1 "), raw.replace(" 456 ", " 0456 "),
             raw.replace("VPN", "UNKNOWN"), raw.replace(token.toString(), "1-1-1-1-1"),
             raw.replace(boot.toString(), boot.toString().uppercase().replace("1", "A") + "x"),
@@ -40,8 +40,7 @@ class RootHotspotRecoveryTest {
                 writeText(otherBoot.toString() + "\n")
             }
             val marker = File(dir, "hotspot.owner").apply { writeText(record.line() + "\n") }
-            val claim = RootHotspotClaim(session, dir.path, token, adapterDirectories = emptyList(),
-                owner = owner, procRoot = proc.path)
+            val claim = RootHotspotClaim.fromRecord(record, dir.path, adapterDirectories = emptyList(), procRoot = proc.path)
             test(dir, bootFile, marker, claim)
         } finally {
             dir.deleteRecursively()
@@ -54,6 +53,13 @@ class RootHotspotRecoveryTest {
         assertTrue(marker.exists())
         assertEquals(0, run(claim.recoverAfter(":")))
         assertFalse(marker.exists())
+    }
+
+    @Test fun previousBootWithResidualNetworkRetainsExactRecord() = fixture { _, _, marker, claim ->
+        val raw = marker.readText()
+        assertFalse(run(RootHotspotNetworkFixture.dirty + claim.recoverAfter(":")) == 0)
+        assertEquals(raw, marker.readText())
+        assertEquals(0, run(claim.recoverAfter(":")))
     }
 
     @Test fun sameBootMissingProcessOrInvalidBootDoesNotAuthorizeRecovery() = fixture { dir, bootFile, marker, claim ->

@@ -19,12 +19,14 @@ internal class RootHotspotClaim(
         RootLifecycleTransaction.ZAPRET_DIRECTORY, RootLifecycleTransaction.BYEDPI_DIRECTORY,
     ),
     private val owner: RootHotspotOwner,
+    private val networkSlot: RootHotspotNetworkSlot,
     private val procRoot: String = "/proc",
 ) {
     private val marker = RootHotspotInterlock.marker(lockDirectory)
     private val adapters = adapterDirectories.toList()
     private val lock = "$lockDirectory/lifecycle.lock"
-    private val record = RootHotspotOwnerRecord(session, token, owner).line()
+    private val record = RootHotspotOwnerRecord(session, token, owner, networkSlot).line()
+    private val networkEvidence = RootHotspotCleanupEvidence(networkSlot.table, networkSlot.priority)
 
     init {
         require(lockDirectory.startsWith("/") && lockDirectory != "/" && !lockDirectory.endsWith("/"))
@@ -84,6 +86,7 @@ internal class RootHotspotClaim(
         absent() + " || exit 1",
         RootHotspotInterlock.adaptersIdle(adapters),
         liveOwner(),
+        networkEvidence.script(),
         "set -C",
         "printf '%s\\n' " + quote(record) + " > " + quote(marker),
         matches(),
@@ -108,6 +111,8 @@ internal class RootHotspotClaim(
         proof,
         RootHotspotInterlock.adaptersIdle(adapters),
         "(\n$verifiedCleanup\n) || exit 1",
+        networkEvidence.script(),
+        RootHotspotInterlock.adaptersIdle(adapters),
         matches(),
         proof,
         "rm " + quote(marker) + " || exit 1",
@@ -115,6 +120,20 @@ internal class RootHotspotClaim(
     ).joinToString("\n"))
 
     companion object {
+        /** Reconstruct only from an exact parsed record. Recovery still checks
+         * current ownership and orphan proof under the lock. */
+        fun fromRecord(
+            record: RootHotspotOwnerRecord,
+            lockDirectory: String = RootLifecycleTransaction.SHARED_LOCK_DIRECTORY,
+            adapterDirectories: List<String> = listOf(
+                RootLifecycleTransaction.ZAPRET_DIRECTORY, RootLifecycleTransaction.BYEDPI_DIRECTORY,
+            ),
+            procRoot: String = "/proc",
+        ): RootHotspotClaim = RootHotspotClaim(
+            record.session, lockDirectory, record.token, adapterDirectories = adapterDirectories,
+            owner = record.owner, networkSlot = record.networkSlot, procRoot = procRoot,
+        )
+
         /** Read under lock; caller must parse the complete successful stdout.
          * Inspection never grants ownership; recovery rechecks the exact record. */
         fun inspect(lockDirectory: String = RootLifecycleTransaction.SHARED_LOCK_DIRECTORY): String {

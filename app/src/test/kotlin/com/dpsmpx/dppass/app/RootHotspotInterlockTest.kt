@@ -15,7 +15,7 @@ class RootHotspotInterlockTest {
     )
     private val session = RootHotspotAdmission.Session(7, 12, RootHotspotAdmission.Mode.VPN)
     private fun run(script: String): Int =
-        RootCommandRunner.run(listOf("/bin/sh", "-c", script), 10_000).exitCode
+        RootCommandRunner.run(listOf("/bin/sh", "-c", RootHotspotNetworkFixture.clean + script), 10_000).exitCode
 
     private fun fixture(test: (File, File, File) -> Unit) {
         if (!File("/bin/sh").canExecute() || run("command -v flock >/dev/null") != 0) return
@@ -29,7 +29,7 @@ class RootHotspotInterlockTest {
 
     @Test fun claimRefusesActiveAdapterAndAllowsAfterStop() = fixture { shared, zapret, bye ->
         val tx = RootLifecycleTransaction(zapret.path, "first", shared.path, bye.path)
-        val claim = RootHotspotClaim(session, shared.path, adapterDirectories = listOf(zapret.path, bye.path), owner = owner())
+        val claim = RootHotspotClaim(session, shared.path, adapterDirectories = listOf(zapret.path, bye.path), owner = owner(), networkSlot = RootHotspotNetworkFixture.slot)
         assertEquals(0, run(tx.start(":", ":")))
         assertFalse(run(claim.acquire()) == 0)
         assertFalse(File(shared, "hotspot.owner").exists())
@@ -39,7 +39,7 @@ class RootHotspotInterlockTest {
     }
 
     @Test fun claimBlocksBothAdapterStartsBeforePrepareOrCleanup() = fixture { shared, zapret, bye ->
-        val claim = RootHotspotClaim(session, shared.path, adapterDirectories = listOf(zapret.path, bye.path), owner = owner())
+        val claim = RootHotspotClaim(session, shared.path, adapterDirectories = listOf(zapret.path, bye.path), owner = owner(), networkSlot = RootHotspotNetworkFixture.slot)
         val action = File(shared, "action")
         val touch = "touch '" + action.path + "'"
         assertEquals(0, run(claim.acquire()))
@@ -57,7 +57,7 @@ class RootHotspotInterlockTest {
     }
 
     @Test fun incompleteAdapterMetadataBlocksClaimWithoutModification() = fixture { shared, zapret, bye ->
-        val claim = RootHotspotClaim(session, shared.path, adapterDirectories = listOf(zapret.path, bye.path), owner = owner())
+        val claim = RootHotspotClaim(session, shared.path, adapterDirectories = listOf(zapret.path, bye.path), owner = owner(), networkSlot = RootHotspotNetworkFixture.slot)
         assertTrue(bye.mkdir())
         for (name in listOf("generation", "owner.identity", "pid", "pid6", "watch.pid",
             "pid.identity", "pid6.identity", "watch.pid.identity", "ipv6.intent", "pidfd.required",
@@ -71,7 +71,7 @@ class RootHotspotInterlockTest {
     }
 
     @Test fun ambiguousAdapterPathsAreRejected() = fixture { shared, zapret, bye ->
-        val claim = RootHotspotClaim(session, shared.path, adapterDirectories = listOf(zapret.path, bye.path), owner = owner())
+        val claim = RootHotspotClaim(session, shared.path, adapterDirectories = listOf(zapret.path, bye.path), owner = owner(), networkSlot = RootHotspotNetworkFixture.slot)
         zapret.writeText("not a directory")
         assertFalse(run(claim.acquire()) == 0)
         assertTrue(zapret.delete())

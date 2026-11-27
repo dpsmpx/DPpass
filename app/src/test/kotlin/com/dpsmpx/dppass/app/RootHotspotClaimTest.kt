@@ -16,7 +16,7 @@ class RootHotspotClaimTest {
     private val session = RootHotspotAdmission.Session(7, 12, RootHotspotAdmission.Mode.VPN)
 
     private fun run(script: String): Int =
-        RootCommandRunner.run(listOf("/bin/sh", "-c", script), 10_000).exitCode
+        RootCommandRunner.run(listOf("/bin/sh", "-c", RootHotspotNetworkFixture.clean + script), 10_000).exitCode
 
     private fun fixture(test: (File) -> Unit) {
         if (!File("/bin/sh").canExecute() || run("command -v flock >/dev/null") != 0) return
@@ -29,8 +29,8 @@ class RootHotspotClaimTest {
     }
 
     @Test fun claimSurvivesCommandExitAndRejectsAnotherOwner() = fixture { dir ->
-        val first = RootHotspotClaim(session, dir.path, owner = owner())
-        val second = RootHotspotClaim(session, dir.path, owner = owner())
+        val first = RootHotspotClaim(session, dir.path, owner = owner(), networkSlot = RootHotspotNetworkFixture.slot)
+        val second = RootHotspotClaim(session, dir.path, owner = owner(), networkSlot = RootHotspotNetworkFixture.slot)
         assertEquals(0, run(first.acquire()))
         val marker = File(dir, "hotspot.owner")
         val record = marker.readText()
@@ -45,8 +45,8 @@ class RootHotspotClaimTest {
     }
 
     @Test fun staleOwnerCannotExecuteOrReleaseNewClaim() = fixture { dir ->
-        val first = RootHotspotClaim(session, dir.path, owner = owner())
-        val second = RootHotspotClaim(session.copy(generation = 8), dir.path, owner = owner())
+        val first = RootHotspotClaim(session, dir.path, owner = owner(), networkSlot = RootHotspotNetworkFixture.slot)
+        val second = RootHotspotClaim(session.copy(generation = 8), dir.path, owner = owner(), networkSlot = RootHotspotNetworkFixture.slot)
         val action = File(dir, "action")
         val touch = "touch '" + action.path + "'"
         assertEquals(0, run(first.acquire()))
@@ -60,26 +60,26 @@ class RootHotspotClaimTest {
     }
 
     @Test fun failedCleanupRetainsClaimAndCanBeRetried() = fixture { dir ->
-        val claim = RootHotspotClaim(session, dir.path, owner = owner())
+        val claim = RootHotspotClaim(session, dir.path, owner = owner(), networkSlot = RootHotspotNetworkFixture.slot)
         assertEquals(0, run(claim.acquire()))
         val marker = File(dir, "hotspot.owner")
         val record = marker.readText()
         assertFalse(run(claim.releaseAfter("false")) == 0)
         assertEquals(record, marker.readText())
-        assertFalse(run(RootHotspotClaim(session, dir.path, owner = owner()).acquire()) == 0)
+        assertFalse(run(RootHotspotClaim(session, dir.path, owner = owner(), networkSlot = RootHotspotNetworkFixture.slot).acquire()) == 0)
         assertEquals(0, run(claim.releaseAfter(":")))
     }
 
     @Test fun malformedRecordAndDifferentSessionFailClosed() = fixture { dir ->
         val token = UUID.randomUUID()
-        val claim = RootHotspotClaim(session, dir.path, token, owner = owner())
+        val claim = RootHotspotClaim(session, dir.path, token, owner = owner(), networkSlot = RootHotspotNetworkFixture.slot)
         val marker = File(dir, "hotspot.owner")
         assertEquals(0, run(claim.acquire()))
         val valid = marker.readText()
-        val wrong = RootHotspotClaim(session.copy(downstreamIndex = 13), dir.path, token, owner = owner())
+        val wrong = RootHotspotClaim(session.copy(downstreamIndex = 13), dir.path, token, owner = owner(), networkSlot = RootHotspotNetworkFixture.slot)
         assertFalse(run(wrong.owned(":")) == 0)
         assertFalse(run(wrong.releaseAfter(":")) == 0)
-        for (bad in listOf("", valid.trimEnd(), valid + "\n", valid.replace("v2", "v1"))) {
+        for (bad in listOf("", valid.trimEnd(), valid + "\n", valid.replace("v3", "v2"))) {
             marker.writeText(bad)
             assertFalse(run(claim.owned(":")) == 0)
             assertFalse(run(claim.releaseAfter(":")) == 0)
@@ -91,7 +91,7 @@ class RootHotspotClaimTest {
     @Test fun nonregularAndSymlinkClaimsAreNotFollowed() = fixture { dir ->
         val marker = File(dir, "hotspot.owner")
         val target = File(dir, "outside").apply { writeText("unchanged") }
-        val claim = RootHotspotClaim(session, dir.path, owner = owner())
+        val claim = RootHotspotClaim(session, dir.path, owner = owner(), networkSlot = RootHotspotNetworkFixture.slot)
         Files.createSymbolicLink(marker.toPath(), target.toPath())
         try {
             assertFalse(run(claim.acquire()) == 0)
@@ -106,8 +106,31 @@ class RootHotspotClaimTest {
         assertTrue(marker.isDirectory)
     }
 
+    @Test fun dirtyNetworkPreventsClaimAndRetirementEvenWithSuccessfulCallback() = fixture { dir ->
+        val claim = RootHotspotClaim(session, dir.path, owner = owner(), networkSlot = RootHotspotNetworkFixture.slot)
+        val marker = File(dir, "hotspot.owner")
+        assertFalse(run(RootHotspotNetworkFixture.dirty + claim.acquire()) == 0)
+        assertFalse(marker.exists())
+        assertEquals(0, run(claim.acquire()))
+        val record = marker.readText()
+        assertFalse(run(RootHotspotNetworkFixture.dirty + claim.releaseAfter(":")) == 0)
+        assertEquals(record, marker.readText())
+        assertEquals(0, run(claim.releaseAfter(":")))
+    }
+
+    @Test fun wrongNetworkSlotCannotOperateOnExactToken() = fixture { dir ->
+        val token = UUID.randomUUID()
+        val owner = owner()
+        val claim = RootHotspotClaim(session, dir.path, token, owner = owner, networkSlot = RootHotspotNetworkFixture.slot)
+        val wrong = RootHotspotClaim(session, dir.path, token, owner = owner, networkSlot = RootHotspotNetworkSlot(12001, 401))
+        assertEquals(0, run(claim.acquire()))
+        assertFalse(run(wrong.owned(":")) == 0)
+        assertFalse(run(wrong.releaseAfter(":")) == 0)
+        assertEquals(0, run(claim.releaseAfter(":")))
+    }
+
     @Test fun lockContentionCannotCreateClaim() = fixture { dir ->
-        val claim = RootHotspotClaim(session, dir.path, waitSeconds = 1, owner = owner())
+        val claim = RootHotspotClaim(session, dir.path, waitSeconds = 1, owner = owner(), networkSlot = RootHotspotNetworkFixture.slot)
         val lock = File(dir, "lifecycle.lock")
         val holder = ProcessBuilder("/bin/sh", "-c",
             "exec 9>>\"\$1\"; flock -x 9 || exit 1; echo ready; read line", "fixture", lock.path)
