@@ -421,8 +421,23 @@ func (c *desyncConn) flushFirstLocked() error {
     payload := c.pending
     c.pending = nil
     isHello := zapret2.IsTLSClientHelloPrefix(payload)
-    n, err := c.desyncFirst(payload)
-    if err == nil && n != len(payload) { err = io.ErrShortWrite }
+    // The HTTP parser bounds the header inspection, not the size of the
+    // caller's body. Only a complete header inside that bound is planned.
+    // For TLS and other TCP payloads retain the existing bounded prefix.
+    first := payload
+    if !isHello && len(payload)>16*1024 {
+        if end:=bytes.Index(payload[:16*1024],[]byte("\r\n\r\n"));end>=0 {
+            header:=payload[:end+4]
+            if _,_,ok:=localdpi.HTTPHostRange(header);ok {first=header}
+        }
+    }
+    n, err := c.desyncFirst(first)
+    if err == nil && n != len(first) { err = io.ErrShortWrite }
+    if err == nil && len(first)<len(payload) {
+        tail:=payload[len(first):]
+        n,err=c.TCPConn.Write(tail)
+        if err==nil && n!=len(tail) {err=io.ErrShortWrite}
+    }
     if isHello {
         if err == nil {
             c.stageHelloSent.Store(true)
@@ -432,6 +447,7 @@ func (c *desyncConn) flushFirstLocked() error {
         }
     }
     if err != nil {
+        c.adaptiveSelection.Store(nil)
         c.plannerErr = fmt.Errorf("Zapret2 first TCP record failed: %w", err)
     }
     return c.plannerErr
@@ -449,10 +465,14 @@ func (c *desyncConn) Write(b []byte) (int, error) {
     if c.plannerErr != nil { return 0, c.plannerErr }
     if len(b) == 0 { return 0, nil }
     if c.firstDone { return c.TCPConn.Write(b) }
-    c.pending = append(c.pending, b...)
+    // Never copy an arbitrarily large caller Write into the first-packet
+    // buffer or send it through the planner IPC. Plan at most one maximum
+    // TLS record; everything beyond that prefix is ordinary stream data.
+    take := min(len(b),maxFirstTLSRecord-len(c.pending))
+    c.pending = append(c.pending, b[:take]...)
     waitHTTP := c.mode.kind==desyncAuto || c.mode.kind==desyncSplit ||
         c.mode.kind==desyncDisorder || c.mode.kind==desyncFake || c.mode.kind==desyncHTTPHostCase
-    if needsMoreFirstTLS(c.pending) || waitHTTP && needsMoreFirstHTTP(c.pending) {
+    if take==len(b) && (needsMoreFirstTLS(c.pending) || waitHTTP && needsMoreFirstHTTP(c.pending)) {
         if c.pendingTimer == nil {
             c.pendingTimer = time.AfterFunc(firstTLSBufferTimeout, func() {
                 c.writeMu.Lock()
@@ -463,7 +483,15 @@ func (c *desyncConn) Write(b []byte) (int, error) {
         return len(b), nil
     }
     if err := c.flushFirstLocked(); err != nil { return 0, err }
-    return len(b), nil
+    if take==len(b) {return take,nil}
+    n,err:=c.TCPConn.Write(b[take:])
+    if err==nil && n!=len(b)-take {err=io.ErrShortWrite}
+    if err!=nil {
+        c.adaptiveSelection.Store(nil)
+        c.plannerErr=fmt.Errorf("Zapret2 initial TCP tail failed: %w",err)
+        return take+n,c.plannerErr
+    }
+    return take+n,nil
 }
 
 // desyncFirst — первая запись с приёмом; не вышло до отправки хоть байта —

@@ -5,6 +5,7 @@ package bridge
 import (
     "bytes"
     "io"
+    "path/filepath"
     "testing"
     "time"
 
@@ -103,4 +104,87 @@ func TestIncompleteFirstTLSRecordHasBoundedFlush(t *testing.T) {
     done, remaining := conn.firstDone, len(conn.pending)
     conn.writeMu.Unlock()
     if !done || remaining != 0 { t.Fatalf("buffer still active after timer: done=%t pending=%d", done, remaining) }
+}
+
+
+// Real TCP sockets: a large initial Write must not be rejected by the
+// 32 KiB IPC limit, nor lose or duplicate the data after the first record.
+func TestLargeFirstTCPWritePreservesTail(t *testing.T) {
+    prev:=zapret2.PlannerSocket()
+    if err:=zapret2.SetPlannerSocket("");err!=nil {t.Fatal(err)}
+    t.Cleanup(func(){_ = zapret2.SetPlannerSocket(prev)})
+    hello:=clientHello(t,"example.test")
+    header:=[]byte("POST / HTTP/1.1\r\nHost: example.test\r\nContent-Length: 65536\r\n\r\n")
+    tail:=bytes.Repeat([]byte{0x7c},65536)
+    for _,tc:=range []struct{
+        name string
+        mode desyncMode
+        prefix []byte
+        want []byte
+        diagnostic bool
+        applied bool
+    }{
+        {"tls",desyncMode{kind:desyncTLSRecordSplit},hello,nil,false,true},
+        {"http-split",desyncMode{kind:desyncSplit},header,header,false,true},
+        {"http-rewrite",desyncMode{kind:desyncHTTPHostCase},header,
+            bytes.Replace(header,[]byte("\r\nHost:"),[]byte("\r\nhOSt:"),1),true,true},
+        {"raw",desyncMode{kind:desyncSplit},[]byte("SSH-2.0-example\r\n"),[]byte("SSH-2.0-example\r\n"),false,false},
+    } {
+        t.Run(tc.name,func(t *testing.T){
+            for _,fragmented:=range []bool{false,true} {
+                outgoing,incoming:=tcpCopyPair(t)
+                request:=&diagnosticRequestCounters{}
+                conn:=&desyncConn{TCPConn:outgoing,mode:tc.mode,diagnostic:tc.diagnostic,request:request}
+                _=outgoing.SetWriteDeadline(time.Now().Add(3*time.Second))
+                _=incoming.SetReadDeadline(time.Now().Add(3*time.Second))
+                expectedPrefix:=tc.want
+                if expectedPrefix==nil {
+                    p,err:=zapret2.BuildPlan(zapret2.TagPrefix+"tlsrec-split","tcp",tc.prefix)
+                    if err!=nil || !p.Applied {t.Fatal("TLS fixture",err)}
+                    expectedPrefix=p.Rewrite
+                }
+                first:=append(bytes.Clone(tc.prefix),tail...)
+                expected:=append(bytes.Clone(expectedPrefix),tail...)
+                before,_:=DesyncStats()
+                if fragmented {
+                    n,err:=conn.Write(first[:2])
+                    if n!=2 || err!=nil {t.Fatal(n,err)}
+                    first=first[2:]
+                }
+                n,err:=conn.Write(first)
+                if n!=len(first) || err!=nil {t.Fatal("large write",n,err)}
+                got:=make([]byte,len(expected))
+                if _,err=io.ReadFull(incoming,got);err!=nil || !bytes.Equal(got,expected) {
+                    t.Fatal("large write corrupted",err)
+                }
+                conn.writeMu.Lock()
+                done,remaining:=conn.firstDone,len(conn.pending)
+                conn.writeMu.Unlock()
+                if !done || remaining!=0 {t.Fatal("initial buffer retained")}
+                after,_:=DesyncStats()
+                if tc.diagnostic {
+                    applied,skipped:=request.finish()
+                    if applied!=1 || skipped!=0 || after!=before {t.Fatal("wrong diagnostic accounting")}
+                } else if tc.applied && after!=before+1 {t.Fatal("method skipped on large input")}
+                if err:=conn.Close();err!=nil {t.Fatal(err)}
+                var extra [1]byte
+                if n,err:=incoming.Read(extra[:]);n!=0 || err!=io.EOF {t.Fatal("unexpected extra bytes",n,err)}
+            }
+        })
+    }
+}
+
+func TestLargeFirstTCPWritePlannerFailureDoesNotSendTail(t *testing.T) {
+    prev:=zapret2.PlannerSocket()
+    if err:=zapret2.SetPlannerSocket(filepath.Join(t.TempDir(),"missing.sock"));err!=nil {t.Fatal(err)}
+    t.Cleanup(func(){_ = zapret2.SetPlannerSocket(prev)})
+    outgoing,incoming:=tcpCopyPair(t)
+    conn:=&desyncConn{TCPConn:outgoing,mode:desyncMode{kind:desyncSplit}}
+    first:=append([]byte("POST / HTTP/1.1\r\nHost: example.test\r\n\r\n"),bytes.Repeat([]byte("x"),65536)...)
+    if n,err:=conn.Write(first);err==nil || n!=0 {t.Fatal("planner failure did not stop first write",n,err)}
+    if n,err:=conn.Write([]byte("retry"));err==nil || n!=0 {t.Fatal("planner failure was not sticky",n,err)}
+    _=conn.Close()
+    _=incoming.SetReadDeadline(time.Now().Add(3*time.Second))
+    var b [1]byte
+    if n,err:=incoming.Read(b[:]);n!=0 || err!=io.EOF {t.Fatal("bytes escaped failed planner",n,err)}
 }
