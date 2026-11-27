@@ -17,7 +17,7 @@ object Zapret2ProbeCatalog {
     val strategies: List<String> = siteTcpMethods + "auto"
 
     // Additional profiles are explicit DPTS probes, not AUTO outputs.
-    val scriptOnlyStrategies = listOf("split-2", "fake-2", "fake-4", "fake-8")
+    val scriptOnlyStrategies = listOf("split-2", "fake-2", "fake-4", "fake-8", "multisplit")
     val scriptOnlyQuicStrategies = listOf("fake-2", "fake-4", "fake-8")
     val allProbeStrategies = strategies + scriptOnlyStrategies
     val scriptTcpMethods: Set<String> = (siteTcpMethods + scriptOnlyStrategies).toSet()

@@ -38,6 +38,7 @@ var zapret2TestStrategies = map[string]string{
     "disorder": "dppass:test-disorder",
     "auto": "dppass:test-auto",
     "split-2": "dppass:test-split-2",
+    "multisplit": "dppass:test-multisplit",
     "fake-2": "dppass:test-fake-2",
     "fake-4": "dppass:test-fake-4",
     "fake-8": "dppass:test-fake-8",
@@ -223,7 +224,7 @@ func ProbeZapret2HTTPS(strategy, targetID string, timeout time.Duration) Zapret2
     tag, valid := zapret2TestStrategies[strategy]
     if !valid { return out }
     // Extended profiles are reserved for the independent DPTS grammar.
-    switch strategy { case "split-2", "fake-2", "fake-4", "fake-8": return out }
+    switch strategy { case "split-2", "fake-2", "fake-4", "fake-8", "multisplit": return out }
     target, valid := zapret2TestTargets[targetID]
     dohProvider := ""
     matrix := false

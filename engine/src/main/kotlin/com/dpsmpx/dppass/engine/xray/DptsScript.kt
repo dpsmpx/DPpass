@@ -483,7 +483,7 @@ object DptsPresets {
             dpts 1
             name Extended native TCP profile comparison
             host youtubei.googleapis.com
-            https protocols=h1,h2 methods=plain,split-2,fake-2,fake-4,fake-8 ips=2 attempts=2 timeout_ms=5000
+            https protocols=h1,h2 methods=plain,split-2,fake-2,fake-4,fake-8,multisplit ips=2 attempts=2 timeout_ms=5000
         """.trimIndent(),
         "YouTube · public thumbnail" to """
             dpts 1

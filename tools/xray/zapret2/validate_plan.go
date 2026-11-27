@@ -18,7 +18,11 @@ func validatePlan(tag,network string,first []byte,p Plan) error {
         return errors.New("invalid planner metadata")
     }
     expectedCut,expectedApplied:=expectedPlanAction(mode,network,first)
-    if p.Applied!=expectedApplied || p.Cut!=expectedCut {
+    expectedCut2:=0
+    if mode.Kind==MultiSplit && network=="tcp" {
+        _,expectedCut2,_=multiSplitPositions(first)
+    }
+    if p.Applied!=expectedApplied || p.Cut!=expectedCut || p.Cut2!=expectedCut2 {
         return errors.New("planner action does not match requested method")
     }
     if !p.Applied {
@@ -37,6 +41,12 @@ func validatePlan(tag,network string,first []byte,p Plan) error {
         return nil
     }
     if p.Repeats!=0 {return errors.New("unexpected TCP repeat count")}
+    if mode.Kind==MultiSplit {
+        if len(p.Fake)!=0 || len(p.Rewrite)!=0 || p.Cut<=0 || p.Cut2<=p.Cut || p.Cut2>=len(first) {
+            return errors.New("invalid multi-split plan")
+        }
+        return nil
+    }
     if mode.Kind==HTTPHostCase {
         // Exact deterministic encoding, not merely any case-folded Host.
         expected,ok:=localdpi.HTTPHostNameCase(first)
@@ -74,6 +84,9 @@ func expectedPlanAction(mode Mode,network string,first []byte) (int,bool) {
     if mode.Kind==Pass {return 0,false}
     if network=="udp" {return 0,mode.Kind==Fake && IsQUICInitial(first)}
     switch mode.Kind {
+    case MultiSplit:
+        a,_,ok:=multiSplitPositions(first)
+        return a,ok
     case HTTPHostCase:
         _,_,ok:=localdpi.HTTPHostRange(first)
         return 0,ok

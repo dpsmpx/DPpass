@@ -12,6 +12,7 @@ type Plan struct {
     Network string `json:"network"`
     Applied bool `json:"applied"`
     Cut int `json:"cut,omitempty"`
+    Cut2 int `json:"cut2,omitempty"`
     Fake []byte `json:"fake,omitempty"`
     // Rewrite is an explicitly validated TLS record or HTTP field-name
     // encoding. Input bytes stay intact.
@@ -32,6 +33,14 @@ func buildPlan(tag, network string, first []byte, diagnostic bool) (Plan,error) 
     if mode.Kind == Pass { p.Reason = "intentional unmodified transport baseline"; return p, nil }
     switch network {
     case "tcp":
+        if mode.Kind == MultiSplit {
+            if a,b,ok:=multiSplitPositions(first);ok {
+                p.Applied,p.Cut,p.Cut2=true,a,b
+            } else {
+                p.Reason="complete TLS ClientHello with SNI required"
+            }
+            return p,nil
+        }
         if mode.Kind == HTTPHostCase {
             if payload, ok := localdpi.HTTPHostNameCase(first); ok {
                 p.Applied = true

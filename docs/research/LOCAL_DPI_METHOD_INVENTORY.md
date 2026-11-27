@@ -103,3 +103,7 @@ ROOT остаётся отдельной границей привилегий. 
 ## A4/A5 — HTTP operation connected to executor
 
 The previously isolated HTTPHostNameCase function is wired through the shared planner and real protected TCP adapter as an explicitly request-owned internal diagnostic operation (`http-hostcase`). It is not registered for AUTO, neural learning, TLS/QUIC, or the current user-facing DPTS grammar. The existing HTTP methods now receive bounded fragmented first headers. Exact wire validation and loopback regression cases are added; upstream-wide equivalence and physical acceptance remain open.
+
+## A5 — portable multisplit subset
+
+Reviewed pinned Zapret2 `lua/zapret-antidpi.lua` `multisplit`. Original resolves arbitrary markers and performs rawsend with replay/drop and optional sequence overlap. DPpass's independent restricted socket analogue uses two validated positions in one complete TLS ClientHello and ordered TCP writes; it preserves the stream and is exposed only through DPTS diagnostics. Raw packet behavior and equivalence are not claimed. No source imported in this step.

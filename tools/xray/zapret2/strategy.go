@@ -18,6 +18,7 @@ const (
     Split Kind = "split"
     SplitFirst Kind = "split-1"
     SplitSecond Kind = "split-2"
+    MultiSplit Kind = "multisplit" // explicit DPTS TCP probe
     Auto Kind = "auto"
     TLSRecordSplit Kind = "tlsrec-split"
     HTTPHostCase Kind = "http-hostcase" // explicit diagnostic only
@@ -41,6 +42,7 @@ func ParseTag(tag string) (Mode, bool, error) {
     case "split": return Mode{Kind: Split}, true, nil
     case "split-1": return Mode{Kind: SplitFirst}, true, nil
     case "split-2": return Mode{Kind: SplitSecond}, true, nil
+    case "multisplit": return Mode{Kind: MultiSplit}, true, nil
     case "tlsrec-split": return Mode{Kind: TLSRecordSplit}, true, nil
     case "pass": return Mode{Kind: Pass}, true, nil
     case "http-hostcase": return Mode{Kind: HTTPHostCase}, true, nil

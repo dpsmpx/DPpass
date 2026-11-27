@@ -14,7 +14,7 @@ import (
 
 func TestZapret2AllManualModesAndPrivateProbeTags(t *testing.T) {
     names := []string{"plain", "split-1", "split", "tlsrec-split",
-        "fake-3", "fake-5", "disorder", "auto", "split-2", "fake-2", "fake-4", "fake-8"}
+        "fake-3", "fake-5", "disorder", "auto", "split-2", "fake-2", "fake-4", "fake-8", "multisplit"}
     if len(zapret2TestStrategies) != len(names) {
         t.Fatalf("strategy catalog incomplete: %+v", zapret2TestStrategies)
     }

@@ -90,6 +90,7 @@ const (
     desyncPass desyncKind = 7
     desyncSplitSecond desyncKind = 8
     desyncHTTPHostCase desyncKind = 9
+    desyncMultiSplit desyncKind = 10
 )
 
 type desyncMode struct {
@@ -168,6 +169,7 @@ func parseDesyncTag(tag string) (desyncMode, bool, error) {
     case zapret2.Split: return desyncMode{kind: desyncSplit}, true, nil
     case zapret2.SplitFirst: return desyncMode{kind: desyncSplitFirst}, true, nil
     case zapret2.SplitSecond: return desyncMode{kind: desyncSplitSecond}, true, nil
+    case zapret2.MultiSplit: return desyncMode{kind: desyncMultiSplit}, true, nil
     case zapret2.TLSRecordSplit: return desyncMode{kind: desyncTLSRecordSplit}, true, nil
     case zapret2.HTTPHostCase: return desyncMode{kind: desyncHTTPHostCase}, true, nil
     case zapret2.Pass: return desyncMode{kind: desyncPass}, true, nil
@@ -241,10 +243,10 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
 	}
     // The new HTTP method is available only to an explicitly owned
     // diagnostic request, never a live subscription or AUTO candidate.
-    if mode.kind == desyncHTTPHostCase && (!diagnostic || request == nil || dest.Network != xnet.Network_TCP) {
+    if (mode.kind == desyncHTTPHostCase || mode.kind == desyncMultiSplit) && (!diagnostic || request == nil || dest.Network != xnet.Network_TCP) {
         recordDesyncSkipped(diagnostic,request)
         _ = conn.Close()
-        return nil, errors.New("HTTP Host case requires an explicit TCP diagnostic request")
+        return nil, errors.New("method requires an explicit TCP diagnostic request")
     }
 	if dest.Network == xnet.Network_TCP {
 		tcp, isTCP := conn.(*net.TCPConn)
@@ -557,6 +559,13 @@ func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
         recordDesyncSkipped(c.diagnostic,c.request)
         return c.TCPConn.Write(b)
     }
+    if c.mode.kind == desyncMultiSplit {
+        if !c.diagnostic || c.request==nil {
+            c.plannerErr=errors.New("multi-split outside explicit diagnostic request")
+            return 0,c.plannerErr
+        }
+        return c.writeMultiSplit(b,plan.Cut,plan.Cut2)
+    }
     if c.mode.kind == desyncHTTPHostCase {
         if !c.diagnostic || c.request==nil {
             c.plannerErr = errors.New("HTTP Host case outside explicit diagnostic request")
@@ -632,6 +641,7 @@ func modeTag(m desyncMode) string {
     case desyncSplit: return zapret2.TagPrefix + "split"
     case desyncSplitFirst: return zapret2.TagPrefix + "split-1"
     case desyncSplitSecond: return zapret2.TagPrefix + "split-2"
+    case desyncMultiSplit: return zapret2.TagPrefix + "multisplit"
     case desyncTLSRecordSplit: return zapret2.TagPrefix + "tlsrec-split"
     case desyncPass: return zapret2.TagPrefix + "pass"
     case desyncHTTPHostCase: return zapret2.TagPrefix + "http-hostcase"
@@ -641,6 +651,28 @@ func modeTag(m desyncMode) string {
     return zapret2.TagPrefix + "unsupported"
 }
 
+
+// writeMultiSplit uses ordinary TCP writes. The OS can coalesce segments;
+// this is not the raw-packet upstream executor. Never retry failed writes.
+func (c *desyncConn) writeMultiSplit(payload []byte,a,b int) (int,error) {
+    if a<=0 || b<=a || b>=len(payload) {
+        c.plannerErr=errors.New("invalid multi-split offsets")
+        return 0,c.plannerErr
+    }
+    total:=0
+    for _,part:=range [][]byte{payload[:a],payload[a:b],payload[b:]} {
+        n,err:=c.TCPConn.Write(part)
+        total+=n
+        if err!=nil || n!=len(part) {
+            if err==nil {err=io.ErrShortWrite}
+            c.plannerErr=err
+            recordDesyncSkipped(c.diagnostic,c.request)
+            return total,err
+        }
+    }
+    recordDesyncApplied(c.diagnostic,c.request)
+    return total,nil
+}
 
 // writeTLSRecordSplit sends two valid TLS handshake records separately on the
 // protected TCP socket, combining TLS-record and TCP-write fragmentation.

@@ -59,7 +59,7 @@ func checkPlannerObject(dec *json.Decoder,schema string) error {
         case "response": allowed=name=="plan" || name=="error"
         case "plan":
             switch name {
-            case "strategy","network","applied","cut","fake","rewrite","ttl","repeats","reason": allowed=true
+            case "strategy","network","applied","cut","cut2","fake","rewrite","ttl","repeats","reason": allowed=true
             }
         }
         if !allowed {return errors.New("unknown planner field")}
@@ -110,7 +110,7 @@ func readResponse(r io.Reader) (Response,error) {
     if err:=readFrame(r,MaxResponseFrame,&resp);err!=nil {return Response{},err}
     if resp.Error!="" {
         if resp.Plan.Strategy!="" || resp.Plan.Network!="" || resp.Plan.Applied ||
-            resp.Plan.Cut!=0 || resp.Plan.TTL!=0 || resp.Plan.Repeats!=0 ||
+            resp.Plan.Cut!=0 || resp.Plan.Cut2!=0 || resp.Plan.TTL!=0 || resp.Plan.Repeats!=0 ||
             len(resp.Plan.Fake)!=0 || len(resp.Plan.Rewrite)!=0 || resp.Plan.Reason!="" {
             return Response{},errors.New("planner returned both error and plan")
         }

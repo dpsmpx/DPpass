@@ -163,7 +163,7 @@ class DptsScriptTest {
         assertEquals(catalog.modelTcpMethods.size + catalog.modelQuicMethods.size, catalog.modelOutputs)
         assertEquals("dppass-strategy-mlp-v4:tcp=" + catalog.modelTcpMethods.joinToString(",") +
             ";quic=" + catalog.modelQuicMethods.joinToString(","), catalog.modelFormat)
-        assertEquals(setOf("split-2", "fake-2", "fake-4", "fake-8"), catalog.scriptOnlyStrategies.toSet())
+        assertEquals(setOf("split-2", "fake-2", "fake-4", "fake-8", "multisplit"), catalog.scriptOnlyStrategies.toSet())
         assertEquals(setOf("fake-2", "fake-4", "fake-8"), catalog.scriptOnlyQuicStrategies.toSet())
         for ((kind, methods) in listOf("https" to catalog.scriptTcpMethods, "quic" to catalog.scriptQuicMethods)) {
             for (method in methods) {
@@ -178,6 +178,16 @@ class DptsScriptTest {
         }
         assertTrue(catalog.scriptOnlyStrategies.none { it in DptsLearning.trainable })
         assertFalse("plain" in DptsLearning.trainable)
+    }
+
+    @Test fun multiSplitIsExplicitTcpDiagnosticOnly() {
+        val plan = DptsScript.compile("dpts 1\nhost www.google.com\nhttps protocols=h1,h2 methods=multisplit ips=1 attempts=1")
+        assertEquals(2, plan.probes.size)
+        assertTrue(plan.probes.all { it.method == "multisplit" })
+        assertFailsWith<DptsCompileException> {
+            DptsScript.compile("dpts 1\nhost www.google.com\nquic methods=multisplit")
+        }
+        assertFalse("multisplit" in DptsLearning.trainable)
     }
 
     @Test fun allBundledPresetsCompileToBoundedPublicTargets() {
