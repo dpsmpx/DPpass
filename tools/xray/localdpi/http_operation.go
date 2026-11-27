@@ -24,3 +24,16 @@ func PreservesHTTPHostNameCase(original,rewritten []byte) bool {
     return bytes.Equal(original[:a.nameStart],rewritten[:a.nameStart]) &&
         bytes.Equal(original[a.nameStart+4:],rewritten[a.nameStart+4:])
 }
+
+// HTTPHostOWSTab rewrites only existing optional whitespace immediately
+// after the Host colon. It is a same-length HTTP/1 diagnostic operation.
+// Do not insert whitespace or change authority, framing or body bytes.
+func HTTPHostOWSTab(first []byte) ([]byte,bool) {
+    field,ok:=httpHostField(first)
+    if !ok {return nil,false}
+    start:=field.nameStart+5
+    if start>=field.valueStart {return nil,false}
+    out:=bytes.Clone(first)
+    for i:=start;i<field.valueStart;i++ {out[i]='\t'}
+    return out,true
+}

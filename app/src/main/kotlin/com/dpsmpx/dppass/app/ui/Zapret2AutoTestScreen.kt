@@ -309,12 +309,12 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     }
 
     private fun startLocalHttpHostCase() {
+        val methods = listOf("plain", "http-hostcase", "http-hostows")
         progress.visibility = View.VISIBLE
-        progress.max = 2
+        progress.max = methods.size
         progress.progress = 0
         resultText.visibility = View.GONE
         launchDiagnostic { _ ->
-            val methods = listOf("plain", "http-hostcase")
             val report = StringBuilder("=== DPpass — local HTTP self-test ===\n")
             report.appendLine("Loopback only; no DNS, Internet, TLS or external HTTP requests.")
             report.appendLine("Checks exact request bytes, Host value and request body.")
@@ -331,7 +331,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     "; applied=" + row.appliedDelta + "; skipped=" + row.skippedDelta)
                 progress.progress = index + 1
             }
-            report.appendLine("Verified: " + verified + "/2")
+            report.appendLine("Verified: " + verified + "/" + methods.size)
             report.appendLine("AUTO and training unchanged. Not evidence of remote access or DPI bypass.")
             publishCompletedReport("DPpass local HTTP", report.toString(), R.string.dpts_copied)
         }

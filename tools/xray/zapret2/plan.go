@@ -41,6 +41,13 @@ func buildPlan(tag, network string, first []byte, diagnostic bool) (Plan,error) 
             }
             return p,nil
         }
+        if mode.Kind == HTTPHostOWS {
+            if payload,ok:=localdpi.HTTPHostOWSTab(first);ok {
+                p.Applied=true
+                p.Rewrite=payload
+            } else {p.Reason="complete HTTP/1 Host with leading OWS required"}
+            return p,nil
+        }
         if mode.Kind == HTTPHostCase {
             if payload, ok := localdpi.HTTPHostNameCase(first); ok {
                 p.Applied = true

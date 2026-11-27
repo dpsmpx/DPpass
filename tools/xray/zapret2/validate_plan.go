@@ -47,6 +47,13 @@ func validatePlan(tag,network string,first []byte,p Plan) error {
         }
         return nil
     }
+    if mode.Kind==HTTPHostOWS {
+        expected,ok:=localdpi.HTTPHostOWSTab(first)
+        if !ok || len(p.Fake)!=0 || !bytes.Equal(expected,p.Rewrite) {
+            return errors.New("invalid HTTP Host OWS rewrite")
+        }
+        return nil
+    }
     if mode.Kind==HTTPHostCase {
         // Exact deterministic encoding, not merely any case-folded Host.
         expected,ok:=localdpi.HTTPHostNameCase(first)
@@ -87,6 +94,9 @@ func expectedPlanAction(mode Mode,network string,first []byte) (int,bool) {
     case MultiSplit:
         a,_,ok:=multiSplitPositions(first)
         return a,ok
+    case HTTPHostOWS:
+        _,ok:=localdpi.HTTPHostOWSTab(first)
+        return 0,ok
     case HTTPHostCase:
         _,_,ok:=localdpi.HTTPHostRange(first)
         return 0,ok

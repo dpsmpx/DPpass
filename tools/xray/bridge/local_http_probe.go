@@ -17,7 +17,7 @@ import (
 func probeLocalHTTPHostCase(method string, timeout time.Duration) Zapret2HTTPSResult {
     started:=time.Now()
     out:=Zapret2HTTPSResult{Outcome:"invalid_strategy"}
-    if method!="plain" && method!="http-hostcase" {return out}
+    if method!="plain" && method!="http-hostcase" && method!="http-hostows" {return out}
     if timeout<time.Second || timeout>5*time.Second {
         out.Outcome="invalid_timeout"
         return out
@@ -51,9 +51,15 @@ func probeLocalHTTPHostCase(method string, timeout time.Duration) Zapret2HTTPSRe
     original:=[]byte("POST /self-check HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\nbody")
     expected:=bytes.Clone(original)
     var writer io.Writer=client
-    if method=="http-hostcase" {
-        expected=bytes.Replace(expected,[]byte("\r\nHost:"),[]byte("\r\nhOSt:"),1)
-        conn:=&desyncConn{TCPConn:client,mode:desyncMode{kind:desyncHTTPHostCase},
+    if method!="plain" {
+        kind:=desyncHTTPHostCase
+        if method=="http-hostcase" {
+            expected=bytes.Replace(expected,[]byte("\r\nHost:"),[]byte("\r\nhOSt:"),1)
+        } else {
+            kind=desyncHTTPHostOWS
+            expected=bytes.Replace(expected,[]byte("\r\nHost: "),[]byte("\r\nHost:\t"),1)
+        }
+        conn:=&desyncConn{TCPConn:client,mode:desyncMode{kind:kind},
             diagnostic:true,request:counters}
         defer conn.Close()
         writer=conn
@@ -73,7 +79,7 @@ func probeLocalHTTPHostCase(method string, timeout time.Duration) Zapret2HTTPSRe
         string(body)!="body" {return finish("local_http_mismatch")}
     result:=finish("local_http_verified")
     if method=="plain" && (result.AppliedDelta!=0 || result.SkippedDelta!=0) ||
-        method=="http-hostcase" && (result.AppliedDelta!=1 || result.SkippedDelta!=0) {
+        method!="plain" && (result.AppliedDelta!=1 || result.SkippedDelta!=0) {
         result.Outcome="local_http_mismatch"
     }
     return result

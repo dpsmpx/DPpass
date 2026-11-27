@@ -1087,3 +1087,7 @@ CI a2dac3b passed (Go/Windows #46033243681, Android #46033243634); the signed na
 ## A5/A7 — restricted portable multisplit diagnostic
 
 CI 3da8182 passed (Go/Windows #46035240638, Android #46035240710). Implement the portable ordered TCP-write subset of the Zapret2 multisplit family as a new explicit DPTS-only method, using two deterministic offsets on a complete TLS ClientHello with SNI. Shared local/Alpine plan and strict response validation, actual socket execution with sticky failure and request-owned accounting; no new AUTO/model output. Extend the existing bounded TCP matrix preset. Real loopback and planner contract tests plus compiler admission tests. Reference: Zapret2 v1.0.7 lua/zapret-antidpi.lua `multisplit`; independently implemented, not a source import or equivalent raw-packet method. No overlap, rawsend, packet replay or ROOT capability claim. Kernel TCP coalescing and real-network effectiveness remain unverified; new CI pending.
+
+## A4/A5/A7 — local HTTP leading OWS operation
+
+Add an independent same-length HTTP/1 operation restricted to existing optional whitespace after a single valid Host colon. Shared planner and exact executor validation; existing loopback DPTS suite runs the new operation alongside plain and Host name case. No remote activation, AUTO/model change, imported upstream source or claim of upstream equivalence. Parser and loopback regressions; CI and physical acceptance pending.
