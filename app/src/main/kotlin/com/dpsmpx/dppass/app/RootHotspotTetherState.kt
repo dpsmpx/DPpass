@@ -8,11 +8,21 @@ package com.dpsmpx.dppass.app
  */
 internal object RootHotspotTetherState {
     enum class State { LOCAL_ONLY, TETHERED, AVAILABLE, UNAVAILABLE }
-    data class Snapshot(val interfaces: Map<String, State>, val upstreamWanted: Boolean) {
+    data class Snapshot(
+        val interfaces: Map<String, State>,
+        val upstreamWanted: Boolean,
+        val currentUpstream: String,
+    ) {
         val localOnly: Set<String> get() = interfaces.filterValues { it == State.LOCAL_ONLY }.keys
-        val idle: Boolean get() = !upstreamWanted && interfaces.values.none {
+        private val noUpstream: Boolean get() = !upstreamWanted && currentUpstream == "null"
+        val idle: Boolean get() = noUpstream && interfaces.values.none {
             it == State.LOCAL_ONLY || it == State.TETHERED
         }
+
+        /** Global candidate only. Does not establish request ownership or
+         * absence of hardware/software offload. */
+        val isolatedLocalOnly: String? get() =
+            localOnly.singleOrNull()?.takeIf { noUpstream && State.TETHERED !in interfaces.values }
     }
 
     private val row = Regex("([a-zA-Z0-9_][a-zA-Z0-9_-]{0,14}) - (LocalHotspotState|TetheredState|AvailableState|UnavailableState) - lastError = 0")
@@ -30,10 +40,17 @@ internal object RootHotspotTetherState {
         if (lines.indexOf("Tethering:") >= start) return null
         val end = lines.indexOfFirst { upstream.matches(it) }
         if (end <= start || lines.count { upstream.matches(it) } != 1) return null
-        if (lines.getOrNull(end + 1)?.startsWith("Current upstream interface(s): ") != true ||
-            lines.getOrNull(end + 2) != "Hardware offload:") return null
+        val upstreamLine = lines.getOrNull(end + 1) ?: return null
+        val prefix = "Current upstream interface(s): "
+        if (!upstreamLine.startsWith(prefix) || lines.getOrNull(end + 2) != "Hardware offload:") return null
+        val currentUpstream = upstreamLine.removePrefix(prefix)
+        if (currentUpstream.isBlank() || currentUpstream.length > 1024) return null
         val log = lines.indexOf("Log:")
         if (log <= end + 2 || lines.count { it == "Log:" } != 1) return null
+        // --short must finish with the explicit AOSP sentinel. A header
+        // alone can be a truncated dump, not evidence that no AP exists.
+        if (lines.getOrNull(log + 1) != "<log removed for brevity>" ||
+            lines.drop(log + 2).any { it.isNotEmpty() }) return null
         val states = linkedMapOf<String, State>()
         for (line in lines.subList(start + 1, end)) {
             val match = row.matchEntire(line) ?: return null
@@ -48,7 +65,7 @@ internal object RootHotspotTetherState {
             }
             if (states.put(name, state) != null) return null
         }
-        return Snapshot(states.toMap(), lines[end] == "Upstream wanted: true")
+        return Snapshot(states.toMap(), lines[end] == "Upstream wanted: true", currentUpstream)
     }
 }
 

@@ -33,6 +33,29 @@ class RootHotspotTetherStateTest {
         assertFalse(requireNotNull(RootHotspotTetherState.parse(dump(upstream = true))).idle)
     }
 
+    @Test fun onlySingleLocalOnlyWithoutAnyUpstreamIsACandidate() {
+        val local = "wlan1 - LocalHotspotState - lastError = 0"
+        val second = "wlan2 - LocalHotspotState - lastError = 0"
+        val tethered = "rndis0 - TetheredState - lastError = 0"
+        assertEquals("wlan1", RootHotspotTetherState.parse(dump(local))?.isolatedLocalOnly)
+        for (raw in listOf(dump(local, second), dump(local, tethered), dump(local, upstream = true),
+            dump(local).replace("interface(s): null", "interface(s): [rmnet0]"))) {
+            assertNull(requireNotNull(RootHotspotTetherState.parse(raw)).isolatedLocalOnly)
+        }
+        assertFalse(requireNotNull(RootHotspotTetherState.parse(
+            dump().replace("interface(s): null", "interface(s): [rmnet0]"))).idle)
+    }
+
+    @Test fun shortDumpRequiresTerminalSentinelAndNoUnexpectedTail() {
+        val good = dump()
+        for (raw in listOf(good.substringBefore("  <log removed for brevity>"),
+            good.replace("<log removed for brevity>", "<unexpected>"),
+            good + "unparsed extra content\n",
+            good.replace("interface(s): null", "interface(s): "))) {
+            assertNull(RootHotspotTetherState.parse(raw))
+        }
+    }
+
     @Test fun rejectsUnrecognizedAndDuplicateInterfaceRows() {
         for (rows in listOf(
             arrayOf("wlan1 - UnknownState - lastError = 0"),
@@ -66,6 +89,11 @@ class RootHotspotTetherStateTest {
         calls = 0
         assertNull(RootHotspotTetherObserver {
             RootCommandRunner.CompleteResult(0, if (calls++ == 0) first else dump())
+        }.stable())
+        calls = 0
+        assertNull(RootHotspotTetherObserver {
+            RootCommandRunner.CompleteResult(0, if (calls++ == 0) first
+                else first.replace("interface(s): null", "interface(s): [rmnet0]"))
         }.stable())
         assertNull(RootHotspotTetherObserver { RootCommandRunner.CompleteResult(1, first) }.stable())
         assertNull(RootHotspotTetherObserver { error("unavailable") }.stable())
