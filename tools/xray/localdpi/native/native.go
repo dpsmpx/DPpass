@@ -67,17 +67,26 @@ func TLSNameAgrees(first []byte) bool {
         C.size_t(len(prefix)),C.size_t(start),C.size_t(end))==1
 }
 
-const httpCaseFixture = "POST /self-check HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\nbody"
-
-// HTTPHostCaseFixture invokes upstream MH_HMIX only on the fixed local
-// request. The strict Go reference independently verifies every byte.
-func HTTPHostCaseFixture(first []byte) ([]byte,bool) {
-    if !bytes.Equal(first,[]byte(httpCaseFixture)) {return nil,false}
+// HTTPHostCase applies the pinned operation only to a synthetic request
+// built from a strict Go-validated authority. The original request never
+// crosses this C ABI. A separate Go reference checks the entire result.
+func HTTPHostCase(first []byte) ([]byte,bool) {
+    start,end,ok:=localdpi.HTTPHostRange(first)
+    if !ok || end-start<2 || end-start>253 {return nil,false}
+    // HTTPHostRange has checked the single Host field and its OWS.
+    colon:=start-1
+    for colon>=0 && (first[colon]==' ' || first[colon]=='\t') {colon--}
+    if colon<4 || first[colon]!=':' || !bytes.EqualFold(first[colon-4:colon],[]byte("Host")) {
+        return nil,false
+    }
     expected,ok:=localdpi.HTTPHostNameCase(first)
     if !ok {return nil,false}
-    out:=make([]byte,len(first))
-    rc:=C.dp_http_host_case_fixture((*C.uint8_t)(unsafe.Pointer(&first[0])),
-        C.size_t(len(first)),(*C.uint8_t)(unsafe.Pointer(&out[0])),C.size_t(len(out)))
-    if rc!=0 || !bytes.Equal(out,expected) {return nil,false}
+    var field [4]byte
+    rc:=C.dp_http_host_case((*C.uint8_t)(unsafe.Pointer(&first[start])),
+        C.size_t(end-start),(*C.uint8_t)(unsafe.Pointer(&field[0])),C.size_t(len(field)))
+    if rc!=0 {return nil,false}
+    out:=bytes.Clone(first)
+    copy(out[colon-4:colon],field[:])
+    if !bytes.Equal(out,expected) {return nil,false}
     return out,true
 }

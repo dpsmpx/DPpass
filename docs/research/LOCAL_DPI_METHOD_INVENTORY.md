@@ -115,3 +115,7 @@ The pinned ByeDPI `parse_tls` from the already imported `packets.c` is now calle
 ## A4 — native MH_HMIX on fixed HTTP fixture
 
 A restricted ABI now executes pinned ByeDPI mod_http with MH_HMIX on the exact existing local POST fixture only. No arbitrary input reaches the unsafe legacy parser. Independent byte-exact Go reference expects hOsT on the fixture, replacing the previous diagnostic spelling hOSt. The tagged in-process diagnostic planner uses the native result when available; general HTTP, ordinary builds and selected Alpine IPC retain the portable operation. No claim of general mod_http support or DPI effectiveness.
+
+## A4 — bounded HTTP authority adapter
+
+The fixed-only native MH_HMIX fixture has been replaced by a bounded synthetic header adapter for eligible HTTP/1.x requests. The original request is never passed to legacy parse_http/mod_http; the common Go parser remains authoritative, and all bytes except the four field-name bytes are preserved. Native admission is narrower than the portable parser, so ports and literals retain the existing portable result. This is not the complete upstream HTTP mutation family; no production or AUTO admission is added.

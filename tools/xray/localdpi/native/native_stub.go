@@ -12,4 +12,4 @@ func Inspect(_ []byte) (Hint,bool) {return Unknown,false}
 func TLSNameAgrees(_ []byte) bool {return false}
 
 // No native HTTP mutation is available in the portable build.
-func HTTPHostCaseFixture(_ []byte) ([]byte,bool) {return nil,false}
+func HTTPHostCase(_ []byte) ([]byte,bool) {return nil,false}

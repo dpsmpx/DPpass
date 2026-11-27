@@ -67,23 +67,40 @@ int dp_tls_name_agrees(const uint8_t *data, size_t size,
            name == (const char *)data + start;
 }
 
-int dp_http_host_case_fixture(const uint8_t *data, size_t size,
-                              uint8_t *output, size_t capacity)
+static int ascii_letter(uint8_t c)
 {
-    static const char original[] =
-        "POST /self-check HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\nbody";
-    static const char expected[] =
-        "POST /self-check HTTP/1.1\r\nhOsT: example.com\r\nContent-Length: 4\r\n\r\nbody";
-    if (!data || !output || size != sizeof(original)-1 ||
-        capacity < size || memcmp(data,original,size) != 0)
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
+
+int dp_http_host_case(const uint8_t *host, size_t size,
+                      uint8_t *output, size_t capacity)
+{
+    static const char prefix[] = "GET / HTTP/1.1\r\nHost: ";
+    static const char suffix[] = "\r\n\r\n";
+    const size_t field = sizeof(prefix)-1-6;
+    if (!host || !output || size < 2 || size > 253 || capacity < 4)
         return -1;
-    // Upstream parse_http/mod_http have unbounded backward scans on
-    // arbitrary input. Only this exact known request may reach them.
-    char scratch[sizeof(original)];
-    memcpy(scratch,original,sizeof(original));
-    if (mod_http(scratch,size,MH_HMIX) != 0 ||
-        memcmp(scratch,expected,sizeof(expected)) != 0)
+    // The original parser scans backward over whitespace/digits.
+    // Bound its grammar before construction: no ports, IPv6 literals,
+    // embedded delimiters, whitespace or all-digit authorities.
+    if (!ascii_letter(host[0]) || !ascii_letter(host[size-1]))
         return -1;
-    memcpy(output,scratch,size);
+    for (size_t i=0;i<size;++i) {
+        uint8_t ch=host[i];
+        if (!ascii_letter(ch) && !(ch >= '0' && ch <= '9') &&
+            ch != '.' && ch != '-') return -1;
+    }
+    char scratch[sizeof(prefix)+253+sizeof(suffix)];
+    char expected[sizeof(scratch)];
+    size_t total=sizeof(prefix)-1+size+sizeof(suffix)-1;
+    memcpy(scratch,prefix,sizeof(prefix)-1);
+    memcpy(scratch+sizeof(prefix)-1,host,size);
+    memcpy(scratch+sizeof(prefix)-1+size,suffix,sizeof(suffix));
+    memcpy(expected,scratch,total+1);
+    memcpy(expected+field,"hOsT",4);
+    if (mod_http(scratch,total,MH_HMIX) != 0 ||
+        memcmp(scratch,expected,total+1) != 0)
+        return -1;
+    memcpy(output,scratch+field,4);
     return 0;
 }

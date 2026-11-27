@@ -101,30 +101,39 @@ int main(void)
     assert(dp_tls_record_split(input,sizeof(input),512,out,sizeof(out))==-1);
     assert(dp_tls_record_split(input,sizeof(input),10,out,sizeof(input))==-1);
     for (size_t i=0;i<sizeof(out);++i) assert(out[i]==0xA5);
-    const uint8_t http_fixture[] =
-        "POST /self-check HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\nbody";
-    const uint8_t http_expected[] =
-        "POST /self-check HTTP/1.1\r\nhOsT: example.com\r\nContent-Length: 4\r\n\r\nbody";
-    uint8_t http_out[sizeof(http_fixture)];
-    memset(http_out,0xA5,sizeof(http_out));
-    assert(dp_http_host_case_fixture(http_fixture,sizeof(http_fixture)-1,http_out,sizeof(http_out))==0);
-    assert(!memcmp(http_out,http_expected,sizeof(http_expected)-1));
-    assert(http_out[sizeof(http_out)-1]==0xA5);
-    for (size_t n=0;n<sizeof(http_fixture)-1;++n) {
+    uint8_t http_out[5];
+    const char *valid[]={"example.com","a1.example","LOCAL.test","ab","a-b.example"};
+    for (size_t i=0;i<sizeof(valid)/sizeof(valid[0]);++i) {
         memset(http_out,0xA5,sizeof(http_out));
-        assert(dp_http_host_case_fixture(http_fixture,n,http_out,sizeof(http_out))==-1);
-        for (size_t i=0;i<sizeof(http_out);++i) assert(http_out[i]==0xA5);
+        assert(dp_http_host_case((const uint8_t *)valid[i],strlen(valid[i]),http_out,sizeof(http_out))==0);
+        assert(!memcmp(http_out,"hOsT",4) && http_out[4]==0xA5);
     }
-    for (size_t i=0;i<sizeof(http_fixture)-1;++i) {
-        uint8_t altered[sizeof(http_fixture)];
-        memcpy(altered,http_fixture,sizeof(altered));
-        altered[i]^=1;
-        assert(dp_http_host_case_fixture(altered,sizeof(altered)-1,http_out,sizeof(http_out))==-1);
+    const char *bad[]={"","a","123","a1","1a","a:b","a b","a\r\nb","[::1]","a\tb","a/b"};
+    for (size_t i=0;i<sizeof(bad)/sizeof(bad[0]);++i) {
+        memset(http_out,0xA5,sizeof(http_out));
+        assert(dp_http_host_case((const uint8_t *)bad[i],strlen(bad[i]),http_out,sizeof(http_out))==-1);
+        for (size_t j=0;j<sizeof(http_out);++j) assert(http_out[j]==0xA5);
     }
-    assert(dp_http_host_case_fixture(http_fixture,sizeof(http_fixture)-1,http_out,1)==-1);
-    assert(dp_http_host_case_fixture(NULL,sizeof(http_fixture)-1,http_out,sizeof(http_out))==-1);
-    assert(dp_http_host_case_fixture(http_fixture,sizeof(http_fixture)-1,NULL,sizeof(http_out))==-1);
-    for (size_t i=0;i<sizeof(http_out);++i) assert(http_out[i]==0xA5);
-    puts("DPpass packet inspection ABI: 8192 bounded fixtures, 507 record splits and fixed HTTP case passed");
+    uint8_t maxhost[254];
+    memset(maxhost,'a',sizeof(maxhost));
+    assert(dp_http_host_case(maxhost,253,http_out,sizeof(http_out))==0);
+    memset(http_out,0xA5,sizeof(http_out));
+    assert(dp_http_host_case(maxhost,254,http_out,sizeof(http_out))==-1);
+    assert(dp_http_host_case(maxhost,20,http_out,3)==-1);
+    assert(dp_http_host_case(NULL,20,http_out,sizeof(http_out))==-1);
+    assert(dp_http_host_case(maxhost,20,NULL,sizeof(http_out))==-1);
+    for (size_t j=0;j<sizeof(http_out);++j) assert(http_out[j]==0xA5);
+    // Every byte value at an interior authority position, exact-sized input.
+    for (unsigned i=0;i<256;++i) {
+        uint8_t authority[3]={'a',(uint8_t)i,'b'};
+        int ok=(i>='a' && i<='z') || (i>='A' && i<='Z') ||
+               (i>='0' && i<='9') || i=='.' || i=='-';
+        memset(http_out,0xA5,sizeof(http_out));
+        assert((dp_http_host_case(authority,sizeof(authority),http_out,sizeof(http_out))==0)==ok);
+        if (ok) assert(!memcmp(http_out,"hOsT",4));
+        else for (size_t j=0;j<sizeof(http_out);++j) assert(http_out[j]==0xA5);
+        assert(authority[0]=='a' && authority[1]==i && authority[2]=='b');
+    }
+    puts("DPpass packet inspection ABI: bounded fixtures, TLS splits and HTTP case passed");
     return 0;
 }

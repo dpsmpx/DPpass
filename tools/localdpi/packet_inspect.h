@@ -45,9 +45,10 @@ int dp_tls_record_split(const uint8_t *data, size_t size, size_t offset,
 int dp_tls_name_agrees(const uint8_t *data, size_t size,
                        size_t start, size_t end);
 
-// Fixed synthetic loopback request only. Never invoke the legacy HTTP
-// parser on arbitrary bytes. No output is written on rejection.
-int dp_http_host_case_fixture(const uint8_t *data, size_t size,
-                              uint8_t *output, size_t capacity);
+// Apply the pinned HTTP case operation to a synthetic, bounded request
+// containing a validated ASCII DNS-like authority. Return exactly four
+// field-name bytes; no output on rejection. No original request reaches C.
+int dp_http_host_case(const uint8_t *host, size_t size,
+                      uint8_t *output, size_t capacity);
 
 #endif

@@ -9,18 +9,19 @@ import (
     "github.com/dpsmpx/dppass/tools/xray/localdpi/native"
 )
 
-func TestTaggedHTTPFixturePlannerParity(t *testing.T) {
+func TestTaggedHTTPPlannerNativeAndPortableParity(t *testing.T) {
     prev:=PlannerSocket()
     if err:=SetPlannerSocket("");err!=nil {t.Fatal(err)}
     t.Cleanup(func(){_ = SetPlannerSocket(prev)})
-    first:=[]byte("POST /self-check HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\nbody")
-    expected,ok:=native.HTTPHostCaseFixture(first)
-    if !ok {t.Fatal("native fixture unavailable")}
-    p,err:=PlanForDiagnostic(TagPrefix+"http-hostcase","tcp",first)
-    if err!=nil || !p.Applied || !bytes.Equal(p.Rewrite,expected) {t.Fatal("native parity",err)}
-    other:=[]byte("GET / HTTP/1.1\r\nHost: other.test\r\n\r\n")
-    if _,ok:=native.HTTPHostCaseFixture(other);ok {t.Fatal("arbitrary native input")}
-    want,ok:=localdpi.HTTPHostNameCase(other)
-    p,err=PlanForDiagnostic(TagPrefix+"http-hostcase","tcp",other)
-    if !ok || err!=nil || !p.Applied || !bytes.Equal(p.Rewrite,want) {t.Fatal("portable parity",err)}
+    for _,tc:=range []struct{host string;nativeOK bool}{
+        {"example.com",true},{"other.test",true},{"local.test:80",false},{"[::1]",false},
+    } {
+        first:=[]byte("GET / HTTP/1.1\r\nHost: "+tc.host+"\r\n\r\n")
+        expected,ok:=localdpi.HTTPHostNameCase(first)
+        if !ok {t.Fatal("bad reference")}
+        b,ok:=native.HTTPHostCase(first)
+        if ok!=tc.nativeOK || ok && !bytes.Equal(b,expected) {t.Fatal("native admission",tc.host)}
+        p,err:=PlanForDiagnostic(TagPrefix+"http-hostcase","tcp",first)
+        if err!=nil || !p.Applied || !bytes.Equal(p.Rewrite,expected) {t.Fatal("plan parity",err)}
+    }
 }

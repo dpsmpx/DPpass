@@ -36,7 +36,7 @@ func localNativePlan(tag,network string) bool {
 
 func encodeHTTPHostNameCase(first []byte, diagnostic bool) ([]byte,bool) {
     if diagnostic {
-        if payload,ok:=native.HTTPHostCaseFixture(first);ok {return payload,true}
+        if payload,ok:=native.HTTPHostCase(first);ok {return payload,true}
     }
     return localdpi.HTTPHostNameCase(first)
 }
