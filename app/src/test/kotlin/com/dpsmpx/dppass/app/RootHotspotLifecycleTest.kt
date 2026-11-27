@@ -27,7 +27,7 @@ class RootHotspotLifecycleTest {
         var cleanupCalls = 0
         assertEquals(StartResult.READY, owner.start(first, {
             assertEquals(State.STARTING, owner.snapshot().state)
-            assertEquals(StopResult.BUSY, owner.stop(first))
+            assertEquals(StopResult.STALE, owner.stop(second))
             evidence(first)
         }, { true }, {
             cleanupCalls++
@@ -142,7 +142,6 @@ class RootHotspotLifecycleTest {
                 assertEquals(RootHotspotLifecycle.Snapshot(State.STARTING, first), owner.snapshot())
                 assertEquals(StartResult.BUSY, owner.start(session(2), { error("competing prepare") }, { false }, { error("competing cleanup") }))
                 assertEquals(StopResult.STALE, owner.stop(session(2)))
-                assertEquals(StopResult.BUSY, owner.stop(first))
             }.get(5, TimeUnit.SECONDS)
             assertEquals(0, attached.get())
             assertEquals(0, cleaned.get())
@@ -169,7 +168,7 @@ class RootHotspotLifecycleTest {
             pause.awaitEntry()
             pool.submit {
                 assertEquals(State.STARTING, owner.snapshot().state)
-                assertEquals(StopResult.BUSY, owner.stop(first))
+                assertEquals(StopResult.STALE, owner.stop(session(2)))
                 assertEquals(StartResult.BUSY, owner.start(session(2), { error("competing prepare") }, { false }, { error("competing cleanup") }))
             }.get(5, TimeUnit.SECONDS)
             pause.release.countDown()
@@ -248,5 +247,124 @@ class RootHotspotLifecycleTest {
             pause.release.countDown()
             pool.shutdownNow()
         }
+    }
+
+    @Test fun cancelDuringPreparationPreventsAttachmentAndCleansExactlyOnce() {
+        val owner = RootHotspotLifecycle()
+        val first = session(1)
+        val pause = Pause()
+        val pool = Executors.newSingleThreadExecutor()
+        val cleaned = AtomicInteger()
+        try {
+            val start = pool.submit<StartResult> {
+                owner.start(first, { pause.awaitRelease(); evidence(first) }, {
+                    error("cancelled preparation must not attach")
+                }, {
+                    cleaned.incrementAndGet()
+                    RootHotspotShutdown.Result.STOPPED
+                })
+            }
+            pause.awaitEntry()
+            assertEquals(StopResult.STALE, owner.stop(first.copy(downstreamIndex = 3)))
+            assertEquals(false, owner.snapshot().cancellationRequested)
+            repeat(2) { assertEquals(StopResult.CANCEL_REQUESTED, owner.stop(first)) }
+            assertEquals(RootHotspotLifecycle.Snapshot(State.STARTING, first, true), owner.snapshot())
+            assertEquals(0, cleaned.get())
+            pause.release.countDown()
+            assertEquals(StartResult.CANCELLED, start.get(5, TimeUnit.SECONDS))
+            assertEquals(1, cleaned.get())
+            assertEquals(RootHotspotLifecycle.Snapshot(State.IDLE, null), owner.snapshot())
+            assertEquals(StartResult.STALE, owner.start(first, { error("stale") }, { false }, { error("stale") }))
+        } finally {
+            pause.release.countDown()
+            pool.shutdownNow()
+        }
+    }
+
+    @Test fun cancellationDuringAttachRollsBackBeforePublishingReady() {
+        val owner = RootHotspotLifecycle()
+        val first = session(1)
+        val attach = Pause()
+        val cleanup = Pause()
+        val pool = Executors.newSingleThreadExecutor()
+        val cleaned = AtomicInteger()
+        try {
+            val start = pool.submit<StartResult> {
+                owner.start(first, { evidence(first) }, { attach.awaitRelease(); true }, {
+                    cleaned.incrementAndGet()
+                    cleanup.awaitRelease()
+                    RootHotspotShutdown.Result.STOPPED
+                })
+            }
+            attach.awaitEntry()
+            assertEquals(StopResult.CANCEL_REQUESTED, owner.stop(first))
+            attach.release.countDown()
+            cleanup.awaitEntry()
+            assertEquals(RootHotspotLifecycle.Snapshot(State.STOPPING, first, true), owner.snapshot())
+            assertEquals(StopResult.BUSY, owner.stop(first))
+            assertEquals(StartResult.BUSY, owner.start(session(2), { error("busy") }, { false }, { error("busy") }))
+            cleanup.release.countDown()
+            assertEquals(StartResult.CANCELLED, start.get(5, TimeUnit.SECONDS))
+            assertEquals(1, cleaned.get())
+            assertEquals(State.IDLE, owner.snapshot().state)
+        } finally {
+            attach.release.countDown()
+            cleanup.release.countDown()
+            pool.shutdownNow()
+        }
+    }
+
+    @Test fun cancelledAttachWithUnconfirmedCleanupRetainsOwnerForRetry() {
+        val owner = RootHotspotLifecycle()
+        val first = session(1)
+        var attempts = 0
+        assertEquals(StartResult.CLEANUP_PENDING, owner.start(first, { evidence(first) }, {
+            assertEquals(StopResult.CANCEL_REQUESTED, owner.stop(first))
+            true
+        }, {
+            if (++attempts == 1) RootHotspotShutdown.Result.GUARD_RETAINED else RootHotspotShutdown.Result.STOPPED
+        }))
+        assertEquals(RootHotspotLifecycle.Snapshot(State.CLEANUP_PENDING, first, true), owner.snapshot())
+        assertEquals(StopResult.STOPPED, owner.stop(first))
+        assertEquals(2, attempts)
+        assertEquals(RootHotspotLifecycle.Snapshot(State.IDLE, null), owner.snapshot())
+    }
+
+    @Test fun cancelledAttachWithCleanupExceptionRetainsOriginalFailureAndOwner() {
+        val owner = RootHotspotLifecycle()
+        val first = session(1)
+        val failure = IllegalStateException("cancel cleanup failed")
+        var attempts = 0
+        val caught = assertThrows(IllegalStateException::class.java) {
+            owner.start(first, { evidence(first) }, {
+                assertEquals(StopResult.CANCEL_REQUESTED, owner.stop(first))
+                true
+            }, {
+                if (++attempts == 1) throw failure
+                RootHotspotShutdown.Result.STOPPED
+            })
+        }
+        assertSame(failure, caught)
+        assertEquals(RootHotspotLifecycle.Snapshot(State.CLEANUP_PENDING, first, true), owner.snapshot())
+        assertEquals(StopResult.STOPPED, owner.stop(first))
+        assertEquals(2, attempts)
+    }
+
+    @Test fun cancellationDoesNotHidePreparationFailure() {
+        val owner = RootHotspotLifecycle()
+        val first = session(1)
+        val failure = IllegalStateException("prepare failed")
+        var cleaned = 0
+        assertSame(failure, assertThrows(IllegalStateException::class.java) {
+            owner.start(first, {
+                assertEquals(StopResult.CANCEL_REQUESTED, owner.stop(first))
+                throw failure
+            }, { error("must not attach") }, {
+                cleaned++
+                RootHotspotShutdown.Result.STOPPED
+            })
+        })
+        assertEquals(1, cleaned)
+        assertEquals(State.IDLE, owner.snapshot().state)
     }
 }
