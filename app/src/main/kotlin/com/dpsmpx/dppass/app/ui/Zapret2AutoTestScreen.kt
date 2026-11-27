@@ -16,6 +16,8 @@ import android.widget.ArrayAdapter
 import android.widget.AdapterView
 import android.widget.ProgressBar
 import com.dpsmpx.dppass.R
+import com.dpsmpx.dppass.app.AppGraph
+import com.dpsmpx.dppass.app.DptsBuildIdentity
 import com.dpsmpx.dppass.app.DptsLocalSuite
 import com.dpsmpx.dppass.app.DptsCompletedRun
 import com.dpsmpx.dppass.app.DptsDiagnosticJob
@@ -52,6 +54,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -330,10 +333,11 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         resultText.visibility = View.GONE
         launchDiagnostic { session ->
             val rows = mutableListOf<Zapret2GoogleProbe>()
+            var buildIdentity: DptsBuildIdentity? = null
             fun interrupted(reason: DptsInterruption) {
                 invalidateDptsRun()
                 if (source != dptsEditor.text.toString()) return
-                val report = suite.report(rows, reason)
+                val report = suite.report(rows, reason, buildIdentity)
                 resultText.text = report
                 resultText.visibility = View.VISIBLE
                 statusText.text = context.getString(R.string.dpts_stopped)
@@ -343,6 +347,17 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 }
             }
             try {
+                statusText.text = "DPTS: APK SHA-256"
+                buildIdentity = withContext(Dispatchers.IO) {
+                    val job = currentCoroutineContext()
+                    val app = context.applicationInfo
+                    DptsBuildIdentity.capture(File(app.sourceDir),
+                        app.splitSourceDirs?.size ?: 0, AppGraph.appVersion(context)) {
+                        job.ensureActive()
+                    }
+                }
+                ensureActive()
+                requireDiagnosticSession()
                 // The monotonic window includes all JNI overhead, not just
                 // the configured per-probe socket timeout.
                 val startedAt = SystemClock.elapsedRealtime()
@@ -363,7 +378,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     rows += row
                     progress.progress = rows.size
                 }
-                publishCompletedReport(suite.reportLabel, suite.report(rows), R.string.dpts_copied)
+                publishCompletedReport(suite.reportLabel, suite.report(rows, buildIdentity = buildIdentity), R.string.dpts_copied)
             } catch (_: DiagnosticIncomplete) {
                 ensureActive()
                 interrupted(if (session != currentSession()) DptsInterruption.SESSION_CHANGED

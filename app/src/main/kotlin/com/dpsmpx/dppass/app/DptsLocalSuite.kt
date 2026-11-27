@@ -35,9 +35,11 @@ internal enum class DptsLocalSuite(
 
     val budgetMs: Long get() = cases.size * 5000L
 
-    fun report(rows: List<Zapret2GoogleProbe>, interruption: DptsInterruption? = null): String =
+    fun report(rows: List<Zapret2GoogleProbe>, interruption: DptsInterruption? = null,
+        buildIdentity: DptsBuildIdentity? = null): String =
         buildString {
             appendLine("=== $reportLabel self-test ===")
+            appendLine(buildIdentity?.report() ?: "BUILD: identity_unavailable")
             appendLine("Loopback only; no DNS, Internet or system trust changes.")
             if (this@DptsLocalSuite != TLS) appendLine("Exact HTTP request bytes, Host value and body.")
             if (this@DptsLocalSuite != HTTP) appendLine("Fresh private trust anchor, fixed TLS versions and application bytes.")
