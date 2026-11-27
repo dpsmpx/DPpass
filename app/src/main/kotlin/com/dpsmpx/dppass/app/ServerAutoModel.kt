@@ -7,6 +7,7 @@ import com.dpsmpx.dppass.connection.ConnectionPlan
 import com.dpsmpx.dppass.connection.ConnectionReport
 import com.dpsmpx.dppass.connection.DPpassCore
 import com.dpsmpx.dppass.connection.HealthState
+import com.dpsmpx.dppass.connection.ServerLearningEvidence
 import com.dpsmpx.dppass.network.NetworkType
 import com.dpsmpx.dppass.diagnostics.Safe
 import org.json.JSONArray
@@ -244,12 +245,16 @@ object ServerAutoModel {
                 val pendingAttempt = feats[attempt.profileId.value] ?: continue
                 val x = pendingAttempt.features
                 val scenario = pendingAttempt.scenario
-                // Core-local/backend failures are not server failures.
-                val failure = attempt.failure?.code?.name
-                if (failure in setOf("BACKEND_ALREADY_RUNNING", "LOCAL_PROXY_UNAVAILABLE", "TUN_ESTABLISH_FAILED"))
-                    continue
+                // Only explicitly measured health outcomes are admitted.
+                // Engine startup/configuration errors and unchecked success
+                // must never become server-model labels.
+                val label = when (attempt.serverLearningEvidence) {
+                    ServerLearningEvidence.VERIFIED_SUCCESS -> if (attempt.ok && attempt.failure == null) 1.0 else continue
+                    ServerLearningEvidence.MEASURED_FAILURE -> if (!attempt.ok && attempt.failure != null) 0.0 else continue
+                    ServerLearningEvidence.NONE -> continue
+                }
                 val (p, h) = forward(model, x, scenario, attempt.profileId.value)
-                val delta = LR * ((if (attempt.ok) 1.0 else 0.0) - p)
+                val delta = LR * (label - p)
                 learned++
                 val oldWeights = DoubleArray(h.size) { output.getDouble(it) }
                 for (i in h.indices) {

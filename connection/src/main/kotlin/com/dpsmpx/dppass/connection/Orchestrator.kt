@@ -32,11 +32,27 @@ fun interface HealthChecker {
     suspend fun check(session: EngineSession, profile: ServerProfile): Outcome<Unit>
 }
 
+/** Optional server-model evidence, distinct from existing connection health policy. */
+enum class ServerLearningEvidence {
+    NONE, VERIFIED_SUCCESS, MEASURED_FAILURE;
+
+    companion object {
+        /** Called only for a failed health probe, after the engine started. */
+        fun fromHealthFailure(code: DiagCode): ServerLearningEvidence = when (code) {
+            DiagCode.ENDPOINT_UNREACHABLE, DiagCode.TLS_HANDSHAKE_FAILED,
+            DiagCode.AUTHENTICATION_FAILED, DiagCode.PAYLOAD_STALLED,
+            DiagCode.HEALTH_CHECK_FAILED -> MEASURED_FAILURE
+            else -> NONE
+        }
+    }
+}
+
 data class AttemptRecord(
     val profileId: ProfileId,
     val reasons: List<String>,
     val ok: Boolean,
     val failure: Diagnostic?,
+    val serverLearningEvidence: ServerLearningEvidence = ServerLearningEvidence.NONE,
 )
 
 sealed interface ConnectionReport {
@@ -147,7 +163,7 @@ class ConnectionOrchestrator(
                 is Try.Ok -> {
                     book.recordSuccess(p.id, clock.nowMillis())
                     observe(p, startedAt, success = true, stalled = false)
-                    records += AttemptRecord(p.id, reasons, true, null)
+                    records += AttemptRecord(p.id, reasons, true, null, t.serverLearningEvidence)
                     return ConnectionReport.Connected(p.id, t.session, records, plan, shareRefused)
                 }
                 is Try.Fail -> t.reason
@@ -172,7 +188,7 @@ class ConnectionOrchestrator(
             book.recordFailure(p.id, failure.code, clock.nowMillis())
             observe(p, startedAt, success = false, stalled = failure.code == DiagCode.PAYLOAD_STALLED)
             log.diagnostic(failure)
-            records += AttemptRecord(p.id, reasons, false, failure)
+            records += AttemptRecord(p.id, reasons, false, failure, t.serverLearningEvidence)
         }
         val n = plan.attempts.size
         val d = Diagnostic.error(
@@ -203,9 +219,12 @@ class ConnectionOrchestrator(
      */
     private sealed interface Try {
         val shareRefused: Diagnostic?
+        val serverLearningEvidence: ServerLearningEvidence
 
-        data class Ok(val session: EngineSession, override val shareRefused: Diagnostic? = null) : Try
-        data class Fail(val reason: Diagnostic, override val shareRefused: Diagnostic? = null, val split: Boolean = false) : Try
+        data class Ok(val session: EngineSession, override val shareRefused: Diagnostic? = null,
+            override val serverLearningEvidence: ServerLearningEvidence = ServerLearningEvidence.NONE) : Try
+        data class Fail(val reason: Diagnostic, override val shareRefused: Diagnostic? = null, val split: Boolean = false,
+            override val serverLearningEvidence: ServerLearningEvidence = ServerLearningEvidence.NONE) : Try
     }
 
     private suspend fun tryOne(
@@ -270,11 +289,14 @@ class ConnectionOrchestrator(
         }
         if (result is Outcome.Failure) {
             session.stop()
-            return Try.Fail(result.errors.first(), split = applied)
+            return Try.Fail(result.errors.first(), split = applied,
+                serverLearningEvidence = ServerLearningEvidence.fromHealthFailure(result.errors.first().code))
         }
         // Успех с оговоркой (например, здоровье не проверено, D-32) — в журнал, а не мимо.
         result.diagnostics.forEach(log::diagnostic)
-        return Try.Ok(session)
+        return Try.Ok(session, serverLearningEvidence =
+            if (result.diagnostics.any { it.code == DiagCode.HEALTH_CHECK_SKIPPED }) ServerLearningEvidence.NONE
+            else ServerLearningEvidence.VERIFIED_SUCCESS)
     }
 
     private companion object {

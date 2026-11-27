@@ -414,13 +414,15 @@ class OrchestratorTest {
         assertEquals(ProfileId("reality-1"), r.attempts.first().profileId)
         assertEquals(DiagCode.ENDPOINT_UNREACHABLE, r.attempts.first().failure!!.code)
         assertEquals(ProfileId("xhttp-cdn"), connected.profileId)
+        assertEquals(ServerLearningEvidence.MEASURED_FAILURE, r.attempts.first().serverLearningEvidence)
+        assertEquals(ServerLearningEvidence.VERIFIED_SUCCESS, r.attempts.last().serverLearningEvidence)
     }
 
     @Test
     fun stalledPayloadCountsAsFailure() {
         val (r, _) = run(NetworkCondition.PACKET_LOSS)
         assertIs<ConnectionReport.Connected>(r)
-        assertTrue(r.attempts.any { it.failure?.code == DiagCode.PAYLOAD_STALLED })
+        assertTrue(r.attempts.any { it.failure?.code == DiagCode.PAYLOAD_STALLED && it.serverLearningEvidence == ServerLearningEvidence.MEASURED_FAILURE })
     }
 
     @Test
@@ -484,6 +486,7 @@ class OrchestratorTest {
         val failed = assertIs<ConnectionReport.Failed>(report)
         assertEquals(DiagCode.BACKEND_ALREADY_RUNNING, failed.reason.code)
         assertEquals(1, report.attempts.size, "следующие кандидаты упёрлись бы в то же")
+        assertEquals(ServerLearningEvidence.NONE, report.attempts.single().serverLearningEvidence)
         assertTrue(pauses.isEmpty())
         assertTrue(plan.attempts.all { book.of(it.profile.id).state == HealthState.UNKNOWN }, "ни один сервер не наказан")
     }
@@ -550,6 +553,46 @@ class OrchestratorTest {
         assertEquals(listOf(true, false, false), engine.starts, "с раздачей — один запуск; повтор той же попытки и следующая — без неё")
         assertEquals(DiagCode.ENDPOINT_UNREACHABLE, report.attempts.first().failure?.code, "первый отказ — от проверки здоровья")
         assertTrue(report.attempts.none { it.failure?.code == DiagCode.BACKEND_START_FAILED }, "отказ входа раздачи не записан серверу")
+    }
+
+    @Test
+    fun uncheckedSuccessDoesNotTrainTheOptionalServerModel() = runBlocking {
+        val clock = ManualClock(0)
+        val config = ir("valid-minimal.json")
+        val book = HealthBook()
+        val plan = CandidatePlanner.plan(config, MockBackend.FULL, null, book, null, 0)
+        val engine = MockProxyEngine()
+        val log = Logger("t", MemoryLogSink(), clock::nowMillis)
+        val report = ConnectionOrchestrator(MockBackendCompiler(), engine,
+            { _, _ -> Outcome.Success(Unit, listOf(Diagnostic.warning(DiagCode.HEALTH_CHECK_SKIPPED, "unchecked"))) },
+            book, clock, log) {}.connect(config, plan, null)
+        assertIs<ConnectionReport.Connected>(report)
+        assertTrue(report.attempts.single().ok)
+        assertEquals(ServerLearningEvidence.NONE, report.attempts.single().serverLearningEvidence)
+    }
+
+    @Test
+    fun backendValidationFailureDoesNotTrainTheOptionalServerModel() = runBlocking {
+        val clock = ManualClock(0)
+        val config = ir("valid-minimal.json")
+        val book = HealthBook()
+        val plan = CandidatePlanner.plan(config, MockBackend.FULL, null, book, null, 0)
+        val engine = MockProxyEngine().apply { behavior = MockBehavior(rejectConfig = true) }
+        val log = Logger("t", MemoryLogSink(), clock::nowMillis)
+        val report = ConnectionOrchestrator(MockBackendCompiler(), engine,
+            { _, _ -> error("health check must not start") }, book, clock, log) {}.connect(config, plan, null)
+        assertIs<ConnectionReport.Failed>(report)
+        assertEquals(ServerLearningEvidence.NONE, report.attempts.single().serverLearningEvidence)
+    }
+
+    @Test
+    fun onlyExplicitHealthFailureCodesCanLabelServerModel() {
+        val measured = setOf(DiagCode.ENDPOINT_UNREACHABLE, DiagCode.TLS_HANDSHAKE_FAILED,
+            DiagCode.AUTHENTICATION_FAILED, DiagCode.PAYLOAD_STALLED, DiagCode.HEALTH_CHECK_FAILED)
+        for (code in DiagCode.entries) {
+            assertEquals(if (code in measured) ServerLearningEvidence.MEASURED_FAILURE
+                else ServerLearningEvidence.NONE, ServerLearningEvidence.fromHealthFailure(code))
+        }
     }
 
     @Test
