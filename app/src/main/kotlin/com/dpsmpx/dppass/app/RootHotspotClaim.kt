@@ -103,6 +103,10 @@ internal class RootHotspotClaim private constructor(
         matches(),
     ).joinToString("\n"))
 
+    /** Read-only exact live-owner check, including an unbound claim.
+     * A failed command is not proof that the record is absent. */
+    fun confirm(): String = transaction(matches() + "\n" + liveOwner())
+
     /** A stale owner cannot enter a privileged transaction. */
     fun owned(body: String): String {
         check(data.session != null) { "ROOT hotspot interface not bound" }
