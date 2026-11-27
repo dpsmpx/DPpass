@@ -18,16 +18,19 @@ internal class RootHotspotClaim(
     adapterDirectories: List<String> = listOf(
         RootLifecycleTransaction.ZAPRET_DIRECTORY, RootLifecycleTransaction.BYEDPI_DIRECTORY,
     ),
+    private val owner: RootHotspotOwner,
+    private val procRoot: String = "/proc",
 ) {
     private val marker = RootHotspotInterlock.marker(lockDirectory)
     private val adapters = adapterDirectories.toList()
     private val lock = "$lockDirectory/lifecycle.lock"
-    private val record = listOf("v1", token, session.generation, session.downstreamIndex, session.mode.name).joinToString(" ")
+    private val record = RootHotspotOwnerRecord(session, token, owner).line()
 
     init {
         require(lockDirectory.startsWith("/") && lockDirectory != "/" && !lockDirectory.endsWith("/"))
         require('\u0000' !in lockDirectory && '\n' !in lockDirectory && '\r' !in lockDirectory)
         require(waitSeconds in 1..10)
+        require(procRoot.startsWith("/") && procRoot.none { it == '\u0000' || it == '\n' || it == '\r' })
         require(adapters.distinct().size == adapters.size && lockDirectory !in adapters)
         adapters.forEach { require(it.startsWith("/") && it != "/" && !it.endsWith("/"))
             require(it.none { c -> c == '\u0000' || c == '\n' || c == '\r' }) }
@@ -54,6 +57,63 @@ internal class RootHotspotClaim(
         ).joinToString("\n")
     }
 
+    private fun currentBoot(): String = listOf(
+        "current_boot=\$(cat " + quote("$procRoot/sys/kernel/random/boot_id") + ") || exit 1",
+        "printf '%s\\n' \"\$current_boot\" | grep -Eq '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\ Never overwrite a claim,
+     * including a partial claim after a crash. Failed/ambiguous is not a grant. */
+    fun acquire(): String = transaction(listOf(
+        absent() + " || exit 1",
+        RootHotspotInterlock.adaptersIdle(adapters),
+        liveOwner(),
+        "set -C",
+        "printf '%s\\n' " + quote(record) + " > " + quote(marker),
+        matches(),
+    ).joinToString("\n"))
+
+    /** A stale owner cannot enter a privileged transaction. */
+    fun owned(body: String): String = transaction(matches() + "\n" + liveOwner() + "\n(\n$body\n)")
+
+    /** Caller must supply independent positive proof of full shutdown.
+     * Failure retains the claim; no generic force-release is provided.
+     * The check and unlink share the lock with cooperating claim operations. */
+    fun releaseAfter(verifiedCleanup: String): String = retireAfter(liveOwner(), verifiedCleanup)
+
+    /** Recovery requires the exact observed record and fresh positive orphan proof.
+     * The trusted cleanup body must prove AP/request retirement and all owned
+     * rules/routes/egress cleanup. A prior boot alone does not prove this. */
+    fun recoverAfter(verifiedCleanup: String, helperPath: String? = null): String =
+        retireAfter(orphanProof(helperPath), verifiedCleanup)
+
+    private fun retireAfter(proof: String, verifiedCleanup: String): String = transaction(listOf(
+        matches(),
+        proof,
+        RootHotspotInterlock.adaptersIdle(adapters),
+        "(\n$verifiedCleanup\n) || exit 1",
+        matches(),
+        proof,
+        "rm " + quote(marker) + " || exit 1",
+        absent() + " || exit 1",
+    ).joinToString("\n"))
+}
+ || exit 1",
+    ).joinToString("\n")
+
+    private fun liveOwner(): String = currentBoot() + "\n" +
+        "test \"\$current_boot\" = " + quote(owner.bootId.toString()) + " || exit 1\n" +
+        RootProcessIdentity.appAlive(owner.identity.pid, owner.identity.startTime, procRoot) + " || exit 1"
+
+    /** Previous boot, or positive same-boot kernel identity proof. No signal. */
+    private fun orphanProof(helperPath: String?): String {
+        val sameBoot = if (helperPath == null) "exit 1" else {
+            val helper = quote(helperPath)
+            RootPidfdCleanup.helperAdmission(helper) + "\n" +
+                "$helper gone " + owner.identity.pid + " " + quote(owner.identity.startTime) + " " +
+                quote(owner.bootId.toString()) + " >/dev/null || exit 1"
+        }
+        return currentBoot() + "\nif test \"\$current_boot\" = " +
+            quote(owner.bootId.toString()) + "; then\n" + sameBoot + "\nfi"
+    }
+
     /** Requires an initialized shared ROOT directory. Never overwrite a claim,
      * including a partial claim after a crash. Failed/ambiguous is not a grant. */
     fun acquire(): String = transaction(listOf(
@@ -77,4 +137,19 @@ internal class RootHotspotClaim(
         "rm " + quote(marker) + " || exit 1",
         absent() + " || exit 1",
     ).joinToString("\n"))
+
+    companion object {
+        /** Read under lock; caller must parse the complete successful stdout.
+         * Inspection never grants ownership; recovery rechecks the exact record. */
+        fun inspect(lockDirectory: String = RootLifecycleTransaction.SHARED_LOCK_DIRECTORY): String {
+            val file = "'" + RootHotspotInterlock.marker(lockDirectory).replace("'", "'\\''") + "'"
+            return RootProcessIdentity.lockedTransaction("$lockDirectory/lifecycle.lock", listOf(
+                "set -eu",
+                "test -f $file && test ! -L $file || exit 1",
+                "test \"\$(stat -c %u $file)\" = \"\$(id -u)\" || exit 1",
+                "test \"\$(wc -c < $file)\" -le 256 || exit 1",
+                "cat $file",
+            ).joinToString("\n"))
+        }
+    }
 }

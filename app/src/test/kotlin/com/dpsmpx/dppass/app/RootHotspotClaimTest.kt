@@ -9,6 +9,10 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class RootHotspotClaimTest {
+    private fun owner() = RootHotspotOwner(
+        RootOwnerIdentity(ProcessHandle.current().pid().toInt(), RootProcessIdentity.currentAppStartTime()),
+        UUID.fromString(File("/proc/sys/kernel/random/boot_id").readText().trim()),
+    )
     private val session = RootHotspotAdmission.Session(7, 12, RootHotspotAdmission.Mode.VPN)
 
     private fun run(script: String): Int =
@@ -25,8 +29,8 @@ class RootHotspotClaimTest {
     }
 
     @Test fun claimSurvivesCommandExitAndRejectsAnotherOwner() = fixture { dir ->
-        val first = RootHotspotClaim(session, dir.path)
-        val second = RootHotspotClaim(session, dir.path)
+        val first = RootHotspotClaim(session, dir.path, owner = owner())
+        val second = RootHotspotClaim(session, dir.path, owner = owner())
         assertEquals(0, run(first.acquire()))
         val marker = File(dir, "hotspot.owner")
         val record = marker.readText()
@@ -41,8 +45,8 @@ class RootHotspotClaimTest {
     }
 
     @Test fun staleOwnerCannotExecuteOrReleaseNewClaim() = fixture { dir ->
-        val first = RootHotspotClaim(session, dir.path)
-        val second = RootHotspotClaim(session.copy(generation = 8), dir.path)
+        val first = RootHotspotClaim(session, dir.path, owner = owner())
+        val second = RootHotspotClaim(session.copy(generation = 8), dir.path, owner = owner())
         val action = File(dir, "action")
         val touch = "touch '" + action.path + "'"
         assertEquals(0, run(first.acquire()))
@@ -56,26 +60,26 @@ class RootHotspotClaimTest {
     }
 
     @Test fun failedCleanupRetainsClaimAndCanBeRetried() = fixture { dir ->
-        val claim = RootHotspotClaim(session, dir.path)
+        val claim = RootHotspotClaim(session, dir.path, owner = owner())
         assertEquals(0, run(claim.acquire()))
         val marker = File(dir, "hotspot.owner")
         val record = marker.readText()
         assertFalse(run(claim.releaseAfter("false")) == 0)
         assertEquals(record, marker.readText())
-        assertFalse(run(RootHotspotClaim(session, dir.path).acquire()) == 0)
+        assertFalse(run(RootHotspotClaim(session, dir.path, owner = owner()).acquire()) == 0)
         assertEquals(0, run(claim.releaseAfter(":")))
     }
 
     @Test fun malformedRecordAndDifferentSessionFailClosed() = fixture { dir ->
         val token = UUID.randomUUID()
-        val claim = RootHotspotClaim(session, dir.path, token)
+        val claim = RootHotspotClaim(session, dir.path, token, owner = owner())
         val marker = File(dir, "hotspot.owner")
         assertEquals(0, run(claim.acquire()))
         val valid = marker.readText()
-        val wrong = RootHotspotClaim(session.copy(downstreamIndex = 13), dir.path, token)
+        val wrong = RootHotspotClaim(session.copy(downstreamIndex = 13), dir.path, token, owner = owner())
         assertFalse(run(wrong.owned(":")) == 0)
         assertFalse(run(wrong.releaseAfter(":")) == 0)
-        for (bad in listOf("", valid.trimEnd(), valid + "\n", valid.replace("v1", "v2"))) {
+        for (bad in listOf("", valid.trimEnd(), valid + "\n", valid.replace("v2", "v1"))) {
             marker.writeText(bad)
             assertFalse(run(claim.owned(":")) == 0)
             assertFalse(run(claim.releaseAfter(":")) == 0)
@@ -87,7 +91,7 @@ class RootHotspotClaimTest {
     @Test fun nonregularAndSymlinkClaimsAreNotFollowed() = fixture { dir ->
         val marker = File(dir, "hotspot.owner")
         val target = File(dir, "outside").apply { writeText("unchanged") }
-        val claim = RootHotspotClaim(session, dir.path)
+        val claim = RootHotspotClaim(session, dir.path, owner = owner())
         Files.createSymbolicLink(marker.toPath(), target.toPath())
         try {
             assertFalse(run(claim.acquire()) == 0)
@@ -103,7 +107,7 @@ class RootHotspotClaimTest {
     }
 
     @Test fun lockContentionCannotCreateClaim() = fixture { dir ->
-        val claim = RootHotspotClaim(session, dir.path, waitSeconds = 1)
+        val claim = RootHotspotClaim(session, dir.path, waitSeconds = 1, owner = owner())
         val lock = File(dir, "lifecycle.lock")
         val holder = ProcessBuilder("/bin/sh", "-c",
             "exec 9>>\"\$1\"; flock -x 9 || exit 1; echo ready; read line", "fixture", lock.path)
