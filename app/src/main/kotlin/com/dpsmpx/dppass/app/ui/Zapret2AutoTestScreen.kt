@@ -16,6 +16,7 @@ import android.widget.ArrayAdapter
 import android.widget.AdapterView
 import android.widget.ProgressBar
 import com.dpsmpx.dppass.R
+import com.dpsmpx.dppass.app.DptsLocalSuite
 import com.dpsmpx.dppass.app.DptsCompletedRun
 import com.dpsmpx.dppass.app.DptsDiagnosticJob
 import com.dpsmpx.dppass.app.DptsSavedScripts
@@ -314,65 +315,68 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         }
     }
 
-    private fun startLocalTLS() {
-        val cases = listOf("1.2" to "local_tls12", "1.3" to "local_tls13").flatMap { (version, target) ->
-            listOf("plain", "multisplit", "tlsrec-split").map { Triple(version, target, it) }
-        }
-        progress.visibility = View.VISIBLE
-        progress.max = cases.size
-        progress.progress = 0
-        resultText.visibility = View.GONE
-        launchDiagnostic { _ ->
-            val report = StringBuilder("=== DPpass — local TLS self-test ===\n")
-            report.appendLine("Loopback only; fresh private trust anchor, fixed TLS versions and application bytes.")
-            report.appendLine("No DNS, Internet, system trust changes or model updates.")
-            var verified = 0
-            for ((index, case) in cases.withIndex()) {
-                val (version, target, method) = case
-                statusText.text = "DPTS: TLS " + version + " · " + method
-                val row = guardedProbe(method, target, 5000)
-                val expectedApplied = if (method == "plain") 0L else 1L
-                val ok = row.outcome == "local_tls_verified" && row.httpStatus == 0 &&
-                    row.bodyBytes == 0L && row.appliedDelta == expectedApplied && row.skippedDelta == 0L
-                if (ok) verified++
-                report.appendLine("TLS " + version + " / " + method + ": " +
-                    (if (ok) "verified" else row.outcome + " / unconfirmed") +
-                    "; applied=" + row.appliedDelta + "; skipped=" + row.skippedDelta +
-                    "; elapsed_ms=" + row.elapsedMillis)
-                progress.progress = index + 1
-            }
-            report.appendLine("Verified: " + verified + "/" + cases.size)
-            report.appendLine("Local TLS/application integrity only; no proof of remote accessibility or packet segmentation.")
-            publishCompletedReport("DPpass local TLS", report.toString(), R.string.dpts_copied)
-        }
-    }
+    private fun startLocalTLS() = startLocalSuite(DptsLocalSuite.TLS)
 
-    private fun startLocalHttpHostCase() {
-        val methods = listOf("plain", "http-hostcase", "http-hostows")
+    private fun startLocalHttpHostCase() = startLocalSuite(DptsLocalSuite.HTTP)
+
+    // Both fixed local presets use the same finite execution and report
+    // path. No new buttons, user-defined endpoints or training evidence.
+    private fun startLocalSuite(suite: DptsLocalSuite) {
+        val source = dptsEditor.text.toString()
         progress.visibility = View.VISIBLE
-        progress.max = methods.size
+        progress.max = suite.cases.size
         progress.progress = 0
         resultText.visibility = View.GONE
-        launchDiagnostic { _ ->
-            val report = StringBuilder("=== DPpass — local HTTP self-test ===\n")
-            report.appendLine("Loopback only; no DNS, Internet, TLS or external HTTP requests.")
-            report.appendLine("Checks exact request bytes, Host value and request body.")
-            var verified = 0
-            for ((index, method) in methods.withIndex()) {
-                statusText.text = "DPTS: local HTTP · " + method
-                val row = guardedProbe(method, "local_http_hostcase", 5000)
-                val expectedApplied = if (method == "plain") 0L else 1L
-                val ok = row.outcome == "local_http_verified" && row.httpStatus == 0 &&
-                    row.bodyBytes == 0L && row.appliedDelta == expectedApplied &&
-                    row.skippedDelta == 0L
-                if (ok) verified++
-                report.appendLine(method + ": " + (if (ok) "verified" else row.outcome + " / unconfirmed") +
-                    "; applied=" + row.appliedDelta + "; skipped=" + row.skippedDelta)
-                progress.progress = index + 1
+        launchDiagnostic { session ->
+            val rows = mutableListOf<Zapret2GoogleProbe>()
+            fun interrupted(reason: DptsInterruption) {
+                invalidateDptsRun()
+                if (source != dptsEditor.text.toString()) return
+                val report = suite.report(rows, reason)
+                resultText.text = report
+                resultText.visibility = View.VISIBLE
+                statusText.text = context.getString(R.string.dpts_stopped)
+                if (session == currentSession() &&
+                    !copyReport("DPpass local partial", report)) {
+                    statusText.text = context.getString(R.string.zapret2_autotest_copy_failed)
+                }
             }
-            report.appendLine("Verified: " + verified + "/" + methods.size)
-            report.appendLine("AUTO and training unchanged. Not evidence of remote access or DPI bypass.")
-            publishCompletedReport("DPpass local HTTP", report.toString(), R.string.dpts_copied)
+            try {
+                // The monotonic window includes all JNI overhead, not just
+                // the configured per-probe socket timeout.
+                val startedAt = SystemClock.elapsedRealtime()
+                val budget = suite.cases.size * 5000L + 5000L
+                for (case in suite.cases) {
+                    ensureActive()
+                    requireDiagnosticSession()
+                    if (SystemClock.elapsedRealtime() - startedAt >= budget - 5000L) {
+                        interrupted(DptsInterruption.BUDGET_EXPIRED)
+                        return@launchDiagnostic
+                    }
+                    statusText.text = "DPTS: " + case.label
+                    val row = guardedProbe(case.method, case.target, 5000)
+                    if (SystemClock.elapsedRealtime() - startedAt >= budget) {
+                        interrupted(DptsInterruption.BUDGET_EXPIRED)
+                        return@launchDiagnostic
+                    }
+                    rows += row
+                    progress.progress = rows.size
+                }
+                publishCompletedReport(suite.reportLabel, suite.report(rows), R.string.dpts_copied)
+            } catch (_: DiagnosticIncomplete) {
+                ensureActive()
+                interrupted(if (session != currentSession()) DptsInterruption.SESSION_CHANGED
+                    else DptsInterruption.EXECUTION_ERROR)
+            } catch (cancelled: CancellationException) {
+                if (manualStopRequested && session == currentSession() &&
+                    source == dptsEditor.text.toString()) {
+                    interrupted(DptsInterruption.USER_STOP)
+                } else {
+                    invalidateDptsRun()
+                    statusText.text = context.getString(R.string.zapret2_autotest_cancelled)
+                }
+                throw cancelled
+            }
         }
     }
 
