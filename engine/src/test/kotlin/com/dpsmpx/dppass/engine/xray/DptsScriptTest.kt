@@ -197,6 +197,7 @@ class DptsScriptTest {
             assertEquals(name.isNotBlank(), plan.title.isNotBlank())
             assertTrue(plan.suite != null || plan.probes.size in 1..DptsScript.MAX_PROBES)
             assertTrue(plan.budgetMs <= DptsScript.MAX_BUDGET_MS)
+            if (plan.suite == null) assertTrue(DptsScript.probePlanValid(plan), name)
             assertEquals(plan.host, Zapret2SiteSearch.normalizedHost(plan.host))
             for (probe in plan.probes) {
                 assertTrue(probe.target.endsWith(":" + plan.host), name)
@@ -332,5 +333,56 @@ class DptsScriptTest {
         val p = DptsScript.compile("dpts 1\nhost пример.рф\nhttps ips=1 attempts=1")
         assertEquals("xn--e1afmkfd.xn--p1ai", p.host)
         assertTrue(p.probes.first().target.endsWith(":xn--e1afmkfd.xn--p1ai"))
+    }
+
+    @Test fun copiedPlanCannotRelabelNativeTargetOrProtocol() {
+        val plan = DptsScript.compile("dpts 1\nhost www.youtube.com\nhttps ips=1 attempts=1")
+        val p = plan.probes.single()
+        val prepared = Zapret2GoogleProbe("dns_ready", 200, 0, 10, 0, 0, "abcdef12", 8)
+        val invalid = listOf(
+            plan.copy(host = "example.org"),
+            plan.copy(host = "WWW.YOUTUBE.COM"),
+            plan.copy(probes = listOf(p.copy(target = "site_script_h1_ip00_a1_:example.org"))),
+            plan.copy(probes = listOf(p.copy(protocol = "h2"))),
+            plan.copy(probes = listOf(p.copy(phase = "tls"))),
+            plan.copy(probes = listOf(p.copy(ipIndex = 1))),
+            plan.copy(probes = listOf(p.copy(attempt = 2))),
+            plan.copy(probes = listOf(p.copy(method = "auto"))),
+            plan.copy(probes = listOf(p.copy(phase = "unknown"))),
+        )
+        for (bad in invalid) {
+            assertFalse(DptsScript.preparationValid(bad, prepared))
+            assertTrue(DptsScript.report(bad, "MOBILE", prepared, emptyList()).contains("probe_plan_valid=false"))
+        }
+    }
+
+    @Test fun methodSummarySeparatesProtocolAndUsesOnlyMatchedVerifiedReplies() {
+        val plan = DptsScript.compile("dpts 1\nhost www.youtube.com\nhttps protocols=h1,h2 methods=plain,tlsrec-split ips=1 attempts=2")
+        val prepared = Zapret2GoogleProbe("dns_ready", 200, 0, 10, 0, 0, "abcdef12", 1)
+        val rows = plan.probes.map { p ->
+            val good = p.method != "plain"
+            val probe = Zapret2GoogleProbe(if (good) "ok" else "timeout_tls_no_reply",
+                if (good) 200 else 0, if (good) 256 else 0,
+                if (p.attempt == 1) 100 else 300, 0, 0, "abcdef12", 1, p.ipIndex,
+                p.protocol, if (good) "tls_verified" else "clienthello_sent",
+                if (!good) "-" else if (p.protocol == "h1") "http/1.1" else "h2")
+            Zapret2GoogleAttempt(p.method, p.attempt, probe, p.target)
+        }
+        fun line(report: String, protocol: String, method: String) =
+            report.lineSequence().single { it.startsWith("  phase=https protocol=$protocol method=$method;") }
+        val full = DptsScript.report(plan, "MOBILE", prepared, rows)
+        assertTrue(line(full, "h1", "plain").contains("transport=0/2"))
+        assertTrue(line(full, "h1", "plain").endsWith("verified_reply_median_ms=-"))
+        assertTrue(line(full, "h1", "tlsrec-split").contains("content_verified=2/2"))
+        assertTrue(line(full, "h1", "tlsrec-split").endsWith("verified_reply_median_ms=200"))
+        assertTrue(line(full, "h2", "tlsrec-split").endsWith("verified_reply_median_ms=200"))
+        val partial = DptsScript.report(plan, "MOBILE", prepared, rows.take(4))
+        assertTrue(line(partial, "h2", "tlsrec-split").contains("matched=1/2"))
+        assertTrue(line(partial, "h2", "tlsrec-split").endsWith("verified_reply_median_ms=100"))
+        val wrong = rows.map { row -> if (row.strategy == "tlsrec-split")
+            row.copy(result = row.result.copy(dnsFingerprint = "12345678")) else row }
+        val mismatch = DptsScript.report(plan, "MOBILE", prepared, wrong)
+        assertTrue(line(mismatch, "h1", "tlsrec-split").contains("matched=0/2"))
+        assertTrue(line(mismatch, "h1", "tlsrec-split").endsWith("verified_reply_median_ms=-"))
     }
 }

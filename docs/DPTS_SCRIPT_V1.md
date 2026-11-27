@@ -201,3 +201,7 @@ DPTS accepts `split-2` (actual TCP split after two TLS bytes), `fake-2`, `fake-4
 ## Local HTTP self-test
 
 `host example.com` and `suite local_http_hostcase` (with `learn off` or omitted) select the fixed local self-test. The host is a fixture label, never resolved. A plain and an HTTP Host field-name case request are checked over loopback for exact bytes, HTTP semantics and request-owned counters. No remote connections or TLS; the result is not learning evidence. `http-hostcase` is not a valid HTTPS/TLS/QUIC method in script matrices.
+
+## Per-method matrix results
+
+Generic DPTS reports now include an ordered summary grouped by phase, protocol and method. Each row uses the original planned denominator, and counts only observations matching the exact probe and prepared DNS set. TLS verification, transport reachability, bounded HTTP success and fixed-target content verification remain distinct. The median elapsed time (integer milliseconds, rounded down for an even sample) uses only verified transport replies; no reply is shown as `-`. This is elapsed probe time, not throughput or a recommendation to change AUTO. Cancelled and mismatched observations cannot inflate the verified counts. The plan validator also rebinds host, phase, protocol, index and attempt to the canonical native target before reporting or learning. Existing DPTS grammar, methods, and training thresholds are unchanged.

@@ -171,4 +171,13 @@ class DptsLearningTest {
             assertEquals(listOf("tlsrec-split"), DptsLearning.confirmedWinners(plan, changed))
         }
     }
+
+    @Test fun unrelatedHostEvidenceCannotBeRelabelledAsVerifiedYoutubeHtml() {
+        val other = DptsScript.compile(source.replace("www.youtube.com", "example.org"))
+        val forged = other.copy(host = "www.youtube.com")
+        val result = DptsLearning.analyze(forged, observations(other))
+        assertEquals("invalid_probe_plan", result.reason)
+        assertEquals(0, result.htmlVerified)
+        assertTrue(result.winners.isEmpty())
+    }
 }

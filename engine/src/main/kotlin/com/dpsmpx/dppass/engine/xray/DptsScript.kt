@@ -302,11 +302,46 @@ object DptsScript {
     internal fun uniqueProbeIdentities(plan: DptsPlan): Boolean =
         plan.probes.map { it.target to it.method }.distinct().size == plan.probes.size
 
+    // Public data classes can be copied after compilation. Rebind every
+    // dimension to the exact target grammar before trusting observations.
+    private fun probeIdentityValid(host: String, p: DptsProbe): Boolean {
+        if (p.ipIndex !in 0..7 || p.attempt !in 1..3) return false
+        val target = when (p.phase) {
+            "https" -> {
+                if (p.protocol !in setOf("h1", "h2") || p.method !in allowedMethods) return false
+                scriptTarget(host, p.protocol, p.ipIndex, p.attempt)
+            }
+            "quic" -> {
+                if (p.protocol != "quic" || p.method !in allowedQuic) return false
+                scriptTarget(host, p.protocol, p.ipIndex, p.attempt)
+            }
+            "tls" -> {
+                if (p.ipIndex >= 2 || p.protocol !in setOf("tls12", "tls13") ||
+                    p.method !in allowedMethods) return false
+                scriptTarget(host, p.protocol, p.ipIndex, p.attempt)
+            }
+            "sni_api", "sni_google" -> {
+                if (host != Zapret2SiteSearch.YOUTUBE_API_HOST || p.ipIndex >= 2 ||
+                    p.protocol != "h1" || p.method != "plain") return false
+                if (p.phase == "sni_api") scriptTarget(host, "h1", p.ipIndex, p.attempt)
+                else Zapret2SiteSearch.sameIpControlTrial(p.ipIndex, p.attempt)
+            }
+            "tls_google" -> {
+                if (host != Zapret2SiteSearch.YOUTUBE_API_HOST || p.ipIndex >= 2 ||
+                    p.protocol !in setOf("tls12", "tls13") || p.method != "plain") return false
+                Zapret2SiteSearch.tlsVersionTrial(p.ipIndex, p.attempt,
+                    if (p.protocol == "tls12") 12 else 13, true)
+            }
+            else -> return false
+        }
+        return p.target == target
+    }
+
     internal fun probePlanValid(plan: DptsPlan): Boolean =
         plan.suite == null && plan.probes.size in 1..MAX_PROBES &&
             uniqueProbeIdentities(plan) &&
-            plan.probes.all { it.timeoutMs in 1000..12000 && it.attempt in 1..3 &&
-                it.ipIndex in 0..7 } &&
+            Zapret2SiteSearch.normalizedHost(plan.host) == plan.host &&
+            plan.probes.all { it.timeoutMs in 1000..12000 && probeIdentityValid(plan.host, it) } &&
             plan.budgetMs in 1..MAX_BUDGET_MS &&
             plan.budgetMs == plan.probes.sumOf { it.timeoutMs.toLong() }
 
@@ -368,6 +403,32 @@ object DptsScript {
                 " bounded_http_success=$bounded/$planned;" +
                 " content_verified=$content/$planned;" +
                 " matched=${results.size}/$planned")
+        }
+        // Preserve declaration order and use planned denominators even
+        // for a cancelled run. Latency is reported only for verified replies.
+        appendLine("METHOD SUMMARY (matched evidence only):")
+        val groups = plan.probes.indices.groupBy { i ->
+            val p = plan.probes[i]
+            Triple(p.phase, p.protocol, p.method)
+        }
+        for ((key, indices) in groups) {
+            val results = indices.mapNotNull { i -> matched[i]?.let { plan.probes[i] to it } }
+            val handshakes = results.count { (p, r) -> p.handshakeVerified(r) }
+            val replies = results.filter { (p, r) -> p.transportVerified(r) }
+            val bounded = results.count { (p, r) ->
+                p.boundedHttpsSuccess(r) && plan.host != Zapret2SiteSearch.YOUTUBE_API_HOST
+            }
+            val content = if (plan.host in setOf("www.youtube.com", "i.ytimg.com")) bounded else 0
+            val times = replies.map { it.second.elapsedMillis }.filter { it >= 0 }.sorted()
+            val median = if (times.isEmpty()) "-" else {
+                val mid = times.size / 2
+                if (times.size % 2 == 1) times[mid].toString()
+                else (times[mid - 1] + (times[mid] - times[mid - 1]) / 2).toString()
+            }
+            appendLine("  phase=${key.first} protocol=${key.second} method=${key.third};" +
+                " matched=${results.size}/${indices.size}; tls_verified=$handshakes/${indices.size};" +
+                " transport=${replies.size}/${indices.size}; bounded_http_success=$bounded/${indices.size};" +
+                " content_verified=$content/${indices.size}; verified_reply_median_ms=$median")
         }
         for ((i, row) in observations.withIndex()) {
             val spec = plan.probes.getOrNull(i) ?: break
