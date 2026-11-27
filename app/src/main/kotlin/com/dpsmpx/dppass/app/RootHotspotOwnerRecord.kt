@@ -18,13 +18,26 @@ internal data class RootHotspotNetworkSlot(val table: Int, val priority: Int) {
 
 /** Canonical, bounded V3 record. Older experimental records fail closed. */
 internal data class RootHotspotOwnerRecord(
-    val session: RootHotspotAdmission.Session,
+    val generation: Long,
+    val mode: RootHotspotAdmission.Mode,
+    val downstreamIndex: Int?,
     val token: UUID,
     val owner: RootHotspotOwner,
     val networkSlot: RootHotspotNetworkSlot,
 ) {
-    fun line(): String = listOf("v3", token, session.generation, session.downstreamIndex,
-        session.mode.name, owner.identity.pid, owner.identity.startTime, owner.bootId,
+    init {
+        require(generation > 0 && (downstreamIndex == null || downstreamIndex > 0))
+    }
+
+    constructor(session: RootHotspotAdmission.Session, token: UUID, owner: RootHotspotOwner,
+        networkSlot: RootHotspotNetworkSlot) : this(session.generation, session.mode,
+        session.downstreamIndex, token, owner, networkSlot)
+
+    val session: RootHotspotAdmission.Session?
+        get() = downstreamIndex?.let { RootHotspotAdmission.Session(generation, it, mode) }
+
+    fun line(): String = listOf("v3", token, generation, downstreamIndex ?: 0,
+        mode.name, owner.identity.pid, owner.identity.startTime, owner.bootId,
         networkSlot.table, networkSlot.priority).joinToString(" ")
 
     companion object {
@@ -34,8 +47,9 @@ internal data class RootHotspotOwnerRecord(
             if (parts.size != 10 || parts[0] != "v3") return null
             return try {
                 val record = RootHotspotOwnerRecord(
-                    RootHotspotAdmission.Session(parts[2].toLong(), parts[3].toInt(),
-                        RootHotspotAdmission.Mode.valueOf(parts[4])),
+                    parts[2].toLong(),
+                    RootHotspotAdmission.Mode.valueOf(parts[4]),
+                    parts[3].toInt().takeUnless { it == 0 },
                     UUID.fromString(parts[1]),
                     RootHotspotOwner(RootOwnerIdentity(parts[5].toInt(), parts[6]), UUID.fromString(parts[7])),
                     RootHotspotNetworkSlot(parts[8].toInt(), parts[9].toInt()),

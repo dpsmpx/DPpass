@@ -10,22 +10,33 @@ import java.util.UUID
  * Only trusted internal shell bodies may be supplied. Current ROOT adapters
  * share the lock; external tethering tools and old builds do not participate.
  */
-internal class RootHotspotClaim(
-    session: RootHotspotAdmission.Session,
-    private val lockDirectory: String = RootLifecycleTransaction.SHARED_LOCK_DIRECTORY,
-    token: UUID = UUID.randomUUID(),
-    private val waitSeconds: Int = 5,
-    adapterDirectories: List<String> = listOf(
-        RootLifecycleTransaction.ZAPRET_DIRECTORY, RootLifecycleTransaction.BYEDPI_DIRECTORY,
-    ),
-    private val owner: RootHotspotOwner,
-    private val networkSlot: RootHotspotNetworkSlot,
-    private val procRoot: String = "/proc",
+internal class RootHotspotClaim private constructor(
+    private val data: RootHotspotOwnerRecord,
+    private val lockDirectory: String,
+    private val waitSeconds: Int,
+    adapterDirectories: List<String>,
+    private val procRoot: String,
 ) {
+    constructor(
+        session: RootHotspotAdmission.Session,
+        lockDirectory: String = RootLifecycleTransaction.SHARED_LOCK_DIRECTORY,
+        token: UUID = UUID.randomUUID(),
+        waitSeconds: Int = 5,
+        adapterDirectories: List<String> = listOf(
+            RootLifecycleTransaction.ZAPRET_DIRECTORY, RootLifecycleTransaction.BYEDPI_DIRECTORY,
+        ),
+        owner: RootHotspotOwner,
+        networkSlot: RootHotspotNetworkSlot,
+        procRoot: String = "/proc",
+    ) : this(RootHotspotOwnerRecord(session, token, owner, networkSlot),
+        lockDirectory, waitSeconds, adapterDirectories, procRoot)
+
+    private val owner = data.owner
+    private val networkSlot = data.networkSlot
     private val marker = RootHotspotInterlock.marker(lockDirectory)
     private val adapters = adapterDirectories.toList()
     private val lock = "$lockDirectory/lifecycle.lock"
-    private val record = RootHotspotOwnerRecord(session, token, owner, networkSlot).line()
+    private val record = data.line()
     private val networkEvidence = RootHotspotCleanupEvidence(networkSlot.table, networkSlot.priority)
 
     init {
@@ -93,7 +104,36 @@ internal class RootHotspotClaim(
     ).joinToString("\n"))
 
     /** A stale owner cannot enter a privileged transaction. */
-    fun owned(body: String): String = transaction(matches() + "\n" + liveOwner() + "\n(\n$body\n)")
+    fun owned(body: String): String {
+        check(data.session != null) { "ROOT hotspot interface not bound" }
+        return transaction(matches() + "\n" + liveOwner() + "\n(\n$body\n)")
+    }
+
+    data class Binding(val script: String, val claim: RootHotspotClaim)
+
+    /**
+     * Caller supplies positively discovered AP identity. Replace the pending
+     * record atomically under the lock; the old handle cannot mutate or retire
+     * the bound claim. A failed/ambiguous command must be reconciled by inspect,
+     * not by repeating AP creation. No forwarding is installed here.
+     */
+    fun bind(session: RootHotspotAdmission.Session): Binding {
+        check(data.session == null) { "ROOT hotspot already bound" }
+        require(session.generation == data.generation && session.mode == data.mode)
+        val next = RootHotspotClaim(data.copy(downstreamIndex = session.downstreamIndex),
+            lockDirectory, waitSeconds, adapters, procRoot)
+        val script = transaction(listOf(
+            matches(), liveOwner(), RootHotspotInterlock.adaptersIdle(adapters),
+            networkEvidence.script(),
+            "tmp=\$(mktemp " + quote("$lockDirectory/.hotspot.owner.XXXXXX") + ") || exit 1",
+            "trap 'rm -f \"\$tmp\"' EXIT",
+            "printf '%s\\n' " + quote(next.record) + " > \"\$tmp\" || exit 1",
+            matches(), liveOwner(),
+            "mv -f \"\$tmp\" " + quote(marker) + " || exit 1",
+            next.matches(),
+        ).joinToString("\n"))
+        return Binding(script, next)
+    }
 
     /** Caller must supply independent positive proof of full shutdown.
      * Failure retains the claim; no generic force-release is provided.
@@ -129,9 +169,23 @@ internal class RootHotspotClaim(
                 RootLifecycleTransaction.ZAPRET_DIRECTORY, RootLifecycleTransaction.BYEDPI_DIRECTORY,
             ),
             procRoot: String = "/proc",
-        ): RootHotspotClaim = RootHotspotClaim(
-            record.session, lockDirectory, record.token, adapterDirectories = adapterDirectories,
-            owner = record.owner, networkSlot = record.networkSlot, procRoot = procRoot,
+        ): RootHotspotClaim = RootHotspotClaim(record, lockDirectory, 5, adapterDirectories, procRoot)
+
+        /** Reserve before requesting AP; no invented interface index. */
+        fun pending(
+            generation: Long,
+            mode: RootHotspotAdmission.Mode,
+            owner: RootHotspotOwner,
+            networkSlot: RootHotspotNetworkSlot,
+            lockDirectory: String = RootLifecycleTransaction.SHARED_LOCK_DIRECTORY,
+            token: UUID = UUID.randomUUID(),
+            adapterDirectories: List<String> = listOf(
+                RootLifecycleTransaction.ZAPRET_DIRECTORY, RootLifecycleTransaction.BYEDPI_DIRECTORY,
+            ),
+            procRoot: String = "/proc",
+        ): RootHotspotClaim = fromRecord(
+            RootHotspotOwnerRecord(generation, mode, null, token, owner, networkSlot),
+            lockDirectory, adapterDirectories, procRoot,
         )
 
         /** Read under lock; caller must parse the complete successful stdout.
