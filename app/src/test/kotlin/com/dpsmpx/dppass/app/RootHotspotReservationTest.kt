@@ -134,4 +134,113 @@ class RootHotspotReservationTest {
             pool.shutdownNow()
         }
     }
+
+    @Test fun failedReleaseOfUnclaimedResourceCanBeRetried() {
+        val resource = Reservation()
+        val problem = IllegalStateException("close failed")
+        val pending = RootHotspotReservation<Reservation> {
+            it.release()
+            if (it.releases.get() == 1) throw problem
+        }
+        pending.started(resource)
+        val caught = assertThrows(IllegalStateException::class.java) { pending.close() }
+        assertSame(problem, caught.suppressed.single())
+        assertEquals(RootHotspotReservation.CleanupStatus(1, 0), pending.cleanupStatus())
+        pending.started(resource)
+        assertEquals(1, resource.releases.get())
+        pending.close()
+        pending.close()
+        assertEquals(2, resource.releases.get())
+        assertEquals(false, pending.cleanupStatus().unresolved)
+    }
+
+    @Test fun failedLateCallbackReleaseIsRetainedForExplicitRetry() {
+        val resource = Reservation()
+        val pending = RootHotspotReservation<Reservation> {
+            it.release()
+            if (it.releases.get() == 1) error("late close failed")
+        }
+        pending.close()
+        pending.started(resource)
+        pending.started(resource)
+        assertEquals(1, resource.releases.get())
+        assertEquals(RootHotspotReservation.CleanupStatus(1, 0), pending.cleanupStatus())
+        pending.close()
+        assertEquals(2, resource.releases.get())
+        assertEquals(false, pending.cleanupStatus().unresolved)
+    }
+
+    @Test fun terminalFailurePreservesOriginalCauseWhileCleanupRemainsRetryable() {
+        val resource = Reservation()
+        val cause = IllegalStateException("AP failed")
+        val pending = RootHotspotReservation<Reservation> {
+            it.release()
+            if (it.releases.get() == 1) error("close failed")
+        }
+        pending.started(resource)
+        pending.failed(cause)
+        assertSame(cause, assertThrows(IllegalStateException::class.java) { pending.take(1000) })
+        assertEquals(RootHotspotReservation.CleanupStatus(1, 0), pending.cleanupStatus())
+        pending.close()
+        assertEquals(2, resource.releases.get())
+    }
+
+    @Test fun repeatedExtraCallbacksNeverReleaseSameIdentityTwice() {
+        val pending = pending()
+        val first = Reservation()
+        val extra = Reservation()
+        pending.started(first)
+        repeat(3) { pending.started(extra) }
+        assertEquals(1, extra.releases.get())
+        assertSame(first, pending.take(1000))
+        pending.close()
+        assertEquals(0, first.releases.get())
+        first.release()
+    }
+
+    @Test fun concurrentCloseDoesNotClaimSuccessWhileReleaseIsInFlight() {
+        val resource = Reservation()
+        val entered = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        val pending = RootHotspotReservation<Reservation> {
+            it.release()
+            entered.countDown()
+            check(resume.await(15, TimeUnit.SECONDS))
+        }
+        val pool = Executors.newSingleThreadExecutor()
+        try {
+            pending.started(resource)
+            val closing = pool.submit { pending.close() }
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            assertEquals(RootHotspotReservation.CleanupStatus(0, 1), pending.cleanupStatus())
+            assertThrows(IllegalStateException::class.java) { pending.close() }
+            pending.started(resource)
+            assertEquals(1, resource.releases.get())
+            resume.countDown()
+            closing.get(5, TimeUnit.SECONDS)
+            pending.close()
+            assertEquals(false, pending.cleanupStatus().unresolved)
+            assertEquals(1, resource.releases.get())
+        } finally {
+            resume.countDown()
+            pool.shutdownNow()
+        }
+    }
+
+    @Test fun failedExtraReleaseNeverReclaimsTransferredReservation() {
+        val first = Reservation()
+        val extra = Reservation()
+        val pending = RootHotspotReservation<Reservation> {
+            it.release()
+            if (it === extra && it.releases.get() == 1) error("extra close failed")
+        }
+        pending.started(first)
+        assertSame(first, pending.take(1000))
+        pending.started(extra)
+        assertEquals(RootHotspotReservation.CleanupStatus(1, 0), pending.cleanupStatus())
+        pending.close()
+        assertEquals(2, extra.releases.get())
+        assertEquals(0, first.releases.get())
+        first.release()
+    }
 }
