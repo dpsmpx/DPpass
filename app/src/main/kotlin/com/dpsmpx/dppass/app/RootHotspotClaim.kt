@@ -59,7 +59,26 @@ internal class RootHotspotClaim(
 
     private fun currentBoot(): String = listOf(
         "current_boot=\$(cat " + quote("$procRoot/sys/kernel/random/boot_id") + ") || exit 1",
-        "printf '%s\\n' \"\$current_boot\" | grep -Eq '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\ Never overwrite a claim,
+        "printf '%s\\n' \"\$current_boot\" | grep -Eq '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\$' || exit 1",
+    ).joinToString("\n")
+
+    private fun liveOwner(): String = currentBoot() + "\n" +
+        "test \"\$current_boot\" = " + quote(owner.bootId.toString()) + " || exit 1\n" +
+        RootProcessIdentity.appAlive(owner.identity.pid, owner.identity.startTime, procRoot) + " || exit 1"
+
+    /** Previous boot, or positive same-boot kernel identity proof. No signal. */
+    private fun orphanProof(helperPath: String?): String {
+        val sameBoot = if (helperPath == null) "exit 1" else {
+            val helper = quote(helperPath)
+            RootPidfdCleanup.helperAdmission(helper) + "\n" +
+                "$helper gone " + owner.identity.pid + " " + quote(owner.identity.startTime) + " " +
+                quote(owner.bootId.toString()) + " >/dev/null || exit 1"
+        }
+        return currentBoot() + "\nif test \"\$current_boot\" = " +
+            quote(owner.bootId.toString()) + "; then\n" + sameBoot + "\nfi"
+    }
+
+    /** Requires an initialized shared ROOT directory. Never overwrite a claim,
      * including a partial claim after a crash. Failed/ambiguous is not a grant. */
     fun acquire(): String = transaction(listOf(
         absent() + " || exit 1",
@@ -91,49 +110,6 @@ internal class RootHotspotClaim(
         "(\n$verifiedCleanup\n) || exit 1",
         matches(),
         proof,
-        "rm " + quote(marker) + " || exit 1",
-        absent() + " || exit 1",
-    ).joinToString("\n"))
-}
- || exit 1",
-    ).joinToString("\n")
-
-    private fun liveOwner(): String = currentBoot() + "\n" +
-        "test \"\$current_boot\" = " + quote(owner.bootId.toString()) + " || exit 1\n" +
-        RootProcessIdentity.appAlive(owner.identity.pid, owner.identity.startTime, procRoot) + " || exit 1"
-
-    /** Previous boot, or positive same-boot kernel identity proof. No signal. */
-    private fun orphanProof(helperPath: String?): String {
-        val sameBoot = if (helperPath == null) "exit 1" else {
-            val helper = quote(helperPath)
-            RootPidfdCleanup.helperAdmission(helper) + "\n" +
-                "$helper gone " + owner.identity.pid + " " + quote(owner.identity.startTime) + " " +
-                quote(owner.bootId.toString()) + " >/dev/null || exit 1"
-        }
-        return currentBoot() + "\nif test \"\$current_boot\" = " +
-            quote(owner.bootId.toString()) + "; then\n" + sameBoot + "\nfi"
-    }
-
-    /** Requires an initialized shared ROOT directory. Never overwrite a claim,
-     * including a partial claim after a crash. Failed/ambiguous is not a grant. */
-    fun acquire(): String = transaction(listOf(
-        absent() + " || exit 1",
-        RootHotspotInterlock.adaptersIdle(adapters),
-        "set -C",
-        "printf '%s\\n' " + quote(record) + " > " + quote(marker),
-        matches(),
-    ).joinToString("\n"))
-
-    /** A stale owner cannot enter a privileged transaction. */
-    fun owned(body: String): String = transaction(matches() + "\n(\n$body\n)")
-
-    /** Caller must supply independent positive proof of full shutdown.
-     * Failure retains the claim; no generic force-release is provided.
-     * The check and unlink share the lock with cooperating claim operations. */
-    fun releaseAfter(verifiedCleanup: String): String = transaction(listOf(
-        matches(),
-        "(\n$verifiedCleanup\n) || exit 1",
-        matches(),
         "rm " + quote(marker) + " || exit 1",
         absent() + " || exit 1",
     ).joinToString("\n"))
