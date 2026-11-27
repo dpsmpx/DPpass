@@ -933,3 +933,7 @@ CI badd272: Go/Windows #45955901352 and Android #45955901364 passed. Six related
 ## D-120 — fix owner recovery Kotlin source corruption
 
 CI 72c0310: Go/Windows #45957015358 succeeded; Android #45957015405 failed at Kotlin compilation. Correct the duplicated source fragment accidentally inserted inside the boot-ID validation string, retaining the V2 acquisition, live-owner checks and explicit recovery contract. No additional functional scope or device acceptance change. New CI pending.
+
+## D-120 — fix nullable recovery test fixture path
+
+CI 237bb38: Go/Windows #45957932383 passed; Android #45957932548 compiled production Kotlin successfully but failed at :app:compileDebugUnitTestKotlin because File.parentFile is nullable with -Werror. Explicitly require the fixture parent and assert directory creation. No production code or test assertions weakened. New CI pending.

@@ -36,7 +36,7 @@ class RootHotspotRecoveryTest {
         try {
             val proc = File(dir, "proc").apply { mkdir() }
             val bootFile = File(proc, "sys/kernel/random/boot_id").apply {
-                parentFile.mkdirs()
+                assertTrue(requireNotNull(parentFile).mkdirs())
                 writeText(otherBoot.toString() + "\n")
             }
             val marker = File(dir, "hotspot.owner").apply { writeText(record.line() + "\n") }
