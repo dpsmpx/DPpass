@@ -1151,3 +1151,7 @@ Strengthen the native APK gate beyond comparing debug and release ELF bytes: ext
 ## A8 — bind device reports to build artifacts
 
 Local HTTP, TLS and combined acceptance DPTS reports now include the installed base APK SHA-256 and its unique packaged ARM64 JNI SHA-256, app version and split count. A single APK can be matched to the CI-generated NATIVE_CANDIDATE.txt. Split installations and unreadable/ambiguous artifacts are explicitly distinguished; unavailable identity never implies a matching build. Stream hashing on Dispatchers.IO with cancellation checks, before the existing probe budget, and revalidate the diagnostic session before probes. No private paths, signatures, device identifiers or new network behavior. Tests cover streamed hashes, missing JNI entries, split qualification, version sanitization, cancellation and report identity. CI pending; no physical result is claimed.
+
+### A8 — Android compilation correction
+
+Android CI #46064378391 failed in :app:compileDebugKotlin: the private constructor of DptsBuildIdentity was exposed by the generated data-class copy() (KT-11914, warnings treated as errors). Use an ordinary immutable class with the same private constructor and read-only properties; no generated copy is needed. No warning suppression, compiler flag, digest logic, APK identity or signing change. Go CI #46064378305 passed. New Android CI pending.

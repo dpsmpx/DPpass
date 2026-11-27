@@ -7,7 +7,7 @@ import java.security.MessageDigest
 import java.util.zip.ZipFile
 
 /** Artifact identity only; not evidence of a native execution or peer reply. */
-internal data class DptsBuildIdentity private constructor(
+internal class DptsBuildIdentity private constructor(
     val version: String,
     val splitCount: Int,
     val baseDigest: String?,
