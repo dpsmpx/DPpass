@@ -30,6 +30,7 @@ package bridge
 // Свой код по публичному описанию приёма (FAKE_PACKETS.md, §2; D-20).
 
 import (
+    "bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -88,6 +89,7 @@ const (
     desyncTLSRecordSplit desyncKind = 6
     desyncPass desyncKind = 7
     desyncSplitSecond desyncKind = 8
+    desyncHTTPHostCase desyncKind = 9
 )
 
 type desyncMode struct {
@@ -167,6 +169,7 @@ func parseDesyncTag(tag string) (desyncMode, bool, error) {
     case zapret2.SplitFirst: return desyncMode{kind: desyncSplitFirst}, true, nil
     case zapret2.SplitSecond: return desyncMode{kind: desyncSplitSecond}, true, nil
     case zapret2.TLSRecordSplit: return desyncMode{kind: desyncTLSRecordSplit}, true, nil
+    case zapret2.HTTPHostCase: return desyncMode{kind: desyncHTTPHostCase}, true, nil
     case zapret2.Pass: return desyncMode{kind: desyncPass}, true, nil
     case zapret2.Auto: return desyncMode{kind: desyncAuto}, true, nil
     default: return desyncMode{}, true, fmt.Errorf("unknown Zapret2 mode %v", mode.Kind)
@@ -236,6 +239,13 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
 		_ = conn.Close()
 		return nil, fmt.Errorf("invalid Zapret2 strategy: %w", perr)
 	}
+    // The new HTTP method is available only to an explicitly owned
+    // diagnostic request, never a live subscription or AUTO candidate.
+    if mode.kind == desyncHTTPHostCase && (!diagnostic || request == nil || dest.Network != xnet.Network_TCP) {
+        recordDesyncSkipped(diagnostic,request)
+        _ = conn.Close()
+        return nil, errors.New("HTTP Host case requires an explicit TCP diagnostic request")
+    }
 	if dest.Network == xnet.Network_TCP {
 		tcp, isTCP := conn.(*net.TCPConn)
 		if !isTCP {
@@ -367,8 +377,8 @@ func (c *desyncConn) Close() error {
 }
 
 // An incomplete ClientHello can be spread over many TCP Write calls.
-// Buffer only a bounded TLS record, and only for a short time. Raw TCP and
-// HTTP follow the previous immediate path. No host or payload is logged.
+// Buffer a bounded first TLS record or plausible HTTP request header for
+// a short time. Raw TCP is immediately forwarded. No payload is logged.
 const (
     maxFirstTLSRecord = 5 + 16*1024
     firstTLSBufferTimeout = 50 * time.Millisecond
@@ -383,6 +393,23 @@ func needsMoreFirstTLS(b []byte) bool {
     size := int(binary.BigEndian.Uint16(b[3:5]))
     if size < 4 || size > 16*1024 { return false }
     return len(b) < 5+size
+}
+
+// Only known HTTP/1 methods may trigger a bounded header wait. The
+// strict shared parser still decides whether a complete request qualifies.
+func needsMoreFirstHTTP(b []byte) bool {
+    if len(b)==0 || len(b)>=16*1024 || bytes.Contains(b,[]byte("\r\n\r\n")) {return false}
+    for _,method:=range []string{"GET ","POST ","HEAD ","PUT ","PATCH ","DELETE ","OPTIONS "} {
+        if len(b)<len(method) && strings.HasPrefix(method,string(b)) {return true}
+        if bytes.HasPrefix(b,[]byte(method)) {
+            // Binary/control input is not a plausible header.
+            for _,ch:=range b {
+                if ch<32 && ch!='\r' && ch!='\n' && ch!='\t' || ch==127 {return false}
+            }
+            return true
+        }
+    }
+    return false
 }
 
 // flushFirstLocked sends the entire buffered record at most once and never
@@ -423,7 +450,9 @@ func (c *desyncConn) Write(b []byte) (int, error) {
     if len(b) == 0 { return 0, nil }
     if c.firstDone { return c.TCPConn.Write(b) }
     c.pending = append(c.pending, b...)
-    if needsMoreFirstTLS(c.pending) {
+    waitHTTP := c.mode.kind==desyncAuto || c.mode.kind==desyncSplit ||
+        c.mode.kind==desyncDisorder || c.mode.kind==desyncFake || c.mode.kind==desyncHTTPHostCase
+    if needsMoreFirstTLS(c.pending) || waitHTTP && needsMoreFirstHTTP(c.pending) {
         if c.pendingTimer == nil {
             c.pendingTimer = time.AfterFunc(firstTLSBufferTimeout, func() {
                 c.writeMu.Lock()
@@ -500,6 +529,21 @@ func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
         recordDesyncSkipped(c.diagnostic,c.request)
         return c.TCPConn.Write(b)
     }
+    if c.mode.kind == desyncHTTPHostCase {
+        if !c.diagnostic || c.request==nil {
+            c.plannerErr = errors.New("HTTP Host case outside explicit diagnostic request")
+            return 0,c.plannerErr
+        }
+        n,err:=c.TCPConn.Write(plan.Rewrite)
+        if err!=nil || n!=len(b) {
+            if err==nil {err=io.ErrShortWrite}
+            recordDesyncSkipped(c.diagnostic,c.request)
+            c.plannerErr=err
+            return n,err
+        }
+        recordDesyncApplied(c.diagnostic,c.request)
+        return n,nil
+    }
     if c.mode.kind == desyncTLSRecordSplit {
         if len(plan.Rewrite) != len(b)+5 || plan.Cut < 9 || plan.Cut >= len(plan.Rewrite)-5 {
             c.plannerErr = errors.New("invalid TLS-record splitting plan")
@@ -562,6 +606,7 @@ func modeTag(m desyncMode) string {
     case desyncSplitSecond: return zapret2.TagPrefix + "split-2"
     case desyncTLSRecordSplit: return zapret2.TagPrefix + "tlsrec-split"
     case desyncPass: return zapret2.TagPrefix + "pass"
+    case desyncHTTPHostCase: return zapret2.TagPrefix + "http-hostcase"
     case desyncFake: return fmt.Sprintf("%sfake-%d", zapret2.TagPrefix, m.ttl)
     case desyncAuto: return zapret2.TagPrefix + "auto"
     }

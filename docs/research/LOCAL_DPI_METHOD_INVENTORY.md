@@ -99,3 +99,7 @@ ROOT остаётся отдельной границей привилегий. 
 ## A4/A5 — первый самостоятельный HTTP operation
 
 В общей Go-библиотеке реализован изолированный семантически сохраняющий вариант изменения регистра имени Host, соответствующий узкому семейству ByeDPI mod-http / Zapret2 http_hostcase. Это собственная реализация с общим строгим parser, не перенос legacy mod_http. Проверяется равная длина, те же field offsets и полное совпадение всех байтов вне четырёх букв имени поля. Значение Host, URI, заголовки, тело не меняются. В AUTO, DPTS и рабочие executors операция ещё не зарегистрирована; требуется отдельное проектирование action contract и физическая проверка. Не заявляется эквивалентность всего upstream семейства.
+
+## A4/A5 — HTTP operation connected to executor
+
+The previously isolated HTTPHostNameCase function is wired through the shared planner and real protected TCP adapter as an explicitly request-owned internal diagnostic operation (`http-hostcase`). It is not registered for AUTO, neural learning, TLS/QUIC, or the current user-facing DPTS grammar. The existing HTTP methods now receive bounded fragmented first headers. Exact wire validation and loopback regression cases are added; upstream-wide equivalence and physical acceptance remain open.

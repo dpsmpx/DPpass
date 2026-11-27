@@ -20,6 +20,7 @@ const (
     SplitSecond Kind = "split-2"
     Auto Kind = "auto"
     TLSRecordSplit Kind = "tlsrec-split"
+    HTTPHostCase Kind = "http-hostcase" // explicit diagnostic only
     Pass Kind = "pass" // intentional untouched QUIC baseline, AUTO only
 )
 type Mode struct {
@@ -42,6 +43,7 @@ func ParseTag(tag string) (Mode, bool, error) {
     case "split-2": return Mode{Kind: SplitSecond}, true, nil
     case "tlsrec-split": return Mode{Kind: TLSRecordSplit}, true, nil
     case "pass": return Mode{Kind: Pass}, true, nil
+    case "http-hostcase": return Mode{Kind: HTTPHostCase}, true, nil
     }
     if ttlStr, yes := strings.CutPrefix(v, "fake-"); yes {
         ttl, err := strconv.Atoi(ttlStr)

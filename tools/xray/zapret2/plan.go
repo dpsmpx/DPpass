@@ -2,6 +2,8 @@
 
 package zapret2
 
+import "github.com/dpsmpx/dppass/tools/xray/localdpi"
+
 // Plan is the single cross-platform strategy decision. Android retains only
 // packet/socket IO, while Alpine can run this exact planner as a separate
 // process. It never requires elevated OS privileges.
@@ -11,8 +13,8 @@ type Plan struct {
     Applied bool `json:"applied"`
     Cut int `json:"cut,omitempty"`
     Fake []byte `json:"fake,omitempty"`
-    // Rewrite is an optional intact-handshake TLS record encoding. Only the
-    // explicit TLS-record+TCP strategy may return one; input bytes stay intact.
+    // Rewrite is an explicitly validated TLS record or HTTP field-name
+    // encoding. Input bytes stay intact.
     Rewrite []byte `json:"rewrite,omitempty"`
     TTL int `json:"ttl,omitempty"`
     Repeats int `json:"repeats,omitempty"`
@@ -30,6 +32,15 @@ func buildPlan(tag, network string, first []byte, diagnostic bool) (Plan,error) 
     if mode.Kind == Pass { p.Reason = "intentional unmodified transport baseline"; return p, nil }
     switch network {
     case "tcp":
+        if mode.Kind == HTTPHostCase {
+            if payload, ok := localdpi.HTTPHostNameCase(first); ok {
+                p.Applied = true
+                p.Rewrite = payload
+            } else {
+                p.Reason = "complete unambiguous HTTP/1 Host required"
+            }
+            return p, nil
+        }
         if mode.Kind == TLSRecordSplit {
             if payload, cut, ok := splitTLSRecordClientHello(first,diagnostic); ok {
                 p.Applied = true

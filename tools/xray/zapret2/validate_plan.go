@@ -37,6 +37,14 @@ func validatePlan(tag,network string,first []byte,p Plan) error {
         return nil
     }
     if p.Repeats!=0 {return errors.New("unexpected TCP repeat count")}
+    if mode.Kind==HTTPHostCase {
+        // Exact deterministic encoding, not merely any case-folded Host.
+        expected,ok:=localdpi.HTTPHostNameCase(first)
+        if !ok || len(p.Fake)!=0 || !bytes.Equal(expected,p.Rewrite) {
+            return errors.New("invalid HTTP Host name rewrite")
+        }
+        return nil
+    }
     if mode.Kind==TLSRecordSplit {
         if len(p.Fake)!=0 || !localdpi.PreservesTLSRecords(first,p.Rewrite,p.Cut) {
             return errors.New("invalid TLS record rewrite")
@@ -66,6 +74,9 @@ func expectedPlanAction(mode Mode,network string,first []byte) (int,bool) {
     if mode.Kind==Pass {return 0,false}
     if network=="udp" {return 0,mode.Kind==Fake && IsQUICInitial(first)}
     switch mode.Kind {
+    case HTTPHostCase:
+        _,_,ok:=localdpi.HTTPHostRange(first)
+        return 0,ok
     case TLSRecordSplit:
         _,split,ok:=tlsRecordSplitPosition(first)
         if !ok {return 0,false}
