@@ -130,6 +130,14 @@ internal class RootHotspotClaim private constructor(
             "$helper absent " + receipt.helperPid + " " + quote(owner.bootId.toString()) + " >/dev/null || exit 1")
     }
 
+    /** Configure only the TUN named in the receipt for this exact session.
+     * Caller must already hold its descriptor and have verified guards. */
+    fun tunSetup(receipt: RootHotspotTunLaunch.Receipt, mtu: Int, configure: Boolean): String {
+        require(data.session == receipt.identity.session)
+        val setup = RootHotspotTunSetup(receipt.identity, mtu)
+        return owned(if (configure) setup.configure() else setup.verify())
+    }
+
     /** A stale owner cannot enter a privileged transaction. */
     fun owned(body: String): String {
         check(data.session != null) { "ROOT hotspot interface not bound" }

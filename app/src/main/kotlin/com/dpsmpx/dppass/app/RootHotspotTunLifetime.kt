@@ -11,6 +11,7 @@ internal class RootHotspotTunLifetime(
     private val closeDescriptor: () -> Unit,
     private val inventory: () -> RootHotspotInterfaceEvidence.Inventory?,
     private val helperRetired: () -> Boolean,
+    private val linkHealthy: () -> Boolean = { true },
 ) : RootHotspotEngineOwner.Tun {
     data class Identity(val session: RootHotspotAdmission.Session, val name: String, val index: Int) {
         init {
@@ -37,7 +38,7 @@ internal class RootHotspotTunLifetime(
             return cached ?: inputFactory().also { cached = it }
         }
 
-    override fun healthy(): Boolean = !closing && identity.present(inventory())
+    override fun healthy(): Boolean = !closing && cached != null && identity.present(inventory()) && linkHealthy()
 
     /** Retry only the same descriptor object, never a saved numeric fd. */
     override fun close() {

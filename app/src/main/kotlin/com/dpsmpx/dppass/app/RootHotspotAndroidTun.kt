@@ -19,6 +19,8 @@ internal object RootHotspotAndroidTun {
         connectivity: ConnectivityManager,
         inventory: RootHotspotInventoryObserver,
         helperRetired: () -> Boolean,
+        configure: () -> Boolean,
+        linkHealthy: () -> Boolean,
     ): RootHotspotTunLifetime {
         require(mtu in 576..1500)
         val expected = receipt.identity
@@ -30,10 +32,15 @@ internal object RootHotspotAndroidTun {
                 "ROOT hotspot TUN inventory does not match helper identity"
             }
             return RootHotspotTunLifetime(expected,
-                inputFactory = { RootHotspotTunInput.create(descriptor, mtu, physicalNetwork, connectivity) },
+                inputFactory = {
+                    // EngineOwner already retains the exact descriptor here.
+                    check(configure() && linkHealthy()) { "ROOT hotspot TUN setup unconfirmed" }
+                    RootHotspotTunInput.create(descriptor, mtu, physicalNetwork, connectivity)
+                },
                 closeDescriptor = descriptor::close,
                 inventory = inventory::stableInventory,
                 helperRetired = helperRetired,
+                linkHealthy = linkHealthy,
             )
         } catch (failure: Throwable) {
             try {

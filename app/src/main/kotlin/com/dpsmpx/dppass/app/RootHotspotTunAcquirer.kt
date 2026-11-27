@@ -8,7 +8,8 @@ import android.os.Process
 /**
  * Compose signed helper staging, exact claim launch, bounded private
  * listener and descriptor ownership. Caller must be the sole worker and
- * hold the bound live claim; this adapter does not configure or raise TUN,
+ * hold the bound live claim and independently verified default-deny guards;
+ * configuration is deferred until the engine owner requests TunInput. Does not
  * start Xray, install forwarding or register a service.
  */
 internal object RootHotspotTunAcquirer {
@@ -27,7 +28,10 @@ internal object RootHotspotTunAcquirer {
                 endpoint.accept().use { peer ->
                     check(root.execute(claim.tunHelperRetired(receipt))) { "ROOT hotspot helper retirement unconfirmed" }
                     RootHotspotAndroidTun.receive(peer, receipt, mtu, physicalNetwork, connectivity,
-                        root.inventory(), { root.execute(claim.tunHelperRetired(receipt)) })
+                        root.inventory(),
+                        helperRetired = { root.execute(claim.tunHelperRetired(receipt)) },
+                        configure = { root.execute(claim.tunSetup(receipt, mtu, true)) },
+                        linkHealthy = { root.execute(claim.tunSetup(receipt, mtu, false)) })
                 }
             },
             discard = staged::discard,
