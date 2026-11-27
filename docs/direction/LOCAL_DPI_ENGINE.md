@@ -937,3 +937,7 @@ CI 72c0310: Go/Windows #45957015358 succeeded; Android #45957015405 failed at Ko
 ## D-120 — fix nullable recovery test fixture path
 
 CI 237bb38: Go/Windows #45957932383 passed; Android #45957932548 compiled production Kotlin successfully but failed at :app:compileDebugUnitTestKotlin because File.parentFile is nullable with -Werror. Explicitly require the fixture parent and assert directory creation. No production code or test assertions weakened. New CI pending.
+
+## D-120 — read-only ROOT hotspot cleanup postconditions
+
+CI a8abd74: Go/Windows #45958401098 and Android #45958400983 passed. Six related changes: (1) fresh built-in IPv4/IPv6 INPUT and FORWARD listings and IPv4 nat PREROUTING; (2) reject malformed/missing policies and residual hotspot markers from any generation; (3) reject either reserved rule priority and invalid rule inventories; (4) require successful empty numeric table-specific rule and route queries for both address families, avoiding textual table alias assumptions; (5) repeat read-only observation twice, fail closed on unsupported commands; (6) add six host regressions. This checker is a postcondition only, not an AP/egress shutdown proof, not a global firewall audit, and not yet wired to marker retirement. Kernels whose ip implementation rejects an empty table query may conservatively refuse retirement; device validation is outstanding. No ordinary VPN, signing, subscription or model changes. New CI pending.
