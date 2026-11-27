@@ -7,16 +7,20 @@ import java.util.UUID
  * A flock serializes a transaction, not the AP lifetime. The claim survives
  * process exit and prevents another cooperating hotspot owner from starting.
  * Never infer recovery from a missing process.
- * Only trusted internal shell bodies may be supplied. Existing ROOT adapters
- * and external tethering tools do not yet participate in this protocol.
+ * Only trusted internal shell bodies may be supplied. Current ROOT adapters
+ * share the lock; external tethering tools and old builds do not participate.
  */
 internal class RootHotspotClaim(
     session: RootHotspotAdmission.Session,
     private val lockDirectory: String = RootLifecycleTransaction.SHARED_LOCK_DIRECTORY,
     token: UUID = UUID.randomUUID(),
     private val waitSeconds: Int = 5,
+    adapterDirectories: List<String> = listOf(
+        RootLifecycleTransaction.ZAPRET_DIRECTORY, RootLifecycleTransaction.BYEDPI_DIRECTORY,
+    ),
 ) {
-    private val marker = "$lockDirectory/hotspot.owner"
+    private val marker = RootHotspotInterlock.marker(lockDirectory)
+    private val adapters = adapterDirectories.toList()
     private val lock = "$lockDirectory/lifecycle.lock"
     private val record = listOf("v1", token, session.generation, session.downstreamIndex, session.mode.name).joinToString(" ")
 
@@ -24,6 +28,9 @@ internal class RootHotspotClaim(
         require(lockDirectory.startsWith("/") && lockDirectory != "/" && !lockDirectory.endsWith("/"))
         require('\u0000' !in lockDirectory && '\n' !in lockDirectory && '\r' !in lockDirectory)
         require(waitSeconds in 1..10)
+        require(adapters.distinct().size == adapters.size && lockDirectory !in adapters)
+        adapters.forEach { require(it.startsWith("/") && it != "/" && !it.endsWith("/"))
+            require(it.none { c -> c == '\u0000' || c == '\n' || c == '\r' }) }
     }
 
     private fun quote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
@@ -51,6 +58,7 @@ internal class RootHotspotClaim(
      * including a partial claim after a crash. Failed/ambiguous is not a grant. */
     fun acquire(): String = transaction(listOf(
         absent() + " || exit 1",
+        RootHotspotInterlock.adaptersIdle(adapters),
         "set -C",
         "printf '%s\\n' " + quote(record) + " > " + quote(marker),
         matches(),

@@ -287,6 +287,7 @@ internal class RootLifecycleTransaction(
                 "set -eu",
                 // Refuse a peer with outstanding ownership, even if its
                 // watchdog has not yet completed cleanup. Do not clean it here.
+                RootHotspotInterlock.noClaim(lockDirectory),
                 peerAdmissionCheck(),
                 "mkdir -p " + quote(directory),
                 directoryOrAbsent(directory),
@@ -321,6 +322,7 @@ internal class RootLifecycleTransaction(
             "test -d " + quote(directory) + " || exit 1",
             transaction(migrationStartup(listOf(
                 metadataCheck(record, ownerRecord, *(pidRecords + childIdentityRecords()).toTypedArray()),
+                RootHotspotInterlock.noClaim(lockDirectory),
                 RootOwnerStatus.sameBootOrphaned(directory, procRoot) +
                     " || { echo 'ROOT: orphan ownership not proven'; exit 1; }",
                 // Validate PID data before handing control to a cleanup
@@ -368,6 +370,7 @@ internal class RootLifecycleTransaction(
             "test \"\$current\" = " + quote(generation) + " || exit 0",
             metadataCheck(ownerRecord, "$directory/pidfd.required", *childIdentityRecords().toTypedArray()),
             RootOwnerStatus.consistent(directory) + " || { echo 'ROOT: inconsistent owner metadata'; exit 1; }",
+            RootHotspotInterlock.noClaim(lockDirectory),
             // A healthy owner must not be cleaned based on a stale probe.
             condition?.let { "if (\n$it\n); then exit 75; fi" } ?: ":",
             "(\n$cleanup\n) || exit 1",
