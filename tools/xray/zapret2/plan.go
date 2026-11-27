@@ -49,7 +49,7 @@ func buildPlan(tag, network string, first []byte, diagnostic bool) (Plan,error) 
             return p,nil
         }
         if mode.Kind == HTTPHostCase {
-            if payload, ok := localdpi.HTTPHostNameCase(first); ok {
+            if payload, ok := encodeHTTPHostNameCase(first,diagnostic); ok {
                 p.Applied = true
                 p.Rewrite = payload
             } else {

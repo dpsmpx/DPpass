@@ -10,3 +10,6 @@ func Inspect(_ []byte) (Hint,bool) {return Unknown,false}
 
 // The portable build cannot claim independent native parser agreement.
 func TLSNameAgrees(_ []byte) bool {return false}
+
+// No native HTTP mutation is available in the portable build.
+func HTTPHostCaseFixture(_ []byte) ([]byte,bool) {return nil,false}

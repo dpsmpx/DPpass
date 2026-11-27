@@ -2,7 +2,10 @@
 
 package zapret2
 
-import "github.com/dpsmpx/dppass/tools/xray/localdpi/native"
+import (
+    "github.com/dpsmpx/dppass/tools/xray/localdpi"
+    "github.com/dpsmpx/dppass/tools/xray/localdpi/native"
+)
 
 // Only an explicit experimental build tag enables this implementation.
 // Selection stays in the shared Go planner. Oversize/unsupported input
@@ -29,4 +32,11 @@ func encodeTLSRecordSplit(first []byte, recordLen, split int, diagnostic bool) (
 // locally even when an Alpine planner is selected. No other method changes.
 func localNativePlan(tag,network string) bool {
     return network=="tcp" && tag==TagPrefix+"tlsrec-split"
+}
+
+func encodeHTTPHostNameCase(first []byte, diagnostic bool) ([]byte,bool) {
+    if diagnostic {
+        if payload,ok:=native.HTTPHostCaseFixture(first);ok {return payload,true}
+    }
+    return localdpi.HTTPHostNameCase(first)
 }

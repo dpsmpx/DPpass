@@ -28,7 +28,7 @@ func TestHTTPHostCaseOverRealTCPWithFragmentedHeader(t *testing.T) {
         if n,err:=conn.Write([]byte(part));err!=nil || n!=len(part) {t.Fatal("write",n,err)}
     }
     _ = incoming.SetReadDeadline(time.Now().Add(3*time.Second))
-    expected:=[]byte("POST /path HTTP/1.1\r\nhOSt: example.test\r\nContent-Length: 4\r\n\r\nbody")
+    expected:=[]byte("POST /path HTTP/1.1\r\nhOsT: example.test\r\nContent-Length: 4\r\n\r\nbody")
     raw:=make([]byte,len(expected))
     if _,err:=io.ReadFull(incoming,raw);err!=nil {t.Fatal(err)}
     if !bytes.Equal(raw,expected) {t.Fatal("incorrect wire request")}

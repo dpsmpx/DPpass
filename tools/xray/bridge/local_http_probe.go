@@ -54,7 +54,7 @@ func probeLocalHTTPHostCase(method string, timeout time.Duration) Zapret2HTTPSRe
     if method!="plain" {
         kind:=desyncHTTPHostCase
         if method=="http-hostcase" {
-            expected=bytes.Replace(expected,[]byte("\r\nHost:"),[]byte("\r\nhOSt:"),1)
+            expected=bytes.Replace(expected,[]byte("\r\nHost:"),[]byte("\r\nhOsT:"),1)
         } else {
             kind=desyncHTTPHostOWS
             expected=bytes.Replace(expected,[]byte("\r\nHost: "),[]byte("\r\nHost:\t"),1)

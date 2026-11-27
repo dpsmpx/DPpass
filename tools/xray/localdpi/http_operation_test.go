@@ -19,7 +19,7 @@ func TestHTTPHostNameCasePreservesRequest(t *testing.T) {
         out,ok:=HTTPHostNameCase(first)
         if !ok || !PreservesHTTPHostNameCase(first,out) {t.Fatal("valid request rejected")}
         field,_:=httpHostField(first)
-        if string(out[field.nameStart:field.nameStart+4])!="hOSt" {t.Fatal("wrong field spelling")}
+        if string(out[field.nameStart:field.nameStart+4])!="hOsT" {t.Fatal("wrong field spelling")}
         a,err:=http.ReadRequest(bufio.NewReader(bytes.NewReader(first)))
         if err!=nil {t.Fatal(err)}
         b,err:=http.ReadRequest(bufio.NewReader(bytes.NewReader(out)))

@@ -10,6 +10,7 @@ package native
 */
 import "C"
 import (
+    "bytes"
     "unsafe"
     "github.com/dpsmpx/dppass/tools/xray/localdpi"
 )
@@ -64,4 +65,19 @@ func TLSNameAgrees(first []byte) bool {
     if !ok {return false}
     return C.dp_tls_name_agrees((*C.uint8_t)(unsafe.Pointer(&prefix[0])),
         C.size_t(len(prefix)),C.size_t(start),C.size_t(end))==1
+}
+
+const httpCaseFixture = "POST /self-check HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\nbody"
+
+// HTTPHostCaseFixture invokes upstream MH_HMIX only on the fixed local
+// request. The strict Go reference independently verifies every byte.
+func HTTPHostCaseFixture(first []byte) ([]byte,bool) {
+    if !bytes.Equal(first,[]byte(httpCaseFixture)) {return nil,false}
+    expected,ok:=localdpi.HTTPHostNameCase(first)
+    if !ok {return nil,false}
+    out:=make([]byte,len(first))
+    rc:=C.dp_http_host_case_fixture((*C.uint8_t)(unsafe.Pointer(&first[0])),
+        C.size_t(len(first)),(*C.uint8_t)(unsafe.Pointer(&out[0])),C.size_t(len(out)))
+    if rc!=0 || !bytes.Equal(out,expected) {return nil,false}
+    return out,true
 }

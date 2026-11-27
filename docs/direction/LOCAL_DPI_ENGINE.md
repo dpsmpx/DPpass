@@ -1107,3 +1107,7 @@ Replace the Android substring-based readiness check with a bounded exact canonic
 ## A4 — read-only ByeDPI TLS parser comparison
 
 Connect pinned upstream parse_tls through a bounded C comparison ABI and tagged Go wrapper. Only compare the common parser's existing range on a complete first message; no native offsets, host data or pointer exported. Diagnostic native TLS encoding requires agreement when SNI exists, otherwise uses the established portable encoder. Add exact-sized sanitizer inputs, valid/truncated fixture tests, Go comparison and non-native stub coverage. No changes to ordinary routing, AUTO, model layout or signing. No new strategy; CI pending.
+
+## A4 — fixed native HTTP field-name operation
+
+The original pinned ByeDPI mod_http(MH_HMIX) is now connected through a restricted C ABI and Go bridge. Only the exact built-in loopback POST fixture can reach the legacy parser; a private scratch buffer and byte-exact reference verification precede copying output. Align the diagnostic Go reference spelling to hOsT, the upstream result on canonical Host. Tagged in-process diagnostics use the native operation when applicable, otherwise the existing portable code; the selected Alpine daemon remains authoritative for its IPC calls. Arbitrary HTTP input never enters upstream mod_http. Add sanitizer rejection tests for every truncated or single-byte altered fixture, tagged Go parity, and planner validation. No AUTO/learning or release identity change. CI pending.

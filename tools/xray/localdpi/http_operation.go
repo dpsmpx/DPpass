@@ -3,13 +3,14 @@ package localdpi
 import "bytes"
 
 // HTTPHostNameCase is an isolated portable HTTP/1.x field-name operation.
+// The canonical spelling matches ByeDPI MH_HMIX on the fixed Host fixture.
 // It preserves the authority value, request target, framing and body.
 // Not registered as an AUTO method or an executor capability.
 func HTTPHostNameCase(first []byte) ([]byte,bool) {
     field,ok:=httpHostField(first)
     if !ok {return nil,false}
     out:=bytes.Clone(first)
-    copy(out[field.nameStart:field.nameStart+4],"hOSt")
+    copy(out[field.nameStart:field.nameStart+4],"hOsT")
     return out,true
 }
 

@@ -9,7 +9,7 @@ import (
 
 func TestHTTPHostCasePlannerExactRewrite(t *testing.T) {
     first:=[]byte("POST /path HTTP/1.1\r\nHost: example.test\r\nContent-Length: 4\r\n\r\nbody")
-    expected:=[]byte("POST /path HTTP/1.1\r\nhOSt: example.test\r\nContent-Length: 4\r\n\r\nbody")
+    expected:=[]byte("POST /path HTTP/1.1\r\nhOsT: example.test\r\nContent-Length: 4\r\n\r\nbody")
     tag:=TagPrefix+"http-hostcase"
     p,err:=BuildPlan(tag,"tcp",first)
     if err!=nil || !p.Applied || p.Cut!=0 || !bytes.Equal(p.Rewrite,expected) {t.Fatalf("bad HTTP plan: %+v %v",p,err)}

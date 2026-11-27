@@ -1,6 +1,6 @@
 /* DPpass-owned narrow wrapper around read-only ByeDPI predicates and
  * the explicitly bounded TLS record encoder. The legacy Host parser
- * and HTTP mutation functions remain inaccessible through this ABI. */
+ * and HTTP mutation functions are not exposed for arbitrary input. */
 #include "packet_inspect.h"
 #include "packets.h"
 #include <string.h>
@@ -65,4 +65,25 @@ int dp_tls_name_agrees(const uint8_t *data, size_t size,
     // Pointer equality, not subtraction of an untrusted pointer.
     return n > 0 && (size_t)n == end - start &&
            name == (const char *)data + start;
+}
+
+int dp_http_host_case_fixture(const uint8_t *data, size_t size,
+                              uint8_t *output, size_t capacity)
+{
+    static const char original[] =
+        "POST /self-check HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\nbody";
+    static const char expected[] =
+        "POST /self-check HTTP/1.1\r\nhOsT: example.com\r\nContent-Length: 4\r\n\r\nbody";
+    if (!data || !output || size != sizeof(original)-1 ||
+        capacity < size || memcmp(data,original,size) != 0)
+        return -1;
+    // Upstream parse_http/mod_http have unbounded backward scans on
+    // arbitrary input. Only this exact known request may reach them.
+    char scratch[sizeof(original)];
+    memcpy(scratch,original,sizeof(original));
+    if (mod_http(scratch,size,MH_HMIX) != 0 ||
+        memcmp(scratch,expected,sizeof(expected)) != 0)
+        return -1;
+    memcpy(output,scratch,size);
+    return 0;
 }

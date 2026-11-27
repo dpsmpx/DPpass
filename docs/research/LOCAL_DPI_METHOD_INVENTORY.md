@@ -111,3 +111,7 @@ Reviewed pinned Zapret2 `lua/zapret-antidpi.lua` `multisplit`. Original resolves
 ## A4 — limited upstream TLS name-parser comparison
 
 The pinned ByeDPI `parse_tls` from the already imported `packets.c` is now called by a narrow read-only comparison ABI. It receives only the bounded first complete ClientHello; the C result is equality with the existing Go range, never a new host or offset. No C pointer or name is exported. Tagged diagnostic TLS-record encoding checks agreement when the Go parser finds a name; disagreement keeps the existing portable encoding. The production selector, ordinary builds, and the upstream HTTP parser are unchanged. This integrates one existing upstream function, not a new DPI strategy or proof of equivalence. CI and physical tests pending.
+
+## A4 — native MH_HMIX on fixed HTTP fixture
+
+A restricted ABI now executes pinned ByeDPI mod_http with MH_HMIX on the exact existing local POST fixture only. No arbitrary input reaches the unsafe legacy parser. Independent byte-exact Go reference expects hOsT on the fixture, replacing the previous diagnostic spelling hOSt. The tagged in-process diagnostic planner uses the native result when available; general HTTP, ordinary builds and selected Alpine IPC retain the portable operation. No claim of general mod_http support or DPI effectiveness.

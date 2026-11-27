@@ -127,7 +127,7 @@ func TestLargeFirstTCPWritePreservesTail(t *testing.T) {
         {"tls",desyncMode{kind:desyncTLSRecordSplit},hello,nil,false,true},
         {"http-split",desyncMode{kind:desyncSplit},header,header,false,true},
         {"http-rewrite",desyncMode{kind:desyncHTTPHostCase},header,
-            bytes.Replace(header,[]byte("\r\nHost:"),[]byte("\r\nhOSt:"),1),true,true},
+            bytes.Replace(header,[]byte("\r\nHost:"),[]byte("\r\nhOsT:"),1),true,true},
         {"raw",desyncMode{kind:desyncSplit},[]byte("SSH-2.0-example\r\n"),[]byte("SSH-2.0-example\r\n"),false,false},
     } {
         t.Run(tc.name,func(t *testing.T){
