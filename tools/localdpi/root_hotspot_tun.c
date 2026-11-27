@@ -103,7 +103,7 @@ static int transfer(int socket_fd, int tun_fd) {
     return sendmsg(socket_fd, &msg, MSG_NOSIGNAL) == 1;
 }
 
-int dppass_hotspot_tun_send(const char *path, uid_t uid, pid_t pid) {
+unsigned int dppass_hotspot_tun_send(const char *path, uid_t uid, pid_t pid) {
     if (getuid() != 0 || geteuid() != 0 || uid < 10000 || pid <= 1 ||
         !dppass_hotspot_tun_socket_path(path)) return 0;
     int channel = connect_owner(path, uid, pid);
@@ -113,9 +113,10 @@ int dppass_hotspot_tun_send(const char *path, uid_t uid, pid_t pid) {
         close(channel);
         return 0;
     }
-    int sent = transfer(channel, tun);
+    unsigned int index = if_nametoindex(TUN_NAME);
+    int sent = index != 0 && transfer(channel, tun);
     // No retries of numeric fd close. Failure remains ambiguous to caller.
     int closed = close(tun) == 0;
     close(channel);
-    return sent && closed;
+    return sent && closed ? index : 0;
 }

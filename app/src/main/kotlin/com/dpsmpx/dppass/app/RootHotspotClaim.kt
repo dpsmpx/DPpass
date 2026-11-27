@@ -111,6 +111,16 @@ internal class RootHotspotClaim private constructor(
      * A failed command is not proof that the record is absent. */
     fun confirm(): String = transaction(matches() + "\n" + liveOwner())
 
+    /** Prepare a synchronous, exact-owner helper launch. App PID comes
+     * only from the claim, never from a free-form command argument. */
+    fun tunLaunch(socketPath: String, appUid: Int, source: String, digest: String): RootHotspotTunLaunch.Command {
+        val session = checkNotNull(data.session) { "ROOT hotspot interface not bound" }
+        val body = RootHotspotTunLaunch.script(lockDirectory, socketPath, appUid,
+            owner.identity.pid, source, digest)
+        return RootHotspotTunLaunch.Command(session,
+            transaction(matches() + "\n" + liveOwner() + "\n" + body + "\n" + matches() + "\n" + liveOwner()))
+    }
+
     /** A stale owner cannot enter a privileged transaction. */
     fun owned(body: String): String {
         check(data.session != null) { "ROOT hotspot interface not bound" }

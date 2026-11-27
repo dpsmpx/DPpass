@@ -44,8 +44,9 @@ int main(int argc, char **argv) {
             !decimal(argv[3], INT32_MAX, &uid) || uid < 10000 ||
             !decimal(argv[4], INT32_MAX, &pid) || pid <= 1)
             return invalid();
-        if (dppass_hotspot_tun_send(argv[2], (uid_t)uid, (pid_t)pid)) {
-            puts("tun_sent");
+        unsigned int index = dppass_hotspot_tun_send(argv[2], (uid_t)uid, (pid_t)pid);
+        if (index != 0) {
+            printf("tun_sent %ld %u\n", (long)getpid(), index);
             return 0;
         }
         puts("tun_unconfirmed");

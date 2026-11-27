@@ -36,6 +36,13 @@ internal class RootHotspotRootAccess(
     /** Trusted internal shell transaction, not an arbitrary command endpoint. */
     fun execute(script: String): Boolean = guarded(false) { command(script).exitCode == 0 }
 
+    /** A successful complete synchronous transaction, not just an exit
+     * code, is needed to bind the received socket and interface. */
+    fun launchTun(launch: RootHotspotTunLaunch.Command): RootHotspotTunLaunch.Receipt? = guarded(null) {
+        val result = command(launch.script)
+        if (result.exitCode != 0) null else RootHotspotTunLaunch.parse(launch.session, result.stdout)
+    }
+
     fun initialize(): Boolean = guarded(false) {
         val result = command(RootHotspotEnvironment.initialize())
         result.exitCode == 0 && result.stdout == "environment_ready\n"
