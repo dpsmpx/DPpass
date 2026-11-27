@@ -359,6 +359,22 @@ func recordLocalSocketEvidence(pick *adaptivePick, evidence localdpi.Evidence) {
     zapret2Auto.observeSocketEvidence(pick,evidence)
 }
 
+// CloseWrite must not use the promoted TCPConn method: Write may have
+// already accepted a partial first record into our own buffer. Flush it
+// before the FIN, while serializing against Write and the pending timer.
+// The read side remains open. Even a failed plan must terminate the send
+// side without allowing a later retry to escape the sticky planner error.
+func (c *desyncConn) CloseWrite() error {
+    c.writeMu.Lock()
+    defer c.writeMu.Unlock()
+    pendingErr:=c.flushFirstLocked()
+    // No subsequent Write may start a new buffer after an empty half-close.
+    c.firstDone=true
+    closeErr:=c.TCPConn.CloseWrite()
+    if pendingErr!=nil {return pendingErr}
+    return closeErr
+}
+
 func (c *desyncConn) Close() error {
     // The final buffered bytes were already accepted by Write. Attempt to
     // transmit them before closing; a failure remains sticky.

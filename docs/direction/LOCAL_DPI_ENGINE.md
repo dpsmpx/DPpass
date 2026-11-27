@@ -1095,3 +1095,7 @@ Add an independent same-length HTTP/1 operation restricted to existing optional 
 ## A4/A5/A7 — certificate-verified local TLS executor matrix
 
 Add a fixed loopback TLS 1.2/1.3 self-test, plain/multisplit/tlsrec-split, through the actual TCP adapter and current planner. Use per-case ephemeral ECDSA trust, exact name/version/ALPN and fixed bidirectional application data, bounded sockets and deadline, independent local outcomes and request-owned counters. Wire into the existing DPTS screen and presets without model admission, external DNS or network access. Host tests cover all six combinations, negative admission and unavailable selected planner. No device or remote-network result claimed; CI pending.
+
+## A3/A5 — TCP half-close and selected planner integration
+
+The TCP adapter now flushes its accepted first-record buffer before CloseWrite/FIN, under the same lock as Write and the timer; an empty half-close cannot start a new buffer and a failed plan remains sticky. Host regression cases cover partial TLS and HTTP, empty half-close, continued downstream reads, sticky planner failure and concurrent IPC admission. Local HTTP/TLS probes are also exercised with a real Unix-socket peer using the production wire decoder and shared planner; this is an IPC fixture, not an Alpine installation or a physical network result. No strategy catalog, model or VPN profile change.
