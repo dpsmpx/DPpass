@@ -192,6 +192,23 @@ internal class RootHotspotClaim private constructor(
             lockDirectory, adapterDirectories, procRoot,
         )
 
+        /** Distinguish an absent record from an unreadable/malformed one.
+         * This is an observation only; never use it as a grant to start. */
+        fun inspectState(lockDirectory: String = RootLifecycleTransaction.SHARED_LOCK_DIRECTORY): String {
+            val file = "'" + RootHotspotInterlock.marker(lockDirectory).replace("'", "'\\''") + "'"
+            return RootProcessIdentity.lockedTransaction("$lockDirectory/lifecycle.lock", listOf(
+                "set -eu",
+                "if test ! -e $file && test ! -L $file; then",
+                "    printf 'absent\\n'; exit 0",
+                "fi",
+                "test -f $file && test ! -L $file || exit 1",
+                "test \"\$(stat -c %u $file)\" = \"\$(id -u)\" || exit 1",
+                "test \"\$(wc -c < $file)\" -le 256 || exit 1",
+                "printf 'present\\n'",
+                "cat $file",
+            ).joinToString("\n"))
+        }
+
         /** Read under lock; caller must parse the complete successful stdout.
          * Inspection never grants ownership; recovery rechecks the exact record. */
         fun inspect(lockDirectory: String = RootLifecycleTransaction.SHARED_LOCK_DIRECTORY): String {
