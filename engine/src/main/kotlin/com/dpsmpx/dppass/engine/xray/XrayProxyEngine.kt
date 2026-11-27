@@ -35,6 +35,7 @@ class XrayProxyEngine(private val runtime: Outcome<XrayRuntime>) : ProxyEngine {
 
     private val lock = Any()
     private var current: Session? = null
+    private var hotspot: HotspotLease? = null
 
     override suspend fun validate(config: CompiledConfig): Outcome<Unit> {
         foreign<Unit>(config)?.let { return it }
@@ -65,7 +66,7 @@ class XrayProxyEngine(private val runtime: Outcome<XrayRuntime>) : ProxyEngine {
         }
         val payload = config.payloadForEngine().encodeToByteArray()
         synchronized(lock) {
-            if (current != null) {
+            if (current != null || hotspot != null) {
                 return Outcome.failure(DiagCode.BACKEND_ALREADY_RUNNING, "ядро уже запущено; сначала stop()")
             }
             val r = rt.start(payload, tun?.fd ?: NO_TUN, tun?.mtu ?: 0, tun?.protector)
@@ -73,6 +74,91 @@ class XrayProxyEngine(private val runtime: Outcome<XrayRuntime>) : ProxyEngine {
             val session = Session(config, rt)
             current = session
             return Outcome.Success(session)
+        }
+    }
+
+    /** Reserve the shared app engine before acquiring a private hotspot TUN.
+     * The same AppGraph engine instance must be used by both callers.
+     * No JNI calls, config changes, or automatic takeover here. */
+    fun reserveHotspot(): HotspotLease? = synchronized(lock) {
+        if (current != null || hotspot != null || runtime !is Outcome.Success) null
+        else HotspotLease(runtime.value).also { hotspot = it }
+    }
+
+    enum class HotspotState { RESERVED, RUNNING, STOPPED, QUARANTINED, RELEASED }
+
+    /**
+     * One-shot exclusive lease. A failed native start other than RUNNING
+     * may have touched the TUN; a failed native stop is not proof of closure.
+     * No retry of a possibly foreign native stop, and no force release.
+     * Only the trusted app owner may confirm descriptor retirement.
+     */
+    inner class HotspotLease internal constructor(private val rt: XrayRuntime) {
+        private var phase = HotspotState.RESERVED
+        private var attempted = false
+
+        fun state(): HotspotState = synchronized(lock) { phase }
+
+        fun start(config: CompiledConfig, tun: TunInput): Boolean = synchronized(lock) {
+            check(hotspot === this && phase == HotspotState.RESERVED && !attempted)
+            require(tun.fd >= 0 && tun.mtu in 576..1500)
+            if (foreign<Unit>(config) != null) return@synchronized false
+            attempted = true
+            // Native start can have effects before throwing. Conservatively
+            // retain ownership on every ambiguous response.
+            phase = HotspotState.QUARANTINED
+            val payload = config.payloadForEngine().encodeToByteArray()
+            val result = try {
+                rt.start(payload, tun.fd, tun.mtu, tun.protector)
+            } finally {
+                payload.fill(0)
+            }
+            when {
+                result == XrayResult.Ok -> {
+                    phase = HotspotState.RUNNING
+                    true
+                }
+                result is XrayResult.Failed && result.kind == XrayFailureKind.RUNNING -> {
+                    // Native bridge explicitly rejected a competing owner.
+                    // Do not call its global stop or use its stats.
+                    phase = HotspotState.STOPPED
+                    false
+                }
+                else -> false
+            }
+        }
+
+        /** Only a positively started exact lease is allowed to stop. */
+        fun stop(): Boolean = synchronized(lock) {
+            if (hotspot !== this) return@synchronized false
+            when (phase) {
+                HotspotState.RESERVED -> {
+                    phase = HotspotState.STOPPED
+                    true
+                }
+                HotspotState.STOPPED -> true
+                HotspotState.RUNNING -> {
+                    phase = HotspotState.QUARANTINED
+                    if (rt.stop() != XrayResult.Ok || rt.traffic() != null) false
+                    else {
+                        phase = HotspotState.STOPPED
+                        true
+                    }
+                }
+                HotspotState.QUARANTINED, HotspotState.RELEASED -> false
+            }
+        }
+
+        /** The caller must close its exact TUN and independently verify
+         * retirement first. This cannot clear a quarantined native start
+         * or stop, and a stale handle cannot release a new owner. */
+        fun releaseAfterTunClosed(verifiedClosed: Boolean): Boolean = synchronized(lock) {
+            if (hotspot !== this || phase != HotspotState.STOPPED || !verifiedClosed) {
+                return@synchronized false
+            }
+            phase = HotspotState.RELEASED
+            hotspot = null
+            true
         }
     }
 

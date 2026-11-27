@@ -170,6 +170,104 @@ class XrayProxyEngineTest {
     }
 
     @Test
+    fun hotspotReservationDoesNotTouchNativeEngineAndBlocksNormalStart() = runBlocking {
+        val rt = FakeRuntime()
+        val engine = XrayProxyEngine(Outcome.Success(rt))
+        val lease = checkNotNull(engine.reserveHotspot())
+        assertEquals(XrayProxyEngine.HotspotState.RESERVED, lease.state())
+        assertNull(engine.reserveHotspot())
+        assertEquals(DiagCode.BACKEND_ALREADY_RUNNING, engine.start(compiled, null).errors.single().code)
+        assertTrue(rt.starts.isEmpty())
+        assertTrue(lease.stop())
+        assertEquals(0, rt.stops)
+        assertFalse(lease.releaseAfterTunClosed(false))
+        assertTrue(lease.releaseAfterTunClosed(true))
+        assertIs<Outcome.Success<EngineSession>>(engine.start(compiled, null))
+    }
+
+    @Test
+    fun normalSessionBlocksHotspotReservation() = runBlocking {
+        val rt = FakeRuntime()
+        val engine = XrayProxyEngine(Outcome.Success(rt))
+        val session = engine.start(compiled, null).valueOrNull()!!
+        assertNull(engine.reserveHotspot())
+        session.stop()
+        assertTrue(engine.reserveHotspot() != null)
+    }
+
+    @Test
+    fun hotspotUsesExactTunAndProtectsOwnerUntilDescriptorRetirement() = runBlocking {
+        val rt = FakeRuntime()
+        val engine = XrayProxyEngine(Outcome.Success(rt))
+        val lease = checkNotNull(engine.reserveHotspot())
+        val protector = SocketProtector { true }
+        assertTrue(lease.start(compiled, TunInput(42, 1500, protector)))
+        assertEquals(Triple(42, 1500, protector), rt.starts.single())
+        assertEquals(XrayProxyEngine.HotspotState.RUNNING, lease.state())
+        assertFalse(lease.releaseAfterTunClosed(true))
+        assertTrue(lease.stop())
+        assertTrue(lease.stop())
+        assertEquals(1, rt.stops)
+        assertEquals(DiagCode.BACKEND_ALREADY_RUNNING, engine.start(compiled, null).errors.single().code)
+        assertTrue(lease.releaseAfterTunClosed(true))
+        assertEquals(XrayProxyEngine.HotspotState.RELEASED, lease.state())
+        val next = checkNotNull(engine.reserveHotspot())
+        assertFalse(lease.stop())
+        assertFalse(lease.releaseAfterTunClosed(true))
+        assertEquals(XrayProxyEngine.HotspotState.RESERVED, next.state())
+        assertEquals(1, rt.stops)
+    }
+
+    @Test
+    fun nativeRunningRefusalNeverStopsForeignEngine() = runBlocking {
+        val rt = FakeRuntime().apply { running = true }
+        val engine = XrayProxyEngine(Outcome.Success(rt))
+        val lease = checkNotNull(engine.reserveHotspot())
+        assertFalse(lease.start(compiled, TunInput(42, 1500) { true }))
+        assertTrue(lease.stop())
+        assertTrue(lease.releaseAfterTunClosed(true))
+        assertTrue(rt.running)
+        assertEquals(0, rt.stops)
+    }
+
+    @Test
+    fun ambiguousNativeStartQuarantinesLease() = runBlocking {
+        for (answer in listOf(XrayResult.Partial, XrayResult.Failed(XrayFailureKind.START, "failure"))) {
+            val rt = FakeRuntime().apply { startAnswer = answer }
+            val engine = XrayProxyEngine(Outcome.Success(rt))
+            val lease = checkNotNull(engine.reserveHotspot())
+            assertFalse(lease.start(compiled, TunInput(42, 1500) { true }))
+            assertEquals(XrayProxyEngine.HotspotState.QUARANTINED, lease.state())
+            assertFalse(lease.stop())
+            assertFalse(lease.releaseAfterTunClosed(true))
+            assertNull(engine.reserveHotspot())
+            assertEquals(DiagCode.BACKEND_ALREADY_RUNNING, engine.start(compiled, null).errors.single().code)
+            assertEquals(0, rt.stops)
+        }
+    }
+
+    @Test
+    fun failedHotspotStopNeverAdmitsAnotherOwner() = runBlocking {
+        val rt = FakeRuntime()
+        val engine = XrayProxyEngine(Outcome.Success(rt))
+        val lease = checkNotNull(engine.reserveHotspot())
+        assertTrue(lease.start(compiled, TunInput(42, 1500) { true }))
+        rt.stopAnswer = XrayResult.Failed(XrayFailureKind.START, "failure")
+        assertFalse(lease.stop())
+        assertFalse(lease.stop())
+        assertEquals(1, rt.stops)
+        assertEquals(XrayProxyEngine.HotspotState.QUARANTINED, lease.state())
+        assertFalse(lease.releaseAfterTunClosed(true))
+        assertEquals(DiagCode.BACKEND_ALREADY_RUNNING, engine.start(compiled, null).errors.single().code)
+    }
+
+    @Test
+    fun unavailableEngineCannotReserveHotspot() {
+        val engine = XrayProxyEngine(Outcome.failure(DiagCode.BACKEND_NOT_AVAILABLE, "unavailable"))
+        assertNull(engine.reserveHotspot())
+    }
+
+    @Test
     fun withoutTunNothingIsPassed() = runBlocking {
         val rt = FakeRuntime()
         XrayProxyEngine(Outcome.Success(rt)).start(compiled, null).valueOrNull()!!
