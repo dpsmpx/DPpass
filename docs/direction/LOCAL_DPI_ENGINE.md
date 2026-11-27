@@ -981,3 +981,7 @@ Add independent idle baseline before Android dispatch, compose stable tethering 
 ## D-120 — bounded ROOT service command boundary
 
 Prior CI ae8a45e passed (Go/Windows #45985408550, Android #45985408499). Add shared bounded complete-output ROOT executor with fixed inventory allowlist and explicit UID check, exact baseline marker, canonical boot owner identity, locked tri-state claim inspection (absent/present/unknown), and six JVM regressions. The ROOT directory must already be initialized; failed inspections or mutations remain ambiguous. No Android service registration or activation; independent platform ownership/offload evidence and physical acceptance remain outstanding. New CI pending.
+
+## D-120 — first-use ROOT environment and explicit recovery coordination
+
+CI 174ba03 passed (Go/Windows #45988751240, Android #45988751293). Initialize private shared directory without deleting or replacing any metadata or lock inode; require exact environment success marker. Add locked read-only orphan confirmation and explicit recovery coordinator requiring exact record, independently supplied cleanup proof, repeated inspection and post-recovery absence. Seven regressions for directory/lock safety, failures and recovery sequencing. No automatic cleanup provider, Android service registration or activation; device evidence and physical acceptance remain outstanding. New CI pending.

@@ -144,6 +144,10 @@ internal class RootHotspotClaim private constructor(
      * The check and unlink share the lock with cooperating claim operations. */
     fun releaseAfter(verifiedCleanup: String): String = retireAfter(liveOwner(), verifiedCleanup)
 
+    /** Read-only orphan admission; recovery must repeat this under lock. */
+    fun confirmOrphan(helperPath: String? = null): String =
+        transaction(matches() + "\n" + orphanProof(helperPath))
+
     /** Recovery requires the exact observed record and fresh positive orphan proof.
      * The trusted cleanup body must prove AP/request retirement and all owned
      * rules/routes/egress cleanup. A prior boot alone does not prove this. */

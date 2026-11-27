@@ -36,6 +36,11 @@ internal class RootHotspotRootAccess(
     /** Trusted internal shell transaction, not an arbitrary command endpoint. */
     fun execute(script: String): Boolean = guarded(false) { command(script).exitCode == 0 }
 
+    fun initialize(): Boolean = guarded(false) {
+        val result = command(RootHotspotEnvironment.initialize())
+        result.exitCode == 0 && result.stdout == "environment_ready\n"
+    }
+
     fun baseline(): Boolean = guarded(false) {
         val result = command(RootHotspotPreflight.script())
         result.exitCode == 0 && result.stdout == "baseline_available\n"
