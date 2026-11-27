@@ -100,11 +100,20 @@ class RootHotspotReservationTest {
                 }
                 val cancellation = pool.submit {
                     check(go.await(5, TimeUnit.SECONDS))
-                    pending.close()
+                    try {
+                        pending.close()
+                    } catch (_: RootHotspotReservation.CleanupUnconfirmed) {
+                        // A late callback may already own the release. The
+                        // close pass must not claim success in that window.
+                    }
                 }
                 go.countDown()
                 delivery.get(5, TimeUnit.SECONDS)
                 cancellation.get(5, TimeUnit.SECONDS)
+                // After both workers finish, cleanup must be confirmed
+                // without releasing the same resource again.
+                pending.close()
+                assertEquals(false, pending.cleanupStatus().unresolved)
                 assertEquals(1, resource.releases.get())
                 assertThrows(IllegalStateException::class.java) { pending.take(1000) }
             }
@@ -221,6 +230,34 @@ class RootHotspotReservationTest {
             pending.close()
             assertEquals(false, pending.cleanupStatus().unresolved)
             assertEquals(1, resource.releases.get())
+        } finally {
+            resume.countDown()
+            pool.shutdownNow()
+        }
+    }
+
+    @Test fun closeDuringLateCallbackReleaseRequiresRetry() {
+        val resource = Reservation()
+        val entered = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        val pending = RootHotspotReservation<Reservation> {
+            it.release()
+            entered.countDown()
+            check(resume.await(15, TimeUnit.SECONDS))
+        }
+        val pool = Executors.newSingleThreadExecutor()
+        try {
+            pending.close()
+            val delivery = pool.submit { pending.started(resource) }
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            assertEquals(RootHotspotReservation.CleanupStatus(0, 1), pending.cleanupStatus())
+            assertThrows(RootHotspotReservation.CleanupUnconfirmed::class.java) { pending.close() }
+            resume.countDown()
+            delivery.get(5, TimeUnit.SECONDS)
+            pending.close()
+            assertEquals(false, pending.cleanupStatus().unresolved)
+            assertEquals(1, resource.releases.get())
+            assertThrows(IllegalStateException::class.java) { pending.take(1000) }
         } finally {
             resume.countDown()
             pool.shutdownNow()

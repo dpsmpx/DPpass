@@ -17,6 +17,9 @@ internal class RootHotspotReservation<R : Any>(private val release: (R) -> Unit)
     private enum class ReleaseState { IN_FLIGHT, RETRY, RELEASED }
     private class Discard(var state: ReleaseState, var failure: Throwable? = null)
 
+    /** A close pass cannot confirm cleanup yet; the owner must retry. */
+    class CleanupUnconfirmed : IllegalStateException("ROOT hotspot reservation cleanup unconfirmed")
+
     data class CleanupStatus(val retry: Int, val inFlight: Int) {
         val unresolved: Boolean get() = retry != 0 || inFlight != 0
     }
@@ -121,7 +124,7 @@ internal class RootHotspotReservation<R : Any>(private val release: (R) -> Unit)
         for (resource in work) releaseOne(resource)
         val problem = synchronized(monitor) {
             val unresolved = discarded.values.filter { it.state != ReleaseState.RELEASED }
-            if (unresolved.isEmpty()) null else IllegalStateException("ROOT hotspot reservation cleanup unconfirmed").also { error ->
+            if (unresolved.isEmpty()) null else CleanupUnconfirmed().also { error ->
                 unresolved.mapNotNull { it.failure }.forEach { if (it !== error) error.addSuppressed(it) }
             }
         }
