@@ -23,7 +23,15 @@ class RootHotspotEgressCoordinatorTest {
         var evidence = complete
         var scriptOk = true
         var vacant = true
-        val coordinator = RootHotspotEgressCoordinator({ plan }, this)
+        var firewallAttached = false
+        var firewallAvailable = true
+        val firewall = RootHotspotFirewallEvidence.Observer { args ->
+            val chain = RootHotspotFirewallEvidence.Chain.entries.single { it.command == args }
+            val rules = plan.firewallExpected(firewallAttached).getValue(chain)
+            RootCommandRunner.CompleteResult(if (firewallAvailable) 0 else 1,
+                (listOf("-P " + chain.chain + " ACCEPT") + rules).joinToString("\n", postfix = "\n"))
+        }
+        val coordinator = RootHotspotEgressCoordinator({ plan }, this, firewall)
         val resource = Resource()
         val owned: (String) -> Boolean = {
             calls += when (it) {
@@ -33,6 +41,8 @@ class RootHotspotEgressCoordinatorTest {
                 plan.detach() -> "detach-script"
                 else -> error("unexpected script")
             }
+            if (scriptOk && it == plan.attach()) firewallAttached = true
+            if (scriptOk && it == plan.detach()) firewallAttached = false
             scriptOk && (it != plan.vacancy() || vacant)
         }
         override fun platformSafe(resource: Resource, identity: RootHotspotInterfaceEvidence.Identity) = platform.also { calls += "platform" }
@@ -81,6 +91,35 @@ class RootHotspotEgressCoordinatorTest {
         f.guard = false
         assertFalse(f.prepare().rootBaseline)
         assertFalse("engine" in f.calls)
+        assertTrue(f.stop())
+        assertEquals(plan.retire(), f.coordinator.cleanup(identity))
+    }
+
+    @Test fun independentFirewallFailureBlocksEngineDespiteSuccessfulGuardScript() {
+        val f = Fixture()
+        f.firewallAvailable = false
+        assertFalse(f.prepare().rootBaseline)
+        assertFalse("engine" in f.calls)
+        assertTrue(f.stop())
+    }
+
+    @Test fun lostFirewallProofBeforeAttachBlocksMutation() {
+        val f = Fixture()
+        assertEquals(complete, f.prepare())
+        f.firewallAvailable = false
+        assertFalse(f.attach())
+        assertFalse("attach-script" in f.calls)
+        assertTrue(f.stop())
+    }
+
+    @Test fun detachedFirewallProofRequiredBeforeRetiringGuards() {
+        val f = Fixture()
+        assertEquals(complete, f.prepare())
+        assertTrue(f.attach())
+        f.firewallAvailable = false
+        assertFalse(f.stop())
+        assertThrows(IllegalStateException::class.java) { f.coordinator.cleanup(identity) }
+        f.firewallAvailable = true
         assertTrue(f.stop())
         assertEquals(plan.retire(), f.coordinator.cleanup(identity))
     }

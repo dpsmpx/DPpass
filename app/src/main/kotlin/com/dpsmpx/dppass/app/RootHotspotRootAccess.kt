@@ -74,6 +74,7 @@ internal class RootHotspotRootAccess(
 
     fun inventory() = RootHotspotInventoryObserver(::read)
     fun tethering() = RootHotspotTetherObserver(::read)
+    fun firewall() = RootHotspotFirewallEvidence.Observer(::read)
 
     private inline fun <T> guarded(fallback: T, block: () -> T): T = try {
         block()
@@ -83,7 +84,7 @@ internal class RootHotspotRootAccess(
     } catch (_: Exception) { fallback }
 
     private companion object {
-        val READ_COMMANDS = setOf(
+        val READ_COMMANDS = RootHotspotFirewallEvidence.Chain.entries.map { it.command }.toSet() + setOf(
             listOf("ip", "-o", "link", "show"),
             listOf("ip", "-4", "-o", "addr", "show"),
             listOf("dumpsys", "tethering", "--short"),

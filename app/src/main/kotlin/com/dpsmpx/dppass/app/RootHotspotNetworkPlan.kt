@@ -5,15 +5,22 @@ package com.dpsmpx.dppass.app
  * Shell success alone is not an admission signal. */
 internal class RootHotspotNetworkPlan(
     val identity: RootHotspotInterfaceEvidence.Identity,
-    tun: String,
+    val tun: String,
     val slot: RootHotspotNetworkSlot,
-    generation: String,
+    val generation: String,
 ) {
     private val input = RootHotspotInputGuard(identity.name, generation)
     private val forward = RootHotspotForwardGuard(identity.name, tun, generation)
     private val routes = RootHotspotRoutes(identity.name, tun, slot.table, slot.priority)
     private val dns = RootHotspotDnsIngress(identity.name, identity.gateway, generation)
     private val marker = "dppass-hotspot-$generation"
+
+    /** Expected leading firewall rules for independent complete listings. */
+    fun firewallExpected(attached: Boolean): Map<RootHotspotFirewallEvidence.Chain, List<String>> {
+        val rules = forward.install + input.install +
+            if (attached) dns.attach + forward.attach else emptyList()
+        return RootHotspotFirewallEvidence.expected(rules)
+    }
 
     private fun checked(commands: List<String>): String =
         commands.joinToString("\n") { "$it || exit 1" }
