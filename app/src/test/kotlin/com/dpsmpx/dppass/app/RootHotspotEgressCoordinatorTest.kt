@@ -62,6 +62,7 @@ class RootHotspotEgressCoordinatorTest {
         assertFalse(f.prepare().rootBaseline)
         assertEquals(listOf("platform"), f.calls)
         assertTrue(f.stop())
+        assertEquals(":", f.coordinator.cleanup(identity))
     }
 
     @Test fun guardFailureNeverStartsEngine() {
@@ -70,6 +71,7 @@ class RootHotspotEgressCoordinatorTest {
         assertFalse(f.prepare().rootBaseline)
         assertFalse("engine" in f.calls)
         assertTrue(f.stop())
+        assertEquals(plan.retire(), f.coordinator.cleanup(identity))
     }
 
     @Test fun partialEngineStartRequiresStop() {

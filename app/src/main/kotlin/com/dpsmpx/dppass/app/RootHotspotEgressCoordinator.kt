@@ -24,6 +24,7 @@ internal class RootHotspotEgressCoordinator<R : Any>(
     private var state = State.NEW
     private var plan: RootHotspotNetworkPlan? = null
     private var resource: R? = null
+    private var guardAttempted = false
     private var engineAttempted = false
     private var attachAttempted = false
 
@@ -38,6 +39,7 @@ internal class RootHotspotEgressCoordinator<R : Any>(
         plan = selected
         if (!driver.platformSafe(resource, identity)) return refused()
         state = State.GUARD_ATTEMPTED
+        guardAttempted = true
         if (!owned(selected.guard()) || !driver.verifyGuard(selected)) return refused()
         state = State.ENGINE_ATTEMPTED
         engineAttempted = true
@@ -82,6 +84,6 @@ internal class RootHotspotEgressCoordinator<R : Any>(
         val selected = plan ?: return ":"
         require(selected.identity == identity)
         check(state == State.STOPPING && !engineAttempted)
-        return selected.retire()
+        return if (guardAttempted) selected.retire() else ":"
     }
 }
