@@ -10,7 +10,7 @@ internal object RootHotspotTunLaunch {
     }
 
     private val part = Regex("[A-Za-z0-9_.-]+")
-    private fun socketPathValid(path: String): Boolean =
+    fun socketPathValid(path: String): Boolean =
         path.startsWith("/") && path.length in 2..107 &&
             path.drop(1).split('/').all { it.matches(part) && it !in setOf(".", "..") }
 

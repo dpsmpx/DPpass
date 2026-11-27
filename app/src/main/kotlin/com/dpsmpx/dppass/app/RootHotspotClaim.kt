@@ -121,6 +121,15 @@ internal class RootHotspotClaim private constructor(
             transaction(matches() + "\n" + liveOwner() + "\n" + body + "\n" + matches() + "\n" + liveOwner()))
     }
 
+    /** No-signal proof of retirement of the helper named in a successful
+     * transfer receipt. A reused live PID is conservatively unconfirmed. */
+    fun tunHelperRetired(receipt: RootHotspotTunLaunch.Receipt): String {
+        require(data.session == receipt.identity.session)
+        val helper = quote("$lockDirectory/root-pidfd")
+        return owned(RootPidfdCleanup.helperAdmission(helper) + "\n" +
+            "$helper absent " + receipt.helperPid + " " + quote(owner.bootId.toString()) + " >/dev/null || exit 1")
+    }
+
     /** A stale owner cannot enter a privileged transaction. */
     fun owned(body: String): String {
         check(data.session != null) { "ROOT hotspot interface not bound" }
