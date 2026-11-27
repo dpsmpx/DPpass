@@ -31,6 +31,35 @@ class RootCommandRunnerTest {
     }
 
     @Test
+    fun completeCaptureDoesNotTruncateAndPreservesExitStatus() {
+        if (!File("/bin/sh").canExecute()) return
+        val result = RootCommandRunner.runComplete(
+            listOf("/bin/sh", "-c", "head -c 8192 /dev/zero | tr '\\000' x; printf END; exit 7"),
+        )
+        assertEquals(7, result.exitCode)
+        assertEquals(8195, result.stdout.length)
+        assertTrue(result.stdout.endsWith("END"))
+    }
+
+    @Test
+    fun completeCaptureRejectsOverflowAndStderr() {
+        if (!File("/bin/sh").canExecute()) return
+        for (script in listOf("head -c 262145 /dev/zero", "printf warning >&2; printf ok")) {
+            assertFailsWith<IllegalStateException> {
+                RootCommandRunner.runComplete(listOf("/bin/sh", "-c", script))
+            }
+        }
+    }
+
+    @Test
+    fun completeCaptureRejectsInvalidUtf8() {
+        if (!File("/bin/sh").canExecute()) return
+        assertFailsWith<java.nio.charset.CharacterCodingException> {
+            RootCommandRunner.runComplete(listOf("/bin/sh", "-c", "printf '\\377'"))
+        }
+    }
+
+    @Test
     fun timeoutIsReportedInsteadOfSuccess() {
         if (!File("/bin/sh").canExecute()) return
         val failure = assertFailsWith<IllegalStateException> {

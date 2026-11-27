@@ -17,6 +17,7 @@ internal object RootHotspotInterfaceEvidence {
         private val links: Map<String, Int>,
         private val addresses: Map<String, Set<String>>,
     ) {
+        fun sameTopology(other: Inventory): Boolean = links == other.links && addresses == other.addresses
         fun indexOf(name: String): Int? = links[name]
         fun nameOf(index: Int): String? = links.entries.firstOrNull { it.value == index }?.key
         fun ipv4(name: String): Set<String> = addresses[name].orEmpty()
