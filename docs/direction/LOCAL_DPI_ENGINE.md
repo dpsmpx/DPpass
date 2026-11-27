@@ -985,3 +985,7 @@ Prior CI ae8a45e passed (Go/Windows #45985408550, Android #45985408499). Add sha
 ## D-120 — first-use ROOT environment and explicit recovery coordination
 
 CI 174ba03 passed (Go/Windows #45988751240, Android #45988751293). Initialize private shared directory without deleting or replacing any metadata or lock inode; require exact environment success marker. Add locked read-only orphan confirmation and explicit recovery coordinator requiring exact record, independently supplied cleanup proof, repeated inspection and post-recovery absence. Seven regressions for directory/lock safety, failures and recovery sequencing. No automatic cleanup provider, Android service registration or activation; device evidence and physical acceptance remain outstanding. New CI pending.
+
+## D-120 — process-local hotspot service ownership boundary
+
+CI 87cac35 passed (Go/Windows #45991210422, Android #45991210401). Add service-level exact-generation owner with one runtime, side-effect-free factory, cancellation during construction/start, rollback before READY, retained cleanup after failures, and stale callback rejection. Six JVM regressions. Cancellation during a bounded runtime start is cooperative at service boundary; no prompt interruption of Android request wait is guaranteed. Actual Android Service registration, process-wide instance wiring, authoritative platform ownership and offload evidence, and physical acceptance are not yet complete. No production activation. New CI pending.
