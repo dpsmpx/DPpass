@@ -27,47 +27,19 @@ internal class RootHotspotSessionRunner<R : Any>(private val release: (R) -> Uni
         retireGuards: () -> Boolean,
     ): RootHotspotLifecycle.StartResult {
         require(timeoutMillis > 0)
-        val pending = RootHotspotReservation(release)
-        // Accessed only by the exclusive lifecycle operation. If release
-        // throws, retain this exact identity for the next shutdown attempt.
-        var taken: R? = null
-
-        fun closeAndVerify(): Boolean {
-            var failure: Throwable? = null
-            try {
-                taken?.let {
-                    release(it)
-                    taken = null
-                }
-            } catch (cause: Throwable) {
-                failure = cause
-            }
-            try {
-                pending.close()
-            } catch (cause: Throwable) {
-                val original = failure
-                if (original == null) failure = cause
-                else if (original !== cause) original.addSuppressed(cause)
-            }
-            failure?.let { throw it }
-            if (pending.cleanupStatus().unresolved) return false
-            // The proof is session-scoped and must cover late platform events.
-            return verifyStopped() && !pending.cleanupStatus().unresolved
-        }
+        val reservationOwner = RootHotspotReservationOwner(release)
 
         return lifecycle.start(
             session,
             prepare = {
-                request(pending)
-                val reservation = pending.take(timeoutMillis)
-                taken = reservation
-                prepare(reservation)
+                request(reservationOwner.pending)
+                prepare(reservationOwner.take(timeoutMillis))
             },
-            attach = { attach(checkNotNull(taken)) },
+            attach = { attach(reservationOwner.resource()) },
             shutdown = {
                 RootHotspotShutdown.run(
                     stopEgress = stopEgress,
-                    closeAndVerifyAccessPoint = ::closeAndVerify,
+                    closeAndVerifyAccessPoint = { reservationOwner.closeAndVerify(verifyStopped) },
                     retireGuards = retireGuards,
                 )
             },

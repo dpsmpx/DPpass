@@ -9,10 +9,18 @@ internal object RootHotspotStart {
         prepareGuardedSession: () -> RootHotspotAdmission.Evidence,
         attach: () -> Boolean,
         shutdown: () -> RootHotspotShutdown.Result,
+    ): Result = runPrepared(
+        { RootHotspotAdmission.refusal(session, prepareGuardedSession()) == null }, attach, shutdown,
+    )
+
+    /** Shared rollback contract for sessions whose interface is discovered later. */
+    fun runPrepared(
+        prepare: () -> Boolean,
+        attach: () -> Boolean,
+        shutdown: () -> RootHotspotShutdown.Result,
     ): Result {
         val ready = try {
-            val evidence = prepareGuardedSession()
-            RootHotspotAdmission.refusal(session, evidence) == null && attach()
+            prepare() && attach()
         } catch (failure: Throwable) {
             try {
                 val cleanup = shutdown()
