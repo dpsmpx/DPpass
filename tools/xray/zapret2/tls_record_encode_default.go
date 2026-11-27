@@ -16,3 +16,5 @@ func encodeHTTPHostNameCase(first []byte, _ bool) ([]byte,bool) {
 
 // No native predicate exists in this build; the shared Go check suffices.
 func nativeServerHelloPrefix(_ []byte) bool {return true}
+
+func localNativeHTTPDiagnostic(_, _ string, _ []byte, _ bool) bool {return false}

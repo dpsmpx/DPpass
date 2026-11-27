@@ -123,3 +123,7 @@ The fixed-only native MH_HMIX fixture has been replaced by a bounded synthetic h
 ## A4 — original ServerHello recognition
 
 The pinned is_tls_shello predicate is now exposed through an exact six-byte C ABI and used as an independent check in the existing local TLS matrix on tagged builds. A prefix is not a handshake or proof of content. The local certificate and application verifier still decides success. No production selection depends on this native predicate.
+
+## A4 — native candidate acceptance boundary
+
+The exact built-in HTTP case fixture, when explicitly diagnostic and compiled with localdpi_native, is now routed to the native encoder before any selected Alpine IPC. Native failure on this fixture cannot report portable success. Other HTTP input and ordinary calls cannot select this dispatch exception. The common deterministic plan validator still checks every output byte. The tagged bridge integration is exercised in host CI; Android execution is not established by these tests.

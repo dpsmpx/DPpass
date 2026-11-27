@@ -9,6 +9,8 @@ import (
     "net"
     "net/http"
     "time"
+
+    "github.com/dpsmpx/dppass/tools/xray/zapret2"
 )
 
 // Fixed loopback-only regression through the actual TCP write adapter.
@@ -48,9 +50,9 @@ func probeLocalHTTPHostCase(method string, timeout time.Duration) Zapret2HTTPSRe
         !server.RemoteAddr().(*net.TCPAddr).IP.IsLoopback() {
         return finish("local_http_mismatch")
     }
-    original:=[]byte("POST /self-check HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\n\r\nbody")
+    original:=zapret2.LocalHTTPFixture()
     expected:=bytes.Clone(original)
-    var writer io.Writer=client
+    var writer interface { io.Writer; CloseWrite() error }=client
     if method!="plain" {
         kind:=desyncHTTPHostCase
         if method=="http-hostcase" {
@@ -67,7 +69,7 @@ func probeLocalHTTPHostCase(method string, timeout time.Duration) Zapret2HTTPSRe
     n,err:=writer.Write(original)
     if err!=nil || n!=len(original) {return finish("request_failed")}
     // EOF confirms exact total length, not only a matching prefix.
-    if err:=client.CloseWrite();err!=nil {return finish("request_failed")}
+    if err:=writer.CloseWrite();err!=nil {return finish("request_failed")}
     got,err:=io.ReadAll(io.LimitReader(server,int64(len(expected)+1)))
     if err!=nil || !bytes.Equal(got,expected) {return finish("local_http_mismatch")}
     request,err:=http.ReadRequest(bufio.NewReader(bytes.NewReader(got)))

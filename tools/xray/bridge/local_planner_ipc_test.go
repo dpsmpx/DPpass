@@ -69,14 +69,16 @@ func TestLocalDiagnosticsThroughSelectedPlannerIPC(t *testing.T) {
     }
     mu.Lock()
     defer mu.Unlock()
-    if calls[zapret2.TagPrefix+"http-hostcase"]!=1 ||
-        calls[zapret2.TagPrefix+"http-hostows"]!=1 ||
+    if calls[zapret2.TagPrefix+"http-hostows"]!=1 ||
         calls[zapret2.TagPrefix+"multisplit"]!=2 ||
         calls[zapret2.TagPrefix+"plain"]!=0 {
         t.Fatal("unexpected IPC requests",calls)
     }
-    // The tagged ByeDPI encoder may intentionally plan TLS records locally.
-    if n:=calls[zapret2.TagPrefix+"tlsrec-split"];n!=0 && n!=2 {
-        t.Fatal("mixed TLS-record backend",n)
+    // Both tagged native fixture paths are predetermined together.
+    // Build-specific tests separately require the exact backend.
+    tlsCalls:=calls[zapret2.TagPrefix+"tlsrec-split"]
+    httpCalls:=calls[zapret2.TagPrefix+"http-hostcase"]
+    if !((tlsCalls==2 && httpCalls==1) || (tlsCalls==0 && httpCalls==0)) {
+        t.Fatal("mixed native/portable fixture backend",calls)
     }
 }

@@ -30,8 +30,8 @@ var socketPath atomic.Value
 
 func init() { socketPath.Store("") }
 
-// SetPlannerSocket selects Alpine for planning, except the explicitly tagged
-// native experiment. Empty path retains the in-process shared planner.
+// SetPlannerSocket selects Alpine for planning, except explicitly tagged
+// native experiments. Empty path retains the in-process shared planner.
 func SetPlannerSocket(path string) error {
     if path != "" && !ValidPlannerSocketPath(path) {
         return errors.New("invalid Alpine planner Unix socket")
@@ -62,11 +62,11 @@ func PlanForDiagnostic(tag, network string, first []byte) (Plan,error) {
 
 func planFor(tag,network string,first []byte,diagnostic bool) (Plan,error) {
     if _,err:=validateRequest(tag,network,first);err!=nil {return Plan{},err}
-    // The explicitly tagged test build owns this one encoder in-process.
-    // This is a predetermined dispatch rule, not a fallback after an IPC
-    // failure. All other selected Alpine methods still fail closed.
+    // Explicitly tagged native experiments have predetermined dispatch.
+    // The HTTP exception is restricted to the fixed local diagnostic;
+    // normal HTTP and all other selected Alpine methods fail closed.
     path := PlannerSocket()
-    if localNativePlan(tag,network) || path=="" {
+    if localNativePlan(tag,network) || localNativeHTTPDiagnostic(tag,network,first,diagnostic) || path=="" {
         p,err:=buildPlan(tag,network,first,diagnostic)
         if err!=nil {return Plan{},err}
         if err:=validatePlan(tag,network,first,p);err!=nil {return Plan{},err}

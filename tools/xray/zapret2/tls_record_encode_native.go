@@ -34,8 +34,20 @@ func localNativePlan(tag,network string) bool {
     return network=="tcp" && tag==TagPrefix+"tlsrec-split"
 }
 
+// Only the exact built-in loopback fixture in a diagnostic invocation
+// can select the local HTTP encoder instead of the chosen Alpine planner.
+func localNativeHTTPDiagnostic(tag,network string,first []byte,diagnostic bool) bool {
+    return diagnostic && network=="tcp" && tag==TagPrefix+"http-hostcase" && IsLocalHTTPFixture(first)
+}
+
 func encodeHTTPHostNameCase(first []byte, diagnostic bool) ([]byte,bool) {
     if diagnostic {
+        if IsLocalHTTPFixture(first) {
+            // A native candidate must not pass its own self-test by falling
+            // back to the portable encoder. Plan validation rejects a
+            // missing rewrite of an eligible input.
+            return native.HTTPHostCase(first)
+        }
         if payload,ok:=native.HTTPHostCase(first);ok {return payload,true}
     }
     return localdpi.HTTPHostNameCase(first)
