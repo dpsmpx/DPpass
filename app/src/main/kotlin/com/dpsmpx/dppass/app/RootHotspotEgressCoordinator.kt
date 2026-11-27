@@ -38,6 +38,9 @@ internal class RootHotspotEgressCoordinator<R : Any>(
         this.resource = resource
         plan = selected
         if (!driver.platformSafe(resource, identity)) return refused()
+        // A known failed read-only precheck does not authorize deletion
+        // of a preexisting route in the reserved numeric slot.
+        if (!owned(selected.vacancy())) return refused()
         state = State.GUARD_ATTEMPTED
         guardAttempted = true
         if (!owned(selected.guard()) || !driver.verifyGuard(selected)) return refused()

@@ -27,6 +27,7 @@ internal class RootHotspotController<R : Any>(
         cleanup: (RootHotspotInterfaceEvidence.Identity) -> String,
     ): RootHotspotLifecycle.StartResult {
         require(timeoutMillis > 0)
+        require(claim.pendingFor(request)) { "ROOT hotspot claim does not match pending request" }
         val lease = RootHotspotClaimLease<R>(claim, execute)
         val reservation = RootHotspotReservationOwner(release)
         var identity: RootHotspotInterfaceEvidence.Identity? = null
@@ -60,7 +61,10 @@ internal class RootHotspotController<R : Any>(
                     // Even ambiguous binding can be retired only after the
                     // exact record and independent postconditions are checked.
                     val body = if (prepared) cleanup(checkNotNull(identity)) else ":"
-                    lease.retire({ !reservation.pending.cleanupStatus().unresolved && verifyStopped(identity) }, body)
+                    lease.retire({
+                        !reservation.pending.cleanupStatus().unresolved && verifyStopped(identity) &&
+                            !reservation.pending.cleanupStatus().unresolved
+                    }, body)
                 },
             )
         })

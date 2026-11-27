@@ -103,6 +103,10 @@ internal class RootHotspotClaim private constructor(
         matches(),
     ).joinToString("\n"))
 
+    /** Only an unbound record for this exact request may enter the controller. */
+    fun pendingFor(request: RootHotspotLifecycle.Request): Boolean =
+        data.session == null && data.generation == request.generation && data.mode == request.mode
+
     /** Read-only exact live-owner check, including an unbound claim.
      * A failed command is not proof that the record is absent. */
     fun confirm(): String = transaction(matches() + "\n" + liveOwner())

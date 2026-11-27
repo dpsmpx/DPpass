@@ -6,6 +6,7 @@ import java.util.UUID
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
 class RootHotspotControllerTest {
@@ -28,6 +29,22 @@ class RootHotspotControllerTest {
             test(dir, RootHotspotClaim.pending(request.generation, request.mode, owner,
                 RootHotspotNetworkFixture.slot, dir.path, adapterDirectories = emptyList()))
         } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun mismatchedPendingClaimIsRejectedBeforeRootWork() = fixture { dir, claim ->
+        val controller = RootHotspotController<Resource>({}, { error("unexpected ROOT operation") })
+        for (wrong in listOf(request.copy(generation = 10),
+            request.copy(mode = RootHotspotAdmission.Mode.LOCAL_STRATEGIES))) {
+            assertThrows(IllegalArgumentException::class.java) {
+                controller.start(wrong, claim, 1000,
+                    dispatch = { error("unexpected dispatch") }, discover = { error("unexpected discovery") },
+                    prepare = { _, _, _ -> error("unexpected prepare") }, attach = { _, _ -> error("unexpected attach") },
+                    stopEgress = { _, _ -> error("unexpected stop") }, verifyStopped = { error("unexpected proof") },
+                    cleanup = { error("unexpected cleanup") })
+            }
+            assertEquals(RootHotspotLifecycle.State.IDLE, controller.snapshot().state)
+            assertFalse(File(dir, "hotspot.owner").exists())
+        }
     }
 
     @Test fun completeSessionReservesBindsAndRetiresInOrder() = fixture { dir, claim ->

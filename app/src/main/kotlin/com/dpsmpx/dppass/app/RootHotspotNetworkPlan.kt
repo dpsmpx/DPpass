@@ -18,9 +18,12 @@ internal class RootHotspotNetworkPlan(
     private fun checked(commands: List<String>): String =
         commands.joinToString("\n") { "$it || exit 1" }
 
-    // Claim binding already checks the reserved slot. Recheck immediately
-    // before the first mutation, and install both-family drops first.
-    fun guard(): String = RootHotspotCleanupEvidence(slot.table, slot.priority).script() + "\n" +
+    /** Read-only check before admitting any mutation or cleanup intent. */
+    fun vacancy(): String = RootHotspotCleanupEvidence(slot.table, slot.priority).script()
+
+    // Recheck under the bound claim immediately before mutation. The outer
+    // coordinator checks vacancy separately before marking cleanup intent.
+    fun guard(): String = vacancy() + "\n" +
         checked(forward.install + input.install + routes.guard)
 
     // DNS and route must exist before enabling forwarding to the TUN.

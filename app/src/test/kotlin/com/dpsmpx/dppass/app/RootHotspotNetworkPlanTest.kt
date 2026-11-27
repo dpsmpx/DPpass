@@ -11,6 +11,16 @@ class RootHotspotNetworkPlanTest {
     private val identity = RootHotspotInterfaceEvidence.Identity(session, "wlan1", "192.168.43.1")
     private val plan = RootHotspotNetworkPlan(identity, "dpgateway", RootHotspotNetworkFixture.slot, "0123456789abcdef")
 
+    @Test fun vacancyOnlyChecksAndNeverMutatesNetworkResources() {
+        val script = plan.vacancy()
+        assertTrue(script.contains("rule show table"))
+        assertTrue(script.contains("route show table"))
+        assertFalse(script.contains("rule del"))
+        assertFalse(script.contains("rule add"))
+        assertFalse(script.contains(" -I "))
+        assertFalse(script.contains(" -D "))
+    }
+
     @Test fun installDropsBeforeRoutingAndDoesNotAllowForwarding() {
         val script = plan.guard()
         assertTrue(script.indexOf("-I FORWARD 1 -i wlan1") < script.indexOf("ip -4 rule add"))

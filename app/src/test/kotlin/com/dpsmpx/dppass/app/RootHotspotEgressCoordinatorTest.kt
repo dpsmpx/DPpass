@@ -22,16 +22,18 @@ class RootHotspotEgressCoordinatorTest {
         var attached = true
         var evidence = complete
         var scriptOk = true
+        var vacant = true
         val coordinator = RootHotspotEgressCoordinator({ plan }, this)
         val resource = Resource()
         val owned: (String) -> Boolean = {
             calls += when (it) {
+                plan.vacancy() -> "vacancy"
                 plan.guard() -> "guard-script"
                 plan.attach() -> "attach-script"
                 plan.detach() -> "detach-script"
                 else -> error("unexpected script")
             }
-            scriptOk
+            scriptOk && (it != plan.vacancy() || vacant)
         }
         override fun platformSafe(resource: Resource, identity: RootHotspotInterfaceEvidence.Identity) = platform.also { calls += "platform" }
         override fun verifyGuard(plan: RootHotspotNetworkPlan) = guard.also { calls += "verify-guard" }
@@ -51,7 +53,7 @@ class RootHotspotEgressCoordinatorTest {
         assertTrue(f.attach())
         assertTrue(f.stop())
         assertEquals(plan.retire(), f.coordinator.cleanup(identity))
-        assertEquals(listOf("platform", "guard-script", "verify-guard", "engine", "evidence",
+        assertEquals(listOf("platform", "vacancy", "guard-script", "verify-guard", "engine", "evidence",
             "platform", "verify-guard", "evidence", "attach-script", "verify-attach",
             "detach-script", "stop-engine", "verify-stop"), f.calls)
     }
@@ -61,6 +63,15 @@ class RootHotspotEgressCoordinatorTest {
         f.platform = false
         assertFalse(f.prepare().rootBaseline)
         assertEquals(listOf("platform"), f.calls)
+        assertTrue(f.stop())
+        assertEquals(":", f.coordinator.cleanup(identity))
+    }
+
+    @Test fun occupiedSlotDoesNotAuthorizeAnyCleanupMutation() {
+        val f = Fixture()
+        f.vacant = false
+        assertFalse(f.prepare().rootBaseline)
+        assertEquals(listOf("platform", "vacancy"), f.calls)
         assertTrue(f.stop())
         assertEquals(":", f.coordinator.cleanup(identity))
     }
