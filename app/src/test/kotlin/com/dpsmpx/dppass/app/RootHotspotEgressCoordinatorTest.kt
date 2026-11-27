@@ -16,6 +16,7 @@ class RootHotspotEgressCoordinatorTest {
     private inner class Fixture : RootHotspotEgressCoordinator.Driver<Resource> {
         val calls = mutableListOf<String>()
         var platform = true
+        var healthy = true
         var guard = true
         var engine = true
         var stopped = true
@@ -63,12 +64,38 @@ class RootHotspotEgressCoordinatorTest {
         override fun verifyGuard(plan: RootHotspotNetworkPlan) = guard.also { calls += "verify-guard" }
         override fun startEngine(resource: Resource, plan: RootHotspotNetworkPlan) = engine.also { calls += "engine" }
         override fun evidence(plan: RootHotspotNetworkPlan) = evidence.also { calls += "evidence" }
+        override fun engineHealthy(plan: RootHotspotNetworkPlan) = healthy
         override fun verifyAttached(plan: RootHotspotNetworkPlan) = attached.also { calls += "verify-attach" }
         override fun stopEngine(plan: RootHotspotNetworkPlan) = stopped.also { calls += "stop-engine" }
         override fun verifyEngineStopped(plan: RootHotspotNetworkPlan) = stopped.also { calls += "verify-stop" }
         fun prepare() = coordinator.prepare(resource, identity, owned)
         fun attach() = coordinator.attach(identity, owned)
         fun stop() = coordinator.stop(identity, owned)
+    }
+
+    @Test fun runningSessionChecksEveryIndependentEvidenceSource() {
+        val f = Fixture()
+        assertEquals(complete, f.prepare())
+        assertTrue(f.attach())
+        assertTrue(f.coordinator.verifyReady(session))
+        assertFalse(f.coordinator.verifyReady(session.copy(generation = 10)))
+        f.healthy = false
+        assertFalse(f.coordinator.verifyReady(session))
+        f.healthy = true
+        f.routingAvailable = false
+        assertFalse(f.coordinator.verifyReady(session))
+        f.routingAvailable = true
+        f.firewallAvailable = false
+        assertFalse(f.coordinator.verifyReady(session))
+        f.firewallAvailable = true
+        f.evidence = complete.copy(noOffloadBypass = null)
+        assertFalse(f.coordinator.verifyReady(session))
+        f.evidence = complete
+        f.platform = false
+        assertFalse(f.coordinator.verifyReady(session))
+        f.platform = true
+        assertTrue(f.stop())
+        assertFalse(f.coordinator.verifyReady(session))
     }
 
     @Test fun completeOrderedLifecycle() {

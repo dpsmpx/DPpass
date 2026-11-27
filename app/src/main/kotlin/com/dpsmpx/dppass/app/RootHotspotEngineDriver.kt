@@ -46,6 +46,9 @@ internal class RootHotspotEngineDriver<R : Any>(
         return proof.evidence(plan)
     }
 
+    override fun engineHealthy(plan: RootHotspotNetworkPlan): Boolean =
+        selected === plan && started && engine.healthy()
+
     override fun verifyAttached(plan: RootHotspotNetworkPlan): Boolean =
         selected === plan && started && proof.attached(plan)
 

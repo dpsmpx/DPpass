@@ -29,10 +29,12 @@ internal class RootHotspotServiceRuntime<R : Any>(
         fun attach(identity: RootHotspotInterfaceEvidence.Identity, owned: (String) -> Boolean): Boolean
         fun stop(identity: RootHotspotInterfaceEvidence.Identity?, owned: (String) -> Boolean): Boolean
         fun cleanup(identity: RootHotspotInterfaceEvidence.Identity): String
+        fun verifyReady(session: RootHotspotAdmission.Session): Boolean = false
     }
 
     private val controller = RootHotspotController<R>(accessPoint::release, root::execute)
     private var attempted = false
+    private var pendingClaim: RootHotspotClaim? = null
     // ServiceOwner serializes calls to start/stop. No live callbacks may call
     // these directly. Controller retains its own exact cleanup closure.
     init { require(timeoutMillis in 1..60_000) }
@@ -48,6 +50,7 @@ internal class RootHotspotServiceRuntime<R : Any>(
         }
         val owner = root.owner(processIdentity()) ?: return RootHotspotLifecycle.StartResult.REFUSED
         val claim = RootHotspotClaim.pending(request.generation, request.mode, owner, slot)
+        pendingClaim = claim
         return controller.start(request, claim, timeoutMillis,
             dispatch = accessPoint::dispatch,
             discover = accessPoint::discover,
@@ -57,6 +60,17 @@ internal class RootHotspotServiceRuntime<R : Any>(
             verifyStopped = accessPoint::verifyStopped,
             cleanup = egress::cleanup,
         )
+    }
+
+    override fun verifyReady(): Boolean {
+        val before = controller.snapshot()
+        val session = before.session ?: return false
+        if (before.state != RootHotspotLifecycle.State.READY || before.request != request ||
+            !request.matches(session)) return false
+        // Construct the exact bound handle without running its bind script.
+        val bound = pendingClaim?.bind(session)?.claim ?: return false
+        return root.execute(bound.confirm()) && egress.verifyReady(session) &&
+            root.execute(bound.confirm()) && controller.snapshot() == before
     }
 
     override fun stop(): RootHotspotLifecycle.StopResult {

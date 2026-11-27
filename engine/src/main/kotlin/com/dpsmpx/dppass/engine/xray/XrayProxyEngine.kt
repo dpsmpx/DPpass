@@ -128,6 +128,11 @@ class XrayProxyEngine(private val runtime: Outcome<XrayRuntime>) : ProxyEngine {
             }
         }
 
+        /** The bridge's traffic snapshot is a liveness observation only. */
+        fun healthy(): Boolean = synchronized(lock) {
+            hotspot === this && phase == HotspotState.RUNNING && rt.traffic() != null
+        }
+
         /** Only a positively started exact lease is allowed to stop. */
         fun stop(): Boolean = synchronized(lock) {
             if (hotspot !== this) return@synchronized false

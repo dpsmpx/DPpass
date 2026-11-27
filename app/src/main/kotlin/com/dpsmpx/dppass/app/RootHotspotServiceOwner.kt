@@ -12,6 +12,7 @@ internal class RootHotspotServiceOwner {
         fun start(): RootHotspotLifecycle.StartResult
         fun stop(): RootHotspotLifecycle.StopResult
         fun snapshot(): RootHotspotLifecycle.Snapshot
+        fun verifyReady(): Boolean = false
     }
 
     enum class State { IDLE, STARTING, READY, STOPPING, CLEANUP_PENDING }
@@ -20,6 +21,7 @@ internal class RootHotspotServiceOwner {
     private class Owner(val request: RootHotspotLifecycle.Request) {
         var runtime: Runtime? = null
         var cancel = false
+        var checking = false
     }
     private val monitor = Any()
     private var owner: Owner? = null
@@ -100,6 +102,38 @@ internal class RootHotspotServiceOwner {
         }
     }
 
+    /** One bounded health pass on a worker. Stop cannot race resource
+     * inspection: a matching stop requests cancellation, then this pass
+     * performs exact shutdown before returning. No restart or repair. */
+    fun checkReady(request: RootHotspotLifecycle.Request): Result {
+        val operation = synchronized(monitor) {
+            val current = owner ?: return Result.STALE
+            if (current.request != request) return Result.STALE
+            if (state != State.READY || current.checking) return Result.BUSY
+            current.checking = true
+            current
+        }
+        val healthy = try {
+            val runtime = checkNotNull(operation.runtime)
+            val before = runtime.snapshot()
+            before.state == RootHotspotLifecycle.State.READY &&
+                before.request == request && before.session?.let(request::matches) == true &&
+                runtime.verifyReady() && runtime.snapshot() == before
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        } catch (_: Exception) { false }
+        val keep = synchronized(monitor) {
+            check(owner === operation && state == State.READY && operation.checking)
+            operation.checking = false
+            if (healthy && !operation.cancel) true else {
+                state = State.STOPPING
+                false
+            }
+        }
+        return if (keep) Result.READY else completeStop(operation)
+    }
+
     /** Callback-safe cancellation signal. Never runs ROOT work on the
      * platform callback thread. Returns true only for a matching startup. */
     fun cancelStarting(request: RootHotspotLifecycle.Request): Boolean = synchronized(monitor) {
@@ -121,7 +155,13 @@ internal class RootHotspotServiceOwner {
             when (state) {
                 State.STARTING -> { current.cancel = true; return Result.CANCEL_REQUESTED }
                 State.STOPPING -> return Result.BUSY
-                State.READY, State.CLEANUP_PENDING -> state = State.STOPPING
+                State.READY, State.CLEANUP_PENDING -> {
+                    if (current.checking) {
+                        current.cancel = true
+                        return Result.CANCEL_REQUESTED
+                    }
+                    state = State.STOPPING
+                }
                 State.IDLE -> error("owner without state")
             }
             current

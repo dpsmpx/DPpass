@@ -37,6 +37,8 @@ internal class RootHotspotTunLifetime(
             return cached ?: inputFactory().also { cached = it }
         }
 
+    override fun healthy(): Boolean = !closing && identity.present(inventory())
+
     /** Retry only the same descriptor object, never a saved numeric fd. */
     override fun close() {
         if (closed) return

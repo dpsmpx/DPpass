@@ -18,6 +18,7 @@ internal class RootHotspotEgressCoordinator<R : Any>(
         fun startEngine(resource: R, plan: RootHotspotNetworkPlan): Boolean
         fun evidence(plan: RootHotspotNetworkPlan): RootHotspotAdmission.Evidence
         fun verifyAttached(plan: RootHotspotNetworkPlan): Boolean
+        fun engineHealthy(plan: RootHotspotNetworkPlan): Boolean = false
         fun stopEngine(plan: RootHotspotNetworkPlan): Boolean
         fun verifyEngineStopped(plan: RootHotspotNetworkPlan): Boolean
     }
@@ -70,6 +71,21 @@ internal class RootHotspotEgressCoordinator<R : Any>(
             !routing.stable(selected, true) || !driver.verifyAttached(selected)) return false
         state = State.READY
         return true
+    }
+
+    override fun verifyReady(session: RootHotspotAdmission.Session): Boolean {
+        if (state != State.READY) return false
+        val selected = plan ?: return false
+        if (selected.identity.session != session) return false
+        val currentResource = resource ?: return false
+        return driver.platformSafe(currentResource, selected.identity) &&
+            driver.engineHealthy(selected) &&
+            firewall.stable(selected.firewallExpected(true)) &&
+            routing.stable(selected, true) &&
+            RootHotspotAdmission.refusal(session, driver.evidence(selected)) == null &&
+            driver.verifyAttached(selected) &&
+            driver.platformSafe(currentResource, selected.identity) &&
+            driver.engineHealthy(selected)
     }
 
     override fun stop(identity: RootHotspotInterfaceEvidence.Identity?, owned: (String) -> Boolean): Boolean {

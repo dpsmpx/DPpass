@@ -15,6 +15,7 @@ internal class RootHotspotEngineOwner(private val reserve: () -> Lease?) {
         fun start(config: CompiledConfig, input: TunInput): Boolean
         fun stop(): Boolean
         fun releaseAfterTunClosed(verifiedClosed: Boolean): Boolean
+        fun healthy(): Boolean = false
     }
 
     interface Tun {
@@ -22,6 +23,7 @@ internal class RootHotspotEngineOwner(private val reserve: () -> Lease?) {
         /** Must be idempotent for this exact resource, including a failed close response. */
         fun close()
         fun verifyClosed(): Boolean
+        fun healthy(): Boolean = false
     }
 
     private var attempted = false
@@ -63,6 +65,9 @@ internal class RootHotspotEngineOwner(private val reserve: () -> Lease?) {
         return true
     }
 
+    fun healthy(): Boolean = !engineStopped && !tunClosed && !acquisitionUncertain &&
+        lease?.healthy() == true && tun?.healthy() == true
+
     fun retired(): Boolean = attempted && lease == null && !acquisitionUncertain
 
     companion object {
@@ -72,6 +77,7 @@ internal class RootHotspotEngineOwner(private val reserve: () -> Lease?) {
                 object : Lease {
                     override fun start(config: CompiledConfig, input: TunInput) = exact.start(config, input)
                     override fun stop() = exact.stop()
+                    override fun healthy() = exact.healthy()
                     override fun releaseAfterTunClosed(verifiedClosed: Boolean) =
                         exact.releaseAfterTunClosed(verifiedClosed)
                 }
