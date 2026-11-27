@@ -993,3 +993,7 @@ CI 87cac35 passed (Go/Windows #45991210422, Android #45991210401). Add service-l
 ## D-120 — compose service runtime and controller
 
 CI b82c06c passed (Go/Windows #45992981796, Android #45992981878). One-shot service runtime joins bounded ROOT initialization, baseline, claim inspection, boot identity and controller; platform and egress contracts are explicit; Android AP bridge implements the platform contract; service owner verifies bound READY identity. Six fixture regressions plus updated owner fixture. These are injected command tests, not device validation. No actual service registration/activation; no trusted platform ownership or offload provider yet. New CI pending.
+
+## D-120 — shutdown-only claim access and service event boundary
+
+CI 53ad313 passed (Go/Windows #45994097860, Android #45994097854). Disable normal bound claim access at shutdown entry; separate internal cleanup capability (trusted script contract, not shell-level capability enforcement). Preserve exact record during retry. Add callback-safe startup cancellation, process-wide owner instance, exact-generation worker dispatch for unexpected AP stop, failure reporting on rejected worker or stop exception, and protect refusal snapshot validation under exception handling. Five new JVM scenarios and stronger existing claim lease tests. Actual Android Service registration, notification, authoritative owner/offload providers, physical acceptance remain outstanding. No production activation. New CI pending.

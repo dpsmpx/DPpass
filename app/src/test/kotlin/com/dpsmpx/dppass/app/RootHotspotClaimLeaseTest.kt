@@ -49,6 +49,9 @@ class RootHotspotClaimLeaseTest {
         assertTrue(lease.bind(identity))
         assertTrue(lease.owned(":"))
         assertFalse(lease.retire({ false }, ":"))
+        assertEquals(RootHotspotClaimLease.State.STOPPING, lease.state)
+        assertThrows(IllegalStateException::class.java) { lease.owned(":") }
+        assertTrue(lease.cleanupOwned(":"))
         assertTrue(marker.exists())
         assertTrue(lease.retire({ true }, ":"))
         assertFalse(marker.exists())
@@ -109,7 +112,10 @@ class RootHotspotClaimLeaseTest {
         val lease = RootHotspotClaimLease<Resource>(claim, ::run)
         assertTrue(lease.reserveAndRequest(reservation()) { })
         assertTrue(lease.bind(identity))
+        assertThrows(IllegalStateException::class.java) { lease.cleanupOwned(":") }
         assertFalse(lease.retire({ true }, "false"))
+        assertThrows(IllegalStateException::class.java) { lease.owned(":") }
+        assertTrue(lease.cleanupOwned(":"))
         assertTrue(File(dir, "hotspot.owner").exists())
         assertThrows(IllegalStateException::class.java) {
             lease.reserveAndRequest(reservation()) { }

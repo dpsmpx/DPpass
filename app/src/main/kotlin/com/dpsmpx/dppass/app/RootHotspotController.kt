@@ -52,8 +52,9 @@ internal class RootHotspotController<R : Any>(
         }, attach = {
             attach(checkNotNull(identity), lease::owned)
         }, shutdown = {
+            lease.beginStopping()
             RootHotspotShutdown.run(
-                stopEgress = { !prepared || stopEgress(identity, lease::owned) },
+                stopEgress = { !prepared || stopEgress(identity, lease::cleanupOwned) },
                 closeAndVerifyAccessPoint = { reservation.closeAndVerify { verifyStopped(identity) } },
                 retireGuards = {
                     // Even ambiguous binding can be retired only after the

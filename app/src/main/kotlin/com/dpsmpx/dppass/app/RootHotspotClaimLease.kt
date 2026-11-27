@@ -11,7 +11,7 @@ internal class RootHotspotClaimLease<R : Any>(
     private val pending: RootHotspotClaim,
     private val execute: (String) -> Boolean,
 ) {
-    enum class State { NEW, UNCONFIRMED, RESERVED, REQUESTED, BOUND, RETIRED }
+    enum class State { NEW, UNCONFIRMED, RESERVED, REQUESTED, BOUND, STOPPING, RETIRED }
     var state = State.NEW
         private set
     private var candidate: RootHotspotClaim? = null
@@ -54,6 +54,19 @@ internal class RootHotspotClaimLease<R : Any>(
         return execute(checkNotNull(bound).owned(body))
     }
 
+    /** Close the normal admission path before any shutdown callback. */
+    fun beginStopping() {
+        check(state != State.NEW && state != State.RETIRED)
+        state = State.STOPPING
+    }
+
+    /** Only the shutdown callback may receive this capability. It is
+     * restricted to the exact bound owner, not a newly reconciled candidate. */
+    fun cleanupOwned(body: String): Boolean {
+        check(state == State.STOPPING)
+        return execute(checkNotNull(bound).owned(body))
+    }
+
     /**
      * The lifecycle worker must stop egress, close the reservation and
      * independently prove request/AP retirement before this call. A callback
@@ -63,7 +76,7 @@ internal class RootHotspotClaimLease<R : Any>(
      */
     fun retire(verifyStopped: () -> Boolean, cleanupBound: String): Boolean {
         if (state == State.RETIRED) return true
-        check(state != State.NEW)
+        beginStopping()
         if (!verifyStopped()) return false
         val active = bound ?: candidate?.takeIf { execute(it.confirm()) }
         val handle = active ?: pending.takeIf { execute(it.confirm()) } ?: return false

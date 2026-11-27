@@ -57,12 +57,21 @@ internal class RootHotspotServiceOwner {
         }
         val result = try {
             val started = runtime.start()
-            if (started == RootHotspotLifecycle.StartResult.READY) {
-                val actual = runtime.snapshot()
-                check(actual.state == RootHotspotLifecycle.State.READY &&
-                    actual.request == operation.request && actual.session?.let(operation.request::matches) == true) {
-                    "ROOT hotspot runtime reported READY without matching bound session"
+            when (started) {
+                RootHotspotLifecycle.StartResult.READY -> {
+                    val actual = runtime.snapshot()
+                    check(actual.state == RootHotspotLifecycle.State.READY &&
+                        actual.request == operation.request && actual.session?.let(operation.request::matches) == true) {
+                        "ROOT hotspot runtime reported READY without matching bound session"
+                    }
                 }
+                RootHotspotLifecycle.StartResult.REFUSED, RootHotspotLifecycle.StartResult.CANCELLED -> {
+                    // Validate within the failure guard, including a throwing snapshot.
+                    check(runtime.snapshot().state == RootHotspotLifecycle.State.IDLE) {
+                        "ROOT hotspot refused without confirmed local rollback"
+                    }
+                }
+                else -> Unit
             }
             started
         } catch (failure: Throwable) {
@@ -81,18 +90,24 @@ internal class RootHotspotServiceOwner {
                 if (published) Result.READY else completeStop(operation)
             }
             RootHotspotLifecycle.StartResult.REFUSED, RootHotspotLifecycle.StartResult.CANCELLED -> {
-                if (runtime.snapshot().state == RootHotspotLifecycle.State.IDLE) {
-                    finish(operation, State.IDLE)
-                    if (result == RootHotspotLifecycle.StartResult.CANCELLED) Result.STOPPED else Result.REFUSED
-                } else {
-                    finish(operation, State.CLEANUP_PENDING)
-                    Result.CLEANUP_PENDING
-                }
+                finish(operation, State.IDLE)
+                if (result == RootHotspotLifecycle.StartResult.CANCELLED) Result.STOPPED else Result.REFUSED
             }
             else -> {
                 finish(operation, State.CLEANUP_PENDING)
                 Result.CLEANUP_PENDING
             }
+        }
+    }
+
+    /** Callback-safe cancellation signal. Never runs ROOT work on the
+     * platform callback thread. Returns true only for a matching startup. */
+    fun cancelStarting(request: RootHotspotLifecycle.Request): Boolean = synchronized(monitor) {
+        val current = owner
+        if (current == null || current.request != request || state != State.STARTING) false
+        else {
+            current.cancel = true
+            true
         }
     }
 
