@@ -39,4 +39,10 @@ int dp_packet_inspect(const uint8_t *data, size_t size,
 int dp_tls_record_split(const uint8_t *data, size_t size, size_t offset,
                         uint8_t *output, size_t capacity);
 
+// Read-only comparison with the upstream TLS name parser. Return 1 only
+// when its bounded range agrees with the caller's independently checked
+// offsets, 0 for disagreement or invalid input. No pointers cross ABI.
+int dp_tls_name_agrees(const uint8_t *data, size_t size,
+                       size_t start, size_t end);
+
 #endif

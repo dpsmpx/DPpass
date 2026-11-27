@@ -9,3 +9,7 @@ func TestDefaultInspectionUnavailable(t *testing.T) {
         t.Fatal("default build claimed native capability")
     }
 }
+
+func TestDefaultTLSNameAgreementUnavailable(t *testing.T) {
+    if TLSNameAgrees([]byte{22,3,3,0,4,1,0,0,0}) {t.Fatal("native parser unavailable")}
+}

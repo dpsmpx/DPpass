@@ -51,3 +51,17 @@ func Inspect(first []byte) (Hint,bool) {
     default: return Unknown,false
     }
 }
+
+// TLSNameAgrees checks only agreement with the common Go parser on a
+// complete first record. It cannot introduce a name or a new offset.
+// No name bytes or native pointer cross the public interface.
+func TLSNameAgrees(first []byte) bool {
+    if len(first)>maxRewrite {return false}
+    record,ok:=localdpi.CompleteTLSClientHelloRecordLen(first)
+    if !ok {return false}
+    prefix:=first[:5+record]
+    start,end,ok:=localdpi.SNIRange(prefix)
+    if !ok {return false}
+    return C.dp_tls_name_agrees((*C.uint8_t)(unsafe.Pointer(&prefix[0])),
+        C.size_t(len(prefix)),C.size_t(start),C.size_t(end))==1
+}

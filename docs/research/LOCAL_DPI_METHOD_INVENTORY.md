@@ -107,3 +107,7 @@ The previously isolated HTTPHostNameCase function is wired through the shared pl
 ## A5 — portable multisplit subset
 
 Reviewed pinned Zapret2 `lua/zapret-antidpi.lua` `multisplit`. Original resolves arbitrary markers and performs rawsend with replay/drop and optional sequence overlap. DPpass's independent restricted socket analogue uses two validated positions in one complete TLS ClientHello and ordered TCP writes; it preserves the stream and is exposed only through DPTS diagnostics. Raw packet behavior and equivalence are not claimed. No source imported in this step.
+
+## A4 — limited upstream TLS name-parser comparison
+
+The pinned ByeDPI `parse_tls` from the already imported `packets.c` is now called by a narrow read-only comparison ABI. It receives only the bounded first complete ClientHello; the C result is equality with the existing Go range, never a new host or offset. No C pointer or name is exported. Tagged diagnostic TLS-record encoding checks agreement when the Go parser finds a name; disagreement keeps the existing portable encoding. The production selector, ordinary builds, and the upstream HTTP parser are unchanged. This integrates one existing upstream function, not a new DPI strategy or proof of equivalence. CI and physical tests pending.

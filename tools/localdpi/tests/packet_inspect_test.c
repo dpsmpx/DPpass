@@ -54,6 +54,11 @@ int main(void)
         assert(dp_packet_inspect(b,n,&r)==0);
         assert(r.version==DP_PACKET_INSPECT_VERSION && r.hint<=DP_PACKET_HTTP_CANDIDATE);
         assert(!r.reserved0 && !r.reserved1);
+        // Never export a native parser range. Even malformed inputs
+        // exercise the bounded comparison with exact-sized allocations.
+        if (n >= 10) {
+            (void)dp_tls_name_agrees(b,n,9,n);
+        }
         assert(memcmp(copy,b,n)==0);
         free(copy); free(b);
     }
@@ -73,6 +78,23 @@ int main(void)
         assert((((size_t)out[8+cut]<<8)|out[9+cut])==512-cut);
         assert(!memcmp(out+10+cut,input+5+cut,sizeof(input)-5-cut));
     }
+    const char *fixture_name = "www.wikipedia.org";
+    const size_t name_len = strlen(fixture_name);
+    size_t name_start = 0;
+    for (size_t i=9;i+name_len<=517;++i) {
+        if (!memcmp(input+i,fixture_name,name_len)) {name_start=i;break;}
+    }
+    assert(name_start != 0);
+    assert(dp_tls_name_agrees(input,sizeof(input),name_start,name_start+name_len)==1);
+    assert(dp_tls_name_agrees(input,517,name_start,name_start+name_len)==1);
+    assert(dp_tls_name_agrees(input,sizeof(input),name_start+1,name_start+name_len)==0);
+    assert(dp_tls_name_agrees(input,sizeof(input),name_start,name_start+name_len+1)==0);
+    assert(dp_tls_name_agrees(NULL,517,name_start,name_start+name_len)==0);
+    assert(dp_tls_name_agrees(input,DP_TLS_REWRITE_MAX+1,name_start,name_start+name_len)==0);
+    for (size_t n=0;n<517;++n) {
+        assert(dp_tls_name_agrees(input,n,name_start,name_start+name_len)==0);
+    }
+    assert(!memcmp(input,saved,sizeof(input)));
     memset(out,0xA5,sizeof(out));
     assert(dp_tls_record_split(input,8,5,out,sizeof(out))==-1);
     assert(dp_tls_record_split(input,sizeof(input),4,out,sizeof(out))==-1);

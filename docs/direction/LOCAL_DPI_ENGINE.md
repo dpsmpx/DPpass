@@ -1103,3 +1103,7 @@ The TCP adapter now flushes its accepted first-record buffer before CloseWrite/F
 ## A3/A5 — Alpine readiness and lifecycle admission
 
 Replace the Android substring-based readiness check with a bounded exact canonical response for a fixed, non-network planning request. The Go daemon and Android client have a regression fixture for the actual serialized response, including applied status, transport and expected cut. Use a common 99 UTF-8 byte absolute Unix socket path limit, reject NUL, recheck process liveness after probing, and do not delete the pathname after a failed termination while the process is alive. Remove redundant Go socket unlink (UnixListener owns unlink on close). No change to VPN routes, strategies, model, or release identity. Host/JVM CI pending; real PRoot startup still requires Android acceptance.
+
+## A4 — read-only ByeDPI TLS parser comparison
+
+Connect pinned upstream parse_tls through a bounded C comparison ABI and tagged Go wrapper. Only compare the common parser's existing range on a complete first message; no native offsets, host data or pointer exported. Diagnostic native TLS encoding requires agreement when SNI exists, otherwise uses the established portable encoder. Add exact-sized sanitizer inputs, valid/truncated fixture tests, Go comparison and non-native stub coverage. No changes to ordinary routing, AUTO, model layout or signing. No new strategy; CI pending.

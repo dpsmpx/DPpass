@@ -42,3 +42,27 @@ int dp_tls_record_split(const uint8_t *data, size_t size, size_t offset,
     // above; offset fits long and size fits ssize_t on supported hosts.
     return part_tls((char *)output, size + 5, (ssize_t)size, (long)offset) == 5 ? 0 : -1;
 }
+
+// The upstream parser is read-only. Limit it to the first complete
+// ClientHello message, not trailing records or later handshake messages.
+// The range supplied by the caller is a separate validation boundary.
+int dp_tls_name_agrees(const uint8_t *data, size_t size,
+                       size_t start, size_t end)
+{
+    if (!data || size < 9 || size > DP_TLS_REWRITE_MAX ||
+        data[0] != 22 || data[1] != 3 || data[2] > 4 || data[5] != 1)
+        return 0;
+    size_t record = ((size_t)data[3] << 8) | data[4];
+    size_t hello = ((size_t)data[6] << 16) | ((size_t)data[7] << 8) | data[8];
+    if (record < 12 || record > 16384 || record > size - 5 ||
+        !hello || hello > record - 4)
+        return 0;
+    size_t limit = 9 + hello;
+    if (start < 9 || start >= end || end > limit)
+        return 0;
+    char *name = NULL;
+    int n = parse_tls((const char *)data, limit, &name);
+    // Pointer equality, not subtraction of an untrusted pointer.
+    return n > 0 && (size_t)n == end - start &&
+           name == (const char *)data + start;
+}
