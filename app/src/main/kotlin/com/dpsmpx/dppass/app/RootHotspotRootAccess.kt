@@ -81,6 +81,7 @@ internal class RootHotspotRootAccess(
 
     fun inventory() = RootHotspotInventoryObserver(::read)
     fun tethering() = RootHotspotTetherObserver(::read)
+    fun offload() = RootHotspotOffloadEvidence.Observer(::read)
     fun firewall() = RootHotspotFirewallEvidence.Observer(::read)
     fun routing() = RootHotspotRoutingEvidence.Observer(::read)
 

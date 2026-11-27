@@ -35,18 +35,24 @@ internal object RootHotspotRuntimeFactory {
         require(mtu in 576..1500)
         val app = context.applicationContext
         val inventory = root.inventory()
+        val offload = root.offload()
         val platform = RootHotspotPlatformObservationSource(request, root.tethering(), inventory, ownerEvidence)
         val gate = RootHotspotPlatformGate<WifiManager.LocalOnlyHotspotReservation>(request, inventory, platform::observe)
         val ap = RootHotspotAndroidAccessPoint(wifi, handler, gate, { notifyStopped(request) }, platform)
         val guardedProof = object : RootHotspotEngineDriver.Proof<WifiManager.LocalOnlyHotspotReservation> {
             override fun platformSafe(resource: WifiManager.LocalOnlyHotspotReservation,
                                       identity: RootHotspotInterfaceEvidence.Identity): Boolean =
-                gate.discover(resource) == identity &&
+                gate.discover(resource) == identity && offload.allows(identity) &&
                     RootHotspotTunInput.isPhysical(physicalNetwork, connectivity) &&
                     proof.platformSafe(resource, identity)
 
             override fun guard(plan: RootHotspotNetworkPlan) = proof.guard(plan)
-            override fun evidence(plan: RootHotspotNetworkPlan) = proof.evidence(plan)
+            override fun evidence(plan: RootHotspotNetworkPlan): RootHotspotAdmission.Evidence {
+                val independent = proof.evidence(plan)
+                // A positive dump never fabricates a session proof.
+                return if (offload.allows(plan.identity)) independent
+                else independent.copy(noOffloadBypass = null)
+            }
             override fun attached(plan: RootHotspotNetworkPlan) = proof.attached(plan)
         }
         val egress = RootHotspotBoundEgress<WifiManager.LocalOnlyHotspotReservation>(request) { bound, plan ->
