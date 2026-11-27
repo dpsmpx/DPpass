@@ -10,9 +10,13 @@ import java.io.File
 internal object RootHotspotTunReceiver {
     private const val TUN_DEVICE = (10L shl 8) or 200L
 
-    fun receive(socket: LocalSocket, expectedInterface: String): ParcelFileDescriptor {
+    fun receive(socket: LocalSocket, expectedInterface: String, expectedHelperPid: Int? = null): ParcelFileDescriptor {
         require(expectedInterface.matches(Regex("[a-zA-Z0-9_-]{1,15}")))
-        check(socket.peerCredentials.uid == 0) { "ROOT: неверный владелец канала TUN" }
+        require(expectedHelperPid == null || expectedHelperPid > 1)
+        val peer = socket.peerCredentials
+        check(peer.uid == 0 && (expectedHelperPid == null || peer.pid == expectedHelperPid)) {
+            "ROOT: неверный владелец канала TUN"
+        }
         socket.soTimeout = 3_000
         val marker = socket.inputStream.read()
         val descriptors = socket.ancillaryFileDescriptors.orEmpty()

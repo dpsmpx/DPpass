@@ -14,14 +14,15 @@ internal object RootHotspotAndroidTun {
     fun receive(
         socket: LocalSocket,
         expected: RootHotspotTunLifetime.Identity,
+        expectedHelperPid: Int,
         mtu: Int,
         physicalNetwork: Network,
         connectivity: ConnectivityManager,
         inventory: RootHotspotInventoryObserver,
         helperRetired: () -> Boolean,
     ): RootHotspotTunLifetime {
-        require(mtu in 576..1500)
-        val descriptor = RootHotspotTunReceiver.receive(socket, expected.name)
+        require(mtu in 576..1500 && expectedHelperPid > 1 && expected.name == "dpgateway")
+        val descriptor = RootHotspotTunReceiver.receive(socket, expected.name, expectedHelperPid)
         try {
             // The engine owner retains the returned descriptor even when
             // constructing TunInput later fails. No native start here.

@@ -31,6 +31,7 @@ def main():
                 "-DDPPASS_REQUIRE_PIDFD_SYSCALLS", "-O2", "-fPIE", "-pie",
                 "-Wl,-z,max-page-size=16384", "-Wl,-z,common-page-size=16384",
                 str(BASE / "root_pidfd.c"), str(BASE / "root_pidfd_cli.c"),
+                str(BASE / "root_hotspot_tun.c"),
                 "-o", str(binary),
             ], check=True)
             subprocess.run([str(llvm / "llvm-strip"), "--strip-all", str(binary)], check=True)

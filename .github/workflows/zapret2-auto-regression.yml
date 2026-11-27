@@ -48,7 +48,7 @@ jobs:
           set -euo pipefail
           cc -std=c11 -Wall -Wextra -Werror -O2 -Itools/localdpi tools/localdpi/root_pidfd.c tools/localdpi/tests/root_pidfd_test.c -o "$RUNNER_TEMP/root-pidfd-test"
           "$RUNNER_TEMP/root-pidfd-test"
-          cc -std=c11 -Wall -Wextra -Werror -O2 -Itools/localdpi tools/localdpi/root_pidfd.c tools/localdpi/root_pidfd_cli.c -o "$RUNNER_TEMP/root-pidfd"
+          cc -std=c11 -Wall -Wextra -Werror -O2 -Itools/localdpi tools/localdpi/root_pidfd.c tools/localdpi/root_pidfd_cli.c tools/localdpi/root_hotspot_tun.c -o "$RUNNER_TEMP/root-pidfd"
           python3 tools/localdpi/tests/root_pidfd_cli_test.py "$RUNNER_TEMP/root-pidfd"
       - name: Compare Go and native TLS encoders
         working-directory: tools/xray

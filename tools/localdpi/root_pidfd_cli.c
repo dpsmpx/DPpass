@@ -1,4 +1,5 @@
 #include "root_pidfd.h"
+#include "root_hotspot_tun.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -37,6 +38,19 @@ static int report(enum dppass_pidfd_result result) {
 }
 
 int main(int argc, char **argv) {
+    if (argc == 5 && strcmp(argv[1], "tun-send") == 0) {
+        uint64_t uid, pid;
+        if (!dppass_hotspot_tun_socket_path(argv[2]) ||
+            !decimal(argv[3], INT32_MAX, &uid) || uid < 10000 ||
+            !decimal(argv[4], INT32_MAX, &pid) || pid <= 1)
+            return invalid();
+        if (dppass_hotspot_tun_send(argv[2], (uid_t)uid, (pid_t)pid)) {
+            puts("tun_sent");
+            return 0;
+        }
+        puts("tun_unconfirmed");
+        return 2;
+    }
     if (argc == 2 && strcmp(argv[1], "probe") == 0) {
         enum dppass_pidfd_result result = dppass_pidfd_probe();
         if (result == DPPASS_PIDFD_EXITED) { puts("supported"); return 0; }

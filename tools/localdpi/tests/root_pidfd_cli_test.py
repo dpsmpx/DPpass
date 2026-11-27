@@ -20,6 +20,14 @@ expect(["absent", "1", boot], 64, "invalid_arguments")
 expect(["absent", "2", "unknown"], 64, "invalid_arguments")
 expect(["absent", str(os.getpid()), boot], 2, "unproven")
 expect([], 64, "invalid_arguments")
+for path in ("relative", "/", "/a//b", "/a/../b", "/a/./b", "/a/b/", "/a b", "/a\nb", "/" + "x" * 108):
+    expect(["tun-send", path, "10000", "123"], 64, "invalid_arguments")
+for uid in ("0", "9999", "010000", "2147483648", "-1"):
+    expect(["tun-send", "/tmp/dppass-tun.sock", uid, "123"], 64, "invalid_arguments")
+for pid in ("0", "1", "0123", "2147483648", "-1"):
+    expect(["tun-send", "/tmp/dppass-tun.sock", "10000", pid], 64, "invalid_arguments")
+expect(["tun-send", "/tmp/dppass-tun-nonexistent.sock", "10000", "123"], 2, "tun_unconfirmed")
+expect(["tun-send", "/tmp/dppass-tun.sock", "10000", "123", "extra"], 64, "invalid_arguments")
 expect(["--version", "extra"], 64, "invalid_arguments")
 child = subprocess.Popen(["/bin/sleep", "30"])
 try:
