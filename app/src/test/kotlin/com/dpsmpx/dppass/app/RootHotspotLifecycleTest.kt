@@ -9,7 +9,12 @@ import com.dpsmpx.dppass.app.RootHotspotLifecycle.StopResult
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 class RootHotspotLifecycleTest {
     private fun session(generation: Long) = Session(generation, 2, Mode.VPN)
@@ -101,5 +106,147 @@ class RootHotspotLifecycleTest {
         })
         assertEquals(State.CLEANUP_PENDING, owner.snapshot().state)
         assertEquals(StopResult.STOPPED, owner.stop(first))
+    }
+
+    private class Pause {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+
+        fun awaitRelease() {
+            entered.countDown()
+            check(release.await(15, TimeUnit.SECONDS)) { "fixture callback timed out" }
+        }
+
+        fun awaitEntry() = assertTrue(entered.await(5, TimeUnit.SECONDS))
+    }
+
+    @Test fun blockedPreparationDoesNotBlockSnapshotsOrCompetingRequests() {
+        val owner = RootHotspotLifecycle()
+        val first = session(1)
+        val pause = Pause()
+        val pool = Executors.newFixedThreadPool(2)
+        val attached = AtomicInteger()
+        val cleaned = AtomicInteger()
+        try {
+            val start = pool.submit<StartResult> {
+                owner.start(first, { pause.awaitRelease(); evidence(first) }, {
+                    attached.incrementAndGet()
+                    true
+                }, {
+                    cleaned.incrementAndGet()
+                    RootHotspotShutdown.Result.STOPPED
+                })
+            }
+            pause.awaitEntry()
+            pool.submit {
+                assertEquals(RootHotspotLifecycle.Snapshot(State.STARTING, first), owner.snapshot())
+                assertEquals(StartResult.BUSY, owner.start(session(2), { error("competing prepare") }, { false }, { error("competing cleanup") }))
+                assertEquals(StopResult.STALE, owner.stop(session(2)))
+                assertEquals(StopResult.BUSY, owner.stop(first))
+            }.get(5, TimeUnit.SECONDS)
+            assertEquals(0, attached.get())
+            assertEquals(0, cleaned.get())
+            pause.release.countDown()
+            assertEquals(StartResult.READY, start.get(5, TimeUnit.SECONDS))
+            assertEquals(1, attached.get())
+            assertEquals(StopResult.STOPPED, owner.stop(first))
+            assertEquals(1, cleaned.get())
+        } finally {
+            pause.release.countDown()
+            pool.shutdownNow()
+        }
+    }
+
+    @Test fun blockedAttachKeepsExclusiveOwnershipUntilPublication() {
+        val owner = RootHotspotLifecycle()
+        val first = session(1)
+        val pause = Pause()
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            val start = pool.submit<StartResult> {
+                owner.start(first, { evidence(first) }, { pause.awaitRelease(); true }, { RootHotspotShutdown.Result.STOPPED })
+            }
+            pause.awaitEntry()
+            pool.submit {
+                assertEquals(State.STARTING, owner.snapshot().state)
+                assertEquals(StopResult.BUSY, owner.stop(first))
+                assertEquals(StartResult.BUSY, owner.start(session(2), { error("competing prepare") }, { false }, { error("competing cleanup") }))
+            }.get(5, TimeUnit.SECONDS)
+            pause.release.countDown()
+            assertEquals(StartResult.READY, start.get(5, TimeUnit.SECONDS))
+            assertEquals(RootHotspotLifecycle.Snapshot(State.READY, first), owner.snapshot())
+            assertEquals(StopResult.STOPPED, owner.stop(first))
+        } finally {
+            pause.release.countDown()
+            pool.shutdownNow()
+        }
+    }
+
+    @Test fun rollbackPublishesStoppingAndRetainsOwnerWhenUnconfirmed() {
+        val owner = RootHotspotLifecycle()
+        val first = session(1)
+        val pause = Pause()
+        val pool = Executors.newFixedThreadPool(2)
+        val cleaned = AtomicInteger()
+        try {
+            val start = pool.submit<StartResult> {
+                owner.start(first, { evidence(first) }, { false }, {
+                    if (cleaned.incrementAndGet() == 1) {
+                        pause.awaitRelease()
+                        RootHotspotShutdown.Result.GUARD_RETAINED
+                    } else RootHotspotShutdown.Result.STOPPED
+                })
+            }
+            pause.awaitEntry()
+            pool.submit {
+                assertEquals(RootHotspotLifecycle.Snapshot(State.STOPPING, first), owner.snapshot())
+                assertEquals(StopResult.BUSY, owner.stop(first))
+                assertEquals(StartResult.BUSY, owner.start(session(2), { error("competing prepare") }, { false }, { error("competing cleanup") }))
+            }.get(5, TimeUnit.SECONDS)
+            assertEquals(1, cleaned.get())
+            pause.release.countDown()
+            assertEquals(StartResult.CLEANUP_PENDING, start.get(5, TimeUnit.SECONDS))
+            assertEquals(RootHotspotLifecycle.Snapshot(State.CLEANUP_PENDING, first), owner.snapshot())
+            assertEquals(StopResult.STOPPED, owner.stop(first))
+            assertEquals(2, cleaned.get())
+        } finally {
+            pause.release.countDown()
+            pool.shutdownNow()
+        }
+    }
+
+    @Test fun concurrentStopCannotRunCleanupTwiceOrReplaceOwner() {
+        val owner = RootHotspotLifecycle()
+        val first = session(1)
+        val second = session(2)
+        val pause = Pause()
+        val pool = Executors.newFixedThreadPool(2)
+        val cleaned = AtomicInteger()
+        try {
+            assertEquals(StartResult.READY, owner.start(first, { evidence(first) }, { true }, {
+                cleaned.incrementAndGet()
+                pause.awaitRelease()
+                RootHotspotShutdown.Result.STOPPED
+            }))
+            val stop = pool.submit<StopResult> { owner.stop(first) }
+            pause.awaitEntry()
+            pool.submit {
+                assertEquals(RootHotspotLifecycle.Snapshot(State.STOPPING, first), owner.snapshot())
+                assertEquals(StopResult.BUSY, owner.stop(first))
+                assertEquals(StopResult.STALE, owner.stop(second))
+                assertEquals(StartResult.BUSY, owner.start(second, { error("competing prepare") }, { false }, { error("competing cleanup") }))
+            }.get(5, TimeUnit.SECONDS)
+            assertEquals(1, cleaned.get())
+            pause.release.countDown()
+            assertEquals(StopResult.STOPPED, stop.get(5, TimeUnit.SECONDS))
+            assertEquals(RootHotspotLifecycle.Snapshot(State.IDLE, null), owner.snapshot())
+            assertEquals(StartResult.READY, owner.start(second, { evidence(second) }, { true }, { RootHotspotShutdown.Result.STOPPED }))
+            assertEquals(StopResult.STALE, owner.stop(first))
+            assertEquals(StopResult.STOPPED, owner.stop(second))
+            assertEquals(1, cleaned.get())
+        } finally {
+            pause.release.countDown()
+            pool.shutdownNow()
+        }
     }
 }
