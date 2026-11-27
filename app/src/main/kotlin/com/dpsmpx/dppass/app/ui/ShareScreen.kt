@@ -10,6 +10,9 @@ import android.text.format.DateFormat
 import android.view.View
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.PairingLink
+import com.dpsmpx.dppass.app.RootHotspotReadiness
+import com.dpsmpx.dppass.app.RootHotspotRootAccess
+import com.dpsmpx.dppass.app.RootHotspotWifiReadiness
 import com.dpsmpx.dppass.app.TetherInterfaces
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.TunnelStatus
@@ -50,6 +53,9 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
     private var busy = false
     private var watch: Job? = null
     private var pairing: Job? = null
+    private var rootCheck: Job? = null
+    private var rootChecking = false
+    private var rootReport: String? = null
 
     override fun content(): View = body
 
@@ -70,11 +76,7 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
         }
         body.addView(Ui.button(context, R.string.root_share_permissions, Ui.Style.OUTLINE).apply {
             setOnClickListener {
-                val required = if (Build.VERSION.SDK_INT >= 33) {
-                    arrayOf(android.Manifest.permission.NEARBY_WIFI_DEVICES)
-                } else {
-                    arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION)
-                }
+                val required = RootHotspotWifiReadiness.requiredPermissions(Build.VERSION.SDK_INT).toTypedArray()
                 if (required.all { context.checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED }) {
                     host.toast(context.getString(R.string.root_share_permissions_ready))
                 } else {
@@ -82,6 +84,20 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
                 }
             }
         }, Ui.matchWidth())
+        body.addView(note(R.string.root_share_check_note))
+        body.addView(Ui.button(context, R.string.root_share_check, Ui.Style.OUTLINE).apply {
+            isEnabled = !rootChecking
+            setOnClickListener { inspectRootRouter() }
+        }, Ui.matchWidth())
+        if (rootChecking) body.addView(note(R.string.root_share_check_running))
+        rootReport?.let { report ->
+            body.addView(Ui.card(context).apply {
+                addView(Ui.text(context, R.style.Text_DPpass_Secondary, report))
+                addView(Ui.button(context, R.string.root_share_copy_report, Ui.Style.OUTLINE).apply {
+                    setOnClickListener { copy(report, sensitive = false) }
+                }, Ui.matchWidth())
+            }, Ui.matchWidth())
+        }
         val s = settings ?: return
         body.addView(
             Ui.listCard(context).apply {
@@ -306,6 +322,62 @@ class ShareScreen(host: Host) : SubScreen(host, R.string.share_title) {
     override fun onHidden() {
         watch?.cancel()
         watch = null
+        rootCheck?.cancel()
+        rootCheck = null
+        rootChecking = false
+        rootReport = null
+    }
+
+    /** Only an explicit user action may run su. No AP dispatch, mutation
+     * of network settings, owner recovery or raw output in the report. */
+    private fun inspectRootRouter() {
+        if (rootChecking) return
+        rootChecking = true
+        rootReport = null
+        render(TunnelState.status.value)
+        val app = context.applicationContext
+        rootCheck = host.scope.launch {
+            try {
+                val (wifi, root) = withContext(Dispatchers.IO) {
+                    RootHotspotWifiReadiness.inspect(app) to
+                        RootHotspotReadiness(RootHotspotRootAccess()).inspect()
+                }
+                rootReport = buildString {
+                    fun line(id: Int, ok: Boolean) {
+                        append(context.getString(id))
+                        append(": ")
+                        appendLine(context.getString(if (ok) R.string.root_share_check_ok
+                            else R.string.root_share_check_unconfirmed))
+                    }
+                    for ((check, label) in listOf(
+                        RootHotspotWifiReadiness.Check.WIFI_HARDWARE to R.string.root_share_wifi_hardware,
+                        RootHotspotWifiReadiness.Check.WIFI_SERVICE to R.string.root_share_wifi_service,
+                        RootHotspotWifiReadiness.Check.WIFI_PERMISSION to R.string.root_share_permissions_check,
+                    )) line(label, check !in wifi.failed)
+                    if (Build.VERSION.SDK_INT < 33) line(R.string.root_share_location_check,
+                        RootHotspotWifiReadiness.Check.LOCATION_ENABLED !in wifi.failed)
+                    line(R.string.root_share_root_check, RootHotspotReadiness.Check.ROOT_BASELINE in root.passed)
+                    append(context.getString(R.string.root_share_claim_check))
+                    append(": ")
+                    appendLine(context.getString(when (root.claim) {
+                        RootHotspotReadiness.ClaimStatus.ABSENT -> R.string.root_share_claim_absent
+                        RootHotspotReadiness.ClaimStatus.PRESENT -> R.string.root_share_claim_present
+                        RootHotspotReadiness.ClaimStatus.UNKNOWN -> R.string.root_share_check_unconfirmed
+                    }))
+                    line(R.string.root_share_tether_check, RootHotspotReadiness.Check.TETHER_IDLE in root.passed)
+                    line(R.string.root_share_inventory_check, RootHotspotReadiness.Check.INVENTORY in root.passed)
+                    append(context.getString(R.string.root_share_activation_blocked))
+                }
+                rootChecking = false
+                render(TunnelState.status.value)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                rootReport = context.getString(R.string.root_share_check_failed)
+                rootChecking = false
+                render(TunnelState.status.value)
+            }
+        }
     }
 
     private suspend fun load() {

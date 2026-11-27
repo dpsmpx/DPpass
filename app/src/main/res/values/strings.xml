@@ -951,4 +951,22 @@
     <string name="byedpi_vpn">ByeDPI · VpnService (original SOCKS)</string>
     <string name="root_share_permissions">Prepare Wi-Fi permissions for the ROOT router</string>
     <string name="root_share_permissions_ready">Permissions granted. The router has not been started.</string>
+    <string name="root_share_check">Check ROOT router readiness</string>
+    <string name="root_share_check_note">Read-only network diagnostics. ROOT access may be requested. Does not start the router.</string>
+    <string name="root_share_check_running">Checking device readiness…</string>
+    <string name="root_share_copy_report">Copy diagnostic report</string>
+    <string name="root_share_check_ok">confirmed</string>
+    <string name="root_share_check_unconfirmed">not confirmed</string>
+    <string name="root_share_wifi_hardware">Wi-Fi hardware</string>
+    <string name="root_share_wifi_service">Wi-Fi system service</string>
+    <string name="root_share_permissions_check">Wi-Fi permissions</string>
+    <string name="root_share_location_check">System location setting</string>
+    <string name="root_share_root_check">ROOT baseline</string>
+    <string name="root_share_claim_check">Saved ROOT router ownership</string>
+    <string name="root_share_claim_absent">absent</string>
+    <string name="root_share_claim_present">present; requires verification</string>
+    <string name="root_share_tether_check">System tethering idle</string>
+    <string name="root_share_inventory_check">Stable network inventory</string>
+    <string name="root_share_activation_blocked">Activation remains disabled pending independent isolation checks.</string>
+    <string name="root_share_check_failed">Readiness could not be confirmed. The router has not been started.</string>
 </resources>

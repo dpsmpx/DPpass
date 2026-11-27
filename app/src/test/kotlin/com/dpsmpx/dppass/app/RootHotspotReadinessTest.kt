@@ -16,6 +16,25 @@ class RootHotspotReadinessTest {
         assertEquals(1, calls)
         assertEquals(RootHotspotReadiness.Check.entries.toSet(), report.failed)
         assertFalse(report.activationAllowed)
+        assertEquals(RootHotspotReadiness.ClaimStatus.UNKNOWN, report.claim)
+    }
+
+    @Test fun savedClaimIsReportedWithoutExposingItsContents() {
+        val record = RootHotspotOwnerRecord(9, RootHotspotAdmission.Mode.VPN, null,
+            java.util.UUID.randomUUID(), RootHotspotOwner(RootOwnerIdentity(123, "456"),
+                java.util.UUID.randomUUID()), RootHotspotNetworkFixture.slot)
+        val root = RootHotspotRootAccess({ args, _ ->
+            val script = args.last()
+            RootCommandRunner.CompleteResult(0, when {
+                "baseline_available" in script -> "baseline_available\n"
+                "printf 'present" in script -> "present\n" + record.line() + "\n"
+                else -> ""
+            })
+        })
+        val report = RootHotspotReadiness(root).inspect()
+        assertEquals(RootHotspotReadiness.ClaimStatus.PRESENT, report.claim)
+        assertFalse(report.observationsReady)
+        assertFalse(report.toString().contains(record.token.toString()))
     }
 
     @Test fun fullReadOnlyObservationsStillNeverAuthorizeActivation() {
@@ -34,6 +53,7 @@ class RootHotspotReadinessTest {
         })
         val report = RootHotspotReadiness(root).inspect()
         assertTrue(report.observationsReady)
+        assertEquals(RootHotspotReadiness.ClaimStatus.ABSENT, report.claim)
         assertFalse(report.activationAllowed)
     }
 }

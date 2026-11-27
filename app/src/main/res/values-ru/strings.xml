@@ -980,4 +980,22 @@
     <string name="byedpi_vpn">ByeDPI · VpnService (оригинальный SOCKS)</string>
     <string name="root_share_permissions">Подготовить разрешения Wi-Fi для ROOT-роутера</string>
     <string name="root_share_permissions_ready">Разрешения выданы. Роутер не запущен.</string>
+    <string name="root_share_check">Проверить готовность ROOT-роутера</string>
+    <string name="root_share_check_note">Диагностика без изменения сетевых настроек. Может потребоваться ROOT-доступ. Роутер не запускается.</string>
+    <string name="root_share_check_running">Проверяется готовность устройства…</string>
+    <string name="root_share_copy_report">Скопировать отчёт диагностики</string>
+    <string name="root_share_check_ok">подтверждено</string>
+    <string name="root_share_check_unconfirmed">не подтверждено</string>
+    <string name="root_share_wifi_hardware">Оборудование Wi-Fi</string>
+    <string name="root_share_wifi_service">Системная служба Wi-Fi</string>
+    <string name="root_share_permissions_check">Разрешения Wi-Fi</string>
+    <string name="root_share_location_check">Системная настройка геолокации</string>
+    <string name="root_share_root_check">Базовая проверка ROOT</string>
+    <string name="root_share_claim_check">Сохранённое владение ROOT-роутером</string>
+    <string name="root_share_claim_absent">отсутствует</string>
+    <string name="root_share_claim_present">есть; требуется проверка</string>
+    <string name="root_share_tether_check">Отсутствие активной системной раздачи</string>
+    <string name="root_share_inventory_check">Стабильное состояние интерфейсов</string>
+    <string name="root_share_activation_blocked">Запуск заблокирован до независимого подтверждения изоляции трафика.</string>
+    <string name="root_share_check_failed">Готовность не подтверждена. Роутер не запущен.</string>
 </resources>
