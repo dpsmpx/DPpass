@@ -15,7 +15,7 @@ internal class RootHotspotServiceEvents(
     private val onFailure: (RootHotspotLifecycle.Request, Exception) -> Unit,
 ) {
     fun platformStopped(request: RootHotspotLifecycle.Request): Boolean {
-        if (owner.cancelStarting(request)) return true
+        if (owner.cancelInFlight(request)) return true
         if (owner.snapshot().request != request) return false
         return try {
             worker.execute {

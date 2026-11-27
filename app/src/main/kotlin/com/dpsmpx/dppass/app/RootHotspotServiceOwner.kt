@@ -113,6 +113,7 @@ internal class RootHotspotServiceOwner {
             current.checking = true
             current
         }
+        var fatal: Error? = null
         val healthy = try {
             val runtime = checkNotNull(operation.runtime)
             val before = runtime.snapshot()
@@ -123,6 +124,10 @@ internal class RootHotspotServiceOwner {
             Thread.currentThread().interrupt()
             false
         } catch (_: Exception) { false }
+        catch (failure: Error) {
+            fatal = failure
+            false
+        }
         val keep = synchronized(monitor) {
             check(owner === operation && state == State.READY && operation.checking)
             operation.checking = false
@@ -131,14 +136,25 @@ internal class RootHotspotServiceOwner {
                 false
             }
         }
-        return if (keep) Result.READY else completeStop(operation)
+        val result = try {
+            if (keep) Result.READY else completeStop(operation)
+        } catch (failure: Throwable) {
+            fatal?.let {
+                if (it !== failure) it.addSuppressed(failure)
+                throw it
+            }
+            throw failure
+        }
+        fatal?.let { throw it }
+        return result
     }
 
     /** Callback-safe cancellation signal. Never runs ROOT work on the
-     * platform callback thread. Returns true only for a matching startup. */
-    fun cancelStarting(request: RootHotspotLifecycle.Request): Boolean = synchronized(monitor) {
+     * callback thread. Startup or an in-flight health pass will shut down. */
+    fun cancelInFlight(request: RootHotspotLifecycle.Request): Boolean = synchronized(monitor) {
         val current = owner
-        if (current == null || current.request != request || state != State.STARTING) false
+        if (current == null || current.request != request ||
+            (state != State.STARTING && !current.checking)) false
         else {
             current.cancel = true
             true

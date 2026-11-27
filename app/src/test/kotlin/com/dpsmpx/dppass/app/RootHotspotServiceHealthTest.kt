@@ -2,6 +2,7 @@ package com.dpsmpx.dppass.app
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
 class RootHotspotServiceHealthTest {
@@ -86,6 +87,26 @@ class RootHotspotServiceHealthTest {
         assertEquals(RootHotspotServiceOwner.Result.BUSY, f.check())
         f.runtime.stopOk = true
         assertEquals(RootHotspotServiceOwner.Result.STOPPED, f.owner.stop(f.request))
+    }
+
+    @Test fun fatalProofFailureStillStopsAndDoesNotStrandCheckFlag() {
+        val f = Fixture()
+        f.runtime.duringCheck = { throw AssertionError("fatal proof") }
+        f.runtime.stopOk = false
+        assertThrows(AssertionError::class.java) { f.check() }
+        assertEquals(RootHotspotServiceOwner.State.CLEANUP_PENDING, f.owner.snapshot().state)
+        f.runtime.stopOk = true
+        assertEquals(RootHotspotServiceOwner.Result.STOPPED, f.owner.stop(f.request))
+    }
+
+    @Test fun callbackCancelsInFlightProofWithoutQueueingRootWork() {
+        val f = Fixture()
+        val events = RootHotspotServiceEvents(f.owner, java.util.concurrent.Executor { error("must not queue") }) { _, _ ->
+            error("unexpected")
+        }
+        f.runtime.duringCheck = { assertTrue(events.platformStopped(f.request)) }
+        assertEquals(RootHotspotServiceOwner.Result.STOPPED, f.check())
+        assertEquals(1, f.runtime.stops)
     }
 
     @Test fun changedSnapshotTriggersShutdownEvenWithPositiveProof() {
