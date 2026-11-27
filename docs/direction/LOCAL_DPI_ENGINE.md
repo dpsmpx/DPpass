@@ -1099,3 +1099,7 @@ Add a fixed loopback TLS 1.2/1.3 self-test, plain/multisplit/tlsrec-split, throu
 ## A3/A5 — TCP half-close and selected planner integration
 
 The TCP adapter now flushes its accepted first-record buffer before CloseWrite/FIN, under the same lock as Write and the timer; an empty half-close cannot start a new buffer and a failed plan remains sticky. Host regression cases cover partial TLS and HTTP, empty half-close, continued downstream reads, sticky planner failure and concurrent IPC admission. Local HTTP/TLS probes are also exercised with a real Unix-socket peer using the production wire decoder and shared planner; this is an IPC fixture, not an Alpine installation or a physical network result. No strategy catalog, model or VPN profile change.
+
+## A3/A5 — Alpine readiness and lifecycle admission
+
+Replace the Android substring-based readiness check with a bounded exact canonical response for a fixed, non-network planning request. The Go daemon and Android client have a regression fixture for the actual serialized response, including applied status, transport and expected cut. Use a common 99 UTF-8 byte absolute Unix socket path limit, reject NUL, recheck process liveness after probing, and do not delete the pathname after a failed termination while the process is alive. Remove redundant Go socket unlink (UnixListener owns unlink on close). No change to VPN routes, strategies, model, or release identity. Host/JVM CI pending; real PRoot startup still requires Android acceptance.

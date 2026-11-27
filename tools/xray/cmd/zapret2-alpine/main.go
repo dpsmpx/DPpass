@@ -10,7 +10,6 @@ import (
     "fmt"
     "net"
     "os"
-    "strings"
     "syscall"
     "time"
 
@@ -24,14 +23,13 @@ func request(req zapret2.Request) zapret2.Response {
 }
 
 func serve(path string) error {
-    if path == "" || !strings.HasPrefix(path, "/") || len(path) > 99 { return errors.New("socket requires absolute path <=99 chars") }
+    if !zapret2.ValidPlannerSocketPath(path) { return errors.New("socket requires absolute path <=99 chars") }
     if _, err := os.Lstat(path); err == nil { return errors.New("socket already exists (do not remove unknown file)") } else if !os.IsNotExist(err) { return err }
     old := syscall.Umask(0077)
     listener, err := net.Listen("unix", path)
     syscall.Umask(old)
     if err != nil { return err }
     defer listener.Close()
-    defer os.Remove(path)
     gate := newConnectionGate(maxPlannerConnections)
     for {
         conn, err := listener.Accept()

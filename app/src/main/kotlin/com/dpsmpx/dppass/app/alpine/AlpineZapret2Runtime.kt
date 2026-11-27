@@ -27,8 +27,10 @@ internal class AlpineZapret2Runtime private constructor(
             process.destroyForcibly()
             process.waitFor(500, TimeUnit.MILLISECONDS)
         }
-        // This file is always in a private rootfs location; never follow it.
-        if (java.nio.file.Files.isSymbolicLink(socket.toPath()) || !socket.isDirectory) {
+        // Do not unlink a live daemon's listening pathname after a
+        // timed-out termination. A subsequent session uses a fresh name.
+        if (!process.isAlive &&
+            (java.nio.file.Files.isSymbolicLink(socket.toPath()) || !socket.isDirectory)) {
             socket.delete()
         }
     }
@@ -46,7 +48,7 @@ internal class AlpineZapret2Runtime private constructor(
             val name = ".z2-" + Process.myPid() + "-" +
                 (System.nanoTime() and 0xffff).toString(16) + ".sock"
             val socket = File(guestDir, name)
-            check(socket.path.toByteArray(Charsets.UTF_8).size < 106) { "private Unix socket path too long" }
+            check(AlpinePlannerReadiness.validSocketPath(socket.path)) { "invalid private Unix socket path" }
             check(!socket.exists()) { "Alpine socket already exists" }
             val argv = AlpineArgs.command(layout,
                 listOf("/usr/local/bin/dppass-zapret2", "--serve", "/root/" + name))
@@ -66,7 +68,7 @@ internal class AlpineZapret2Runtime private constructor(
             try {
                 val deadline = android.os.SystemClock.elapsedRealtime() + MAX_WAIT_MS
                 while (android.os.SystemClock.elapsedRealtime() < deadline && spawned.isAlive) {
-                    if (socket.exists() && probe(socket.path)) {
+                    if (socket.exists() && probe(socket.path) && spawned.isAlive) {
                         return AlpineZapret2Runtime(socket.path, spawned, socket)
                     }
                     Thread.sleep(40)
@@ -74,7 +76,18 @@ internal class AlpineZapret2Runtime private constructor(
                 error("Alpine Zapret2 strategy daemon did not become ready")
             } catch (e: Exception) {
                 spawned.destroyForcibly()
-                socket.delete()
+                // Preserve interruption and never unlink while the process
+                // could still own a listening socket.
+                if (e !is InterruptedException) {
+                    try {
+                        spawned.waitFor(500, TimeUnit.MILLISECONDS)
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                    }
+                } else {
+                    Thread.currentThread().interrupt()
+                }
+                if (!spawned.isAlive && !socket.isDirectory) socket.delete()
                 throw e
             }
         }
@@ -83,12 +96,9 @@ internal class AlpineZapret2Runtime private constructor(
             LocalSocket().use { connection ->
                 connection.connect(LocalSocketAddress(path, LocalSocketAddress.Namespace.FILESYSTEM))
                 connection.soTimeout = 500
-                // Fixed TLS ClientHello prefix, no user data or network access.
-                val request = """{"tag":"dppass:exp-split-1","network":"tcp","first":"FgMBAAQBAAAA"}""" + "\n"
-                connection.outputStream.write(request.toByteArray(Charsets.UTF_8))
+                connection.outputStream.write(AlpinePlannerReadiness.request())
                 connection.outputStream.flush()
-                val reply = connection.inputStream.bufferedReader().readLine().orEmpty()
-                reply.contains("\"plan\"") && reply.contains("\"strategy\":\"dppass:exp-split-1\"")
+                AlpinePlannerReadiness.matches(connection.inputStream)
             }
         }.getOrDefault(false)
     }

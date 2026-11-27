@@ -33,11 +33,17 @@ func init() { socketPath.Store("") }
 // SetPlannerSocket selects Alpine for planning, except the explicitly tagged
 // native experiment. Empty path retains the in-process shared planner.
 func SetPlannerSocket(path string) error {
-    if path != "" && (!strings.HasPrefix(path, "/") || len(path) > 99 || strings.Contains(path, "\x00")) {
+    if path != "" && !ValidPlannerSocketPath(path) {
         return errors.New("invalid Alpine planner Unix socket")
     }
     socketPath.Store(path)
     return nil
+}
+
+// ValidPlannerSocketPath is shared by daemon and client. Go string length
+// is the byte length, matching the Unix sockaddr path and Android UTF-8.
+func ValidPlannerSocketPath(path string) bool {
+    return strings.HasPrefix(path,"/") && len(path)<=99 && !strings.Contains(path,"\x00")
 }
 
 func PlannerSocket() string { return socketPath.Load().(string) }
