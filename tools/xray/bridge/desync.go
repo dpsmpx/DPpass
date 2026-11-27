@@ -924,12 +924,12 @@ func (c *desyncUDPConn) Read(b []byte) (int, error) {
         }
         if c.stageFirstReply.CompareAndSwap(false, true) {
             stagesFor(c.diagnostic).udpFirstReply.Add(1)
-            if pick := c.adaptiveSelection.Load(); socketPickAdmissible(pick) && pick.flow.MethodID == "pass" {
+            if pick := c.adaptiveSelection.Load(); !c.diagnostic && socketPickAdmissible(pick) && pick.flow.MethodID == "pass" {
                 zapret2Auto.retainSocketReply(pick)
             }
         }
         total := c.received.Add(int64(n))
-        if total >= adaptivePayloadThreshold {
+        if !c.diagnostic && total >= adaptivePayloadThreshold {
             if selected := c.adaptiveSelection.Load(); selected != nil {
                 c.observed.Do(func() {
                     recordLocalSocketEvidence(selected, localdpi.SocketDownstream(total))
@@ -943,7 +943,7 @@ func (c *desyncUDPConn) Read(b []byte) (int, error) {
         // A QUIC Initial was sent and timed out without even a UDP first
         // reply. This is weak reachability evidence, not proof of DPI.
         // Never infer an application response from packet send success.
-        if pick:=c.adaptiveSelection.Load();pick!=nil && !c.preInitialReply.Load() {
+        if pick:=c.adaptiveSelection.Load();!c.diagnostic && pick!=nil && !c.preInitialReply.Load() {
             recordLocalSocketEvidence(pick, localdpi.SocketFirstReplyTimeout(true, false, 0))
         }
     }
@@ -955,6 +955,7 @@ func (c *desyncUDPConn) Close() error {
         stagesFor(c.diagnostic).udpClosedNoReply.Add(1)
     }
     c.observed.Do(func() {
+        if c.diagnostic {return}
         if pick := c.adaptiveSelection.Load(); pick != nil {
             // As with TCP, an ordinary zero-byte Close is not evidence
             // of a failed strategy; explicit read timeouts are handled above.
@@ -977,9 +978,14 @@ func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
     defer c.mu.Unlock()
     initial := zapret2.IsQUICInitial(b)
     matched := false
-    // A successful fake alone does not count. Require the genuine Initial.
+    transformed := false
+    // A completed local send, not a plan or auxiliary write alone,
+    // is the action-accounting boundary. No claim of peer receipt.
     defer func() {
         if !initial { return }
+        if transformed {
+            c.recordCompletedUDPAction(len(b),written,writeErr)
+        }
         if writeErr != nil || written != len(b) {
             stagesFor(c.diagnostic).udpInitialFailed.Add(1)
         } else {
@@ -1056,8 +1062,18 @@ func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
         return 0, c.plannerErr
     }
     matched = c.chosen!=nil && plan.Strategy==zapret2.TagPrefix+c.chosen.flow.MethodID
-    recordDesyncApplied(c.diagnostic,c.request)
+    transformed = true
     return c.UDPConn.Write(b)
+}
+
+// Called once after the genuine datagram write has returned. A short or
+// failed write cannot be reported as an applied action.
+func (c *desyncUDPConn) recordCompletedUDPAction(expected,written int,err error) {
+    if err==nil && expected>0 && written==expected {
+        recordDesyncApplied(c.diagnostic,c.request)
+    } else {
+        recordDesyncSkipped(c.diagnostic,c.request)
+    }
 }
 
 // The caller transmits the genuine QUIC Initial only after every decoy

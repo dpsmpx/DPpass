@@ -355,9 +355,11 @@ func TestUDPFirstQUICWriteSendsDummyBeforeReal(t *testing.T) {
 	conn := &desyncUDPConn{UDPConn: client, mode: desyncMode{kind: desyncFake, ttl: 1}}
 	initial := make([]byte, 1200)
 	initial[0], initial[4] = 0xc0, 1
+	beforeA,beforeS:=DesyncStats()
 	if n, err := conn.Write(initial); err != nil || n != len(initial) {
 		t.Fatalf("first write: %d %v", n, err)
 	}
+	if a,s:=DesyncStats();a!=beforeA+1 || s!=beforeS {t.Fatal("completed UDP action count")}
 	buf := make([]byte, 1400)
 	_ = receiver.SetReadDeadline(time.Now().Add(3 * time.Second))
 	for i:=0;i<dummyQuicRepeats;i++ {
