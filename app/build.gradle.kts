@@ -21,6 +21,13 @@ val alpineEnabled = providers.gradleProperty("dppass.alpine").map(String::toBool
 val localDpiNativeDebug = providers.gradleProperty("dppass.localDpiNativeDebug")
     .map { it.toBooleanStrict() }.getOrElse(false)
 require(!localDpiNativeDebug || alpineEnabled) { "localDpiNativeDebug requires dppass.alpine=true" }
+// Explicit signed test candidate, never enabled by default or on a stable release branch.
+val localDpiNativeCandidate = providers.gradleProperty("dppass.localDpiNativeCandidate")
+    .map { it.toBooleanStrict() }.getOrElse(false)
+require(!localDpiNativeCandidate || alpineEnabled && !localDpiNativeDebug &&
+    providers.gradleProperty("dppass.nativeAbis").orNull == "arm64-v8a") {
+    "localDpiNativeCandidate requires Alpine, ARM64 and no separate debug experiment"
+}
 
 
 // Личность устанавливаемого приложения (D-47). Пространство имён кода —
@@ -33,6 +40,7 @@ require(!localDpiNativeDebug || alpineEnabled) { "localDpiNativeDebug requires d
 val randomIdentity = providers.gradleProperty("dppass.randomIdentity").map(String::toBoolean).getOrElse(false)
 val identitySeed = AppIdentity.seedOf(providers.gradleProperty("dppass.identitySeed").orNull)
 val releaseIdentity = if (randomIdentity) AppIdentity.random(identitySeed) else AppIdentity.STABLE
+require(!localDpiNativeCandidate || !randomIdentity) { "Native candidate requires the established application identity" }
 
 // Тесты экранов на JVM (D-86): Robolectric — только по свойству dppass.robolectric
 // (шаг проверки «Android: экраны на JVM»). Обычная сборка, в том числе в Termux,
@@ -187,6 +195,8 @@ androidComponents {
         // на buildType его ставить нельзя. Отладочная сборка — стабильный id.
         if (variant.buildType == "release") variant.applicationId.set(releaseIdentity.applicationId)
 
+        val experimental = (localDpiNativeDebug && variant.buildType == "debug") ||
+            (localDpiNativeCandidate && variant.buildType == "release")
         val name = "xrayNative" + variant.name.replaceFirstChar { it.uppercase() }
         val task = tasks.register<XrayNativeTask>(name) {
             description = "libdppassxray.so для ${variant.name}: tools/xray/native.py android"
@@ -203,7 +213,6 @@ androidComponents {
                 // Экспорт JNI сверяется с external fun объекта XrayJni.
                 rootProject.layout.projectDirectory.file("engine/src/main/kotlin/com/dpsmpx/dppass/engine/xray/XrayRuntime.kt"),
             )
-            val experimental = localDpiNativeDebug && variant.buildType == "debug"
             experimentalLocalDpiNative.set(experimental)
             if (experimental) {
                 sources.from(
@@ -228,7 +237,7 @@ androidComponents {
             sdkDirectory.set(androidComponents.sdkComponents.sdkDirectory)
         }
         variant.sources.jniLibs?.addGeneratedSourceDirectory(task, XrayNativeTask::outputDir)
-        if (localDpiNativeDebug && variant.buildType == "debug") {
+        if (experimental) {
             variant.sources.assets?.addStaticSourceDirectory(rootProject.file("tools/localdpi/notice-assets").path)
         }
 

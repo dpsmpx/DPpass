@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check opt-in APK packaging against the ordinary debug build."""
+"""Check a native candidate APK against an ordinary ARM64 reference APK."""
 import sys
 from pathlib import Path
 from zipfile import ZipFile
@@ -17,4 +17,4 @@ with ZipFile(sys.argv[1]) as baseline, ZipFile(sys.argv[2]) as native:
     assert native.read(lib) != baseline.read(lib), "opt-in library unchanged"
     for name in ("lib/arm64-v8a/libciadpi.so", "assets/alpine/zapret2-runtime.bin"):
         assert native.read(name) == baseline.read(name), "reference component changed"
-print("Verified separate native local DPI debug APK and MIT provenance")
+print("Verified native local DPI candidate APK and MIT provenance")

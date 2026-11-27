@@ -1,7 +1,7 @@
 //go:build linux && cgo && localdpi_native
 
 // Package native is an opt-in bridge to the pinned ByeDPI C source module.
-// It is not part of ordinary builds or the shipped APK.
+// It is linked only in explicit experimental APKs, not ordinary builds.
 package native
 
 /*
