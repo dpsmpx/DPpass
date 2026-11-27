@@ -19,6 +19,7 @@ internal class RootHotspotEngineOwner(private val reserve: () -> Lease?) {
 
     interface Tun {
         val input: TunInput
+        /** Must be idempotent for this exact resource, including a failed close response. */
         fun close()
         fun verifyClosed(): Boolean
     }
@@ -29,7 +30,6 @@ internal class RootHotspotEngineOwner(private val reserve: () -> Lease?) {
     private var tun: Tun? = null
     private var engineStopped = false
     private var tunClosed = false
-    private var closureConfirmed = false
 
     fun start(config: CompiledConfig, acquireTun: () -> Tun): Boolean {
         check(!attempted)
@@ -57,8 +57,7 @@ internal class RootHotspotEngineOwner(private val reserve: () -> Lease?) {
             owned.close()
             tunClosed = true
         }
-        closureConfirmed = owned.verifyClosed()
-        if (!closureConfirmed || !reserved.releaseAfterTunClosed(true)) return false
+        if (!owned.verifyClosed() || !reserved.releaseAfterTunClosed(true)) return false
         lease = null
         tun = null
         return true

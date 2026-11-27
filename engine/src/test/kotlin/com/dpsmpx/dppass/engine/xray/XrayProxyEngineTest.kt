@@ -182,7 +182,7 @@ class XrayProxyEngineTest {
         assertEquals(0, rt.stops)
         assertFalse(lease.releaseAfterTunClosed(false))
         assertTrue(lease.releaseAfterTunClosed(true))
-        assertIs<Outcome.Success<EngineSession>>(engine.start(compiled, null))
+        assertTrue(engine.start(compiled, null) is Outcome.Success)
     }
 
     @Test
