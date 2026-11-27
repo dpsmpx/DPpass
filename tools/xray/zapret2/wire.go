@@ -8,6 +8,7 @@ import (
     "encoding/json"
     "errors"
     "io"
+    "unicode/utf8"
 )
 
 const MaxRequestFrame = 48 * 1024
@@ -27,6 +28,7 @@ func readFrame(r io.Reader, limit int, dst any) error {
 // default decoder accepts duplicate/case-folded keys and numeric arrays;
 // reject these ambiguous representations before decoding the typed value.
 func decodePlannerJSON(raw []byte,dst any) error {
+    if !utf8.Valid(raw) {return errors.New("invalid planner UTF-8")}
     fields:=json.NewDecoder(bytes.NewReader(raw))
     var schema string
     switch dst.(type) {
@@ -69,10 +71,33 @@ func checkPlannerObject(dec *json.Decoder,schema string) error {
         }
         value,err:=dec.Token()
         if err!=nil {return errors.New("invalid planner value")}
-        if _,nested:=value.(json.Delim);nested {return errors.New("unexpected nested planner value")}
+        // A nil first buffer is emitted as JSON null by the Go request
+        // encoder. All other fields have a concrete scalar type.
+        valid:=false
+        switch name {
+        case "first":
+            _,valid=value.(string)
+            valid=valid || value==nil
+        case "applied":
+            _,valid=value.(bool)
+        case "cut","cut2","ttl","repeats":
+            _,valid=value.(float64)
+        default:
+            _,valid=value.(string)
+        }
+        if !valid {return errors.New("invalid planner field type")}
     }
     end,err:=dec.Token()
     if err!=nil || end!=json.Delim('}') {return errors.New("invalid planner object")}
+    var required []string
+    switch schema {
+    case "request": required=[]string{"tag","network","first"}
+    case "response": required=[]string{"plan"}
+    case "plan": required=[]string{"strategy","network","applied"}
+    }
+    for _,name:=range required {
+        if !seen[name] {return errors.New("missing required planner field")}
+    }
     return nil
 }
 

@@ -110,3 +110,62 @@ func TestStandalonePlannerRequestBoundedAndSingleObject(t *testing.T) {
         t.Fatal("standalone reader did not enforce input bound")
     }
 }
+
+func TestWireRequiresExplicitTypedFields(t *testing.T) {
+    for _,raw:=range []string{
+        `{"tag":"dppass:exp-pass","network":"tcp"}`,
+        `{"tag":"dppass:exp-pass","network":null,"first":null}`,
+        `{"tag":null,"network":"tcp","first":null}`,
+        `{"tag":"dppass:exp-pass","network":"tcp","first":0}`,
+        `{"tag":"dppass:exp-pass","network":"tcp","first":false}`,
+        `{"tag":"dppass:exp-pass","network":"tcp","first":"!"}`,
+    } {
+        if _,err:=ReadRequest(strings.NewReader(raw+"\n"));err==nil {t.Fatal("invalid request accepted",raw)}
+        if _,err:=ReadStandaloneRequest(strings.NewReader(raw));err==nil {t.Fatal("invalid standalone request accepted",raw)}
+    }
+    for _,raw:=range []string{
+        `{"tag":"dppass:exp-pass","network":"tcp","first":null}`,
+        `{"tag":"dppass:exp-pass","network":"tcp","first":""}`,
+    } {
+        got,err:=ReadRequest(strings.NewReader(raw+"\n"))
+        if err!=nil || len(got.First)!=0 {t.Fatal("explicit empty input rejected",err)}
+        if _,err:=ReadStandaloneRequest(strings.NewReader(raw));err!=nil {t.Fatal(err)}
+    }
+    for _,raw:=range []string{
+        `{"plan":{"strategy":"dppass:exp-pass","network":"tcp"}}`,
+        `{"plan":{"strategy":"dppass:exp-pass","network":"tcp","applied":null}}`,
+        `{"plan":{"strategy":"dppass:exp-pass","network":"tcp","applied":0}}`,
+        `{"plan":{"strategy":"dppass:exp-pass","network":"tcp","applied":false,"cut":null}}`,
+        `{"plan":{"strategy":"dppass:exp-pass","network":"tcp","applied":false,"cut2":null}}`,
+        `{"plan":{"strategy":"dppass:exp-pass","network":"tcp","applied":false,"ttl":null}}`,
+        `{"plan":{"strategy":"dppass:exp-pass","network":"tcp","applied":false,"repeats":null}}`,
+        `{"plan":{"strategy":"dppass:exp-pass","network":"tcp","applied":false,"fake":null}}`,
+        `{"plan":{"strategy":"dppass:exp-pass","network":"tcp","applied":false,"rewrite":null}}`,
+        `{"plan":{"strategy":"dppass:exp-pass","network":"tcp","applied":false,"reason":null}}`,
+        `{"plan":{"strategy":"dppass:exp-pass","network":"tcp","applied":false},"error":null}`,
+        `{"error":"failed"}`,
+        `{"plan":{"strategy":"dppass:exp-pass","network":"tcp","applied":false,"cut":1.5}}`,
+        `{"plan":{"strategy":"dppass:exp-pass","network":"tcp","applied":false,"cut":1e2}}`,
+    } {
+        if _,err:=readResponse(strings.NewReader(raw+"\n"));err==nil {t.Fatal("invalid response accepted",raw)}
+    }
+    for _,want:=range []Response{
+        {Plan:Plan{Strategy:TagPrefix+"pass",Network:"tcp"}},
+        {Error:"failed"},
+    } {
+        var b bytes.Buffer
+        if err:=json.NewEncoder(&b).Encode(want);err!=nil {t.Fatal(err)}
+        got,err:=readResponse(&b)
+        if err!=nil || got.Error!=want.Error || got.Plan.Strategy!=want.Plan.Strategy {
+            t.Fatal("canonical response rejected",err)
+        }
+    }
+}
+
+func TestWireRejectsInvalidUTF8(t *testing.T) {
+    raw:="{\"tag\":\"dppass:exp-pass\",\"network\":\"tcp\",\"first\":\""+string([]byte{0xff})+"\"}"
+    if _,err:=ReadRequest(strings.NewReader(raw+"\n"));err==nil {t.Fatal("invalid UTF-8 accepted")}
+    if _,err:=ReadStandaloneRequest(strings.NewReader(raw));err==nil {t.Fatal("invalid UTF-8 accepted by CLI")}
+    raw="{\"plan\":{\"strategy\":\"dppass:exp-pass\",\"network\":\"tcp\",\"applied\":false,\"reason\":\""+string([]byte{0xff})+"\"}}"
+    if _,err:=readResponse(strings.NewReader(raw+"\n"));err==nil {t.Fatal("invalid UTF-8 response accepted")}
+}
