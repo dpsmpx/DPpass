@@ -21,7 +21,10 @@ object Zapret2NeuralModel {
         val outputs: Int, val contexts: Int,
     ) {
         STRATEGY("strategy-v2.json", Zapret2ProbeCatalog.modelFormat, Zapret2ProbeCatalog.modelOutputs, 9),
-        SERVER("server-v1.json", "dppass-server-mlp-v3", 1, 6),
+        SERVER("server-v1.json", "dppass-server-mlp-v4", 1, 6);
+
+        val outputRows: Int get() = if (this == SERVER) contexts else outputs
+        val extraContextBiases: Int get() = if (this == SERVER) 0 else contexts * outputs
     }
 
     val SIZES: List<Int> = listOf(32, 128, 512, 1024)
@@ -50,8 +53,8 @@ object Zapret2NeuralModel {
         val last = if (second > 0) second else first
         return first.toLong() * (INPUTS + 1) +
             (if (second > 0) second.toLong() * (first + 1) else 0L) +
-            kind.outputs.toLong() * (last + 1) +
-            kind.contexts.toLong() * kind.outputs
+            kind.outputRows.toLong() * (last + 1) +
+            kind.extraContextBiases
     }
 
     fun minParameters(kind: Kind): Long = denseCount(kind, 8, 0)
@@ -65,8 +68,8 @@ object Zapret2NeuralModel {
         require(parameters in minParameters(kind)..MAX_PARAMETERS) { "Unsupported parameter budget" }
         if (parameters >= 1_000_000) return 128 to 64
         if (parameters >= 50_000) return 96 to 48
-        val maxFirst = (parameters - kind.outputs -
-            kind.contexts.toLong() * kind.outputs) / (INPUTS + 1 + kind.outputs)
+        val maxFirst = (parameters - kind.outputRows -
+            kind.extraContextBiases) / (INPUTS + 1 + kind.outputRows)
         return maxFirst.coerceIn(8L, 128L).toInt() to 0
     }
 
@@ -80,7 +83,7 @@ object Zapret2NeuralModel {
             repeat(second) { rows.put(vector(first, first)) }
         }
         val output = JSONArray().also { rows ->
-            repeat(kind.outputs) { rows.put(vector(if (second > 0) second else first,
+            repeat(kind.outputRows) { rows.put(vector(if (second > 0) second else first,
                 if (second > 0) second else first)) }
         }
         val obj = JSONObject()
@@ -92,9 +95,9 @@ object Zapret2NeuralModel {
             .put("deep_hidden", deep)
             .put("deep_bias", JSONArray().apply { repeat(second) { put(0.0) } })
             .put("output", output)
-            .put("output_bias", JSONArray().apply { repeat(kind.outputs) { put(0.0) } })
+            .put("output_bias", JSONArray().apply { repeat(kind.outputRows) { put(0.0) } })
             .put("context_bias", JSONArray().apply {
-                repeat(kind.contexts) {
+                repeat(if (kind == Kind.SERVER) 0 else kind.contexts) {
                     put(JSONArray().apply { repeat(kind.outputs) { put(0.0) } })
                 }
             })
@@ -129,13 +132,13 @@ object Zapret2NeuralModel {
             val o = obj.getJSONArray("output")
             val ob = obj.getJSONArray("output_bias")
             if (h.length() !in 8..1024 || b.length() != h.length() ||
-                o.length() != kind.outputs || ob.length() != kind.outputs) return@runCatching false
+                o.length() != kind.outputRows || ob.length() != kind.outputRows) return@runCatching false
             fun valid(row: JSONArray, count: Int): Boolean {
                 if (row.length() != count) return false
                 for (i in 0 until count) if (!ModelNumericFields.weight(row.get(i))) return false
                 return true
             }
-            if (!valid(b, h.length()) || !valid(ob, kind.outputs) ||
+            if (!valid(b, h.length()) || !valid(ob, kind.outputRows) ||
                 !(0 until h.length()).all { valid(h.getJSONArray(it), INPUTS) })
                 return@runCatching false
             val deep = obj.getJSONArray("deep_hidden")
@@ -145,7 +148,7 @@ object Zapret2NeuralModel {
                 !(0 until deep.length()).all { valid(deep.getJSONArray(it), h.length()) })
                 return@runCatching false
             val last = if (deep.length() > 0) deep.length() else h.length()
-            if (!(0 until kind.outputs).all { valid(o.getJSONArray(it), last) })
+            if (!(0 until kind.outputRows).all { valid(o.getJSONArray(it), last) })
                 return@runCatching false
             if (obj.has("observations") && !ModelNumericFields.observation(obj.get("observations")))
                 return@runCatching false
@@ -156,11 +159,11 @@ object Zapret2NeuralModel {
                 return@runCatching false
             val context = obj.getJSONArray("context_bias")
             val counts = obj.getJSONArray("context_observations")
-            if (context.length() != kind.contexts || counts.length() != kind.contexts ||
-                !(0 until kind.contexts).all { i ->
-                    valid(context.getJSONArray(i), kind.outputs) &&
-                        ModelNumericFields.observation(counts.get(i))
-                }) return@runCatching false
+            val contextRows = if (kind == Kind.SERVER) 0 else kind.contexts
+            if (context.length() != contextRows || counts.length() != kind.contexts ||
+                !(0 until contextRows).all { i -> valid(context.getJSONArray(i), kind.outputs) } ||
+                !(0 until kind.contexts).all { i -> ModelNumericFields.observation(counts.get(i)) })
+                return@runCatching false
             // The optional, fixed 3×6 HTML calibration is separate from the
             // MLP parameter budget.
             if (obj.has("verified_html_bias") || obj.has("verified_html_observations")) {

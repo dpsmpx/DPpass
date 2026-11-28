@@ -12,10 +12,8 @@ import com.dpsmpx.dppass.connection.ServerAutoOrdering
 import com.dpsmpx.dppass.connection.ServerAutoScore
 import com.dpsmpx.dppass.network.NetworkType
 import com.dpsmpx.dppass.diagnostics.Safe
-import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
-import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
 
@@ -31,7 +29,6 @@ import kotlin.math.min
  */
 object ServerAutoModel {
     private const val INPUTS = 8
-    private const val LR = 0.035
 
     // A connection attempt needs its *pre-outcome* features to avoid
     // leaking the answer into the training sample. Kept only in RAM.
@@ -104,39 +101,40 @@ object ServerAutoModel {
         val deep = model.getJSONArray("deep_hidden").length()
         val last = if (deep > 0) deep else h
         val used = h.toLong() * (INPUTS + 1) +
-            deep.toLong() * (h + 1) + last + 1L +
-            Zapret2NeuralModel.Kind.SERVER.contexts
+            deep.toLong() * (h + 1) + (last + 1L) *
+            Zapret2NeuralModel.Kind.SERVER.outputRows
         return (model.getLong("parameters") - used).coerceAtLeast(0)
     }
 
     /** Stable keyed index; the JSON contains only numeric weights, never IDs. */
     private fun sparseKey(model: JSONObject, scenario: Int, profileId: String,
-                          feature: Int, bucket: Int, capacity: Long): String {
+                          feature: Int, bucket: Int, capacity: Long): String? {
         val seed = model.getString("seed")
         val data = "${seed}|${scenario}|${profileId}|${feature}|${bucket}"
         val hash = MessageDigest.getInstance("SHA-256").digest(data.encodeToByteArray())
         var n = 0L
         for (i in 0 until 7) n = (n shl 8) or (hash[i].toLong() and 255L)
-        return (n % capacity).toString()
+        return ServerContextHead.sparseIndex(scenario, capacity, n)?.toString()
     }
 
     private fun forward(model: JSONObject, x: DoubleArray, scenario: Int,
                         profileId: String): Pair<Double, DoubleArray> {
         val hidden = lastHidden(model, x)
-        val out = model.getJSONArray("output").getJSONArray(0)
-        var z = model.getJSONArray("output_bias").getDouble(0)
-        for (i in hidden.indices) z += out.getDouble(i) * hidden[i]
-        z += model.getJSONArray("context_bias").getJSONArray(scenario).getDouble(0)
+        val out = model.getJSONArray("output").getJSONArray(scenario)
+        val weights = DoubleArray(hidden.size) { out.getDouble(it) }
+        val bias = model.getJSONArray("output_bias").getDouble(scenario)
+        var sparseLogit = 0.0
         val capacity = sparseCapacity(model)
         if (capacity > 0) {
             val sparse = model.getJSONObject("sparse")
             for (i in x.indices) {
                 if (x[i] <= 0.0) continue
                 val bucket = (x[i] * 15.0).toInt().coerceIn(0, 15)
-                z += sparse.optDouble(sparseKey(model, scenario, profileId, i, bucket, capacity), 0.0) * x[i]
+                val key = sparseKey(model, scenario, profileId, i, bucket, capacity) ?: continue
+                sparseLogit += sparse.optDouble(key, 0.0) * x[i]
             }
         }
-        val probability = 1.0 / (1.0 + exp((-z).coerceIn(-12.0, 12.0)))
+        val probability = ServerContextHead.probability(weights, bias, hidden, sparseLogit)
         return probability to hidden
     }
 
@@ -212,10 +210,7 @@ object ServerAutoModel {
                 core.log.warning("server_auto_learning_failed", "reason" to Safe("model_width_changed"))
                 return@runCatching
             }
-            val hiddenRows = model.getJSONArray("hidden")
-            val bias = model.getJSONArray("bias")
             val outputRows = model.getJSONArray("output")
-            val output = outputRows.getJSONArray(0)
             val outBias = model.getJSONArray("output_bias")
             var learned = 0
             val seen = mutableSetOf<String>()
@@ -233,41 +228,15 @@ object ServerAutoModel {
                     ServerLearningEvidence.NONE -> continue
                 }
                 val (p, h) = forward(model, x, scenario, attempt.profileId.value)
-                val delta = LR * (label - p)
+                val delta = ServerContextHead.delta(label, p)
                 learned++
-                val oldWeights = DoubleArray(h.size) { output.getDouble(it) }
+                // The common feature extractor is frozen. Only this context's
+                // output weights and bias are updated; no other head changes.
+                val output = outputRows.getJSONArray(scenario)
                 for (i in h.indices) {
-                    output.put(i, clamped(oldWeights[i] + delta * h[i]))
+                    output.put(i, ServerContextHead.update(output.getDouble(i), delta, h[i]))
                 }
-                outBias.put(0, clamped(outBias.getDouble(0) + delta))
-                val deep = model.optJSONArray("deep_hidden")
-                if (deep != null && deep.length() > 0) {
-                    // A second feature layer is updated using a smaller step;
-                    // the shared first layer stays stable across scenarios.
-                    val deepBias = model.getJSONArray("deep_bias")
-                    val first = firstHidden(model, x)
-                    for (i in h.indices) {
-                        if (h[i] <= 0.0) continue
-                        val scale = delta * oldWeights[i] * 0.1
-                        val row = deep.getJSONArray(i)
-                        deepBias.put(i, clamped(deepBias.getDouble(i) + scale))
-                        for (j in first.indices)
-                            row.put(j, clamped(row.getDouble(j) + scale * first[j]))
-                    }
-                } else {
-                    for (i in h.indices) {
-                        if (h[i] <= 0.0) continue
-                        val scale = delta * oldWeights[i] * 0.1
-                        val row = hiddenRows.getJSONArray(i)
-                        bias.put(i, clamped(bias.getDouble(i) + scale))
-                        for (j in 0 until INPUTS)
-                            row.put(j, clamped(row.getDouble(j) + scale * x[j]))
-                    }
-                }
-                // Independent LTE/Wi-Fi/other × TCP/QUIC heads prevent
-                // a failure in one context overwriting all other heads.
-                val head = model.getJSONArray("context_bias").getJSONArray(scenario)
-                head.put(0, clamped(head.getDouble(0) + delta))
+                outBias.put(scenario, ServerContextHead.update(outBias.getDouble(scenario), delta, 1.0))
                 val counts = model.getJSONArray("context_observations")
                 counts.put(scenario, ModelNumericFields.addObservations(counts.getLong(scenario), 1))
                 val capacity = sparseCapacity(model)
@@ -277,7 +246,7 @@ object ServerAutoModel {
                         if (x[i] <= 0.0) continue
                         val bucket = (x[i] * 15.0).toInt().coerceIn(0, 15)
                         val key = sparseKey(model, scenario, attempt.profileId.value,
-                            i, bucket, capacity)
+                            i, bucket, capacity) ?: continue
                         if (sparse.has(key) || sparse.length() < Zapret2NeuralModel.MAX_SPARSE_ENTRIES)
                             sparse.put(key, clamped(sparse.optDouble(key, 0.0) + delta * 0.2 * x[i]))
                     }
