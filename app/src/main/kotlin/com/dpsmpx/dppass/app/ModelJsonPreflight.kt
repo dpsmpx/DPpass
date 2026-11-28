@@ -1,6 +1,6 @@
 package com.dpsmpx.dppass.app
 
-/** Strict, bounded structural preflight for the two local model formats.
+/** Strict, bounded structural preflight for local model formats.
  * JSONObject remains responsible for schema and dimensional validation.
  * No network or Android dependency; no input is included in error messages.
  */

@@ -3,6 +3,7 @@
 package bridge
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/dpsmpx/dppass/tools/xray/localdpi"
@@ -19,11 +20,11 @@ func TestAdaptiveExecutorOwnsFlowAndModel(t *testing.T) {
 	vpn := newAdaptiveSelector(socketCapabilities)
 	otherVPN := newAdaptiveSelector(socketCapabilities)
 	root := newAdaptiveSelector(rootCaps)
-	model := generatedTestModel(t, 32)
 	for _, setup := range []struct {
 		selector *adaptiveSelector
 		network  string
 	}{{vpn, "WIFI"}, {otherVPN, "WIFI"}, {root, "MOBILE"}} {
+		model := generatedExecutorTestModel(t, setup.selector.capabilities.Kind(), 32)
 		if err := setup.selector.configureModel(model); err != nil {
 			t.Fatal(err)
 		}
@@ -60,15 +61,66 @@ func TestAdaptiveExecutorOwnsFlowAndModel(t *testing.T) {
 		t.Fatal("foreign flow changed preference or model")
 	}
 	root.observeSocketEvidence(rootPick, evidence)
+	saved := root.neural.export()
 	if root.entries[host].preferred != "split" || root.neural.weights.ContextObservations[0] != 1 ||
-		root.neural.weights.ContextObservations[3] != 0 || len(root.neural.export()) == 0 ||
+		root.neural.weights.ContextObservations[3] != 0 || len(saved) == 0 ||
 		vpn.neural.export() != nil || otherVPN.neural.export() != nil {
 		t.Fatal("ROOT observation escaped its model or network category")
+	}
+	restored := newAdaptiveSelector(rootCaps)
+	if err := restored.configureModel(saved); err != nil {
+		t.Fatalf("cannot restore ROOT snapshot: %v", err)
+	}
+	if restored.neural.weights.ContextObservations[0] != 1 || restored.neural.export() != nil {
+		t.Fatal("restored ROOT snapshot lost training or was marked dirty")
+	}
+	if err := vpn.configureModel(saved); err == nil {
+		t.Fatal("learned ROOT snapshot accepted by VpnService")
 	}
 	vpn.observeSocketEvidence(vpnPick, evidence)
 	if vpn.neural.weights.ContextObservations[3] != 1 ||
 		vpn.neural.weights.ContextObservations[0] != 0 || otherVPN.neural.export() != nil {
 		t.Fatal("VPN observation escaped its model or network category")
+	}
+}
+
+func TestAdaptiveExecutorRejectsForeignModel(t *testing.T) {
+	executors := []localdpi.ExecutorKind{localdpi.VPNSocket, localdpi.RootSocket, localdpi.RootPacket}
+	for _, owner := range executors {
+		caps, err := localdpi.NewCapabilities(owner, true, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a := newAdaptiveSelector(caps)
+		ownModel := generatedExecutorTestModel(t, owner, 32)
+		if err := a.configureModel(ownModel); err != nil {
+			t.Fatal(err)
+		}
+		generation := a.generationSnapshot()
+		for _, source := range executors {
+			if source == owner {
+				continue
+			}
+			foreign := generatedExecutorTestModel(t, source, 32)
+			if err := a.configureModel(foreign); err == nil {
+				t.Fatalf("executor %v accepted weights from %v", owner, source)
+			}
+			if a.generationSnapshot() != generation || a.neural.weights.Format != localdpi.StrategyModelFormat(owner) {
+				t.Fatal("rejected snapshot replaced current model")
+			}
+		}
+		if owner == localdpi.VPNSocket {
+			continue
+		}
+		for _, field := range []string{`"verified_html_bias":[]`, `"verified_html_observations":null`} {
+			withCalibration := bytes.Replace(ownModel, []byte("{"), []byte("{"+field+","), 1)
+			if err := a.configureModel(withCalibration); err == nil {
+				t.Fatal("ROOT accepted VpnService calibration metadata")
+			}
+		}
+	}
+	if _, err := parseExecutorAdaptiveNN(generatedTestModel(t, 32), 0); err == nil {
+		t.Fatal("unknown executor fell back to VpnService")
 	}
 }
 

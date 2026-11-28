@@ -32,6 +32,8 @@ object Zapret2ProbeCatalog {
     val modelOutputs: Int = modelTcpMethods.size + modelQuicMethods.size
     val modelFormat: String = "dppass-strategy-mlp-v5:tcp=" +
         modelTcpMethods.joinToString(",") + ";quic=" + modelQuicMethods.joinToString(",")
+    val rootSocketModelFormat: String = modelFormat + ";executor=root-socket"
+    val rootPacketModelFormat: String = modelFormat + ";executor=root-packet"
 
     /** Dedicated test ingress; routes through the real protected exp dialer. */
     /** Fixed safe HTTPS destinations; no user-provided URL or redirect chain. */

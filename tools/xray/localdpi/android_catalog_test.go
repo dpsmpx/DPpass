@@ -38,6 +38,23 @@ func TestAndroidDiagnosticCatalogParity(t *testing.T) {
     if !strings.Contains(string(source), "\"" + prefix + ":tcp=\"") {
         t.Fatal("Android model schema prefix mismatch")
     }
+    for _, tc := range []struct {
+        name string
+        kind ExecutorKind
+    }{
+        {"rootSocketModelFormat", RootSocket},
+        {"rootPacketModelFormat", RootPacket},
+    } {
+        format := StrategyModelFormat(tc.kind)
+        if format == ModelFormat() || !strings.HasPrefix(format, ModelFormat()) {
+            t.Fatalf("invalid scoped format for %s: %q", tc.name, format)
+        }
+        suffix := strings.TrimPrefix(format, ModelFormat())
+        declaration := tc.name + ": String = modelFormat + \"" + suffix + "\""
+        if !strings.Contains(string(source), declaration) {
+            t.Fatalf("Android scoped model marker mismatch: %s", tc.name)
+        }
+    }
     for _, tc := range []struct{name string; transport Transport}{
         {"siteTcpMethods", TLS}, {"siteQuicMethods", QUIC},
     } {

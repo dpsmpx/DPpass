@@ -109,6 +109,21 @@ func ModelFormat() string {
         ";quic=" + strings.Join(ModelMethods(QUIC), ",")
 }
 
+// StrategyModelFormat binds the ordered model layout to one executor.
+// VpnService retains its current marker and ROOT modes have separate files.
+func StrategyModelFormat(executor ExecutorKind) string {
+    switch executor {
+    case VPNSocket:
+        return ModelFormat()
+    case RootSocket:
+        return ModelFormat() + ";executor=root-socket"
+    case RootPacket:
+        return ModelFormat() + ";executor=root-packet"
+    default:
+        return ""
+    }
+}
+
 // NeuralIndex runs on the per-connection selection path. Walk the catalog
 // directly rather than allocating a model-method slice for every lookup.
 func NeuralIndex(id string, t Transport) int {

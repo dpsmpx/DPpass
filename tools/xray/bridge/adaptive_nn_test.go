@@ -9,16 +9,27 @@ import (
     "strconv"
     "strings"
     "testing"
+
+    "github.com/dpsmpx/dppass/tools/xray/localdpi"
 )
 
 var zapret2Neural = zapret2Auto.neural
+var adaptiveNNFormat = localdpi.ModelFormat()
+
+func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
+    return parseExecutorAdaptiveNN(raw, localdpi.VPNSocket)
+}
 
 // Construct the same schema Android generates, without any downloadable
 // seed or pretrained assets. A large local model must remain bounded.
 func generatedTestModel(t *testing.T, hidden int) []byte {
+    return generatedExecutorTestModel(t, localdpi.VPNSocket, hidden)
+}
+
+func generatedExecutorTestModel(t *testing.T, executor localdpi.ExecutorKind, hidden int) []byte {
     t.Helper()
     w := adaptiveNNWeights{
-        Format: adaptiveNNFormat,
+        Format: localdpi.StrategyModelFormat(executor),
         Seed: "0123456789abcdef",
         DeepHidden: [][]float64{},
         DeepBias: []float64{},

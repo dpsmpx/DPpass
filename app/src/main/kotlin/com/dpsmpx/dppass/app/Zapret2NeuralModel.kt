@@ -21,7 +21,11 @@ object Zapret2NeuralModel {
         val outputs: Int, val contexts: Int,
     ) {
         STRATEGY("strategy-v5.json", Zapret2ProbeCatalog.modelFormat, Zapret2ProbeCatalog.modelOutputs, 9),
-        SERVER("server-v1.json", "dppass-server-mlp-v4", 1, ServerContextHead.CONTEXTS);
+        SERVER("server-v1.json", "dppass-server-mlp-v4", 1, ServerContextHead.CONTEXTS),
+        ROOT_SOCKET("strategy-root-socket-v5.json", Zapret2ProbeCatalog.rootSocketModelFormat,
+            Zapret2ProbeCatalog.modelOutputs, 9),
+        ROOT_PACKET("strategy-root-packet-v5.json", Zapret2ProbeCatalog.rootPacketModelFormat,
+            Zapret2ProbeCatalog.modelOutputs, 9);
 
         val outputRows: Int get() = if (this == SERVER) contexts else outputs
         val contextHeadWidth: Int get() = if (this == SERVER) 0 else outputs * 9
@@ -38,8 +42,9 @@ object Zapret2NeuralModel {
     private val random = SecureRandom()
     private val storageGuard = Any()
 
-    private fun file(context: Context, kind: Kind) =
-        File(File(context.filesDir, DIRECTORY), kind.filename)
+    private fun directory(context: Context) = File(context.filesDir, DIRECTORY)
+
+    private fun file(directory: File, kind: Kind) = File(directory, kind.filename)
 
     private fun gaussianWeight(fanIn: Int): Double =
         (random.nextGaussian() * (0.10 / sqrt(fanIn.toDouble())))
@@ -184,7 +189,7 @@ object Zapret2NeuralModel {
             for (key in sparse.keys()) {
                 val slot = ModelNumericFields.sparseIndex(key, capacity) ?: return@runCatching false
                 if (!ModelNumericFields.weight(sparse.get(key))) return@runCatching false
-                if (kind == Kind.STRATEGY) {
+                if (kind != Kind.SERVER) {
                     val head = (slot % kind.contexts).toInt()
                     val bounded = minOf(capacity, MAX_SPARSE_ENTRIES.toLong())
                     val quota = if (bounded <= head) 0L else 1L + (bounded - 1L - head) / kind.contexts
@@ -210,8 +215,11 @@ object Zapret2NeuralModel {
     }
 
     fun readVerified(context: Context, kind: Kind = Kind.STRATEGY): ByteArray? =
+        readVerified(directory(context), kind)
+
+    internal fun readVerified(directory: File, kind: Kind): ByteArray? =
         synchronized(storageGuard) {
-            ModelSnapshotFile.readBounded(file(context, kind), MAX_BYTES)?.takeIf { verify(it, kind) }
+            ModelSnapshotFile.readBounded(file(directory, kind), MAX_BYTES)?.takeIf { verify(it, kind) }
         }
 
     internal data class StrategyStatus(
@@ -262,11 +270,11 @@ object Zapret2NeuralModel {
     fun isInstalled(context: Context, kind: Kind = Kind.STRATEGY) =
         readVerified(context, kind) != null
 
-    private fun write(context: Context, kind: Kind, raw: ByteArray): Boolean =
-        ModelSnapshotFile.replace(file(context, kind), raw)
-
     fun store(context: Context, kind: Kind, raw: ByteArray): Boolean =
-        synchronized(storageGuard) { verify(raw, kind) && write(context, kind, raw) }
+        store(directory(context), kind, raw)
+
+    internal fun store(directory: File, kind: Kind, raw: ByteArray): Boolean =
+        synchronized(storageGuard) { verify(raw, kind) && ModelSnapshotFile.replace(file(directory, kind), raw) }
 
     private fun stamp(model: JSONObject): ModelSnapshotStamp {
         fun counts(key: String): List<Long> {
@@ -291,18 +299,22 @@ object Zapret2NeuralModel {
      */
     fun storeLearnedSnapshot(
         context: Context, kind: Kind, raw: ByteArray, expected: ByteArray,
+    ): Boolean = storeLearnedSnapshot(directory(context), kind, raw, expected)
+
+    internal fun storeLearnedSnapshot(
+        directory: File, kind: Kind, raw: ByteArray, expected: ByteArray,
     ): Boolean = synchronized(storageGuard) {
-            if (!verify(raw, kind)) return@synchronized false
-            val now = readVerified(context, kind) ?: return@synchronized false
-            if (!now.contentEquals(expected)) return@synchronized false
-            val latest = JSONObject(now.decodeToString())
-            val snapshot = JSONObject(raw.decodeToString())
-            if (latest.optString("format") != kind.format ||
-                snapshot.optString("format") != kind.format ||
-                !stamp(latest).canReplaceWith(stamp(snapshot)))
-                return@synchronized false
-            ModelSnapshotFile.replaceIfUnchanged(file(context, kind), expected, raw, MAX_BYTES)
-        }
+        if (!verify(raw, kind)) return@synchronized false
+        val now = readVerified(directory, kind) ?: return@synchronized false
+        if (!now.contentEquals(expected)) return@synchronized false
+        val latest = JSONObject(now.decodeToString())
+        val snapshot = JSONObject(raw.decodeToString())
+        if (latest.optString("format") != kind.format ||
+            snapshot.optString("format") != kind.format ||
+            !stamp(latest).canReplaceWith(stamp(snapshot)))
+            return@synchronized false
+        ModelSnapshotFile.replaceIfUnchanged(file(directory, kind), expected, raw, MAX_BYTES)
+    }
 
     /** Reject stale local computations even when model dimensions match.
      * The expected bytes must be the exact snapshot used by the caller.
@@ -311,7 +323,7 @@ object Zapret2NeuralModel {
         context: Context, kind: Kind, expected: ByteArray, raw: ByteArray,
     ): Boolean = synchronized(storageGuard) {
         if (!verify(raw, kind)) return@synchronized false
-        ModelSnapshotFile.replaceIfUnchanged(file(context, kind), expected, raw, MAX_BYTES)
+        ModelSnapshotFile.replaceIfUnchanged(file(directory(context), kind), expected, raw, MAX_BYTES)
     }
 
     fun generate(context: Context, kind: Kind, hidden: Int): Result<ByteArray> = runCatching {
@@ -323,17 +335,17 @@ object Zapret2NeuralModel {
 
     internal fun previewObsolete(context: Context): List<ObsoleteModelFiles.Entry>? =
         synchronized(storageGuard) {
-            ObsoleteModelFiles.scan(File(context.filesDir, DIRECTORY))
+            ObsoleteModelFiles.scan(directory(context))
         }
 
     internal fun cleanObsolete(context: Context, expected: List<ObsoleteModelFiles.Entry>): ObsoleteModelFiles.Result =
         synchronized(storageGuard) {
-            ObsoleteModelFiles.clean(File(context.filesDir, DIRECTORY), expected)
+            ObsoleteModelFiles.clean(directory(context), expected)
         }
 
     fun delete(context: Context, kind: Kind = Kind.STRATEGY): Boolean =
         synchronized(storageGuard) {
-            val model = file(context, kind)
+            val model = file(directory(context), kind)
             !model.exists() || model.delete()
         }
 }
