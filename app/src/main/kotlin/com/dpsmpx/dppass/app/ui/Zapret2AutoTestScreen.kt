@@ -25,6 +25,7 @@ import com.dpsmpx.dppass.app.DptsDiagnosticJob
 import com.dpsmpx.dppass.app.DptsSavedScripts
 import com.dpsmpx.dppass.app.DptsWorkspace
 import com.dpsmpx.dppass.app.DptsCsv
+import com.dpsmpx.dppass.app.DptsReportArchive
 import com.dpsmpx.dppass.app.DptsReportCopy
 import com.dpsmpx.dppass.app.DptsRunWindow
 import com.dpsmpx.dppass.app.DptsSession
@@ -54,6 +55,7 @@ import com.dpsmpx.dppass.engine.xray.DptsCompileException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
@@ -114,6 +116,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     private val dptsStopButton = Ui.button(context, R.string.dpts_stop_script,
         Ui.Style.OUTLINE, R.drawable.ic_speed)
     private var matrixCsv: String? = null
+    private var archiveReady = false
+    private val archive by lazy { DptsReportArchive(File(context.noBackupFilesDir, "dpts-reports-v1")) }
     private var lastDptsRun: DptsCompletedRun? = null
     private var lastTrainingSubmitted = false
     private val progress = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -129,6 +133,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         invalidateDptsRun()
         // Do not publish exception messages, which may contain private data.
         matrixCsv = null
+        archiveReady = false
         resultText.text = ""
         resultText.visibility = View.GONE
         statusText.text = context.getString(R.string.dpts_diagnostic_failed)
@@ -209,6 +214,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 invalidateDptsRun()
                 matrixCsv = null
+                archiveReady = false
                 resultText.text = ""
                 resultText.visibility = View.GONE
                 statusText.text = context.getString(R.string.dpts_choose_script)
@@ -369,6 +375,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 invalidateDptsRun()
                 if (source != dptsEditor.text.toString()) return
                 val report = suite.report(rows, reason, buildIdentity)
+                archiveReady = true
                 resultText.text = report
                 resultText.visibility = View.VISIBLE
                 statusText.text = context.getString(R.string.dpts_stopped)
@@ -531,12 +538,22 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 host.saveDocument("DPpass-script.dpts.txt", dptsEditor.text.toString())
             },
             R.string.dpts_share_script to { shareText(dptsEditor.text.toString()) },
+            R.string.dpts_archive_title to { openArchive() },
         )
         if (resultText.visibility == View.VISIBLE && resultText.text.isNotBlank()) {
             actions += R.string.dpts_export_report to {
                 host.saveDocument("DPpass-DPTS-report.txt", resultText.text.toString())
             }
             actions += R.string.dpts_share_report to { shareText(resultText.text.toString()) }
+            if (archiveReady) {
+                val report = resultText.text.toString()
+                val csv = matrixCsv
+                actions += R.string.dpts_archive_save to {
+                    if (!diagnostic.busy && archiveReady && resultText.text.toString() == report && matrixCsv == csv) {
+                        saveArchiveReport(report, csv)
+                    }
+                }
+            }
             matrixCsv?.let { csv ->
                 actions += R.string.dpts_export_csv to {
                     host.saveDocument("DPpass-DPTS-matrix.csv", csv)
@@ -548,6 +565,80 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             .setItems(actions.map { context.getString(it.first) }.toTypedArray()) { _, index ->
                 if (!diagnostic.busy) actions[index].second()
             }.show()
+    }
+
+    private var archiveBusy = false
+
+    private fun saveArchiveReport(report: String, csv: String?) {
+        if (archiveBusy) return
+        archiveBusy = true
+        host.scope.launch {
+            try {
+                val saved = withContext(Dispatchers.IO) { archive.save(report, csv) }
+                host.toast(context.getString(if (saved) R.string.dpts_archive_saved else R.string.dpts_archive_failed))
+            } finally { archiveBusy = false }
+        }
+    }
+
+    private fun openArchive() {
+        if (archiveBusy || diagnostic.busy) return
+        archiveBusy = true
+        host.scope.launch {
+            try {
+                val records = withContext(Dispatchers.IO) { archive.list() }
+                if (records == null || records.isEmpty()) {
+                    host.toast(context.getString(if (records == null) R.string.dpts_archive_unavailable else R.string.dpts_archive_empty))
+                    return@launch
+                }
+                val date = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                val labels = records.map { record ->
+                    date.format(Date(record.time)) + " · " + record.report.lineSequence().firstOrNull().orEmpty().take(100) +
+                        (if (record.csv != null) " · CSV" else "")
+                }
+                AlertDialog.Builder(context).setTitle(R.string.dpts_archive_title)
+                    .setItems(labels.toTypedArray()) { _, index -> showArchivedReport(records[index]) }
+                    .setNegativeButton(android.R.string.cancel, null).show()
+            } finally { archiveBusy = false }
+        }
+    }
+
+    private fun showArchivedReport(record: DptsReportArchive.Record) {
+        if (archiveBusy || diagnostic.busy) return
+        val actions = mutableListOf<Pair<Int, () -> Unit>>(
+            R.string.dpts_archive_view to {
+                AlertDialog.Builder(context).setTitle(R.string.dpts_archive_view)
+                    .setMessage(record.report).setPositiveButton(android.R.string.ok, null).show()
+            },
+            R.string.dpts_archive_copy to {
+                host.toast(context.getString(if (copyReport("DPpass archived DPTS", record.report))
+                    R.string.dpts_archive_copied else R.string.zapret2_autotest_copy_failed))
+            },
+            R.string.dpts_export_report to { host.saveDocument("DPpass-DPTS-${record.id}.txt", record.report) },
+            R.string.dpts_share_report to { shareText(record.report) },
+        )
+        record.csv?.let { csv ->
+            actions += R.string.dpts_export_csv to { host.saveDocument("DPpass-DPTS-${record.id}.csv", csv) }
+        }
+        actions += R.string.dpts_archive_delete to {
+            AlertDialog.Builder(context).setTitle(R.string.dpts_archive_delete)
+                .setMessage(R.string.dpts_archive_delete_confirm)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.dpts_archive_delete) { _, _ ->
+                    if (!archiveBusy) {
+                        archiveBusy = true
+                        host.scope.launch {
+                            try {
+                                val removed = withContext(Dispatchers.IO) { archive.delete(record) }
+                                host.toast(context.getString(if (removed) R.string.dpts_archive_deleted else R.string.dpts_archive_unavailable))
+                            } finally { archiveBusy = false }
+                        }
+                    }
+                }.show()
+        }
+        AlertDialog.Builder(context).setTitle(R.string.dpts_archive_title)
+            .setItems(actions.map { context.getString(it.first) }.toTypedArray()) { _, index ->
+                if (!diagnostic.busy) actions[index].second()
+            }.setNegativeButton(android.R.string.cancel, null).show()
     }
 
     private fun shareText(text: String) {
@@ -604,6 +695,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         successMessage: Int = R.string.zapret2_autotest_done) {
         currentCoroutineContext().ensureActive()
         requireDiagnosticSession()
+        archiveReady = true
         resultText.text = report
         resultText.visibility = View.VISIBLE
         val copied = copyReport(label, report)
@@ -1486,6 +1578,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         // Even a failed compile or unavailable connection replaces the previous run.
         invalidateDptsRun()
         matrixCsv = null
+        archiveReady = false
         resultText.text = ""
         resultText.visibility = View.GONE
         val source = dptsEditor.text.toString()
@@ -1533,6 +1626,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 // result returned after the session or deadline changed.
                 val report = DptsScript.report(plan, network, prepared, rows, reason)
                 matrixCsv = DptsCsv.render(plan, network, prepared, rows, reason)
+                archiveReady = true
                 resultText.text = report
                 resultText.visibility = View.VISIBLE
                 statusText.text = context.getString(R.string.dpts_stopped)

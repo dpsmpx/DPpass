@@ -1067,4 +1067,16 @@
     <string name="model_cleanup_changed">Список или содержимое файлов изменились. Ничего не удалено. Повторите просмотр.</string>
     <string name="model_cleanup_done">Удалено: %1$d файлов; %2$d байт. Не удалось удалить: %3$d.</string>
     <string name="model_cleanup_failed_files">Не удалены:</string>
+    <string name="dpts_archive_title">Архив отчётов диагностики</string>
+    <string name="dpts_archive_save">Сохранить текущий отчёт в архив</string>
+    <string name="dpts_archive_saved">Отчёт сохранён на устройстве</string>
+    <string name="dpts_archive_failed">Отчёт не сохранён. Лимит архива: 20 отчётов; до 128 КиБ на текст или CSV.</string>
+    <string name="dpts_archive_unavailable">Архив недоступен или отчёт изменился</string>
+    <string name="dpts_archive_empty">Нет сохранённых отчётов</string>
+    <string name="dpts_archive_view">Просмотреть сохранённый отчёт</string>
+    <string name="dpts_archive_copy">Копировать сохранённый отчёт</string>
+    <string name="dpts_archive_copied">Сохранённый отчёт скопирован</string>
+    <string name="dpts_archive_delete">Удалить сохранённый отчёт</string>
+    <string name="dpts_archive_delete_confirm">Удалить этот сохранённый отчёт и его CSV без возможности восстановления? Текущие результаты, скрипты и модели не изменятся.</string>
+    <string name="dpts_archive_deleted">Сохранённый отчёт удалён</string>
 </resources>
