@@ -23,6 +23,24 @@ internal object DptsBuilder {
 
     data class Draft(val source: String, val plan: DptsPlan)
 
+    /** Preserve the existing title, host, learning policy and comments verbatim. */
+    fun append(source: String, mode: Mode, methods: Set<String>, ips: Int,
+        attempts: Int, timeoutMs: Int): Draft {
+        val existing = DptsScript.compile(source)
+        require(existing.suite == null) { "Fixed suites cannot be extended" }
+        val operation = operation(mode, methods, ips, attempts, timeoutMs)
+        val combined = source + (if (source.endsWith("\n")) "" else "\n") + operation + "\n"
+        return Draft(combined, DptsScript.compile(combined))
+    }
+
+    private fun operation(mode: Mode, methods: Set<String>, ips: Int,
+        attempts: Int, timeoutMs: Int): String {
+        require(methods.isNotEmpty() && mode.methods().containsAll(methods)) { "Select at least one supported method" }
+        require(ips in 1..mode.maxIps && attempts in 1..3 && timeoutMs in 1000..12000) { "Invalid matrix dimensions" }
+        return mode.statement + " methods=" + mode.methods().filter { it in methods }.joinToString(",") +
+            " ips=$ips attempts=$attempts timeout_ms=$timeoutMs"
+    }
+
     fun create(title: String, host: String, mode: Mode, methods: Set<String>,
         ips: Int, attempts: Int, timeoutMs: Int, observe: Boolean): Draft {
         require(title.isNotBlank() && title.length <= 80 &&
@@ -31,16 +49,13 @@ internal object DptsBuilder {
             "Invalid title"
         }
         require(host.isNotBlank() && host.none { it.isWhitespace() || it.isISOControl() }) { "Invalid host" }
-        require(methods.isNotEmpty() && mode.methods().containsAll(methods)) { "Select at least one supported method" }
-        require(ips in 1..mode.maxIps && attempts in 1..3 && timeoutMs in 1000..12000) { "Invalid matrix dimensions" }
         require(!observe || mode.https) { "Learning observations require HTTPS" }
         val source = buildString {
             appendLine(DptsScript.HEADER)
             appendLine("name \"$title\"")
             appendLine("host $host")
             appendLine("learn " + if (observe) "observe" else "off")
-            appendLine(mode.statement + " methods=" + mode.methods().filter { it in methods }.joinToString(",") +
-                " ips=$ips attempts=$attempts timeout_ms=$timeoutMs")
+            appendLine(operation(mode, methods, ips, attempts, timeoutMs))
         }
         return Draft(source, DptsScript.compile(source))
     }

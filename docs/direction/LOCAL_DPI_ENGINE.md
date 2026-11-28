@@ -1250,3 +1250,12 @@ Full Close cancels the connection-owned planner request and closes the real TCP 
 ## RC11 — installation confirmation
 
 The author reported that the signed RC11 APK downloaded through a browser installed over the existing app and worked. This confirms installation compatibility, not the in-app updater handoff or specific network/strategy acceptance. RC11 predates the visual DPTS builder. Physical network acceptance remains open.
+
+
+## RC12 — in-app updater and visual builder acceptance
+
+The author reported successful installation of RC12 through the in-app updater and positively confirmed the visual DPTS builder. This confirms the user-visible update flow and builder availability; individual probe execution and remote network effectiveness are not established by that report.
+
+## A7 — compose multiple visual stages
+
+Add an explicit Append stage action in the existing DPTS workspace. A valid matrix keeps its original text, title, host, global learning setting and saved-script name. New HTTPS, TLS and QUIC stages may have independent methods, IP counts, repetitions and timeouts. The full compiled matrix must fit the original DPTS/1 limits, with no duplicate probe identities. Fixed suites cannot be extended. Full preview precedes insertion; no execution or learning is triggered. The existing one-stage builder remains available, with select-all and plain-only shortcuts. CI and device acceptance pending.

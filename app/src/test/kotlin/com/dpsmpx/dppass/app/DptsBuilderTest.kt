@@ -24,6 +24,39 @@ class DptsBuilderTest {
         assertEquals(true, draft.plan.observeLearning)
     }
 
+    @Test fun appendBuildsMixedMatrixAndRetainsOriginalMetadata() {
+        val original = "# comment\r\ndpts 1\r\nname Example\r\nhost example.org\r\nlearn observe\r\nhttps protocols=h2 methods=plain ips=1 attempts=1 timeout_ms=1000"
+        val tls = DptsBuilder.append(original, DptsBuilder.Mode.TLS_BOTH,
+            setOf("plain"), 1, 1, 2000)
+        val quic = DptsBuilder.append(tls.source, DptsBuilder.Mode.QUIC,
+            setOf("plain"), 1, 1, 3000)
+        assertEquals(true, quic.source.startsWith(original + "\n"))
+        assertEquals("Example", quic.plan.title)
+        assertEquals("example.org", quic.plan.host)
+        assertEquals(true, quic.plan.observeLearning)
+        assertEquals(listOf("h2", "tls12", "tls13", "quic"), quic.plan.probes.map { it.protocol })
+        assertEquals(8000L, quic.plan.budgetMs)
+        assertEquals(quic.plan, DptsScript.compile(quic.source))
+    }
+
+    @Test fun appendRejectsDuplicateProbesFixedSuitesAndCombinedBudgetOverflow() {
+        val existing = DptsBuilder.create("Example", "example.org", DptsBuilder.Mode.HTTPS_H1,
+            setOf("plain"), 8, 2, 12000, false)
+        assertThrows(IllegalArgumentException::class.java) {
+            DptsBuilder.append(existing.source, DptsBuilder.Mode.HTTPS_H1, setOf("plain"), 1, 1, 1000)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            DptsBuilder.append(existing.source, DptsBuilder.Mode.QUIC, setOf("plain"), 8, 1, 12000)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            DptsBuilder.append("dpts 1\nhost example.com\nsuite local_acceptance",
+                DptsBuilder.Mode.QUIC, setOf("plain"), 1, 1, 1000)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            DptsBuilder.append("dpts 1", DptsBuilder.Mode.QUIC, setOf("plain"), 1, 1, 1000)
+        }
+    }
+
     @Test fun invalidInputsCannotInjectStatementsOrExceedBudget() {
         val mode = DptsBuilder.Mode.HTTPS_BOTH
         assertThrows(IllegalArgumentException::class.java) {

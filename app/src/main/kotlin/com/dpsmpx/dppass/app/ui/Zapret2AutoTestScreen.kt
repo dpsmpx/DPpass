@@ -494,6 +494,18 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                     offerImportedScript(source, R.string.dpts_builder_title)
                 }
             },
+            R.string.dpts_builder_append to {
+                val original = dptsEditor.text.toString()
+                DptsBuilderDialog.show(context, original) { combined ->
+                    if (!diagnostic.busy && dptsEditor.text.toString() == original) {
+                        // The preview's explicit Insert action confirms this append;
+                        // keep the current saved-script name and editable source.
+                        dptsEditor.setText(combined)
+                        persistEditor()
+                        statusText.text = context.getString(R.string.dpts_script_loaded)
+                    }
+                }
+            },
             R.string.dpts_import_file to { host.pickDptsFile() },
             R.string.dpts_export_file to {
                 host.saveDocument("DPpass-script.dpts.txt", dptsEditor.text.toString())

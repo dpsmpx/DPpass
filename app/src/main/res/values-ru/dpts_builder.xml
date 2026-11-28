@@ -10,4 +10,9 @@
     <string name="dpts_builder_observe">Собрать наблюдения для последующего обучения</string>
     <string name="dpts_builder_summary">%1$d проб · до %2$d секунд работы сокетов</string>
     <string name="dpts_builder_insert">Вставить в редактор</string>
+    <string name="dpts_builder_append">Добавить этап в текущий скрипт</string>
+    <string name="dpts_builder_append_invalid">Сначала откройте корректный скрипт-матрицу. Фиксированные встроенные наборы нельзя расширять.</string>
+    <string name="dpts_builder_existing">Хост: %1$s · уже %2$d проб / %3$d секунд</string>
+    <string name="dpts_builder_select_all">Выбрать все методы</string>
+    <string name="dpts_builder_baseline">Только контроль plain</string>
 </resources>
