@@ -4,6 +4,7 @@ import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.text.InputFilter
 import android.text.Editable
 import android.text.TextWatcher
@@ -22,6 +23,7 @@ import com.dpsmpx.dppass.app.DptsLocalSuite
 import com.dpsmpx.dppass.app.DptsCompletedRun
 import com.dpsmpx.dppass.app.DptsDiagnosticJob
 import com.dpsmpx.dppass.app.DptsSavedScripts
+import com.dpsmpx.dppass.app.DptsWorkspace
 import com.dpsmpx.dppass.app.DptsReportCopy
 import com.dpsmpx.dppass.app.DptsRunWindow
 import com.dpsmpx.dppass.app.DptsSession
@@ -98,6 +100,10 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         Ui.Style.OUTLINE, R.drawable.ic_dns).apply { isEnabled = false }
     private val dptsLoadButton = Ui.button(context, R.string.dpts_load_preset,
         Ui.Style.OUTLINE, R.drawable.ic_dns)
+    private val dptsFileButton = Ui.button(context, R.string.dpts_file_actions,
+        Ui.Style.OUTLINE, R.drawable.ic_dns)
+    private val dptsPreviewButton = Ui.button(context, R.string.dpts_preview_plan,
+        Ui.Style.OUTLINE, R.drawable.ic_speed)
     private val dptsRunButton = Ui.button(context, R.string.dpts_run_script,
         Ui.Style.PRIMARY, R.drawable.ic_speed)
     private val dptsSaveButton = Ui.button(context, R.string.dpts_save_script,
@@ -231,6 +237,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         addView(dptsEditor, Ui.matchWidth())
         addView(dptsSaveButton.apply { setOnClickListener { saveCurrentScript() } },
             Ui.matchWidth())
+        addView(dptsFileButton.apply { setOnClickListener { showFileActions() } }, Ui.matchWidth())
+        addView(dptsPreviewButton.apply { setOnClickListener { previewPlan() } }, Ui.matchWidth())
         addView(dptsRunButton.apply { setOnClickListener { startDptsScript() } },
             Ui.matchWidth())
         addView(dptsTrainButton.apply { setOnClickListener { trainFromLastScript() } },
@@ -261,6 +269,8 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         dptsLoadButton.isEnabled = idle
         renderDeleteControl()
         dptsSaveButton.isEnabled = idle
+        dptsFileButton.isEnabled = idle
+        dptsPreviewButton.isEnabled = idle
         dptsTrainButton.isEnabled = idle && ready(status) && !lastTrainingSubmitted &&
             hasCurrentDptsRun()
         dptsStopButton.isEnabled = diagnostic.cancellable
@@ -473,6 +483,70 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         persistEditor()
         refreshScriptCatalog(id)
         statusText.text = context.getString(R.string.dpts_script_saved)
+    }
+
+    private fun showFileActions() {
+        if (diagnostic.busy) return
+        val actions = mutableListOf<Pair<Int, () -> Unit>>(
+            R.string.dpts_import_file to { host.pickDptsFile() },
+            R.string.dpts_export_file to {
+                host.saveDocument("DPpass-script.dpts.txt", dptsEditor.text.toString())
+            },
+            R.string.dpts_share_script to { shareText(dptsEditor.text.toString()) },
+        )
+        if (resultText.visibility == View.VISIBLE && resultText.text.isNotBlank()) {
+            actions += R.string.dpts_export_report to {
+                host.saveDocument("DPpass-DPTS-report.txt", resultText.text.toString())
+            }
+            actions += R.string.dpts_share_report to { shareText(resultText.text.toString()) }
+        }
+        AlertDialog.Builder(context)
+            .setTitle(R.string.dpts_file_actions)
+            .setItems(actions.map { context.getString(it.first) }.toTypedArray()) { _, index ->
+                if (!diagnostic.busy) actions[index].second()
+            }.show()
+    }
+
+    private fun shareText(text: String) {
+        val intent = Intent(Intent.ACTION_SEND).setType("text/plain")
+            .putExtra(Intent.EXTRA_TEXT, text)
+        try {
+            context.startActivity(Intent.createChooser(intent, context.getString(R.string.dpts_file_actions)))
+        } catch (_: android.content.ActivityNotFoundException) {
+            host.toast(context.getString(R.string.no_system_screen))
+        }
+    }
+
+    internal fun offerImportedScript(source: String) {
+        if (diagnostic.busy) return
+        fun replaceDraft() {
+            if (diagnostic.busy) return
+            dptsNameInput.setText("")
+            dptsEditor.setText(source)
+            persistEditor()
+            statusText.text = context.getString(R.string.dpts_script_loaded)
+        }
+        if (dptsEditor.text.isBlank() || dptsEditor.text.toString() == source) replaceDraft()
+        else AlertDialog.Builder(context)
+            .setTitle(R.string.dpts_import_file)
+            .setMessage(R.string.dpts_replace_editor)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok) { _, _ -> replaceDraft() }
+            .show()
+    }
+
+    private fun previewPlan() {
+        if (diagnostic.busy) return
+        val plan = try {
+            DptsScript.compile(dptsEditor.text.toString())
+        } catch (error: DptsCompileException) {
+            AlertDialog.Builder(context).setTitle(R.string.dpts_preview_plan)
+                .setMessage(error.message.orEmpty()).setPositiveButton(android.R.string.ok, null).show()
+            return
+        }
+        val summary = DptsWorkspace.preview(plan)
+        AlertDialog.Builder(context).setTitle(R.string.dpts_preview_plan)
+            .setMessage(summary).setPositiveButton(android.R.string.ok, null).show()
     }
 
     private fun copyReport(label: String, report: String): Boolean =
