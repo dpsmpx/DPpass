@@ -105,7 +105,7 @@ func ModelOutputCount() int { return TCPOutputCount() + modelGroupCount(QUIC) }
 // Include the ordered method IDs, not merely the number of outputs.
 // Bump the schema prefix for changes to feature or training semantics.
 func ModelFormat() string {
-    return "dppass-strategy-mlp-v4:tcp=" + strings.Join(ModelMethods(TLS), ",") +
+    return "dppass-strategy-mlp-v5:tcp=" + strings.Join(ModelMethods(TLS), ",") +
         ";quic=" + strings.Join(ModelMethods(QUIC), ",")
 }
 

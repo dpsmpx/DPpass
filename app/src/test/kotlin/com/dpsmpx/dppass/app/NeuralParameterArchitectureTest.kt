@@ -35,7 +35,8 @@ class NeuralParameterArchitectureTest {
         assertEquals(8 to 0, Zapret2NeuralModel.architecture(server, Zapret2NeuralModel.minParameters(server)))
         val strategy = Zapret2NeuralModel.Kind.STRATEGY
         assertEquals(strategy.outputs, strategy.outputRows)
-        assertEquals(strategy.contexts * strategy.outputs, strategy.extraContextBiases)
+        assertEquals(strategy.outputs * 9, strategy.contextHeadWidth)
+        assertEquals(strategy.contexts * strategy.contextHeadWidth, strategy.extraContextBiases)
     }
 
     @Test

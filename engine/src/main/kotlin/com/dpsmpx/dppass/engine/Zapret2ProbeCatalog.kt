@@ -30,7 +30,7 @@ object Zapret2ProbeCatalog {
     val modelQuicMethods: List<String> = siteQuicMethods.filterNot { it == "plain" } + "pass"
     val verifiedHtmlMethods: Set<String> = modelTcpMethods.toSet()
     val modelOutputs: Int = modelTcpMethods.size + modelQuicMethods.size
-    val modelFormat: String = "dppass-strategy-mlp-v4:tcp=" +
+    val modelFormat: String = "dppass-strategy-mlp-v5:tcp=" +
         modelTcpMethods.joinToString(",") + ";quic=" + modelQuicMethods.joinToString(",")
 
     /** Dedicated test ingress; routes through the real protected exp dialer. */

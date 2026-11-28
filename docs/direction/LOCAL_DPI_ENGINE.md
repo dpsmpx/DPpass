@@ -1281,3 +1281,8 @@ Kotlin CI caught a redundant nullable access on a smart-cast receiver. Removed t
 ## A4 — native three-record TLS fixture
 
 The fixed three-record DPTS suite in tagged localdpi_native builds now executes the pinned ByeDPI part_tls twice through one bounded C ABI. The later split is performed first so the earlier split remains inside the first record. An independent portable reference checks every output byte; strict native fixture dispatch also requires parser agreement and never falls back to portable success. Default builds retain the selected Alpine/in-process planner; ordinary requests, model layout and AUTO are unchanged. The ABI has C sanitizer fixtures, Go parity and tagged planner tests. CI and physical Android execution pending.
+
+
+## A6 — strategy model V5: independent contextual affine heads
+
+Nine strategy contexts (three network categories × TLS/HTTP/QUIC) now train independent method-specific affine heads over eight existing features; the shared randomized MLP prior is frozen. The nine stable method output IDs remain unchanged. Context-specific sparse indices are disjoint by modulo nine, even for small parameter budgets; a bounded per-context storage quota prevents one context from exhausting all available sparse entries. Full quotas retain existing entries rather than evicting them. Android generation and both validators count the new head parameters. V4 strategy weights are rejected, requiring regeneration; the independent provider-server model is unchanged. The model continues to rank only admitted methods and existing evidence rules remain in force. Regression tests exercise all nine heads and tiny sparse budgets. CI and physical quality measurements pending.

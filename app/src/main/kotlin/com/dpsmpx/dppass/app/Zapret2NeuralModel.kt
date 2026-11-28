@@ -20,11 +20,12 @@ object Zapret2NeuralModel {
         val filename: String, val format: String,
         val outputs: Int, val contexts: Int,
     ) {
-        STRATEGY("strategy-v2.json", Zapret2ProbeCatalog.modelFormat, Zapret2ProbeCatalog.modelOutputs, 9),
+        STRATEGY("strategy-v5.json", Zapret2ProbeCatalog.modelFormat, Zapret2ProbeCatalog.modelOutputs, 9),
         SERVER("server-v1.json", "dppass-server-mlp-v4", 1, ServerContextHead.CONTEXTS);
 
         val outputRows: Int get() = if (this == SERVER) contexts else outputs
-        val extraContextBiases: Int get() = if (this == SERVER) 0 else contexts * outputs
+        val contextHeadWidth: Int get() = if (this == SERVER) 0 else outputs * 9
+        val extraContextBiases: Int get() = contexts * contextHeadWidth
     }
 
     val SIZES: List<Int> = listOf(32, 128, 512, 1024)
@@ -98,7 +99,7 @@ object Zapret2NeuralModel {
             .put("output_bias", JSONArray().apply { repeat(kind.outputRows) { put(0.0) } })
             .put("context_bias", JSONArray().apply {
                 repeat(if (kind == Kind.SERVER) 0 else kind.contexts) {
-                    put(JSONArray().apply { repeat(kind.outputs) { put(0.0) } })
+                    put(JSONArray().apply { repeat(kind.contextHeadWidth) { put(0.0) } })
                 }
             })
             .put("context_observations", JSONArray().apply { repeat(kind.contexts) { put(0) } })
@@ -161,7 +162,7 @@ object Zapret2NeuralModel {
             val counts = obj.getJSONArray("context_observations")
             val contextRows = if (kind == Kind.SERVER) 0 else kind.contexts
             if (context.length() != contextRows || counts.length() != kind.contexts ||
-                !(0 until contextRows).all { i -> valid(context.getJSONArray(i), kind.outputs) } ||
+                !(0 until contextRows).all { i -> valid(context.getJSONArray(i), kind.contextHeadWidth) } ||
                 !(0 until kind.contexts).all { i -> ModelNumericFields.observation(counts.get(i)) })
                 return@runCatching false
             // The optional, fixed 3×6 HTML calibration is separate from the
@@ -179,10 +180,16 @@ object Zapret2NeuralModel {
             val sparse = obj.getJSONObject("sparse")
             if (sparse.length() > MAX_SPARSE_ENTRIES) return@runCatching false
             val capacity = budget - used
+            val strategyCounts = IntArray(kind.contexts)
             for (key in sparse.keys()) {
-                if (ModelNumericFields.sparseIndex(key, capacity) == null ||
-                    !ModelNumericFields.weight(sparse.get(key)))
-                    return@runCatching false
+                val slot = ModelNumericFields.sparseIndex(key, capacity) ?: return@runCatching false
+                if (!ModelNumericFields.weight(sparse.get(key))) return@runCatching false
+                if (kind == Kind.STRATEGY) {
+                    val head = (slot % kind.contexts).toInt()
+                    val bounded = minOf(capacity, MAX_SPARSE_ENTRIES.toLong())
+                    val quota = if (bounded <= head) 0L else 1L + (bounded - 1L - head) / kind.contexts
+                    if (++strategyCounts[head] > quota) return@runCatching false
+                }
             }
             if (obj.has("sparse_recency")) {
                 if (kind != Kind.SERVER) return@runCatching false
