@@ -1017,6 +1017,15 @@
     <string name="app_update_permission">Разрешите установку из этого приложения в настройках Android и вернитесь.</string>
     <string name="app_update_installer">Подтвердите обновление в системном установщике Android.</string>
     <string name="app_update_unsupported">Обновления доступны только для официального пакета ARM64.</string>
+    <string name="dpts_file_actions">Файлы и обмен</string>
+    <string name="dpts_preview_plan">Предпросмотр плана выполнения</string>
+    <string name="dpts_import_file">Импорт скрипта из файла</string>
+    <string name="dpts_export_file">Экспорт скрипта в файл</string>
+    <string name="dpts_share_script">Поделиться скриптом</string>
+    <string name="dpts_export_report">Сохранить отчёт в файл</string>
+    <string name="dpts_share_report">Поделиться отчётом</string>
+    <string name="dpts_replace_editor">Заменить текущий черновик? Сохранённые скрипты не изменятся.</string>
+    <string name="dpts_file_failed">Не удалось открыть текстовый файл UTF-8 или редактор уже закрыт.</string>
     <string name="servers_filter_all">Все серверы</string>
     <string name="servers_filter_favorites">Избранные</string>
     <string name="servers_measure_scope">Замер задержки: %1$d видимых серверов · %2$d избранных в этой подписке. AUTO не меняется.</string>

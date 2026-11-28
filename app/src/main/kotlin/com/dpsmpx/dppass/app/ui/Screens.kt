@@ -56,6 +56,9 @@ interface Host {
     /** Выбрать файл для импорта (D-42). */
     fun pickFile()
 
+    /** Open a DPTS text file, never a subscription import. */
+    fun pickDptsFile() { toast(activity.getString(R.string.no_system_screen)) }
+
     /** Выбрать картинку с QR-кодом для импорта (D-65): без разрешения камеры. */
     fun pickQrImage()
 

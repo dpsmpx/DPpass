@@ -988,6 +988,15 @@
     <string name="app_update_permission">Allow installation from this app in Android settings, then return.</string>
     <string name="app_update_installer">Confirm the update in Android’s package installer.</string>
     <string name="app_update_unsupported">Updates are available for the official ARM64 package only.</string>
+    <string name="dpts_file_actions">Files and sharing</string>
+    <string name="dpts_preview_plan">Preview execution plan</string>
+    <string name="dpts_import_file">Import script from file</string>
+    <string name="dpts_export_file">Export editor as file</string>
+    <string name="dpts_share_script">Share script text</string>
+    <string name="dpts_export_report">Save report to file</string>
+    <string name="dpts_share_report">Share report</string>
+    <string name="dpts_replace_editor">Replace the current editor draft? Saved scripts are not changed.</string>
+    <string name="dpts_file_failed">Could not open this UTF-8 script file, or the editor is no longer open.</string>
     <string name="servers_filter_all">All servers</string>
     <string name="servers_filter_favorites">Favorites</string>
     <string name="servers_measure_scope">Latency check: %1$d visible servers · %2$d favorites in this subscription. AUTO is unaffected.</string>

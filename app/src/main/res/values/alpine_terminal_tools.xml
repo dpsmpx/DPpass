@@ -1,0 +1,21 @@
+<resources>
+    <string name="alpine_tools">Terminal tools</string>
+    <string name="alpine_stop">Stop shell</string>
+    <string name="alpine_history_previous">Previous command</string>
+    <string name="alpine_history_next">Next command</string>
+    <string name="alpine_clear_output">Clear output</string>
+    <string name="alpine_copy_output">Copy output (may contain private data)</string>
+    <string name="alpine_output_copied">Terminal output copied</string>
+    <string name="alpine_pause_follow">Pause automatic scrolling</string>
+    <string name="alpine_resume_follow">Resume automatic scrolling</string>
+    <string name="alpine_package_commands">Alpine package commands</string>
+    <string name="alpine_command_history">Command history (this session)</string>
+    <string name="alpine_clear_history">Clear command history</string>
+    <string name="alpine_history_empty">Command history is empty</string>
+    <string name="alpine_pkg_list">List installed packages</string>
+    <string name="alpine_pkg_search">Search package name</string>
+    <string name="alpine_pkg_update">Refresh package index</string>
+    <string name="alpine_pkg_install">Install a package</string>
+    <string name="alpine_pkg_remove">Remove a package</string>
+    <string name="alpine_pkg_upgrade">Upgrade installed packages</string>
+</resources>
