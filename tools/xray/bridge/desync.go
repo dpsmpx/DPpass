@@ -291,7 +291,7 @@ type desyncConn struct {
     host string
     adaptiveSelection atomic.Pointer[adaptivePick]
     received atomic.Int64
-    observed sync.Once
+    evidence socketEvidenceGate
     stageHelloSent atomic.Bool
     stageFirstReply atomic.Bool
     readMu sync.Mutex
@@ -334,16 +334,14 @@ func (c *desyncConn) Read(b []byte) (int, error) {
             stagesFor(c.diagnostic).tcpFirstTLSAlert.Add(1)
         case replyOther:
             if pick := c.adaptiveSelection.Load(); !c.diagnostic && socketPickAdmissible(pick) && pick.flow.MethodID == "pass" {
-                zapret2Auto.retainSocketReply(pick)
+                c.evidence.retain(pick,zapret2Auto.retainSocketReply)
             }
         }
         total := c.received.Add(int64(n))
         if !c.diagnostic && c.firstReply.admitsDownstream() && total >= adaptivePayloadThreshold {
             if selected := c.adaptiveSelection.Load(); selected != nil {
                 // Learn from long-lived HTTP/2/QUIC streams before Close.
-                c.observed.Do(func() {
-                    recordLocalSocketEvidence(selected, localdpi.SocketDownstream(total))
-                })
+                c.evidence.submit(selected,localdpi.SocketDownstream(total),false,recordLocalSocketEvidence)
             }
         }
     }
@@ -356,7 +354,7 @@ func (c *desyncConn) Read(b []byte) (int, error) {
             if pick := c.adaptiveSelection.Load(); pick != nil {
                 // Distinguish an actual first-reply timeout from a benign
                 // application Close: only the former triggers AUTO backoff.
-                recordLocalSocketEvidence(pick, localdpi.SocketFirstReplyTimeout(true, false, 0))
+                c.evidence.submit(pick,localdpi.SocketFirstReplyTimeout(true,false,0),false,recordLocalSocketEvidence)
             }
         }
     }
@@ -392,16 +390,12 @@ func (c *desyncConn) Close() error {
     if c.stageHelloSent.Load() && !c.stageFirstReply.Load() && c.stageCloseRecorded.CompareAndSwap(false, true) {
         stagesFor(c.diagnostic).tcpClosedNoReply.Add(1)
     }
-    c.observed.Do(func() {
-        // A known first TLS alert or an incomplete alert-like header is
-        // neither verified progress nor a no-reply timeout. Keep raw
-        // transport accounting, but never pass those bytes to learning.
-        if c.diagnostic || !c.firstReply.admitsDownstream() {return}
-        if selected := c.adaptiveSelection.Load(); selected != nil {
-            total := c.received.Load()
-            recordLocalSocketEvidence(selected, localdpi.SocketClose(total))
-        }
-    })
+    // Seal even an ambiguous close, but publish only coherent evidence.
+    if c.diagnostic || !c.firstReply.admitsDownstream() {
+        c.evidence.seal()
+    } else {
+        c.evidence.submit(c.adaptiveSelection.Load(),localdpi.SocketClose(c.received.Load()),true,recordLocalSocketEvidence)
+    }
     closeErr := c.TCPConn.Close()
     if pendingErr != nil { return pendingErr }
     return closeErr
@@ -928,7 +922,8 @@ type desyncUDPConn struct {
     // ambiguous attribution and must not train the chosen method.
     received atomic.Int64
     preInitialReply atomic.Bool
-    observed sync.Once
+    readMu sync.Mutex
+    evidence socketEvidenceGate
     stageInitialSent atomic.Bool
     stageFirstReply atomic.Bool
     stageReadTimedOut atomic.Bool
@@ -936,6 +931,8 @@ type desyncUDPConn struct {
 }
 
 func (c *desyncUDPConn) Read(b []byte) (int, error) {
+    c.readMu.Lock()
+    defer c.readMu.Unlock()
     n, err := c.UDPConn.Read(b)
     if n > 0 {
         if !c.stageInitialSent.Load() {
@@ -944,17 +941,13 @@ func (c *desyncUDPConn) Read(b []byte) (int, error) {
         }
         if c.stageFirstReply.CompareAndSwap(false, true) {
             stagesFor(c.diagnostic).udpFirstReply.Add(1)
-            if pick := c.adaptiveSelection.Load(); !c.diagnostic && socketPickAdmissible(pick) && pick.flow.MethodID == "pass" {
-                zapret2Auto.retainSocketReply(pick)
+            if pick := c.adaptiveSelection.Load(); !c.diagnostic && !c.preInitialReply.Load() && socketPickAdmissible(pick) && pick.flow.MethodID == "pass" {
+                c.evidence.retain(pick,zapret2Auto.retainSocketReply)
             }
         }
         total := c.received.Add(int64(n))
-        if !c.diagnostic && total >= adaptivePayloadThreshold {
-            if selected := c.adaptiveSelection.Load(); selected != nil {
-                c.observed.Do(func() {
-                    recordLocalSocketEvidence(selected, localdpi.SocketDownstream(total))
-                })
-            }
+        if !c.diagnostic && !c.preInitialReply.Load() && total >= adaptivePayloadThreshold {
+            c.evidence.submit(c.adaptiveSelection.Load(),localdpi.SocketDownstream(total),false,recordLocalSocketEvidence)
         }
     }
     if err != nil && c.stageInitialSent.Load() && !c.stageFirstReply.Load() &&
@@ -964,7 +957,7 @@ func (c *desyncUDPConn) Read(b []byte) (int, error) {
         // reply. This is weak reachability evidence, not proof of DPI.
         // Never infer an application response from packet send success.
         if pick:=c.adaptiveSelection.Load();!c.diagnostic && pick!=nil && !c.preInitialReply.Load() {
-            recordLocalSocketEvidence(pick, localdpi.SocketFirstReplyTimeout(true, false, 0))
+            c.evidence.submit(pick,localdpi.SocketFirstReplyTimeout(true,false,0),false,recordLocalSocketEvidence)
         }
     }
     return n, err
@@ -974,15 +967,11 @@ func (c *desyncUDPConn) Close() error {
     if c.stageInitialSent.Load() && !c.stageFirstReply.Load() && c.stageCloseRecorded.CompareAndSwap(false, true) {
         stagesFor(c.diagnostic).udpClosedNoReply.Add(1)
     }
-    c.observed.Do(func() {
-        if c.diagnostic {return}
-        if pick := c.adaptiveSelection.Load(); pick != nil {
-            // As with TCP, an ordinary zero-byte Close is not evidence
-            // of a failed strategy; explicit read timeouts are handled above.
-            total:=c.received.Load()
-            recordLocalSocketEvidence(pick, localdpi.SocketClose(total))
-        }
-    })
+    if c.diagnostic || c.preInitialReply.Load() {
+        c.evidence.seal()
+    } else {
+        c.evidence.submit(c.adaptiveSelection.Load(),localdpi.SocketClose(c.received.Load()),true,recordLocalSocketEvidence)
+    }
     return c.UDPConn.Close()
 }
 
