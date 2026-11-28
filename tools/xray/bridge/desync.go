@@ -285,6 +285,9 @@ type desyncConn struct {
 	// fragment. writeMu also serializes the pending timer and actual writes.
 	writeMu sync.Mutex
 	firstDone bool
+    // Published only after successful completion of the initial write path.
+    // Established reads and closes must not wait for an unrelated writer.
+    initialReady atomic.Bool
 	pending []byte
 	pendingTimer *time.Timer
 	plannerErr error
@@ -378,6 +381,7 @@ func (c *desyncConn) CloseWrite() error {
     pendingErr:=c.flushFirstLocked()
     // No subsequent Write may start a new buffer after an empty half-close.
     c.firstDone=true
+    if pendingErr==nil {c.initialReady.Store(true)}
     closeErr:=c.TCPConn.CloseWrite()
     if pendingErr!=nil {return pendingErr}
     return closeErr
@@ -479,9 +483,12 @@ func (c *desyncConn) flushFirstLocked() error {
 }
 
 func (c *desyncConn) flushFirstBeforeRead() error {
+    if c.initialReady.Load() {return nil}
     c.writeMu.Lock()
     defer c.writeMu.Unlock()
-    return c.flushFirstLocked()
+    err:=c.flushFirstLocked()
+    if err==nil && c.firstDone {c.initialReady.Store(true)}
+    return err
 }
 
 func (c *desyncConn) Write(b []byte) (int, error) {
@@ -502,13 +509,16 @@ func (c *desyncConn) Write(b []byte) (int, error) {
             c.pendingTimer = time.AfterFunc(firstTLSBufferTimeout, func() {
                 c.writeMu.Lock()
                 defer c.writeMu.Unlock()
-                _ = c.flushFirstLocked()
+                if err:=c.flushFirstLocked();err==nil && c.firstDone {c.initialReady.Store(true)}
             })
         }
         return len(b), nil
     }
     if err := c.flushFirstLocked(); err != nil { return 0, err }
-    if take==len(b) {return take,nil}
+    if take==len(b) {
+        c.initialReady.Store(true)
+        return take,nil
+    }
     n,err:=c.TCPConn.Write(b[take:])
     if err==nil && n!=len(b)-take {err=io.ErrShortWrite}
     if err!=nil {
@@ -516,6 +526,7 @@ func (c *desyncConn) Write(b []byte) (int, error) {
         c.plannerErr=fmt.Errorf("Zapret2 initial TCP tail failed: %w",err)
         return take+n,c.plannerErr
     }
+    c.initialReady.Store(true)
     return take+n,nil
 }
 
