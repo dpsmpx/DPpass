@@ -466,7 +466,9 @@ class DPpassVpnService : VpnService() {
         // Only the actual "Automatically" server selection may use the
         // optional model; explicit pins/relays are never overridden.
         val autoProviderModel = relay == null && preferred == null
-        val networkForServerAuto = NetworkCheck.underlying(this).type
+        val serverAutoNetwork = NetworkCheck.underlying(this)
+        val serverAutoHandle = serverAutoNetwork.network?.networkHandle
+        val networkForServerAuto = serverAutoNetwork.type
         if (strictId != null) core.log.info("server_pinned", "profile" to Safe(strictId.value))
         // Белый список по свежей проверке в этой сети (D-64): порядок плана и опыт попыток — его.
         // Через устройство раздачи (D-55) путь идёт по своей сети — режим оператора ни при чём.
@@ -477,6 +479,8 @@ class DPpassVpnService : VpnService() {
         val shareSettings = core.share.current().also { r -> r.diagnostics.forEach(core.log::diagnostic) }.valueOrNull()
         val share = if (shareSettings?.enabled == true) shareSettings.spec(tetherForConnect()) else null
         val job = currentCoroutineContext().job
+        val serverLearningToken = if (autoProviderModel && serverAutoHandle != null)
+            ServerAutoModel.beginLearning() else null
         val report = try {
             val tun = handle?.toTunInput()?.let { base ->
                 // Сокеты ядра — в сеть устройства раздачи: с Bluetooth- и USB-модема путь к нему не по умолчанию.
@@ -496,21 +500,37 @@ class DPpassVpnService : VpnService() {
                 core.log.info("split_sites", "n" to sites.size)
                 core.connect(null, checker, tun, preferred, share, regime, split, sites, local,
                     pinned = strictId != null,
-                    rerank = if (autoProviderModel) ({ plan ->
-                        ServerAutoModel.rerank(this, plan, core, networkForServerAuto, core.clock.nowMillis())
-                    }) else null
+                    rerank = serverLearningToken?.let { token ->
+                        { plan ->
+                            val current = NetworkCheck.underlying(this)
+                            if (current.network?.networkHandle == serverAutoHandle &&
+                                current.type == networkForServerAuto) {
+                                ServerAutoModel.rerank(this, plan, core, networkForServerAuto,
+                                    core.clock.nowMillis(), token)
+                            } else plan
+                        }
+                    }
                 ) { delay(it) }
             }
-        } catch (e: CancellationException) {
-            // Остановка во время подключения: сеанс, запущенный посреди проверки
-            // здоровья, оркестратор уже остановил (ConnectionOrchestrator.tryOne);
-            // остаётся TUN.
+        } catch (e: Throwable) {
+            // The orchestrator stops a session cancelled during health checks.
+            // Never retain this connection's pre-outcome training batch.
+            serverLearningToken?.let(ServerAutoModel::finishLearning)
             throw e
         }
         // План и исходы попыток — для «Почему этот сервер» (D-15), и при отказе тоже.
-        report?.let {
-            TunnelState.plan(PlanSnapshot(core.clock.nowMillis(), it.attempts, it.plan.excluded, viaRelay = relay != null))
-            if (autoProviderModel) ServerAutoModel.observe(this, it, core)
+        try {
+            report?.let {
+                TunnelState.plan(PlanSnapshot(core.clock.nowMillis(), it.attempts, it.plan.excluded, viaRelay = relay != null))
+                if (serverLearningToken != null && job.isActive) {
+                    val current = NetworkCheck.underlying(this)
+                    if (current.network?.networkHandle == serverAutoHandle &&
+                        current.type == networkForServerAuto)
+                        ServerAutoModel.observe(this, it, core, serverLearningToken)
+                }
+            }
+        } finally {
+            serverLearningToken?.let(ServerAutoModel::finishLearning)
         }
         when (report) {
             is ConnectionReport.Connected -> withContext(NonCancellable) {

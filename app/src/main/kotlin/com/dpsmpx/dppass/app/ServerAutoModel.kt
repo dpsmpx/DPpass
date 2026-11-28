@@ -30,14 +30,15 @@ import kotlin.math.min
 object ServerAutoModel {
     private const val INPUTS = 8
     private const val LR = 0.035
-    private val guard = Any()
 
     // A connection attempt needs its *pre-outcome* features to avoid
     // leaking the answer into the training sample. Kept only in RAM.
     private data class Pending(val features: DoubleArray, val scenario: Int)
-    private var pending: Map<String, Pending> = emptyMap()
-    private var pendingSize: Int = 0
-    private var pendingDigest: String = ""
+    private class Batch(val features: Map<String, Pending>, val hidden: Int, val digest: String)
+    private val learning = ServerLearningWindow<ConnectionPlan, Batch>()
+
+    internal fun beginLearning(): Any = learning.begin()
+    internal fun finishLearning(token: Any) = learning.finish(token)
 
     private fun digest(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes)
@@ -141,14 +142,14 @@ object ServerAutoModel {
      * Never changes the candidate SET. Restrict to healthy/unknown pairs
      * and adjacent swaps; backoff failures retain planner placement.
      */
-    fun rerank(context: Context, plan: ConnectionPlan, core: DPpassCore,
-               network: NetworkType, now: Long): ConnectionPlan {
+    internal fun rerank(context: Context, plan: ConnectionPlan, core: DPpassCore,
+               network: NetworkType, now: Long, token: Any): ConnectionPlan {
         val snapshot = Zapret2NeuralModel.readVerified(context, Zapret2NeuralModel.Kind.SERVER)
-        if (snapshot == null || plan.attempts.size <= 1) {
+        if (snapshot == null || plan.attempts.isEmpty()) {
             // No server identities, IP addresses or subscription URLs in logs.
             core.log.info("server_auto_model", "installed" to (snapshot != null),
                 "candidates" to plan.attempts.size, "reordered" to 0)
-            resetTransient()
+            finishLearning(token)
             return plan
         }
         return runCatching {
@@ -160,11 +161,9 @@ object ServerAutoModel {
                 Triple(attempt, Pending(feat, scenario),
                     forward(model, feat, scenario, attempt.profile.id.value).first)
             }.toMutableList()
-            synchronized(guard) {
-                pending = scored.associate { it.first.profile.id.value to it.second }
-                pendingSize = model.getJSONArray("hidden").length()
-                pendingDigest = digest(snapshot)
-            }
+            // Capture features before any outcomes, even for a single server.
+            val batch = Batch(scored.associate { it.first.profile.id.value to it.second },
+                model.getJSONArray("hidden").length(), digest(snapshot))
             // Existing planner rank is the safety prior. Neural evidence
             // must overcome an explicit margin, not random initialization.
             for (i in 0 until scored.lastIndex) {
@@ -193,9 +192,10 @@ object ServerAutoModel {
                 "observations" to observations,
                 "candidates" to plan.attempts.size,
                 "reordered" to reordered)
-            plan.copy(attempts = scored.map { it.first })
+            val ordered = if (reordered == 0) plan else plan.copy(attempts = scored.map { it.first })
+            if (learning.publish(token, ordered, batch)) ordered else plan
         }.getOrElse {
-            resetTransient()
+            finishLearning(token)
             plan
         }
     }
@@ -203,17 +203,9 @@ object ServerAutoModel {
     private fun clamped(v: Double) = v.coerceIn(-4.0, 4.0)
 
     /** Train only on real orchestrator attempts after content health checks. */
-    fun observe(context: Context, report: ConnectionReport, core: DPpassCore) {
-        val (feats, expectedHidden, originalDigest) = synchronized(guard) {
-            val copy = pending
-            val size = pendingSize
-            val previous = pendingDigest
-            pending = emptyMap()
-            pendingSize = 0
-            pendingDigest = ""
-            Triple(copy, size, previous)
-        }
-        if (feats.isEmpty()) {
+    internal fun observe(context: Context, report: ConnectionReport, core: DPpassCore, token: Any) {
+        val batch = learning.take(token, report.plan)
+        if (batch == null) {
             core.log.info("server_auto_learning", "trained" to 0, "persisted" to false)
             return
         }
@@ -224,14 +216,14 @@ object ServerAutoModel {
         }
         // A user may regenerate another model of the same width while
         // connecting. Never train stale features into replacement weights.
-        if (digest(raw) != originalDigest) {
+        if (digest(raw) != batch.digest) {
             core.log.info("server_auto_learning", "trained" to 0,
                 "persisted" to false, "replaced" to true)
             return
         }
         runCatching {
             val model = JSONObject(raw.decodeToString())
-            if (model.getJSONArray("hidden").length() != expectedHidden) {
+            if (model.getJSONArray("hidden").length() != batch.hidden) {
                 core.log.warning("server_auto_learning_failed", "reason" to Safe("model_width_changed"))
                 return@runCatching
             }
@@ -241,8 +233,10 @@ object ServerAutoModel {
             val output = outputRows.getJSONArray(0)
             val outBias = model.getJSONArray("output_bias")
             var learned = 0
+            val seen = mutableSetOf<String>()
             for (attempt in report.attempts) {
-                val pendingAttempt = feats[attempt.profileId.value] ?: continue
+                if (!seen.add(attempt.profileId.value)) continue
+                val pendingAttempt = batch.features[attempt.profileId.value] ?: continue
                 val x = pendingAttempt.features
                 val scenario = pendingAttempt.scenario
                 // Only explicitly measured health outcomes are admitted.
@@ -311,9 +305,12 @@ object ServerAutoModel {
             model.put("observations", ModelNumericFields.addObservations(model.optLong("observations", 0), learned))
             // Revalidate and atomically persist only the numeric model,
             // not the server IDs or training examples.
-            val persisted = Zapret2NeuralModel.storeIfUnchanged(
-                context, Zapret2NeuralModel.Kind.SERVER, raw, model.toString().encodeToByteArray(),
-            )
+            val updated = model.toString().encodeToByteArray()
+            val persisted = learning.commitIfCurrent(token) {
+                Zapret2NeuralModel.storeIfUnchanged(
+                    context, Zapret2NeuralModel.Kind.SERVER, raw, updated,
+                )
+            }
             core.log.info("server_auto_learning",
                 "trained" to learned,
                 "observations" to model.getInt("observations"),
@@ -330,6 +327,6 @@ object ServerAutoModel {
 
     /** A network handoff changes the meaning of latency and failure data. */
     fun resetTransient() {
-        synchronized(guard) { pending = emptyMap(); pendingSize = 0; pendingDigest = "" }
+        learning.reset()
     }
 }
