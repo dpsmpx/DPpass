@@ -23,9 +23,6 @@ func TrainZapret2NeuralFromDPTS(network, methodCSV string, generation int64) err
     case "WIFI":networkID=2
     default:return errors.New("DPTS training requires stable MOBILE or WIFI context")
     }
-    if zapret2NeuralNetwork.Load()!=networkID {
-        return errors.New("network context changed before DPTS training")
-    }
     methods:=strings.Split(methodCSV,",")
     if len(methods)<1 || len(methods)>localdpi.TCPOutputCount() {
         return errors.New("invalid DPTS neural method count")
@@ -50,18 +47,17 @@ func TrainZapret2NeuralFromDPTS(network, methodCSV string, generation int64) err
     if generation<0 || uint64(generation)!=zapret2Auto.generation {
         return errors.New("DPTS session generation changed")
     }
-    zapret2Neural.mu.Lock()
-    defer zapret2Neural.mu.Unlock()
-    // The initial check is only an early rejection. Recheck under the
-    // same lock as network configuration before changing any weights.
-    if zapret2NeuralNetwork.Load()!=networkID {
+    model := zapret2Auto.neural
+    model.mu.Lock()
+    defer model.mu.Unlock()
+    if model.network != networkID {
         return errors.New("network context changed before DPTS training")
     }
-    w:=zapret2Neural.weights
+    w:=model.weights
     if w==nil {
         return errors.New("current local contextual neural model is not installed")
     }
-    ctx:=nnContext("www.youtube.com",false)/3
+    ctx:=nnContext("www.youtube.com",false,model.network)/3
     if ctx<0 || ctx>=3 { return errors.New("invalid DPTS neural context") }
     if len(w.VerifiedHTMLBias)==0 {
         w.VerifiedHTMLBias=make([][]float64,3)
@@ -81,6 +77,6 @@ func TrainZapret2NeuralFromDPTS(network, methodCSV string, generation int64) err
             w.VerifiedHTMLObservations[ctx]++
         }
     }
-    zapret2Neural.dirty=true
+    model.dirty=true
     return nil
 }

@@ -15,7 +15,7 @@ import (
 )
 
 func TestSocketEvidenceGateOneTerminalObservation(t *testing.T) {
-    pick:=newSocketPick("gate.example.test","pass",1,localdpi.TLS)
+    pick:=zapret2Auto.newSocketPick("gate.example.test","pass",1,localdpi.TLS)
     var g socketEvidenceGate
     var delivered []localdpi.Evidence
     emit:=func(_ *adaptivePick,e localdpi.Evidence){delivered=append(delivered,e)}
@@ -30,7 +30,7 @@ func TestSocketEvidenceGateOneTerminalObservation(t *testing.T) {
 }
 
 func TestSocketEvidenceGateNeutralCloseAndSeal(t *testing.T) {
-    pick:=newSocketPick("gate.example.test","pass",1,localdpi.TLS)
+    pick:=zapret2Auto.newSocketPick("gate.example.test","pass",1,localdpi.TLS)
     emit:=func(_ *adaptivePick,_ localdpi.Evidence){t.Fatal("unexpected evidence")}
     for _,seal:=range []bool{false,true} {
         var g socketEvidenceGate
@@ -41,7 +41,7 @@ func TestSocketEvidenceGateNeutralCloseAndSeal(t *testing.T) {
 }
 
 func TestSocketEvidenceGateConcurrentClaims(t *testing.T) {
-    pick:=newSocketPick("gate.example.test","pass",1,localdpi.TLS)
+    pick:=zapret2Auto.newSocketPick("gate.example.test","pass",1,localdpi.TLS)
     var g socketEvidenceGate
     var writes atomic.Int32
     var wg sync.WaitGroup

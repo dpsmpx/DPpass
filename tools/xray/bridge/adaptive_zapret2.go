@@ -21,16 +21,6 @@ import (
 // is not a promise of support by any executor; future catalog entries do
 // not automatically become candidates in this path.
 var socketCapabilities = newSocketCapabilities()
-var localExecutors = newLocalExecutors()
-var adaptiveCandidates = localExecutors.Candidates(localdpi.VPNSocket,localdpi.TLS)
-var adaptiveHTTPCandidates = localExecutors.Candidates(localdpi.VPNSocket,localdpi.HTTP)
-var adaptiveQuicCandidates = localExecutors.Candidates(localdpi.VPNSocket,localdpi.QUIC)
-
-func newLocalExecutors() localdpi.ExecutorSet {
-    set,err:=localdpi.NewExecutorSet(socketCapabilities)
-    if err!=nil {panic("invalid executor registry: "+err.Error())}
-    return set
-}
 
 func newSocketCapabilities() localdpi.Capabilities {
     entries := []localdpi.Support{}
@@ -66,6 +56,7 @@ const adaptiveStallCooldown = 90 * time.Second
 
 // Published atomically from a first Write and observed by concurrent Close.
 type adaptivePick struct {
+    owner *adaptiveSelector
     host string
     flow localdpi.FlowIdentity
     entryID uint64 // identity of the admitted cache entry, not its recency
@@ -74,17 +65,25 @@ type adaptivePick struct {
 // The immutable flow identity is captured when the transport selects a
 // method, not reconstructed later from an observation. The existing
 // selector still checks network generation under its lock.
-func newSocketPick(host, method string, generation uint64, transport localdpi.Transport) *adaptivePick {
-    return &adaptivePick{host:host,flow:localdpi.FlowIdentity{
-        Executor:localdpi.VPNSocket,Generation:generation,Transport:transport,MethodID:method,
-    }}
+func (a *adaptiveSelector) newSocketPick(host, method string, generation uint64, transport localdpi.Transport) *adaptivePick {
+    return &adaptivePick{
+        owner: a,
+        host: host,
+        flow: localdpi.FlowIdentity{
+            Executor: a.capabilities.Kind(), Generation: generation, Transport: transport, MethodID: method,
+        },
+    }
 }
 
 func socketPickAdmissible(pick *adaptivePick) bool {
-    if pick==nil || pick.host=="" {return false}
-    // The key's protocol namespace must agree with the captured identity.
-    return nnHostTransport(pick.host)==pick.flow.Transport &&
-        localExecutors.Admit(pick.flow,localdpi.VPNSocket,pick.flow.Generation)
+    if pick == nil || pick.owner == nil || pick.host == "" {
+        return false
+    }
+    if pick.flow.Executor != localdpi.VPNSocket && pick.flow.Executor != localdpi.RootSocket {
+        return false
+    }
+    return nnHostTransport(pick.host) == pick.flow.Transport &&
+        pick.flow.Matches(pick.owner.capabilities, pick.flow.Generation)
 }
 
 func socketEvidenceAdmissible(pick *adaptivePick, evidence localdpi.Evidence) bool {
@@ -134,17 +133,20 @@ func (e *adaptiveEntry) installVerifiedPreference(selected, backup string) {
 
 // A verified alternate is host-only TLS evidence from the same scan.
 // Consume it once and never promote an unavailable or suspended method.
-func (e *adaptiveEntry) retireWithFallback(host string, now time.Time) string {
+func (e *adaptiveEntry) retireWithFallback(host string, now time.Time, caps localdpi.Capabilities) string {
     backup:=e.verifiedFallback
     eligible:=e.probeSeeded && backup!="" && backup!=e.preferred && backup!="pass" &&
         host==adaptiveHostOnly(host) && nnHostTransport(host)==localdpi.TLS &&
-        socketCapabilities.Allows(localdpi.TLS,backup) && !now.Before(e.cooldown[backup])
+        caps.Allows(localdpi.TLS,backup) && !now.Before(e.cooldown[backup])
     e.clearPreference()
     if eligible {return backup}
     return ""
 }
 
 type adaptiveSelector struct {
+    capabilities localdpi.Capabilities
+    candidates   [localdpi.QUIC + 1][]string
+    neural       *adaptiveNeural
     mu sync.Mutex
     entries map[string]*adaptiveEntry
     selected map[string]struct{}
@@ -152,7 +154,22 @@ type adaptiveSelector struct {
     entryClock uint64
 }
 
-var zapret2Auto = &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+func newAdaptiveSelector(caps localdpi.Capabilities) *adaptiveSelector {
+    selector := &adaptiveSelector{
+        capabilities: caps,
+        neural: &adaptiveNeural{},
+        entries: make(map[string]*adaptiveEntry),
+        generation: 1,
+    }
+    if caps.Kind() == localdpi.VPNSocket || caps.Kind() == localdpi.RootSocket {
+        for _, transport := range []localdpi.Transport{localdpi.TLS, localdpi.HTTP, localdpi.QUIC} {
+            selector.candidates[transport] = caps.Candidates(transport)
+        }
+    }
+    return selector
+}
+
+var zapret2Auto = newAdaptiveSelector(socketCapabilities)
 
 func validAdaptivePort(port string) bool {
     if len(port)==0 || len(port)>5 { return false }
@@ -270,11 +287,11 @@ func ConfigureZapret2AdaptiveHosts(text string) error { return zapret2Auto.confi
 // remains fixed for the lifetime of a TLS connection; changing its packet
 // manipulation mid-stream would corrupt the TCP protocol.
 func (a *adaptiveSelector) choose(host string) string {
-    choice, _ := a.chooseWithGeneration(host, adaptiveCandidates[:])
+    choice, _ := a.chooseWithGeneration(host, a.candidates[localdpi.TLS])
     return choice
 }
 func (a *adaptiveSelector) chooseTracked(host string) (string, uint64) {
-    return a.chooseWithGeneration(host, adaptiveCandidates[:])
+    return a.chooseWithGeneration(host, a.candidates[localdpi.TLS])
 }
 
 // Plain HTTP/1 Host headers are eligible for legacy TCP tricks, but not
@@ -284,7 +301,7 @@ func (a *adaptiveSelector) chooseHTTPTracked(host string) (string, uint64) {
     // HTTP and TLS share a destination but not the same usable strategies.
     // Keep their live observations independent; HTTPS probe evidence stays
     // with the original TLS hostname.
-    return a.chooseWithGeneration("http:"+host, adaptiveHTTPCandidates[:])
+    return a.chooseWithGeneration("http:"+host, a.candidates[localdpi.HTTP])
 }
 
 // QUIC evidence is separate and keyed by the protected UDP destination IP.
@@ -293,7 +310,7 @@ func (a *adaptiveSelector) chooseQUIC(host string) string {
     return choice
 }
 func (a *adaptiveSelector) chooseQUICTracked(host string) (string, uint64) {
-    return a.chooseWithGeneration("udp:"+host, adaptiveQuicCandidates[:])
+    return a.chooseWithGeneration("udp:"+host, a.candidates[localdpi.QUIC])
 }
 func (a *adaptiveSelector) chooseFrom(host string, candidates []string) string {
     choice, _ := a.chooseWithGeneration(host, candidates)
@@ -314,36 +331,31 @@ func (a *adaptiveSelector) chooseLive(host string, candidates []string) (string,
     return choice, generation
 }
 
-// Capture cache identity in the same critical section as method selection.
+// Capture the executor and cache entry while the network generation is held.
 func (a *adaptiveSelector) chooseSocketLive(host string, transport localdpi.Transport) *adaptivePick {
+    return a.chooseSocketAtGeneration(host, transport, 0)
+}
+
+func (a *adaptiveSelector) chooseSocketAtGeneration(host string, transport localdpi.Transport, dialGeneration uint64) *adaptivePick {
     host = canonicalAdaptiveKey(host)
-    // Derive candidates from the admitted executor, never from a caller's
-    // independently supplied list. A mismatched namespace cannot enter the
-    // cache or select a method. An unidentifiable destination may use the
-    // registered direct baseline, but cannot contribute evidence.
-    var candidates []string
-    switch transport {
-    case localdpi.TLS:
-        candidates = adaptiveCandidates
-    case localdpi.HTTP:
-        candidates = adaptiveHTTPCandidates
-    case localdpi.QUIC:
-        candidates = adaptiveQuicCandidates
+    a.mu.Lock()
+    defer a.mu.Unlock()
+
+    if int(transport) >= len(a.candidates) || len(a.candidates[transport]) == 0 ||
+        host != "" && nnHostTransport(host) != transport {
+        return a.newSocketPick("", "", a.generation, transport)
     }
-    if len(candidates)==0 || host!="" && nnHostTransport(host)!=transport {
-        a.mu.Lock()
-        defer a.mu.Unlock()
-        return newSocketPick("", "", a.generation, transport)
+    // A transport created before a network change cannot advance or train
+    // the new session. The direct baseline must still be admitted.
+    if host == "" || dialGeneration != 0 && dialGeneration != a.generation {
+        method := ""
+        if a.capabilities.Allows(transport, "pass") {
+            method = "pass"
+        }
+        return a.newSocketPick("", method, a.generation, transport)
     }
-    if host=="" {
-        a.mu.Lock()
-        defer a.mu.Unlock()
-        method:=""
-        if socketCapabilities.Allows(transport,"pass") {method="pass"}
-        return newSocketPick("",method,a.generation,transport)
-    }
-    choice, generation, entryID := a.choosePolicy(host, candidates, true)
-    pick := newSocketPick(host, choice, generation, transport)
+    choice, generation, entryID := a.choosePolicyLocked(host, a.candidates[transport], true)
+    pick := a.newSocketPick(host, choice, generation, transport)
     pick.entryID = entryID
     return pick
 }
@@ -354,7 +366,13 @@ func (a *adaptiveSelector) chooseSocketLive(host string, transport localdpi.Tran
 func (a *adaptiveSelector) chooseDiagnosticSocket(host string, transport localdpi.Transport) *adaptivePick {
     host=canonicalAdaptiveKey(host)
     a.mu.Lock()
-    snapshot:=&adaptiveSelector{generation:a.generation,entries:make(map[string]*adaptiveEntry)}
+    snapshot := &adaptiveSelector{
+        capabilities: a.capabilities,
+        candidates: a.candidates,
+        neural: a.neural,
+        generation: a.generation,
+        entries: make(map[string]*adaptiveEntry),
+    }
     if entry:=a.entries[host];entry!=nil {
         copyEntry:=*entry
         copyEntry.smallResponses=maps.Clone(entry.smallResponses)
@@ -364,9 +382,10 @@ func (a *adaptiveSelector) chooseDiagnosticSocket(host string, transport localdp
         snapshot.entries[host]=&copyEntry
         snapshot.entryClock=entry.lastUsed
     }
+    pick := snapshot.chooseSocketLive(host, transport)
     a.mu.Unlock()
-    pick:=snapshot.chooseSocketLive(host,transport)
-    pick.entryID=0
+    pick.owner = a
+    pick.entryID = 0
     return pick
 }
 
@@ -401,6 +420,10 @@ func (a *adaptiveSelector) choosePolicy(host string, candidates []string, direct
     host = canonicalAdaptiveKey(host)
     a.mu.Lock()
     defer a.mu.Unlock()
+    return a.choosePolicyLocked(host, candidates, directFirst)
+}
+
+func (a *adaptiveSelector) choosePolicyLocked(host string, candidates []string, directFirst bool) (string, uint64, uint64) {
     // A future executor may advertise no candidates, or no direct baseline.
     // Do not synthesize an unsupported method or divide by zero.
     if len(candidates)==0 { return "",a.generation,0 }
@@ -430,7 +453,7 @@ func (a *adaptiveSelector) choosePolicy(host string, candidates []string, direct
             // The alternate was verified 3/3 on the same pinned addresses
             // during the same explicit scan. It remains scoped to this
             // host and generation; no retry within an existing TCP flow.
-            fallback := e.retireWithFallback(host,now)
+            fallback := e.retireWithFallback(host,now,a.capabilities)
             if fallback != "" {
                 for _, candidate := range candidates {
                     if candidate == fallback {
@@ -477,7 +500,7 @@ func (a *adaptiveSelector) choosePolicy(host string, candidates []string, direct
                 if !blocked(candidate) { rankCandidates = append(rankCandidates,candidate) }
             }
         }
-        if ranked, ok := zapret2Neural.rank(adaptiveHostOnly(host), rankCandidates, e.usage); ok {
+        if ranked, ok := a.neural.rank(adaptiveHostOnly(host), rankCandidates, e.usage); ok {
             tag = ranked
         }
     }
@@ -537,7 +560,7 @@ func (a *adaptiveSelector) observeStallLocked(host, strategy string) {
     host = canonicalAdaptiveKey(host)
     e := a.entries[host]
     if e == nil { return }
-    if !socketCapabilities.Allows(nnHostTransport(host),strategy) { return }
+    if !a.capabilities.Allows(nnHostTransport(host),strategy) { return }
     if e.stalls == nil { e.stalls = make(map[string]int) }
     e.stalls[strategy]++
     if e.stalls[strategy] >= adaptiveStallThreshold {
@@ -547,7 +570,7 @@ func (a *adaptiveSelector) observeStallLocked(host, strategy string) {
         if e.preferred == strategy {
             // Promote only a second profile that independently passed 3/3
             // HTTPS on every same-run pinned IP. Never use it for QUIC.
-            if backup:=e.retireWithFallback(host,time.Now());backup!="" {
+            if backup:=e.retireWithFallback(host,time.Now(),a.capabilities);backup!="" {
                 e.preferred = backup
                 e.probeSeeded = true
             }
@@ -559,7 +582,7 @@ func (a *adaptiveSelector) observeStallLocked(host, strategy string) {
 // Both network generation and cache incarnation must match under mu.
 // An evicted flow cannot seed a later entry with the same destination key.
 func (a *adaptiveSelector) socketPickCurrentLocked(pick *adaptivePick) bool {
-    if !socketPickAdmissible(pick) || pick.entryID == 0 ||
+    if !socketPickAdmissible(pick) || pick.owner != a || pick.entryID == 0 ||
         pick.flow.Generation != a.generation { return false }
     e := a.entries[canonicalAdaptiveKey(pick.host)]
     return e != nil && e.entryID == pick.entryID
@@ -588,7 +611,7 @@ func (a *adaptiveSelector) observeSocketEvidence(pick *adaptivePick, evidence lo
 func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int64) {
     host = canonicalAdaptiveKey(host)
     // Validate at the mutation boundary too, not just at socket callers.
-    if host=="" || payloadBytes<0 || !socketCapabilities.Allows(nnHostTransport(host),strategy) { return }
+    if host=="" || payloadBytes<0 || !a.capabilities.Allows(nnHostTransport(host),strategy) { return }
     e := a.entries[host]
     if e == nil { return }
     // Meaningful downstream data clears previous timeout suspicions for
@@ -598,10 +621,8 @@ func (a *adaptiveSelector) observeLocked(host, strategy string, payloadBytes int
         if e.stalls != nil { delete(e.stalls, strategy) }
         if e.cooldown != nil { delete(e.cooldown, strategy) }
     }
-    // The same observations drive the old conservative per-host pinning
-    // AND, if explicitly installed, the optional global neural prior.
-    // Do not train on simulated selectors used by unit tests.
-    if a == zapret2Auto { zapret2Neural.learn(adaptiveHostOnly(host), strategy, payloadBytes) }
+    // An admitted observation can train only the model owned by this executor.
+    a.neural.learn(adaptiveHostOnly(host), strategy, payloadBytes)
     if e.plainReachable && e.preferred == "pass" && strategy != "pass" { return }
     if payloadBytes >= adaptivePayloadThreshold {
         // A different candidate with a full-sized downstream flow may

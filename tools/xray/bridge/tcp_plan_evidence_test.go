@@ -33,7 +33,7 @@ func TestTCPPlanEvidenceMatchesExecutedMethod(t *testing.T) {
         {"http:example.test","split",localdpi.HTTP,true,20,true},
         {"udp:example.test","pass",localdpi.QUIC,false,0,false},
     }{
-        pick:=newSocketPick(tc.host,tc.method,1,tc.transport)
+        pick:=zapret2Auto.newSocketPick(tc.host,tc.method,1,tc.transport)
         p:=zapret2.Plan{Strategy:zapret2.TagPrefix+tc.method,Network:"tcp",Applied:tc.applied,Cut:tc.cut}
         if got:=tcpPlanMatchesSelection(pick,p);got!=tc.want {t.Fatalf("%+v got %v",tc,got)}
         p.Strategy=zapret2.TagPrefix+"different"
@@ -102,7 +102,7 @@ func TestTLSOnlySplitFirstIsNotAdvertisedForHTTP(t *testing.T) {
     if localdpi.NeuralIndex("split-1",localdpi.HTTP)!=-1 || localdpi.NeuralIndex("split-1",localdpi.TLS)!=0 {
         t.Fatal("unsupported HTTP method must have no neural index; TLS slot must remain unchanged")
     }
-    if socketEvidenceAdmissible(newSocketPick("http:example.test","split-1",1,localdpi.HTTP),localdpi.SocketDownstream(4096)) {
+    if socketEvidenceAdmissible(zapret2Auto.newSocketPick("http:example.test","split-1",1,localdpi.HTTP),localdpi.SocketDownstream(4096)) {
         t.Fatal("unsupported HTTP evidence admitted")
     }
 }

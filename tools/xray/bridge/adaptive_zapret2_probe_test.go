@@ -8,10 +8,7 @@ import (
 )
 
 func newProbeAdaptiveSelector() *adaptiveSelector {
-    return &adaptiveSelector{
-        entries: make(map[string]*adaptiveEntry),
-        selected: make(map[string]struct{}),
-    }
+    return newAdaptiveSelector(socketCapabilities)
 }
 
 func TestSiteObservationsDoNotPublishBeforeExplicitCommit(t *testing.T) {
