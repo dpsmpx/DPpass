@@ -12,6 +12,20 @@ class DptsLocalSuiteTest {
     private fun row(case: DptsLocalCase) = Zapret2GoogleProbe(
         case.outcome, 0, 0, 10, if (case.method == "plain") 0 else 1, 0)
 
+    @Test fun offlineAdmissionOnlyForFixedLocalOperations() {
+        assertEquals(DptsLocalSuite.HTTP_COMBINED,
+            DptsLocalSuite.fromScript("dpts 1\nhost example.com\nsuite local_http_combined"))
+        assertEquals(DptsLocalSuite.TLS,
+            DptsLocalSuite.fromScript("dpts 1\nhost example.com\nsuite local_tls"))
+        assertEquals(null, DptsLocalSuite.fromScript("dpts 1\nhost example.org\nhttps"))
+        assertEquals(null, DptsLocalSuite.fromScript("dpts 1\nhost example.com\nlearn observe\nsuite local_tls"))
+        assertEquals(null, DptsLocalSuite.fromScript("dpts 1\nhost example.org\nsuite site_https"))
+        assertEquals(null, DptsLocalSuite.fromScript("broken"))
+        assertFalse(DptsLocalSuite.allowsOfflineProbe("plain", "google_final"))
+        assertFalse(DptsLocalSuite.allowsOfflineProbe("fake-5", "local_tls13"))
+        assertTrue(DptsLocalSuite.allowsOfflineProbe("http-host-combined", "local_http_hostcase"))
+    }
+
     @Test fun fixedCasesKeepOrderAndEndpoints() {
         assertEquals(listOf("plain", "http-hostcase", "http-hostows"), DptsLocalSuite.HTTP.cases.map { it.method })
         assertEquals(listOf("local_tls12", "local_tls12", "local_tls12", "local_tls13", "local_tls13", "local_tls13"),

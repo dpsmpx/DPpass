@@ -36,6 +36,26 @@ internal enum class DptsLocalSuite(
     }),
     ACCEPTANCE("DPpass local HTTP/TLS", HTTP.cases + TLS.cases);
 
+    companion object {
+        fun fromScript(source: String): DptsLocalSuite? {
+            val plan = try {
+                com.dpsmpx.dppass.engine.xray.DptsScript.compile(source)
+            } catch (_: IllegalArgumentException) { return null }
+            return fromId(plan.suite)
+        }
+
+        fun fromId(id: String?): DptsLocalSuite? = when (id) {
+            "local_http_hostcase" -> HTTP
+            "local_http_combined" -> HTTP_COMBINED
+            "local_tls" -> TLS
+            "local_acceptance" -> ACCEPTANCE
+            else -> null
+        }
+
+        fun allowsOfflineProbe(method: String, target: String): Boolean =
+            entries.any { suite -> suite.cases.any { it.method == method && it.target == target } }
+    }
+
     val budgetMs: Long get() = cases.size * 5000L
 
     fun report(rows: List<Zapret2GoogleProbe>, interruption: DptsInterruption? = null,

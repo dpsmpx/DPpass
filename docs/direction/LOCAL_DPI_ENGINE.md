@@ -1259,3 +1259,8 @@ The author reported successful installation of RC12 through the in-app updater a
 ## A7 — compose multiple visual stages
 
 Add an explicit Append stage action in the existing DPTS workspace. A valid matrix keeps its original text, title, host, global learning setting and saved-script name. New HTTPS, TLS and QUIC stages may have independent methods, IP counts, repetitions and timeouts. The full compiled matrix must fit the original DPTS/1 limits, with no duplicate probe identities. Fixed suites cannot be extended. Full preview precedes insertion; no execution or learning is triggered. The existing one-stage builder remains available, with select-all and plain-only shortcuts. CI and device acceptance pending.
+
+
+## A7/A8 — offline local fixtures
+
+The same four fixed HTTP/TLS DPTS suites may now be launched with the tunnel in Idle, without an underlying network handle. Offline ownership uses the Idle status revision and native generation, never a provider network identity. Only allowlisted method/target pairs of fixed local suites enter JNI in this mode. Start/stop or generation changes invalidate the run; remote matrices and training retain the active protected-session requirement. Reports remain compatible with the existing local acceptance verifier. No routing, model, signature or subscription changes. Android CI and disconnected-device execution are pending.

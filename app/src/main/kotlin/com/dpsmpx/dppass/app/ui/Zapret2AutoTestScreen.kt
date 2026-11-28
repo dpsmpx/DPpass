@@ -137,7 +137,13 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     private var activeSession: DptsSession? = null
     private var manualStopRequested = false
 
-    private fun currentSession(): DptsSession? {
+    private fun currentSession(offline: Boolean = false): DptsSession? {
+        if (offline) {
+            val snapshot = TunnelState.snapshot()
+            if (snapshot.status != TunnelStatus.Idle) return null
+            return DptsSession.offline(snapshot,
+                runCatching { JniXrayRuntime.dptsGeneration() }.getOrNull())
+        }
         if (!ready(TunnelState.status.value)) return null
         val underlying = NetworkCheck.underlying(context)
         return DptsSession.capture(underlying.type.toString(),
@@ -149,13 +155,15 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
 
     private fun requireDiagnosticSession() {
         val expected = activeSession ?: throw DiagnosticIncomplete()
-        if (expected != currentSession()) throw DiagnosticIncomplete()
+        if (expected != currentSession(expected.offline)) throw DiagnosticIncomplete()
     }
 
     private suspend fun guardedProbe(method: String, target: String,
         timeout: Int): Zapret2GoogleProbe {
         currentCoroutineContext().ensureActive()
         requireDiagnosticSession()
+        if (activeSession?.offline == true && !DptsLocalSuite.allowsOfflineProbe(method, target))
+            throw DiagnosticIncomplete()
         val response = try {
             withContext(Dispatchers.IO) {
                 JniXrayRuntime.probeZapret2Google(method, target, timeout)
@@ -169,10 +177,10 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         return response
     }
 
-    private fun launchDiagnostic(block: suspend CoroutineScope.(DptsSession) -> Unit) {
+    private fun launchDiagnostic(offline: Boolean = false, block: suspend CoroutineScope.(DptsSession) -> Unit) {
         manualStopRequested = false
         // Capture on the UI dispatcher at admission, not after scheduling.
-        val session = currentSession()
+        val session = currentSession(offline)
         if (session == null) {
             showIncompleteDpts()
             renderControls(TunnelState.status.value)
@@ -200,6 +208,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 resultText.text = ""
                 resultText.visibility = View.GONE
                 statusText.text = context.getString(R.string.dpts_choose_script)
+                renderControls(TunnelState.status.value)
             }
             override fun afterTextChanged(s: Editable?) = Unit
         })
@@ -265,7 +274,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     private fun renderControls(status: TunnelStatus) {
         val idle = !diagnostic.busy
         if (idle) progress.visibility = View.GONE
-        dptsRunButton.isEnabled = idle && ready(status)
+        dptsRunButton.isEnabled = idle && (ready(status) || offlineAvailable(status))
         dptsLoadButton.isEnabled = idle
         renderDeleteControl()
         dptsSaveButton.isEnabled = idle
@@ -282,11 +291,14 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     override fun render(status: TunnelStatus) {
         if (!ready(status)) {
             invalidateDptsRun()
-            if (diagnostic.cancellable) diagnostic.cancel()
+            val runningOffline = activeSession?.offline == true && status == TunnelStatus.Idle
+            if (diagnostic.cancellable && !runningOffline) diagnostic.cancel()
+        } else if (activeSession?.offline == true && diagnostic.cancellable) {
+            diagnostic.cancel()
         }
         renderControls(status)
-        if (!diagnostic.busy && !ready(status)) {
-            statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
+        if (!diagnostic.busy && !ready(status) && !offlineAvailable(status)) {
+            statusText.text = context.getString(R.string.dpts_connection_or_local)
         }
     }
 
@@ -307,6 +319,9 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     private fun ready(status: TunnelStatus): Boolean =
         host.prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE &&
             status is TunnelStatus.Connected && status.profileId == ServerlessPlan.PROFILE_ID
+
+    private fun offlineAvailable(status: TunnelStatus): Boolean =
+        status == TunnelStatus.Idle && DptsLocalSuite.fromScript(dptsEditor.text.toString()) != null
 
     /** The former one-off diagnostic buttons now exist only as DPTS suite presets. */
     private fun launchScriptSuite(plan: DptsPlan) {
@@ -342,7 +357,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         progress.max = suite.cases.size
         progress.progress = 0
         resultText.visibility = View.GONE
-        launchDiagnostic { session ->
+        launchDiagnostic(offline = TunnelState.status.value == TunnelStatus.Idle) { session ->
             val rows = mutableListOf<Zapret2GoogleProbe>()
             var buildIdentity: DptsBuildIdentity? = null
             fun interrupted(reason: DptsInterruption) {
@@ -352,7 +367,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 resultText.text = report
                 resultText.visibility = View.VISIBLE
                 statusText.text = context.getString(R.string.dpts_stopped)
-                if (session == currentSession() &&
+                if (session == currentSession(session.offline) &&
                     !copyReport("DPpass local partial", report)) {
                     statusText.text = context.getString(R.string.zapret2_autotest_copy_failed)
                 }
@@ -392,10 +407,10 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 publishCompletedReport(suite.reportLabel, suite.report(rows, buildIdentity = buildIdentity), R.string.dpts_copied)
             } catch (_: DiagnosticIncomplete) {
                 ensureActive()
-                interrupted(if (session != currentSession()) DptsInterruption.SESSION_CHANGED
+                interrupted(if (session != currentSession(session.offline)) DptsInterruption.SESSION_CHANGED
                     else DptsInterruption.EXECUTION_ERROR)
             } catch (cancelled: CancellationException) {
-                if (manualStopRequested && session == currentSession() &&
+                if (manualStopRequested && session == currentSession(session.offline) &&
                     source == dptsEditor.text.toString()) {
                     interrupted(DptsInterruption.USER_STOP)
                 } else {
@@ -1462,11 +1477,6 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         invalidateDptsRun()
         resultText.text = ""
         resultText.visibility = View.GONE
-        if (!ready(TunnelState.status.value)) {
-            statusText.text = context.getString(R.string.zapret2_autotest_need_connection)
-            host.toast(statusText.text)
-            return
-        }
         val source = dptsEditor.text.toString()
         val plan = try {
             DptsScript.compile(source)
@@ -1479,6 +1489,12 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             statusText.text = e.message ?: "Invalid DPTS script"
             resultText.text = statusText.text
             resultText.visibility = View.VISIBLE
+            return
+        }
+        val status = TunnelState.status.value
+        if (!ready(status) && !(status == TunnelStatus.Idle && DptsLocalSuite.fromId(plan.suite) != null)) {
+            statusText.text = context.getString(R.string.dpts_connection_or_local)
+            host.toast(statusText.text)
             return
         }
         persistEditor()
