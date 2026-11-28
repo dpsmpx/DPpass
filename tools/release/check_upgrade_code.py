@@ -61,6 +61,9 @@ def main():
     previous, tag = latest_published_alpha(repo)
     if previous < 154:
         previous, tag = 154, "confirmed installed DPpass 0.8.1"
+    if local == previous and os.environ.get("DPPASS_ALLOW_EQUAL_UPGRADE") == "true":
+        print(f"✓ versionCode={local}: CI-only build, no publication")
+        return 0
     if local <= previous:
         print(f"✗ versionCode={local}: опубликованный {tag} имеет {previous}; "
               "Android отклонит обновление как downgrade. Увеличьте versionCode.")

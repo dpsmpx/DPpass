@@ -254,7 +254,7 @@ class ConnectScreen(host: Host) : Screen(host) {
         val updates = (context as? MainActivity)?.updates
         val available = updates?.visibleUpdate
         updateCard.visibility = if (available != null) View.VISIBLE else View.GONE
-        if (available != null) updateText.text = context.getString(R.string.app_update_available, available.tag)
+        if (available != null) updateText.text = updates.statusText
         updateButton.isEnabled = updates?.busy == false
         val graph = host.graph
         val core = graph?.core

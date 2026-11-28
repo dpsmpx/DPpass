@@ -9,12 +9,14 @@ import android.provider.Settings
 import com.dpsmpx.dppass.R
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.net.URL
+import java.net.URI
 import java.security.MessageDigest
 import javax.net.ssl.HttpsURLConnection
 
@@ -93,7 +95,10 @@ internal class AppUpdates(private val activity: MainActivity) {
         activity.changed()
         activity.scope.launch {
             try {
-                withContext(Dispatchers.IO) { downloadAndVerify(update) }
+                withContext(Dispatchers.IO) {
+                    val job = currentCoroutineContext()
+                    downloadAndVerify(update) { job.ensureActive() }
+                }
                 val uri = UpdateApkProvider.uri(activity.packageName)
                 activity.startActivity(Intent(Intent.ACTION_VIEW).apply {
                     setDataAndType(uri, "application/vnd.android.package-archive")
@@ -161,10 +166,10 @@ internal class AppUpdates(private val activity: MainActivity) {
     }
 
     @Suppress("DEPRECATION")
-    private fun downloadAndVerify(update: ReleaseUpdate) {
+    private fun downloadAndVerify(update: ReleaseUpdate, checkActive: () -> Unit) {
         val target = UpdateApkProvider.file(activity)
         require(target.parentFile?.let { it.isDirectory || it.mkdirs() } == true)
-        val temp = File.createTempFile("download-", ".tmp", target.parentFile)
+        val temp = File.createTempFile("download-", ".apk", target.parentFile)
         try {
             val digest = MessageDigest.getInstance("SHA-256")
             request(update.url, api = false) { connection ->
@@ -173,6 +178,7 @@ internal class AppUpdates(private val activity: MainActivity) {
                     temp.outputStream().use { output ->
                         val buffer = ByteArray(64 * 1024)
                         while (true) {
+                            checkActive()
                             val n = input.read(buffer)
                             if (n < 0) break
                             total += n
@@ -184,6 +190,7 @@ internal class AppUpdates(private val activity: MainActivity) {
                 }
                 require(total == update.size && hex(digest.digest()) == update.sha256)
             }
+            checkActive()
             val candidate = pm.getPackageArchiveInfo(temp.absolutePath,
                 if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES)
                 ?: error("invalid APK")
@@ -191,6 +198,7 @@ internal class AppUpdates(private val activity: MainActivity) {
             require(candidate.packageName == activity.packageName && code(candidate) == update.code && code(candidate) > code(current))
             val signer = signers(candidate)
             require(signer.isNotEmpty() && signer == signers(current))
+            checkActive()
             require(temp.renameTo(target))
         } finally {
             temp.delete()
@@ -199,11 +207,11 @@ internal class AppUpdates(private val activity: MainActivity) {
 
     /** Explicit HTTPS-only redirect allowlist; no credentials, cookies or subscription metadata. */
     private fun <T> request(initial: String, api: Boolean, block: (HttpsURLConnection) -> T): T {
-        var url = URL(initial)
+        var url = URI(initial)
         repeat(5) {
-            require(url.protocol == "https" && url.userInfo == null && url.port in listOf(-1, 443))
+            require(url.scheme == "https" && url.userInfo == null && url.port in listOf(-1, 443))
             require(url.host in if (api) setOf("api.github.com") else setOf("github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"))
-            val c = url.openConnection() as HttpsURLConnection
+            val c = url.toURL().openConnection() as HttpsURLConnection
             try {
                 c.instanceFollowRedirects = false
                 c.connectTimeout = 15_000
@@ -212,7 +220,7 @@ internal class AppUpdates(private val activity: MainActivity) {
                 c.setRequestProperty("Accept", if (api) "application/vnd.github+json" else "application/octet-stream")
                 val status = c.responseCode
                 if (status in listOf(301, 302, 303, 307, 308)) {
-                    url = URL(url, c.getHeaderField("Location") ?: error("missing redirect"))
+                    url = url.resolve(c.getHeaderField("Location") ?: error("missing redirect"))
                 } else {
                     require(status == 200)
                     return block(c)
