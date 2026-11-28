@@ -26,6 +26,9 @@ internal enum class DptsLocalSuite(
     HTTP("DPpass local HTTP", listOf("plain", "http-hostcase", "http-hostows").map {
         DptsLocalCase("HTTP / $it", it, "local_http_hostcase", "local_http_verified")
     }),
+    HTTP_COMBINED("DPpass combined local HTTP", listOf("plain", "http-host-combined").map {
+        DptsLocalCase("HTTP / $it", it, "local_http_hostcase", "local_http_verified")
+    }),
     TLS("DPpass local TLS", listOf("1.2" to "local_tls12", "1.3" to "local_tls13").flatMap { (version, target) ->
         listOf("plain", "multisplit", "tlsrec-split").map {
             DptsLocalCase("TLS $version / $it", it, target, "local_tls_verified")
@@ -41,8 +44,8 @@ internal enum class DptsLocalSuite(
             appendLine("=== $reportLabel self-test ===")
             appendLine(buildIdentity?.report() ?: "BUILD: identity_unavailable")
             appendLine("Loopback only; no DNS, Internet or system trust changes.")
-            if (this@DptsLocalSuite != TLS) appendLine("Exact HTTP request bytes, Host value and body.")
-            if (this@DptsLocalSuite != HTTP) appendLine("Fresh private trust anchor, fixed TLS versions and application bytes.")
+            if (cases.any { it.target == "local_http_hostcase" }) appendLine("Exact HTTP request bytes, Host value and body.")
+            if (cases.any { it.target.startsWith("local_tls") }) appendLine("Fresh private trust anchor, fixed TLS versions and application bytes.")
             appendLine("budget_ms=$budgetMs")
             val completed = interruption == null && rows.size == cases.size
             appendLine(if (completed) "RUN: completed; training_eligible=false"

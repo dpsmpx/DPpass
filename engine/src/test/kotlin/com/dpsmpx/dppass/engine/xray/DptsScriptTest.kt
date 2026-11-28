@@ -315,7 +315,7 @@ class DptsScriptTest {
         for (id in DptsScript.suites) {
             val host = when (id) {
                 "google_youtube" -> "www.google.com"
-                "local_http_hostcase", "local_tls", "local_acceptance" -> "example.com"
+                "local_http_hostcase", "local_http_combined", "local_tls", "local_acceptance" -> "example.com"
                 "site_https", "site_quic" -> "example.org"
                 else -> "youtubei.googleapis.com"
             }

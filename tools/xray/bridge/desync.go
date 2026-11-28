@@ -92,6 +92,7 @@ const (
     desyncHTTPHostCase desyncKind = 9
     desyncMultiSplit desyncKind = 10
     desyncHTTPHostOWS desyncKind = 11
+    desyncHTTPHostCombined desyncKind = 12
 )
 
 type desyncMode struct {
@@ -174,6 +175,7 @@ func parseDesyncTag(tag string) (desyncMode, bool, error) {
     case zapret2.TLSRecordSplit: return desyncMode{kind: desyncTLSRecordSplit}, true, nil
     case zapret2.HTTPHostCase: return desyncMode{kind: desyncHTTPHostCase}, true, nil
     case zapret2.HTTPHostOWS: return desyncMode{kind: desyncHTTPHostOWS}, true, nil
+    case zapret2.HTTPHostCombined: return desyncMode{kind: desyncHTTPHostCombined}, true, nil
     case zapret2.Pass: return desyncMode{kind: desyncPass}, true, nil
     case zapret2.Auto: return desyncMode{kind: desyncAuto}, true, nil
     default: return desyncMode{}, true, fmt.Errorf("unknown Zapret2 mode %v", mode.Kind)
@@ -245,7 +247,7 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
 	}
     // The new HTTP method is available only to an explicitly owned
     // diagnostic request, never a live subscription or AUTO candidate.
-    if (mode.kind == desyncHTTPHostCase || mode.kind == desyncHTTPHostOWS || mode.kind == desyncMultiSplit) && (!diagnostic || request == nil || dest.Network != xnet.Network_TCP) {
+    if (mode.kind == desyncHTTPHostCase || mode.kind == desyncHTTPHostOWS || mode.kind == desyncHTTPHostCombined || mode.kind == desyncMultiSplit) && (!diagnostic || request == nil || dest.Network != xnet.Network_TCP) {
         recordDesyncSkipped(diagnostic,request)
         _ = conn.Close()
         return nil, errors.New("method requires an explicit TCP diagnostic request")
@@ -527,7 +529,7 @@ func (c *desyncConn) Write(b []byte) (int, error) {
     take := min(len(b),maxFirstTLSRecord-len(c.pending))
     c.pending = append(c.pending, b[:take]...)
     waitHTTP := c.mode.kind==desyncAuto || c.mode.kind==desyncSplit ||
-        c.mode.kind==desyncDisorder || c.mode.kind==desyncFake || c.mode.kind==desyncHTTPHostCase || c.mode.kind==desyncHTTPHostOWS
+        c.mode.kind==desyncDisorder || c.mode.kind==desyncFake || c.mode.kind==desyncHTTPHostCase || c.mode.kind==desyncHTTPHostOWS || c.mode.kind==desyncHTTPHostCombined
     if take==len(b) && (needsMoreFirstTLS(c.pending) || waitHTTP && needsMoreFirstHTTP(c.pending)) {
         if c.pendingTimer == nil {
             c.pendingTimer = time.AfterFunc(firstTLSBufferTimeout, func() {
@@ -599,6 +601,14 @@ func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
     }
     // Strategy decisions and offsets still come from the shared Go planner,
     // including Alpine over its app-private Unix socket.
+    if c.mode.kind==desyncHTTPHostCombined {
+        local,lok:=c.LocalAddr().(*net.TCPAddr)
+        remote,rok:=c.RemoteAddr().(*net.TCPAddr)
+        if !c.diagnostic || c.request==nil || !lok || !rok ||
+            !local.IP.IsLoopback() || !remote.IP.IsLoopback() || !zapret2.IsLocalHTTPFixture(b) {
+            return 0,errors.New("combined HTTP operation requires fixed loopback fixture")
+        }
+    }
     var plan zapret2.Plan
     var err error
     if c.localTLSFixture && c.mode.kind==desyncTLSRecordSplit {
@@ -644,7 +654,7 @@ func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
         }
         return c.writeMultiSplit(b,plan.Cut,plan.Cut2)
     }
-    if c.mode.kind == desyncHTTPHostCase || c.mode.kind == desyncHTTPHostOWS {
+    if c.mode.kind == desyncHTTPHostCase || c.mode.kind == desyncHTTPHostOWS || c.mode.kind == desyncHTTPHostCombined {
         if !c.diagnostic || c.request==nil {
             c.plannerErr = errors.New("HTTP Host rewrite outside explicit diagnostic request")
             return 0,c.plannerErr
@@ -724,6 +734,7 @@ func modeTag(m desyncMode) string {
     case desyncPass: return zapret2.TagPrefix + "pass"
     case desyncHTTPHostCase: return zapret2.TagPrefix + "http-hostcase"
     case desyncHTTPHostOWS: return zapret2.TagPrefix + "http-hostows"
+    case desyncHTTPHostCombined: return zapret2.TagPrefix + "http-host-combined"
     case desyncFake: return fmt.Sprintf("%sfake-%d", zapret2.TagPrefix, m.ttl)
     case desyncAuto: return zapret2.TagPrefix + "auto"
     }

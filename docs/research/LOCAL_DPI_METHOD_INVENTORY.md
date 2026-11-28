@@ -127,3 +127,8 @@ The pinned is_tls_shello predicate is now exposed through an exact six-byte C AB
 ## A4 — native candidate acceptance boundary
 
 The exact built-in HTTP case fixture, when explicitly diagnostic and compiled with localdpi_native, is now routed to the native encoder before any selected Alpine IPC. Native failure on this fixture cannot report portable success. Other HTTP input and ordinary calls cannot select this dispatch exception. The common deterministic plan validator still checks every output byte. The tagged bridge integration is exercised in host CI; Android execution is not established by these tests.
+
+
+## A5/A7 — first composed HTTP Host operation
+
+`http-host-combined` composes the existing same-length Host name and OWS operations atomically through the shared planner, including selected Alpine IPC. A separate fixed loopback DPTS preset compares the original request and the composed operation; the existing acceptance matrix remains unchanged. Neither AUTO nor the model layout admits the composed operation. This is a portable DPpass composition, not a claim of upstream algorithm equivalence or network effectiveness. Physical acceptance is pending.

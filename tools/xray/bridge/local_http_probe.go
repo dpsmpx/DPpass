@@ -19,7 +19,7 @@ import (
 func probeLocalHTTPHostCase(method string, timeout time.Duration) Zapret2HTTPSResult {
     started:=time.Now()
     out:=Zapret2HTTPSResult{Outcome:"invalid_strategy"}
-    if method!="plain" && method!="http-hostcase" && method!="http-hostows" {return out}
+    if method!="plain" && method!="http-hostcase" && method!="http-hostows" && method!="http-host-combined" {return out}
     if timeout<time.Second || timeout>5*time.Second {
         out.Outcome="invalid_timeout"
         return out
@@ -57,6 +57,9 @@ func probeLocalHTTPHostCase(method string, timeout time.Duration) Zapret2HTTPSRe
         kind:=desyncHTTPHostCase
         if method=="http-hostcase" {
             expected=bytes.Replace(expected,[]byte("\r\nHost:"),[]byte("\r\nhOsT:"),1)
+        } else if method=="http-host-combined" {
+            kind=desyncHTTPHostCombined
+            expected=bytes.Replace(expected,[]byte("\r\nHost: "),[]byte("\r\nhOsT:\t"),1)
         } else {
             kind=desyncHTTPHostOWS
             expected=bytes.Replace(expected,[]byte("\r\nHost: "),[]byte("\r\nHost:\t"),1)

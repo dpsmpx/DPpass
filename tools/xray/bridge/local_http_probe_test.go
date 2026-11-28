@@ -13,7 +13,7 @@ func TestLocalHTTPDiagnosticThroughNativeEntry(t *testing.T) {
     if err:=zapret2.SetPlannerSocket("");err!=nil {t.Fatal(err)}
     t.Cleanup(func(){_ = zapret2.SetPlannerSocket(prev)})
     before,skips:=DesyncStats()
-    for _,method:=range []string{"plain","http-hostcase","http-hostows"} {
+    for _,method:=range []string{"plain","http-hostcase","http-hostows","http-host-combined"} {
         result:=ProbeZapret2HTTPS(method,"local_http_hostcase",5*time.Second)
         want:=int64(0)
         if method!="plain" {want=1}
@@ -37,7 +37,7 @@ func TestLocalHTTPDiagnosticRejectsOtherMethodsAndRemoteTarget(t *testing.T) {
             t.Fatal(result)
         }
     }
-    for _,method:=range []string{"http-hostcase","http-hostows"} {
+    for _,method:=range []string{"http-hostcase","http-hostows","http-host-combined"} {
         if result:=ProbeZapret2HTTPS(method,"google_final",time.Second);result.Outcome!="invalid_strategy" {
             t.Fatal("HTTP rewrite admitted to HTTPS",result)
         }
