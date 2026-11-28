@@ -11,6 +11,8 @@ on:
       - 'tools/xray/zapret2/**'
       - 'tools/xray/localdpi/**'
       - 'tools/localdpi/**'
+      - 'tools/device/verify_installed_candidate.py'
+      - 'tools/device/test_verify_installed_candidate.py'
       - 'tools/device/summarize_server_auto.py'
       - 'tools/device/test_summarize_server_auto.py'
       - 'tools/xray/cmd/zapret2-alpine/**'
@@ -47,6 +49,8 @@ jobs:
         run: python3 tools/localdpi/tests/check_debug_apk_test.py
       - name: Test offline local acceptance report verification
         run: python3 tools/localdpi/tests/verify_acceptance_report_test.py
+      - name: Test read-only installed APK acceptance
+        run: python3 tools/device/test_verify_installed_candidate.py
       - name: Test offline server AUTO outcome summaries
         run: python3 tools/device/test_summarize_server_auto.py
       - name: Compile and test pinned ByeDPI packet module on host

@@ -1214,3 +1214,13 @@ python3 tools/device/summarize_server_auto.py planner-log.txt --scored-log v4-lo
 The user confirmed RC8 (164) installed over the previous version and the new update-check UI appeared. Actual in-app installation of a newer version is still pending. RC8 is published at https://github.com/dpsmpx/DPpass/releases/tag/v0.8.3-rc.8; both CI runs passed.
 
 The fixed loopback TLS 1.2/1.3 record-split self-test now explicitly requires the native encoder and independent SNI parser agreement in a tagged native APK. A native failure, incomplete record, extra bytes, wrong fixture name, non-loopback socket or unapplied plan fails the diagnostic instead of accepting the ordinary portable or first-byte fallback. The default build still exercises the selected reference planner. The local probe validates certificate, handshake, bidirectional payload and per-request applied/skipped counters as before. Tagged tests cover both TLS versions, absent external planner, fixture validation and isolated accounting. Live socket policy, ordinary fallback and subscription routing remain unchanged. Publish RC9 (165) with the established certificate to enable the first in-app update acceptance test; CI and physical acceptance pending.
+
+## A8 — independent installed APK verification via ADB
+
+After installing a candidate using the app updater or the Android package installer, a host can verify the actual installed base APK without replacing the package or accessing its private data. Download NATIVE_CANDIDATE.txt and UPDATE_VERSION.txt from the trusted signed prerelease. With adb, apksigner and aapt on PATH (or explicit executable paths), run:
+
+```sh
+python3 tools/device/verify_installed_candidate.py NATIVE_CANDIDATE.txt UPDATE_VERSION.txt
+```
+
+Use --serial only if selecting a particular connected device. The tool checks a single base APK, a bounded file size, unchanged package path during collection, the exact candidate APK and ARM64 JNI SHA-256, the pinned release certificate, and the actual package/version reported by aapt. It uses a temporary directory and does not print device identifiers, installed paths or external command output. It never installs, uninstalls, clears data, invokes root, or reads subscriptions. Exit 0 confirms installed candidate identity only; exit 1 is mismatch, exit 2 is a tool/input/connection error. This can complement the DPTS report verifier. It cannot establish whether installation was initiated by the in-app updater or whether user data survived; those remain explicit device acceptance checks. Fake-command and archive fixtures run in CI; physical testing remains pending.
