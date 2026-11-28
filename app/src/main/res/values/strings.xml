@@ -983,6 +983,7 @@
     <string name="app_update_checking">Checking GitHub Releases…</string>
     <string name="app_update_current">No newer compatible release found.</string>
     <string name="app_update_downloading">Downloading and verifying APK…</string>
+    <string name="app_update_ready">The update is downloaded and verified.</string>
     <string name="app_update_failed">Update failed. Check your connection or retry.</string>
     <string name="app_update_permission">Allow installation from this app in Android settings, then return.</string>
     <string name="app_update_installer">Confirm the update in Android’s package installer.</string>

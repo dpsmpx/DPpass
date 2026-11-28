@@ -21,8 +21,8 @@
   * приёмники (`<receiver>`) — только утверждённые, не экспортированные,
     с утверждёнными событиями; приёмник загрузки выключен по умолчанию и
     включается только с напоминанием о конце подписки (D-76, D-40);
-  * видимость пакетов (`<queries>`) — только приложения с ярлыком
-    запуска (D-38), без `QUERY_ALL_PACKAGES`;
+  * видимость пакетов (`<queries>`) — ярлыки запуска (D-38) и обработчики
+    APK для системного установщика (D-121), без `QUERY_ALL_PACKAGES`;
   * один процесс (D-30): ни у приложения, ни у компонентов нет
     `android:process` — ядро, хранилище и журнал рассчитаны на один
     процесс.
@@ -169,8 +169,15 @@ def main():
                 problems.append(f"{rel}: debug-overrides запрещены")
 
         providers = app.findall("provider")
-        if len(providers) != 1 or any(p.get(A + "name") != ".app.UpdateApkProvider" or p.get(A + "exported") != "false" or p.get(A + "grantUriPermissions") != "true" or p.get(A + "authorities") != "${applicationId}.updates" for p in providers):
-            problems.append("Update APK provider must be private and narrowly grantable")
+        expected_provider = {
+            A + "name": ".app.UpdateApkProvider",
+            A + "authorities": "${applicationId}.updates",
+            A + "exported": "false",
+        }
+        if len(providers) != 1 or providers[0].attrib != expected_provider or [
+            (el.tag, el.attrib) for el in providers[0]
+        ] != [("grant-uri-permission", {A + "pathPrefix": "/apk/"})]:
+            problems.append("Провайдер обновлений должен быть закрытым, с выдачей доступа только к URI /apk/ (D-121)")
 
         for kind in ("activity", "activity-alias", "service", "receiver", "provider"):
             for el in app.findall(kind):
@@ -223,19 +230,27 @@ def main():
         problems.append(f"нет <receiver {name}> (D-76)")
 
     queries = root.find("queries")
-    if queries is not None:
-        for child in queries:
-            ok = child.tag == "intent" and {a.get(A + "name") for a in child.findall("action")} == {"android.intent.action.MAIN"} \
-                and {c.get(A + "name") for c in child.findall("category")} == {"android.intent.category.LAUNCHER"}
-            if not ok:
-                problems.append(f"<queries>: <{child.tag}> — видимость пакетов только по ярлыку запуска (D-38)")
+    expected_queries = {
+        frozenset({("action", A + "name", "android.intent.action.MAIN"),
+                   ("category", A + "name", "android.intent.category.LAUNCHER")}),
+        frozenset({("action", A + "name", "android.intent.action.VIEW"),
+                   ("data", A + "mimeType", "application/vnd.android.package-archive")}),
+    }
+    actual_queries = []
+    for child in list(queries) if queries is not None else []:
+        if child.tag != "intent" or child.attrib or len(child) != 2 or any(len(el.attrib) != 1 or len(el) for el in child):
+            problems.append(f"<queries>: неподдерживаемый элемент <{child.tag}>")
+            continue
+        actual_queries.append(frozenset((el.tag, key, value) for el in child for key, value in el.attrib.items()))
+    if len(actual_queries) != len(expected_queries) or set(actual_queries) != expected_queries:
+        problems.append("<queries>: ожидаются ярлыки запуска (D-38) и обработчики APK (D-121)")
 
     if problems:
         print("✗ Манифест:")
         for p in problems:
             print("    " + p)
         return 1
-    print(f"✓ Манифест: {len(PERMISSIONS)} утверждённых разрешений, оборудование — только необязательное ({len(FEATURES)}), без резервных копий и открытого HTTP, один процесс, экспорт — только {', '.join(EXPORTED_OK)} (сервисы — под системными разрешениями), приёмники — {len(RECEIVERS)} без экспорта, загрузка — выключена по умолчанию, видимость пакетов — только ярлыки запуска")
+    print(f"✓ Манифест: {len(PERMISSIONS)} утверждённых разрешений, оборудование — только необязательное ({len(FEATURES)}), без резервных копий и открытого HTTP, один процесс, экспорт — только {', '.join(EXPORTED_OK)} (сервисы — под системными разрешениями), приёмники — {len(RECEIVERS)} без экспорта, загрузка — выключена по умолчанию, видимость пакетов — ярлыки запуска и обработчики APK")
     return 0
 
 

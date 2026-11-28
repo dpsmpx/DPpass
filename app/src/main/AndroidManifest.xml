@@ -40,13 +40,17 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <!--
-      Раздельное туннелирование (D-38): видны только приложения с ярлыком
-      запуска, без QUERY_ALL_PACKAGES.
+      Ярлыки запуска для раздельного туннелирования (D-38) и обработчики
+      APK для поиска системного установщика (D-121), без QUERY_ALL_PACKAGES.
     -->
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/vnd.android.package-archive" />
         </intent>
     </queries>
 
@@ -95,8 +99,9 @@
 
         <provider android:name=".app.UpdateApkProvider"
             android:authorities="${applicationId}.updates"
-            android:exported="false"
-            android:grantUriPermissions="true" />
+            android:exported="false">
+            <grant-uri-permission android:pathPrefix="/apk/" />
+        </provider>
 
         <!-- Optional in-app Alpine terminal. No exported shell interface. -->
         <activity

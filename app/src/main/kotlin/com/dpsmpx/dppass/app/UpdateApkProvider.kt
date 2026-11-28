@@ -11,18 +11,36 @@ import android.provider.OpenableColumns
 import java.io.File
 import java.io.FileNotFoundException
 
-/** Shares exactly the verified update APK, never arbitrary private paths. */
+/** Каждая выдача привязана к одному проверенному APK в закрытом кэше. */
 class UpdateApkProvider : ContentProvider() {
     companion object {
-        internal fun file(context: Context) = File(context.cacheDir, "updates/verified.apk")
-        internal fun uri(packageName: String): Uri = Uri.parse("content://$packageName.updates/verified.apk")
+        internal const val MIME_TYPE = "application/vnd.android.package-archive"
+        private val digestPattern = Regex("[0-9a-f]{64}")
+
+        internal fun validDigest(digest: String): Boolean = digestPattern.matches(digest)
+
+        internal fun file(context: Context, digest: String): File {
+            require(validDigest(digest))
+            return File(context.cacheDir, "updates/$digest.apk")
+        }
+
+        internal fun uri(packageName: String, digest: String): Uri {
+            require(validDigest(digest))
+            return Uri.parse("content://$packageName.updates/apk/$digest.apk")
+        }
     }
 
     override fun onCreate() = true
     private fun checked(request: Uri): File {
         val ctx = context ?: throw FileNotFoundException()
-        if (request != uri(ctx.packageName)) throw FileNotFoundException()
-        return file(ctx).takeIf { it.isFile } ?: throw FileNotFoundException()
+        val digest = digestFor(ctx.packageName, request) ?: throw FileNotFoundException()
+        return file(ctx, digest).takeIf { it.isFile } ?: throw FileNotFoundException()
+    }
+
+    private fun digestFor(packageName: String, request: Uri): String? {
+        val name = request.lastPathSegment ?: return null
+        val digest = name.removeSuffix(".apk")
+        return digest.takeIf { validDigest(it) && request == uri(packageName, it) }
     }
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
@@ -31,7 +49,7 @@ class UpdateApkProvider : ContentProvider() {
     }
 
     override fun getType(uri: Uri): String? =
-        if (context?.let { uri == Companion.uri(it.packageName) } == true) "application/vnd.android.package-archive" else null
+        if (context?.let { digestFor(it.packageName, uri) } != null) MIME_TYPE else null
 
     override fun query(uri: Uri, projection: Array<out String>?, selection: String?,
         selectionArgs: Array<out String>?, sortOrder: String?): Cursor {

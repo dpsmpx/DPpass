@@ -1012,6 +1012,7 @@
     <string name="app_update_checking">Проверка GitHub Releases…</string>
     <string name="app_update_current">Новая совместимая версия не найдена.</string>
     <string name="app_update_downloading">Загрузка и проверка APK…</string>
+    <string name="app_update_ready">Обновление скачано и проверено.</string>
     <string name="app_update_failed">Не удалось обновить приложение. Проверьте сеть или повторите попытку.</string>
     <string name="app_update_permission">Разрешите установку из этого приложения в настройках Android и вернитесь.</string>
     <string name="app_update_installer">Подтвердите обновление в системном установщике Android.</string>

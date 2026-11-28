@@ -88,6 +88,7 @@ class MainActivity : Activity(), Host {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        updates.restore(savedInstanceState)
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         tabs = listOf(ConnectScreen(this), ServersScreen(this), SubscriptionsScreen(this), SettingsScreen(this))
         content = FrameLayout(this)
@@ -603,12 +604,18 @@ class MainActivity : Activity(), Host {
         super.onResume()
         (stack.lastOrNull() ?: tabs[tab]).onShown()
         changed()
-        updates.resumeAfterPermission()
+        updates.resume()
     }
 
     override fun onPause() {
+        updates.pause()
         (stack.lastOrNull() ?: tabs[tab]).onHidden()
         super.onPause()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        updates.save(outState)
     }
 
     override fun onStop() {

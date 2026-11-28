@@ -1,10 +1,12 @@
 package com.dpsmpx.dppass.app
 
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.provider.Settings
 import com.dpsmpx.dppass.R
 import kotlinx.coroutines.CancellationException
@@ -24,11 +26,13 @@ import javax.net.ssl.HttpsURLConnection
 internal class AppUpdates(private val activity: MainActivity) {
     private val prefs = activity.getSharedPreferences("app-updates", 0)
     private val pm = activity.packageManager
+    private var foreground = false
     private var awaitingPermission = false
+    private var readyApk: String? = null
+    private var working = false
     var available: ReleaseUpdate? = null
         private set
-    var busy = false
-        private set
+    val busy: Boolean get() = working || readyApk != null
     private var status = R.string.app_update_idle
     val statusText: String get() = if (status == R.string.app_update_available)
         activity.getString(status, available?.tag.orEmpty()) else activity.getString(status)
@@ -49,13 +53,12 @@ internal class AppUpdates(private val activity: MainActivity) {
             if (manual) activity.toast(statusText)
             return
         }
-        busy = true
+        working = true
         status = R.string.app_update_checking
         activity.changed()
         activity.scope.launch {
             try {
                 available = withContext(Dispatchers.IO) { latest(installedCode()) }
-                if (manual) prefs.edit().remove("hidden").apply()
                 status = if (available == null) R.string.app_update_current else R.string.app_update_available
                 if (manual) activity.toast(statusText)
             } catch (e: CancellationException) {
@@ -64,33 +67,44 @@ internal class AppUpdates(private val activity: MainActivity) {
                 status = R.string.app_update_failed
                 if (manual) activity.toast(statusText)
             } finally {
-                busy = false
+                working = false
                 activity.changed()
             }
         }
     }
 
-    fun resumeAfterPermission() {
-        if (!awaitingPermission) return
-        awaitingPermission = false
-        if (pm.canRequestPackageInstalls()) install()
+    fun restore(state: Bundle?) {
+        readyApk = state?.getString("appUpdateReady")?.takeIf(UpdateApkProvider::validDigest)
+        awaitingPermission = readyApk != null && state?.getBoolean("appUpdateAwaitingPermission") == true
+        if (readyApk != null) status = if (awaitingPermission) R.string.app_update_permission else R.string.app_update_ready
+    }
+
+    fun save(state: Bundle) {
+        state.putString("appUpdateReady", readyApk)
+        state.putBoolean("appUpdateAwaitingPermission", awaitingPermission)
+    }
+
+    fun resume() {
+        foreground = true
+        if (awaitingPermission) {
+            awaitingPermission = false
+            if (!pm.canRequestPackageInstalls()) {
+                readyApk = null
+                activity.changed()
+                return
+            }
+        }
+        handOff()
+    }
+
+    fun pause() {
+        foreground = false
     }
 
     fun install() {
         val update = available ?: return
         if (busy || !supported()) return
-        if (!pm.canRequestPackageInstalls()) {
-            awaitingPermission = true
-            try {
-                activity.toast(activity.getString(R.string.app_update_permission))
-                activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
-            } catch (_: Exception) {
-                awaitingPermission = false
-                activity.toast(activity.getString(R.string.app_update_failed))
-            }
-            return
-        }
-        busy = true
+        working = true
         status = R.string.app_update_downloading
         activity.changed()
         activity.scope.launch {
@@ -99,22 +113,50 @@ internal class AppUpdates(private val activity: MainActivity) {
                     val job = currentCoroutineContext()
                     downloadAndVerify(update) { job.ensureActive() }
                 }
-                val uri = UpdateApkProvider.uri(activity.packageName)
-                activity.startActivity(Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, "application/vnd.android.package-archive")
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                })
-                status = R.string.app_update_installer
+                readyApk = update.sha256
+                status = R.string.app_update_ready
+                handOff()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 status = R.string.app_update_failed
                 activity.toast(statusText)
             } finally {
-                busy = false
+                working = false
                 activity.changed()
             }
         }
+    }
+
+    private fun handOff() {
+        if (!foreground || awaitingPermission) return
+        val digest = readyApk ?: return
+        try {
+            require(UpdateApkProvider.file(activity, digest).isFile)
+            if (!pm.canRequestPackageInstalls()) {
+                awaitingPermission = true
+                status = R.string.app_update_permission
+                activity.toast(statusText)
+                activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
+            } else {
+                val uri = UpdateApkProvider.uri(activity.packageName, digest)
+                val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, UpdateApkProvider.MIME_TYPE)
+                val flags = PackageManager.MATCH_DEFAULT_ONLY or PackageManager.MATCH_SYSTEM_ONLY
+                val installer = pm.queryIntentActivities(intent, flags).firstOrNull()?.activityInfo
+                    ?: error("system package installer unavailable")
+                intent.component = ComponentName(installer.packageName, installer.name)
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                activity.startActivity(intent)
+                readyApk = null
+                status = R.string.app_update_installer
+            }
+        } catch (_: Exception) {
+            readyApk = null
+            awaitingPermission = false
+            status = R.string.app_update_failed
+            activity.toast(statusText)
+        }
+        activity.changed()
     }
 
     @Suppress("DEPRECATION")
@@ -167,7 +209,7 @@ internal class AppUpdates(private val activity: MainActivity) {
 
     @Suppress("DEPRECATION")
     private fun downloadAndVerify(update: ReleaseUpdate, checkActive: () -> Unit) {
-        val target = UpdateApkProvider.file(activity)
+        val target = UpdateApkProvider.file(activity, update.sha256)
         require(target.parentFile?.let { it.isDirectory || it.mkdirs() } == true)
         val temp = File.createTempFile("download-", ".apk", target.parentFile)
         try {
@@ -195,7 +237,8 @@ internal class AppUpdates(private val activity: MainActivity) {
                 if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES)
                 ?: error("invalid APK")
             val current = installed()
-            require(candidate.packageName == activity.packageName && code(candidate) == update.code && code(candidate) > code(current))
+            require(candidate.packageName == activity.packageName && candidate.versionName == update.tag.removePrefix("v"))
+            require(code(candidate) == update.code && code(candidate) > code(current))
             val signer = signers(candidate)
             require(signer.isNotEmpty() && signer == signers(current))
             checkActive()
