@@ -12,6 +12,7 @@ import com.dpsmpx.dppass.connection.ServerAutoOrdering
 import com.dpsmpx.dppass.connection.ServerAutoScore
 import com.dpsmpx.dppass.network.NetworkType
 import com.dpsmpx.dppass.diagnostics.Safe
+import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 import kotlin.math.max
@@ -32,7 +33,7 @@ object ServerAutoModel {
 
     // A connection attempt needs its *pre-outcome* features to avoid
     // leaking the answer into the training sample. Kept only in RAM.
-    private data class Pending(val features: DoubleArray, val scenario: Int)
+    private data class Pending(val features: DoubleArray, val scenario: Int, val sparseFeatures: Map<Long, Double>)
     private class Batch(val features: Map<String, Pending>, val hidden: Int, val digest: String)
     private val learning = ServerLearningWindow<ConnectionPlan, Batch>()
 
@@ -97,43 +98,42 @@ object ServerAutoModel {
     }
 
     private fun sparseCapacity(model: JSONObject): Long {
-        val h = model.getJSONArray("hidden").length()
-        val deep = model.getJSONArray("deep_hidden").length()
-        val last = if (deep > 0) deep else h
-        val used = h.toLong() * (INPUTS + 1) +
-            deep.toLong() * (h + 1) + (last + 1L) *
-            Zapret2NeuralModel.Kind.SERVER.outputRows
-        return (model.getLong("parameters") - used).coerceAtLeast(0)
+        val used = Zapret2NeuralModel.denseCount(
+            Zapret2NeuralModel.Kind.SERVER,
+            model.getJSONArray("hidden").length(), model.getJSONArray("deep_hidden").length(),
+        )
+        return model.getLong("parameters") - used
     }
 
     /** Stable keyed index; the JSON contains only numeric weights, never IDs. */
-    private fun sparseKey(model: JSONObject, scenario: Int, profileId: String,
-                          feature: Int, bucket: Int, capacity: Long): String? {
-        val seed = model.getString("seed")
+    private fun sparseIndex(seed: String, scenario: Int, profileId: String,
+                            feature: Int, bucket: Int, capacity: Long): Long? {
         val data = "${seed}|${scenario}|${profileId}|${feature}|${bucket}"
         val hash = MessageDigest.getInstance("SHA-256").digest(data.encodeToByteArray())
         var n = 0L
         for (i in 0 until 7) n = (n shl 8) or (hash[i].toLong() and 255L)
-        return ServerContextHead.sparseIndex(scenario, capacity, n)?.toString()
+        return ServerContextHead.sparseIndex(scenario, capacity, n)
+    }
+
+    private fun sparseFeatures(seed: String, x: DoubleArray, scenario: Int, profileId: String,
+                               capacity: Long): Map<Long, Double> {
+        if (ServerContextHead.sparseSlots(scenario, capacity) == 0L) return emptyMap()
+        return buildMap {
+            for (i in x.indices) {
+                if (x[i] <= 0.0) continue
+                val bucket = (x[i] * 15.0).toInt().coerceIn(0, 15)
+                val index = checkNotNull(sparseIndex(seed, scenario, profileId, i, bucket, capacity))
+                put(index, (get(index) ?: 0.0) + x[i])
+            }
+        }
     }
 
     private fun forward(model: JSONObject, x: DoubleArray, scenario: Int,
-                        profileId: String): Pair<Double, DoubleArray> {
+                        sparseLogit: Double): Pair<Double, DoubleArray> {
         val hidden = lastHidden(model, x)
         val out = model.getJSONArray("output").getJSONArray(scenario)
         val weights = DoubleArray(hidden.size) { out.getDouble(it) }
         val bias = model.getJSONArray("output_bias").getDouble(scenario)
-        var sparseLogit = 0.0
-        val capacity = sparseCapacity(model)
-        if (capacity > 0) {
-            val sparse = model.getJSONObject("sparse")
-            for (i in x.indices) {
-                if (x[i] <= 0.0) continue
-                val bucket = (x[i] * 15.0).toInt().coerceIn(0, 15)
-                val key = sparseKey(model, scenario, profileId, i, bucket, capacity) ?: continue
-                sparseLogit += sparse.optDouble(key, 0.0) * x[i]
-            }
-        }
         val probability = ServerContextHead.probability(weights, bias, hidden, sparseLogit)
         return probability to hidden
     }
@@ -155,11 +155,18 @@ object ServerAutoModel {
         return runCatching {
             val model = JSONObject(snapshot.decodeToString())
             val observations = model.optInt("observations", 0)
+            val sparse = model.getJSONObject("sparse")
+            val capacity = sparseCapacity(model)
+            val seed = model.getString("seed")
             val scored = plan.attempts.mapIndexed { i, attempt ->
                 val feat = features(core, attempt.profile, i, network, now)
                 val scenario = scenario(attempt.profile, network)
-                Triple(attempt, Pending(feat, scenario),
-                    forward(model, feat, scenario, attempt.profile.id.value).first)
+                val terms = sparseFeatures(seed, feat, scenario, attempt.profile.id.value, capacity)
+                val sparseLogit = terms.entries.sumOf { (index, feature) ->
+                    sparse.optDouble(index.toString(), 0.0) * feature
+                }
+                Triple(attempt, Pending(feat, scenario, terms),
+                    forward(model, feat, scenario, sparseLogit).first)
             }
             // Capture features before any outcomes, even for a single server.
             val batch = Batch(scored.associate { it.first.profile.id.value to it.second },
@@ -182,8 +189,6 @@ object ServerAutoModel {
             plan
         }
     }
-
-    private fun clamped(v: Double) = v.coerceIn(-4.0, 4.0)
 
     /** Train only on real orchestrator attempts after content health checks. */
     internal fun observe(context: Context, report: ConnectionReport, core: DPpassCore, token: Any) {
@@ -212,11 +217,22 @@ object ServerAutoModel {
             }
             val outputRows = model.getJSONArray("output")
             val outBias = model.getJSONArray("output_bias")
+            val counts = model.getJSONArray("context_observations")
+            val capacity = sparseCapacity(model)
+            val sparse = lazy {
+                val weights = model.getJSONObject("sparse")
+                val recency = model.optJSONArray("sparse_recency")?.let { order ->
+                    List(order.length()) { order.getLong(it) }
+                }
+                ServerSparseWeights(capacity, weights.keys().asSequence().associate { key ->
+                    key.toLong() to weights.getDouble(key)
+                }, recency)
+            }
             var learned = 0
             val seen = mutableSetOf<String>()
             for (attempt in report.attempts) {
-                if (!seen.add(attempt.profileId.value)) continue
-                val pendingAttempt = batch.features[attempt.profileId.value] ?: continue
+                val profileId = attempt.profileId.value
+                val pendingAttempt = batch.features[profileId] ?: continue
                 val x = pendingAttempt.features
                 val scenario = pendingAttempt.scenario
                 // Only explicitly measured health outcomes are admitted.
@@ -227,7 +243,10 @@ object ServerAutoModel {
                     ServerLearningEvidence.MEASURED_FAILURE -> if (!attempt.ok && attempt.failure != null) 0.0 else continue
                     ServerLearningEvidence.NONE -> continue
                 }
-                val (p, h) = forward(model, x, scenario, attempt.profileId.value)
+                if (!seen.add(profileId)) continue
+                val terms = pendingAttempt.sparseFeatures
+                val sparseLogit = terms.entries.sumOf { (index, feature) -> sparse.value.weight(index) * feature }
+                val (p, h) = forward(model, x, scenario, sparseLogit)
                 val delta = ServerContextHead.delta(label, p)
                 learned++
                 // The common feature extractor is frozen. Only this context's
@@ -237,24 +256,21 @@ object ServerAutoModel {
                     output.put(i, ServerContextHead.update(output.getDouble(i), delta, h[i]))
                 }
                 outBias.put(scenario, ServerContextHead.update(outBias.getDouble(scenario), delta, 1.0))
-                val counts = model.getJSONArray("context_observations")
                 counts.put(scenario, ModelNumericFields.addObservations(counts.getLong(scenario), 1))
-                val capacity = sparseCapacity(model)
-                if (capacity > 0) {
-                    val sparse = model.getJSONObject("sparse")
-                    for (i in x.indices) {
-                        if (x[i] <= 0.0) continue
-                        val bucket = (x[i] * 15.0).toInt().coerceIn(0, 15)
-                        val key = sparseKey(model, scenario, attempt.profileId.value,
-                            i, bucket, capacity) ?: continue
-                        if (sparse.has(key) || sparse.length() < Zapret2NeuralModel.MAX_SPARSE_ENTRIES)
-                            sparse.put(key, clamped(sparse.optDouble(key, 0.0) + delta * 0.2 * x[i]))
-                    }
-                }
+                if (terms.isNotEmpty()) sparse.value.learn(terms, delta)
             }
             if (learned == 0) {
                 core.log.info("server_auto_learning", "trained" to 0, "persisted" to false)
                 return@runCatching
+            }
+            if (sparse.isInitialized()) {
+                val weights = JSONObject()
+                val recency = JSONArray()
+                for ((index, weight) in sparse.value.entries()) {
+                    weights.put(index.toString(), weight)
+                    recency.put(index)
+                }
+                model.put("sparse", weights).put("sparse_recency", recency)
             }
             model.put("observations", ModelNumericFields.addObservations(model.optLong("observations", 0), learned))
             // Revalidate and atomically persist only the numeric model,

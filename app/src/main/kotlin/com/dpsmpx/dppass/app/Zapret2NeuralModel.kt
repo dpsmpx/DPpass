@@ -21,7 +21,7 @@ object Zapret2NeuralModel {
         val outputs: Int, val contexts: Int,
     ) {
         STRATEGY("strategy-v2.json", Zapret2ProbeCatalog.modelFormat, Zapret2ProbeCatalog.modelOutputs, 9),
-        SERVER("server-v1.json", "dppass-server-mlp-v4", 1, 6);
+        SERVER("server-v1.json", "dppass-server-mlp-v4", 1, ServerContextHead.CONTEXTS);
 
         val outputRows: Int get() = if (this == SERVER) contexts else outputs
         val extraContextBiases: Int get() = if (this == SERVER) 0 else contexts * outputs
@@ -49,7 +49,7 @@ object Zapret2NeuralModel {
     }
 
     /** Exact count of trainable dense weights and scenario-head biases. */
-    private fun denseCount(kind: Kind, first: Int, second: Int): Long {
+    internal fun denseCount(kind: Kind, first: Int, second: Int): Long {
         val last = if (second > 0) second else first
         return first.toLong() * (INPUTS + 1) +
             (if (second > 0) second.toLong() * (first + 1) else 0L) +
@@ -183,6 +183,20 @@ object Zapret2NeuralModel {
                 if (ModelNumericFields.sparseIndex(key, capacity) == null ||
                     !ModelNumericFields.weight(sparse.get(key)))
                     return@runCatching false
+            }
+            if (obj.has("sparse_recency")) {
+                if (kind != Kind.SERVER) return@runCatching false
+                val recency = obj.getJSONArray("sparse_recency")
+                if (recency.length() != sparse.length()) return@runCatching false
+                val seen = HashSet<Long>()
+                val perContext = IntArray(kind.contexts)
+                for (i in 0 until recency.length()) {
+                    val index = ModelNumericFields.integer(recency.get(i)) ?: return@runCatching false
+                    if (!seen.add(index) || !sparse.has(index.toString())) return@runCatching false
+                    val context = ServerContextHead.sparseContext(index)
+                    if (++perContext[context] > ServerSparseWeights.quota(context, capacity))
+                        return@runCatching false
+                }
             }
             true
         }.getOrDefault(false)

@@ -4,7 +4,7 @@ import kotlin.math.exp
 
 /** One independent trainable server head over the frozen feature extractor. */
 internal object ServerContextHead {
-    private const val CONTEXTS = 6
+    const val CONTEXTS = 6
     private const val LR = 0.035
 
     fun probability(weights: DoubleArray, bias: Double, features: DoubleArray, sparseLogit: Double): Double {
@@ -26,8 +26,13 @@ internal object ServerContextHead {
     /** Disjoint interleaved indices within the total sparse parameter budget. */
     fun sparseIndex(context: Int, capacity: Long, hash: Long): Long? {
         require(context in 0 until CONTEXTS && capacity in 0..1_000_000_000L && hash >= 0)
-        if (context.toLong() >= capacity) return null
-        val slots = (capacity - 1L - context) / CONTEXTS + 1L
+        val slots = sparseSlots(context, capacity)
+        if (slots == 0L) return null
         return context + CONTEXTS * (hash % slots)
     }
+
+    fun sparseSlots(context: Int, capacity: Long): Long =
+        capacity / CONTEXTS + if (context < capacity % CONTEXTS) 1L else 0L
+
+    fun sparseContext(index: Long): Int = (index % CONTEXTS).toInt()
 }

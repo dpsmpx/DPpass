@@ -8,7 +8,7 @@ internal object ModelJsonPreflight {
     private val fields = setOf(
         "format", "parameters", "seed", "hidden", "bias", "deep_hidden", "deep_bias",
         "output", "output_bias", "context_bias", "context_observations",
-        "verified_html_bias", "verified_html_observations", "sparse", "observations",
+        "verified_html_bias", "verified_html_observations", "sparse", "sparse_recency", "observations",
     )
 
     fun accepts(raw: ByteArray, maxBytes: Int): Boolean {
