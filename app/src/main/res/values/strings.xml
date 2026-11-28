@@ -1060,4 +1060,14 @@
     <string name="local_backend_root_unavailable">ROOT executors are unavailable in this side-by-side build.</string>
     <string name="local_backend_changed">The connection selection changed. Choose the executor again.</string>
     <string name="local_backend_confirm">Select ROOT</string>
+    <string name="strategy_status_title">Strategy model status</string>
+    <string name="strategy_status_summary">Saved observations, architecture and sparse storage per context</string>
+    <string name="strategy_status_counts">Logical parameters: %1$d\nDense parameters: %2$d\nFile size: %3$d bytes\nTotal observations: %4$d</string>
+    <string name="strategy_status_architecture">Hidden layers: %1$d / %2$d (0 = no second layer)</string>
+    <string name="strategy_status_mobile">Mobile</string>
+    <string name="strategy_status_wifi">Wi-Fi</string>
+    <string name="strategy_status_other">Other networks</string>
+    <string name="strategy_status_head">%1$s: %2$d observations; sparse %3$d / %4$d</string>
+    <string name="strategy_status_html">Verified HTML calibration observations: %1$d</string>
+    <string name="strategy_status_note">This shows the last saved snapshot, not live counters or proof of content availability. Sparse quotas can replace inactive weights when full.</string>
 </resources>

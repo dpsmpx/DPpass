@@ -1089,4 +1089,14 @@
     <string name="local_backend_root_unavailable">ROOT-исполнители недоступны в этой параллельной сборке.</string>
     <string name="local_backend_changed">Выбранный режим подключения изменился. Выберите исполнитель ещё раз.</string>
     <string name="local_backend_confirm">Выбрать ROOT</string>
+    <string name="strategy_status_title">Состояние модели стратегий</string>
+    <string name="strategy_status_summary">Сохранённые наблюдения, архитектура и разреженные веса по контекстам</string>
+    <string name="strategy_status_counts">Логические параметры: %1$d\nПлотные параметры: %2$d\nРазмер файла: %3$d байт\nВсего наблюдений: %4$d</string>
+    <string name="strategy_status_architecture">Скрытые слои: %1$d / %2$d (0 — нет второго слоя)</string>
+    <string name="strategy_status_mobile">Мобильная сеть</string>
+    <string name="strategy_status_wifi">Wi-Fi</string>
+    <string name="strategy_status_other">Другие сети</string>
+    <string name="strategy_status_head">%1$s: наблюдений %2$d; разреженные веса %3$d / %4$d</string>
+    <string name="strategy_status_html">Наблюдения калибровки проверенного HTML: %1$d</string>
+    <string name="strategy_status_note">Это последний сохранённый снимок, а не текущие счётчики или подтверждение доступности контента. При заполнении квоты неиспользуемые веса могут вытесняться.</string>
 </resources>

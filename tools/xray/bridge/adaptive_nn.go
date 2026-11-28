@@ -421,21 +421,56 @@ func (n *adaptiveNeural) learn(host, candidate string, downstream int64) {
         w.ContextObservations[context]++
     }
     if w.Observations < 1_000_000_000 { w.Observations++ }
-    // Reserve a bounded share of actual storage for each context.
-    quota:=nnContextSlots(context,min(w.Parameters-nnDenseCount(w),int64(adaptiveNNMaxSparse)))
+    nnLearnSparse(w,context,nnSparseKeys(w,host,idx,quic),delta*0.2)
+    n.dirty = true
+}
+
+func hasSparseKey(m map[string]float64, key string) bool { _, ok := m[key]; return ok }
+
+// Retain currently used features before admitting new keys. At a full
+// quota evict the weakest inactive weight in this context only, breaking
+// ties by numeric index. No additional persisted metadata or global quota.
+func nnLearnSparse(w *adaptiveNNWeights,context int,keys []string,delta float64) {
+    capacity:=w.Parameters-nnDenseCount(w)
+    quota:=nnContextSlots(context,min(capacity,int64(adaptiveNNMaxSparse)))
+    if quota==0 || len(keys)==0 {return}
+    active:=make(map[string]bool,len(keys))
+    novel:=make([]string,0,len(keys))
+    for _,key:=range keys {
+        slot,err:=strconv.ParseInt(key,10,64)
+        if err!=nil || slot<0 || slot>=capacity || slot%adaptiveNNContexts!=int64(context) || strconv.FormatInt(slot,10)!=key || active[key] {continue}
+        active[key]=true
+        if previous,known:=w.Sparse[key];known {
+            w.Sparse[key]=nnClamp(previous+delta)
+        } else {novel=append(novel,key)}
+    }
+    if len(novel)==0 {return}
     count:=int64(0)
     for key:=range w.Sparse {
         slot,_:=strconv.ParseInt(key,10,64)
         if slot%adaptiveNNContexts==int64(context) {count++}
     }
-    for _, key := range nnSparseKeys(w, host, idx, quic) {
-        known:=hasSparseKey(w.Sparse,key)
-        if known || count<quota {
-            w.Sparse[key] = nnClamp(w.Sparse[key] + delta * 0.2)
-            if !known {count++}
+    for _,key:=range novel {
+        if count>=quota {
+            victim:=""
+            lowest:=math.Inf(1)
+            var lowestSlot int64
+            for old,value:=range w.Sparse {
+                if active[old] {continue}
+                slot,_:=strconv.ParseInt(old,10,64)
+                if slot%adaptiveNNContexts!=int64(context) {continue}
+                strength:=math.Abs(value)
+                if strength<lowest || strength==lowest && slot<lowestSlot {
+                    victim,lowest,lowestSlot=old,strength,slot
+                }
+            }
+            // The current observation may contain more distinct active
+            // keys than the quota; never evict one of them to admit another.
+            if victim=="" {continue}
+            delete(w.Sparse,victim)
+            count--
         }
+        w.Sparse[key]=nnClamp(delta)
+        count++
     }
-    n.dirty = true
 }
-
-func hasSparseKey(m map[string]float64, key string) bool { _, ok := m[key]; return ok }

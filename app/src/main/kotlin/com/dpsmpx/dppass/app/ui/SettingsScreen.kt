@@ -373,6 +373,13 @@ class SettingsScreen(host: Host) : Screen(host) {
                     )
                     addView(Ui.divider(context))
                     addView(modelRow(Zapret2NeuralModel.Kind.STRATEGY), Ui.matchWidth())
+                    addView(Ui.divider(context))
+                    addView(
+                        Ui.ListRow(context, R.drawable.ic_speed, context.getString(R.string.strategy_status_title))
+                            .subtitle(context.getString(R.string.strategy_status_summary))
+                            .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                            .onClick { showStrategyStatus() }, Ui.matchWidth(),
+                    )
                 }
                 // Local fixed suites are available while disconnected,
                 // irrespective of the selected backend.
@@ -838,6 +845,40 @@ class SettingsScreen(host: Host) : Screen(host) {
             } finally {
                 cleanupBusy = false
             }
+        }
+    }
+
+    private var strategyStatusBusy = false
+
+    private fun showStrategyStatus() {
+        if (strategyStatusBusy) return
+        strategyStatusBusy = true
+        host.scope.launch {
+            try {
+                val state = withContext(Dispatchers.IO) {
+                    Zapret2NeuralModel.strategyStatus(context.applicationContext)
+                }
+                val message = if (state == null) context.getString(R.string.model_not_generated)
+                else buildString {
+                    append(context.getString(R.string.strategy_status_counts,
+                        state.parameters, state.dense, state.bytes, state.observations))
+                    append("\n").append(context.getString(R.string.strategy_status_architecture, state.hidden, state.deep))
+                    val networks = listOf(R.string.strategy_status_mobile, R.string.strategy_status_wifi, R.string.strategy_status_other)
+                    val protocols = listOf("TLS", "HTTP", "QUIC")
+                    for ((network, name) in networks.withIndex()) {
+                        append("\n\n").append(context.getString(name))
+                        for ((protocol, label) in protocols.withIndex()) {
+                            val head = state.contexts[network * 3 + protocol]
+                            append("\n").append(context.getString(R.string.strategy_status_head,
+                                label, head.observations, head.sparse, head.quota))
+                        }
+                        append("\n").append(context.getString(R.string.strategy_status_html, state.html[network]))
+                    }
+                    append("\n\n").append(context.getString(R.string.strategy_status_note))
+                }
+                Ui.secure(AlertDialog.Builder(context).setTitle(R.string.strategy_status_title)
+                    .setMessage(message).setPositiveButton(android.R.string.ok, null).show())
+            } finally { strategyStatusBusy = false }
         }
     }
 

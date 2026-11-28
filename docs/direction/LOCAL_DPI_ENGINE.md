@@ -1307,3 +1307,8 @@ The Files and sharing menu can explicitly save the current published diagnostic 
 ## A7 — shared explicit executor selection
 
 The home provider/local switch remembers the last explicitly selected local executor instead of overwriting it with the default after every provider connection. The same executor picker is reachable from the home screen and settings, with the adaptive VpnService AUTO distinguished from the legacy reference executors. A switch to a different ROOT executor (including return from provider mode) requires explicit confirmation and refuses side-by-side builds; a stale confirmation cannot replace a changed selection. Unknown history falls back only to the unprivileged default. Existing service implementations and provider credentials are unchanged; no unified ROOT implementation or automatic executor promotion is claimed. CI pending.
+
+
+## A6/A7 — renewable sparse capacity and model status
+
+V5 strategy contexts now continue admitting new sparse features when their own quota is full. Existing active features are updated first; the weakest inactive weight of the same context is replaced, with numeric-index tie breaking. No change to file schema, other contexts, routing or provider model. The model status dialog presents the saved snapshot's logical and dense budgets, actual file bytes, layers, per-context observations and sparse occupancy/quota, and HTML calibration counts; it does not claim live or content performance. Cleanup also recognizes the actual retired dppass-zapret2-mlp-v2/v3 format markers without loading them. CI and physical effectiveness pending.

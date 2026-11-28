@@ -75,6 +75,16 @@ class ObsoleteModelFilesTest {
         Files.delete(File(root, "strategy-v2.json").toPath())
     }
 
+    @Test fun legacyZapret2FormatsAreRecognizedOnlyForDeletion() = withDirectory { root ->
+        for (format in listOf("dppass-zapret2-mlp-v2", "dppass-zapret2-mlp-v3")) {
+            val old = model(root, "strategy-v2.json", format)
+            val preview = requireNotNull(ObsoleteModelFiles.scan(root))
+            assertEquals(ObsoleteModelFiles.Reason.RETIRED_STRATEGY, preview.single().reason)
+            assertEquals(preview, ObsoleteModelFiles.clean(root, preview).removed)
+            assertFalse(old.exists())
+        }
+    }
+
     @Test fun formatMarkerMustBeTopLevelAndUnambiguous() {
         fun format(raw: String) = ModelJsonPreflight.format(raw.encodeToByteArray(), 1024)
         assertEquals("old", format("""{"sparse":{"format":"fake"},"format":"old"}"""))
