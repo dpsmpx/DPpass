@@ -75,7 +75,6 @@ func TestLocalDiagnosticsThroughSelectedPlannerIPC(t *testing.T) {
     if calls[zapret2.TagPrefix+"http-hostows"]!=1 ||
         calls[zapret2.TagPrefix+"http-host-combined"]!=1 ||
         calls[zapret2.TagPrefix+"multisplit"]!=2 ||
-        calls[zapret2.TagPrefix+"tlsrec-chain"]!=2 ||
         calls[zapret2.TagPrefix+"plain"]!=0 {
         t.Fatal("unexpected IPC requests",calls)
     }
@@ -83,7 +82,8 @@ func TestLocalDiagnosticsThroughSelectedPlannerIPC(t *testing.T) {
     // Build-specific tests separately require the exact backend.
     tlsCalls:=calls[zapret2.TagPrefix+"tlsrec-split"]
     httpCalls:=calls[zapret2.TagPrefix+"http-hostcase"]
-    if !((tlsCalls==2 && httpCalls==1) || (tlsCalls==0 && httpCalls==0)) {
+    chainCalls:=calls[zapret2.TagPrefix+"tlsrec-chain"]
+    if !((tlsCalls==2 && httpCalls==1 && chainCalls==2) || (tlsCalls==0 && httpCalls==0 && chainCalls==0)) {
         t.Fatal("mixed native/portable fixture backend",calls)
     }
 }

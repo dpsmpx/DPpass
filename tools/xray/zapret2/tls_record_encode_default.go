@@ -23,3 +23,6 @@ func encodeHTTPHostNameCase(first []byte, _ bool) ([]byte,bool) {
 func nativeServerHelloPrefix(_ []byte) bool {return true}
 
 func localNativeHTTPDiagnostic(_, _ string, _ []byte, _ bool) bool {return false}
+
+func nativeLocalTLSChainEnabled() bool {return false}
+func strictNativeLocalTLSChainPlan(_ []byte) (Plan,error) {return Plan{},errors.New("native TLS chain not compiled")}

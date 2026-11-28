@@ -32,6 +32,20 @@ func SplitTLSRecord(first []byte, offset int) ([]byte,bool) {
     return out,true
 }
 
+// SplitTLSRecordChain composes two original part_tls calls in C.
+// Validate the result against the independent portable encoder.
+func SplitTLSRecordChain(first []byte,a,b int) ([]byte,bool) {
+    if len(first)>maxRewrite {return nil,false}
+    want,_,_,ok:=localdpi.EncodeTLSRecordChain(first,a,b)
+    if !ok {return nil,false}
+    out:=make([]byte,len(first)+10)
+    rc:=C.dp_tls_record_chain((*C.uint8_t)(unsafe.Pointer(&first[0])),
+        C.size_t(len(first)),C.size_t(a),C.size_t(b),
+        (*C.uint8_t)(unsafe.Pointer(&out[0])),C.size_t(len(out)))
+    if rc!=0 || !bytes.Equal(out,want) {return nil,false}
+    return out,true
+}
+
 // Inspect exposes the existing bounded read-only ByeDPI predicates.
 // No hostname, borrowed C pointer, socket or application data is retained.
 // ok reports ABI success, not whether a protocol was recognized.

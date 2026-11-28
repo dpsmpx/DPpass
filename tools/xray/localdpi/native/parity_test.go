@@ -79,3 +79,19 @@ func TestConcurrentNativeCalls(t *testing.T) {
         })
     }
 }
+
+// The same original record and trailing bytes must survive both splits.
+func TestNativeRecordChainParity(t *testing.T) {
+    for _,size:=range []int{12,64,512,16384} {
+        first:=recordFixture(size)
+        before:=bytes.Clone(first)
+        for _,cuts:=range [][2]int{{5,6},{5,size-1},{size/2,size-1},{size-2,size-1},{4,6},{6,5},{5,size}} {
+            want,_,_,ok:=localdpi.EncodeTLSRecordChain(first,cuts[0],cuts[1])
+            got,nativeOK:=SplitTLSRecordChain(first,cuts[0],cuts[1])
+            if ok!=nativeOK || !bytes.Equal(want,got) {t.Fatal("chain parity",size,cuts)}
+            if nativeOK {got[len(got)-1]^=1}
+            if !bytes.Equal(first,before) {t.Fatal("chain aliases input")}
+        }
+        if out,ok:=SplitTLSRecordChain(first[:8],5,6);ok || out!=nil {t.Fatal("truncated chain")}
+    }
+}

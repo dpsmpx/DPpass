@@ -626,7 +626,9 @@ func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
     }
     var plan zapret2.Plan
     var err error
-    if c.localTLSFixture && c.mode.kind==desyncTLSRecordSplit {
+    if c.mode.kind==desyncTLSRecordChain {
+        plan,err=zapret2.PlanForLocalTLSChainContext(c.lifetimeContext(),b)
+    } else if c.localTLSFixture && c.mode.kind==desyncTLSRecordSplit {
         // This flag is set only by probeLocalTLS. Require the actual socket
         // endpoints to be loopback as a second, independent guard.
         local,lok:=c.LocalAddr().(*net.TCPAddr)

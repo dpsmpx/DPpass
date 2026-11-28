@@ -71,3 +71,23 @@ func encodeHTTPHostNameCase(first []byte, diagnostic bool) ([]byte,bool) {
 }
 
 func nativeServerHelloPrefix(first []byte) bool {return native.ServerHelloPrefix(first)}
+
+// This native dispatch is confined to the explicit local TLS chain fixture.
+// It does not change the ordinary PlanForContext or selected Alpine methods.
+func nativeLocalTLSChainEnabled() bool {return true}
+
+func strictNativeLocalTLSChainPlan(first []byte) (Plan,error) {
+    a,b,ok:=localTLSRecordChainPositions(first)
+    if !ok || !native.TLSNameAgrees(first) {
+        recordNativeTLSPlan(true,false)
+        return Plan{},errors.New("native TLS chain name agreement failed")
+    }
+    payload,ok:=native.SplitTLSRecordChain(first,a,b)
+    if !ok {
+        recordNativeTLSPlan(true,false)
+        return Plan{},errors.New("native TLS chain encoder failed")
+    }
+    recordNativeTLSPlan(true,true)
+    return Plan{Strategy:TagPrefix+"tlsrec-chain",Network:"tcp",Applied:true,
+        Cut:5+a,Cut2:10+b,Rewrite:payload},nil
+}

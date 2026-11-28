@@ -84,6 +84,22 @@ func PlanForLocalTLSFixtureContext(ctx context.Context,first []byte) (Plan,error
     return p,nil
 }
 
+// PlanForLocalTLSChainContext is only called by the fixed loopback
+// adapter. Unlike ordinary PlanForContext it requires the native encoder
+// on tagged builds and has no portable fallback there.
+func PlanForLocalTLSChainContext(ctx context.Context,first []byte) (Plan,error) {
+    if err:=ctx.Err();err!=nil {return Plan{},err}
+    tag:=TagPrefix+"tlsrec-chain"
+    if _,err:=validateRequest(tag,"tcp",first);err!=nil {return Plan{},err}
+    if _,_,ok:=localTLSRecordChainPositions(first);!ok {return Plan{},errors.New("invalid local TLS chain fixture")}
+    if !nativeLocalTLSChainEnabled() {return PlanForContext(ctx,tag,"tcp",first,true)}
+    p,err:=strictNativeLocalTLSChainPlan(first)
+    if err!=nil {return Plan{},err}
+    if err:=validatePlan(tag,"tcp",first,p);err!=nil {return Plan{},err}
+    if err:=ctx.Err();err!=nil {return Plan{},err}
+    return p,nil
+}
+
 // PlanForContext cancels only the caller's planner request, not the daemon.
 func PlanForContext(ctx context.Context,tag,network string,first []byte,diagnostic bool) (Plan,error) {
     if err:=ctx.Err();err!=nil {return Plan{},err}

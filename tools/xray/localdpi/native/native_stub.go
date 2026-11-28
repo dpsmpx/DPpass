@@ -5,6 +5,8 @@ package native
 // Native execution is not available in the default build.
 func SplitTLSRecord(_ []byte,_ int) ([]byte,bool) { return nil,false }
 
+func SplitTLSRecordChain(_ []byte,_,_ int) ([]byte,bool) {return nil,false}
+
 // Inspect cannot report a native observation in builds without the module.
 func Inspect(_ []byte) (Hint,bool) {return Unknown,false}
 

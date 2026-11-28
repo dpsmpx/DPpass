@@ -13,3 +13,7 @@ func TestDefaultInspectionUnavailable(t *testing.T) {
 func TestDefaultTLSNameAgreementUnavailable(t *testing.T) {
     if TLSNameAgrees([]byte{22,3,3,0,4,1,0,0,0}) {t.Fatal("native parser unavailable")}
 }
+
+func TestDefaultTLSRecordChainUnavailable(t *testing.T) {
+    if out,ok:=SplitTLSRecordChain(make([]byte,64),10,20);ok || out!=nil {t.Fatal("native chain unavailable")}
+}
