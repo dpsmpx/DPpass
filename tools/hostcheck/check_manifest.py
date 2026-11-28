@@ -41,6 +41,7 @@ A = "{http://schemas.android.com/apk/res/android}"
 
 # Утверждённые разрешения — с причиной каждого.
 PERMISSIONS = {
+    "android.permission.REQUEST_INSTALL_PACKAGES": "явное обновление подписанного APK через системный установщик Android",
     "android.permission.INTERNET": "сокеты ядра к серверу и загрузка подписок",
     "android.permission.FOREGROUND_SERVICE": "сервис туннеля работает в foreground",
     "android.permission.FOREGROUND_SERVICE_SPECIAL_USE": "тип foreground-сервиса specialUse (Android 14+)",
@@ -166,6 +167,10 @@ def main():
                     problems.append(f"{rel}: доверие к сертификатам «{el.get('src')}» — только system (подмена TLS через пользовательский CA)")
             if n.find("debug-overrides") is not None:
                 problems.append(f"{rel}: debug-overrides запрещены")
+
+        providers = app.findall("provider")
+        if len(providers) != 1 or any(p.get(A + "name") != ".app.UpdateApkProvider" or p.get(A + "exported") != "false" or p.get(A + "grantUriPermissions") != "true" or p.get(A + "authorities") != "${applicationId}.updates" for p in providers):
+            problems.append("Update APK provider must be private and narrowly grantable")
 
         for kind in ("activity", "activity-alias", "service", "receiver", "provider"):
             for el in app.findall(kind):

@@ -695,3 +695,7 @@ T7: выбор приложений и split_sites в SharedPreferences не ш�
 ограничены, журнал экранирует управляющие знаки и переводы строк.
 Подписи отклоняют опасные Bidi overrides, сохраняя ZWJ/ZWNJ для языков
 и emoji. Ссылки ss полностью скрываются даже в нестандартной base64-форме.
+
+### Direct-distribution updates
+
+The explicitly requested updater reads public GitHub Releases over HTTPS only. New signed ARM64 assets use a versionCode and SHA-256 in their names. The app rejects older/equal versions, incompatible package IDs and different signing certificates before handing the private cached APK to Android's system installer. Only an explicit Update action can download/install; Android requires source authorization and installation confirmation. The non-exported read-only provider shares only a single verified APK via a temporary URI grant. No subscriptions or user data leave the app. REQUEST_INSTALL_PACKAGES is intentionally required for this direct-distribution build; store builds may require a separate distribution variant without this permission. No unattended installation or root installer.

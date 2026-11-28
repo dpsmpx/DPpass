@@ -974,4 +974,17 @@
     <string name="root_share_inventory_check">Stable network inventory</string>
     <string name="root_share_activation_blocked">Activation remains disabled pending independent isolation checks.</string>
     <string name="root_share_check_failed">Readiness could not be confirmed. The router has not been started.</string>
+    <string name="app_update_title">App updates</string>
+    <string name="app_update_check">Check for updates</string>
+    <string name="app_update_install">Update</string>
+    <string name="app_update_hide">Hide</string>
+    <string name="app_update_available">Update available: %1$s</string>
+    <string name="app_update_idle">Check GitHub Releases for signed updates.</string>
+    <string name="app_update_checking">Checking GitHub Releases…</string>
+    <string name="app_update_current">No newer compatible release found.</string>
+    <string name="app_update_downloading">Downloading and verifying APK…</string>
+    <string name="app_update_failed">Update failed. Check your connection or retry.</string>
+    <string name="app_update_permission">Allow installation from this app in Android settings, then return.</string>
+    <string name="app_update_installer">Confirm the update in Android’s package installer.</string>
+    <string name="app_update_unsupported">Updates are available for the official ARM64 package only.</string>
 </resources>

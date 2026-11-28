@@ -66,6 +66,7 @@ class MainActivity : Activity(), Host {
     override val activity: Activity get() = this
     override val scope: CoroutineScope = CoroutineScope(SupervisorJob() + MainThread)
     override val prefs: AppPrefs by lazy { AppPrefs(this) }
+    internal val updates by lazy { AppUpdates(this) }
 
     @Volatile
     override var graph: AppGraph.Graph? = null
@@ -107,6 +108,7 @@ class MainActivity : Activity(), Host {
         setContentView(root)
         DeviceLog.log.info("activity_create")
         showTab(requestedTab(intent) ?: prefs.tab.coerceIn(0, tabs.lastIndex))
+        updates.check(manual = false)
         pendingImport = sharedText(intent)
         sharedImage(intent)?.let(::readQr)
         scope.launch {
@@ -126,6 +128,11 @@ class MainActivity : Activity(), Host {
         scope.launch { TunnelState.status.collect { changed() } }
         // Итог пробы IPv6 (D-66) приходит позже подключения — «Почему этот сервер» его покажет.
         scope.launch { TunnelState.ipv6.collect { changed() } }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updates.resumeAfterPermission()
     }
 
     override fun onNewIntent(intent: Intent) {

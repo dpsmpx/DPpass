@@ -11,6 +11,7 @@ import android.view.Gravity
 import android.view.View
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.ServerAutoMode
+import com.dpsmpx.dppass.app.MainActivity
 import com.dpsmpx.dppass.app.TunnelStatus
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.Zapret2NeuralModel
@@ -62,6 +63,20 @@ class SettingsScreen(host: Host) : Screen(host) {
         val policy = core?.userPolicy?.currentOrDefault() ?: UserPolicy.DEFAULT
         val own = core?.activation?.state?.active?.source == PolicyService.OWN_DOCUMENT
         body.removeAllViews()
+        (context as? MainActivity)?.updates?.let { updates ->
+            body.addView(Ui.section(context, context.getString(R.string.app_update_title)))
+            body.addView(Ui.card(context).apply {
+                addView(Ui.text(context, R.style.Text_DPpass_Secondary, updates.statusText), Ui.matchWidth())
+                addView(Ui.button(context, R.string.app_update_check, Ui.Style.OUTLINE).apply {
+                    isEnabled = !updates.busy
+                    setOnClickListener { updates.check(manual = true) }
+                }, Ui.matchWidth())
+                if (updates.available != null) addView(Ui.button(context, R.string.app_update_install, Ui.Style.PRIMARY).apply {
+                    isEnabled = !updates.busy
+                    setOnClickListener { updates.install() }
+                }, Ui.matchWidth())
+            }, Ui.matchWidth())
+        }
 
         // ---- маршрутизация ----
         body.addView(Ui.section(context, context.getString(R.string.settings_routing)))

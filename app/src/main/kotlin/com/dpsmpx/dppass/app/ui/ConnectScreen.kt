@@ -6,6 +6,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.dpsmpx.dppass.R
 import com.dpsmpx.dppass.app.DPpassVpnService
+import com.dpsmpx.dppass.app.MainActivity
 import com.dpsmpx.dppass.app.ServerOffer
 import com.dpsmpx.dppass.app.Traffic
 import com.dpsmpx.dppass.app.TunnelState
@@ -197,6 +198,21 @@ class ConnectScreen(host: Host) : Screen(host) {
         )
     }
 
+    private val updateText = Ui.text(context, R.style.Text_DPpass_Secondary)
+    private val updateButton = Ui.button(context, R.string.app_update_install, Ui.Style.PRIMARY).apply {
+        setOnClickListener { (context as? MainActivity)?.updates?.install() }
+    }
+    private val updateCard = Ui.card(context).apply {
+        visibility = View.GONE
+        addView(updateText, Ui.matchWidth())
+        addView(Ui.row(context, 8).apply {
+            addView(updateButton, Ui.weight())
+            addView(Ui.button(context, R.string.app_update_hide, Ui.Style.TEXT).apply {
+                setOnClickListener { (context as? MainActivity)?.updates?.hide() }
+            }, Ui.weight())
+        }, Ui.matchWidth())
+    }
+
     override val view: View = scroll(
         Ui.column(context).apply {
             gravity = Gravity.CENTER_HORIZONTAL
@@ -209,6 +225,7 @@ class ConnectScreen(host: Host) : Screen(host) {
                 ),
                 Ui.matchWidth(),
             )
+            addView(updateCard, Ui.matchWidth())
             addView(source, Ui.matchWidth())
             val size = Ui.dp(context, 184)
             addView(power, LinearLayout.LayoutParams(size, size).apply { topMargin = Ui.dp(context, 24) })
@@ -234,6 +251,11 @@ class ConnectScreen(host: Host) : Screen(host) {
     private var ticker: Job? = null
 
     override fun render(status: TunnelStatus) {
+        val updates = (context as? MainActivity)?.updates
+        val available = updates?.visibleUpdate
+        updateCard.visibility = if (available != null) View.VISIBLE else View.GONE
+        if (available != null) updateText.text = context.getString(R.string.app_update_available, available.tag)
+        updateButton.isEnabled = updates?.busy == false
         val graph = host.graph
         val core = graph?.core
         val ir = core?.activation?.state?.activeConfig
