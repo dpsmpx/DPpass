@@ -1245,3 +1245,8 @@ The initial-record adapter publishes successful completion through an atomic rea
 ## A3 — cancel unfinished initial TCP writes
 
 Full Close cancels the connection-owned planner request and closes the real TCP socket without acquiring the write mutex. Pending unsent bytes are discarded on full close; CloseWrite retains its ordered flush-before-FIN behavior. No cancellation reaches other planner clients. A cancelled first write is not eligible for downstream learning. Real Unix IPC and loopback regressions cover cancellation and peer EOF; physical Android acceptance remains pending.
+
+
+## RC11 — installation confirmation
+
+The author reported that the signed RC11 APK downloaded through a browser installed over the existing app and worked. This confirms installation compatibility, not the in-app updater handoff or specific network/strategy acceptance. RC11 predates the visual DPTS builder. Physical network acceptance remains open.
