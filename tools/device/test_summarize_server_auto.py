@@ -49,6 +49,38 @@ class SummarizeServerAutoTest(unittest.TestCase):
         self.assertIn("| WIFI_QUIC | 0/0 (—) | 0/0 (—) | — | 0 / 0 |", view)
         self.assertNotIn("MOBILE_TCP", view)
 
+    def test_coverage_tracks_all_candidates_and_outcomes_not_only_first(self):
+        text = "\n".join((
+            event(candidates=4, attempted=3, verified_successes=1, measured_failures=1, unmeasured=1),
+            event(**SCORED, **MOVED, **FAILURE),
+            event(**SCORED, **UNMEASURED),
+            event(**SCORED, context="WIFI_QUIC", first_attempt="null", attempted=0, verified_successes=0),
+        ))
+        observations, _ = summary.parse_log(text)
+        totals = summary.summarize(observations)
+        view = summary.render_coverage(totals)
+        self.assertIn("| WIFI_TCP | Штатный | 1 | 3/4 (75.0%) | 2/3 (66.7%) | 1/2 (50.0%) | 1 | 1/1 (100.0%) | 1/1 (100.0%) |", view)
+        self.assertIn("| WIFI_TCP | V4 | 2 | 2/4 (50.0%) | 1/2 (50.0%) | 0/1 (0.0%) | 1 | 1/2 (50.0%) | 0/0 (—) |", view)
+        self.assertIn("| WIFI_QUIC | V4 | 1 | 0/2 (0.0%) | 0/0 (—) | 0/0 (—) | 0 | 0/0 (—) | 0/0 (—) |", view)
+        self.assertNotIn("MOBILE_TCP", view)
+        self.assertIn("не доказывают преимущество модели", view)
+        self.assertEqual(totals[("WIFI_TCP", True)].moved_first.failures, 1)
+
+    def test_missing_comparison_cohort_is_explicit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            planner = Path(directory) / "planner.txt"
+            scored = Path(directory) / "scored.txt"
+            planner.write_text(event(), encoding="utf-8")
+            scored.write_text(event(), encoding="utf-8")
+            status, stream, errors = self.invoke(str(planner), "--scored-log", str(scored))
+            self.assertEqual((status, errors), (0, ""))
+            self.assertIn("во втором экспорте нет событий с оценкой V4", stream)
+            planner.write_text(event(**SCORED), encoding="utf-8")
+            scored.write_text(event(**SCORED), encoding="utf-8")
+            status, stream, errors = self.invoke(str(planner), "--scored-log", str(scored))
+            self.assertEqual((status, errors), (0, ""))
+            self.assertIn("в первом экспорте нет событий штатного плана", stream)
+
     def test_export_uses_current_tail_and_keeps_identical_events_inside_it(self):
         text = "\n".join((
             summary.EXPORT_TITLE,
