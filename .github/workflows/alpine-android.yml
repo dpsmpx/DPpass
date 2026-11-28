@@ -128,6 +128,11 @@ jobs:
       - name: Alpine process-layout and activation/adaptive-selection JVM tests
         shell: bash
         run: bash tools/ci/gradle-resolution-retry.sh :engine:test :connection:test :tunnel:test :app:testDebugUnitTest
+      - name: Verify isolated executor model snapshots with Android JSON
+        run: >-
+          bash tools/ci/gradle-resolution-retry.sh :app:testDebugUnitTest
+          -Pdppass.robolectric -Pdppass.robolectric.sdk=29
+          --tests '*ExecutorModelStorageTest'
       - name: Build ARM64 app with actual Alpine minirootfs and PRoot
         run: ./gradlew --no-daemon --console=plain :app:assembleDebug -Pdppass.alpine=true -Pdppass.nativeAbis=arm64-v8a
       - name: Verify PRoot executables, PTY JNI and Alpine rootfs packaged

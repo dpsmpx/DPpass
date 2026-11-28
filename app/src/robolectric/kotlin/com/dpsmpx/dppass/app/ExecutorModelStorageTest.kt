@@ -3,7 +3,6 @@ package com.dpsmpx.dppass.app
 import com.dpsmpx.dppass.app.Zapret2NeuralModel.Kind
 import java.io.File
 import java.nio.file.Files
-import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -11,7 +10,13 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.json.JSONArray
 import org.json.JSONObject
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [26, 29, 36], manifest = Config.NONE)
 class ExecutorModelStorageTest {
     @Test
     fun exactModelKindIsRequiredOnDisk() = withDirectory { directory ->
