@@ -99,13 +99,15 @@ func nnDenseCount(w *adaptiveNNWeights) int64 {
         int64(adaptiveNNOutput)*(int64(last)+1) + int64(adaptiveNNContexts*adaptiveNNHeadWidth)
 }
 
-var adaptiveNNFormat = localdpi.ModelFormat()
-
-func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
+func parseExecutorAdaptiveNN(raw []byte, executor localdpi.ExecutorKind) (*adaptiveNNWeights, error) {
+    format := localdpi.StrategyModelFormat(executor)
+    if format == "" {
+        return nil, errors.New("unregistered neural model executor")
+    }
     if len(raw) == 0 || len(raw) > adaptiveNNMaxBytes {
         return nil, errors.New("invalid neural model length")
     }
-    if err := checkModelJSON(raw); err != nil { return nil, err }
+    if err := checkModelJSON(raw, executor == localdpi.VPNSocket); err != nil { return nil, err }
     var w adaptiveNNWeights
     decoder := json.NewDecoder(bytes.NewReader(raw))
     decoder.DisallowUnknownFields()
@@ -117,8 +119,10 @@ func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
         return nil, errors.New("trailing neural model content")
     }
     count := len(w.Hidden)
-    if w.Format != adaptiveNNFormat ||
-        count < adaptiveNNMinHidden || count > adaptiveNNMaxHidden ||
+    if w.Format != format {
+        return nil, errors.New("neural model format does not match executor")
+    }
+    if count < adaptiveNNMinHidden || count > adaptiveNNMaxHidden ||
         len(w.Bias) != count || len(w.Output) != adaptiveNNOutput ||
         len(w.OutputBias) != adaptiveNNOutput {
         return nil, errors.New("unsupported neural model dimensions")
@@ -214,7 +218,7 @@ func (a *adaptiveSelector) configureModel(raw []byte) error {
     var weights *adaptiveNNWeights
     if len(raw) != 0 {
         var err error
-        weights, err = parseAdaptiveNN(raw)
+        weights, err = parseExecutorAdaptiveNN(raw, a.capabilities.Kind())
         if err != nil {
             return err
         }

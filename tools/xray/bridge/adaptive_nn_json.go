@@ -13,7 +13,7 @@ import (
 // The typed decoder remains authoritative for dimensions and values.
 // This bounded preflight rejects ambiguities that encoding/json otherwise
 // silently accepts, including duplicate fields and null numeric elements.
-func checkModelJSON(raw []byte) error {
+func checkModelJSON(raw []byte, allowHTML bool) error {
     invalid:=errors.New("ambiguous neural model JSON")
     if len(raw)==0 || len(raw)>adaptiveNNMaxBytes || !utf8.Valid(raw) {return invalid}
     d:=json.NewDecoder(bytes.NewReader(raw))
@@ -34,7 +34,7 @@ func checkModelJSON(raw []byte) error {
                 if err!=nil || !ok {return invalid}
                 if _,ok:=seen[name];ok {return invalid}
                 seen[name]=struct{}{}
-                if depth==0 && !modelJSONField(name) {return invalid}
+                if depth==0 && !modelJSONField(name, allowHTML) {return invalid}
                 if err:=value(depth+1);err!=nil {return err}
             }
             close,err:=d.Token()
@@ -51,12 +51,13 @@ func checkModelJSON(raw []byte) error {
     return nil
 }
 
-func modelJSONField(s string) bool {
+func modelJSONField(s string, allowHTML bool) bool {
     switch s {
     case "format","parameters","seed","hidden","bias","deep_hidden","deep_bias",
-        "output","output_bias","context_bias","context_observations",
-        "verified_html_bias","verified_html_observations","sparse","observations":
+        "output","output_bias","context_bias","context_observations","sparse","observations":
         return true
+    case "verified_html_bias", "verified_html_observations":
+        return allowHTML
     default:return false
     }
 }

@@ -21,6 +21,8 @@ class ObsoleteModelFilesTest {
         val pending = File(root, ".model-123.pending").apply { writeBytes(byteArrayOf()) }
         val server = model(root, "server-v1.json", "dppass-server-mlp-v4")
         val active = model(root, "strategy-v5.json", "dppass-strategy-mlp-v5:tcp=split;quic=pass")
+        val rootModels = listOf(Zapret2NeuralModel.Kind.ROOT_SOCKET, Zapret2NeuralModel.Kind.ROOT_PACKET)
+            .map { model(root, it.filename, it.format) }
         val unrelated = File(root, "subscription.json").apply { writeText("keep") }
         val unknown = File(root, ".model-other.pending").apply { writeText("keep") }
         val preview = requireNotNull(ObsoleteModelFiles.scan(root))
@@ -32,7 +34,7 @@ class ObsoleteModelFilesTest {
         assertTrue(result.failed.isEmpty())
         assertFalse(old.exists())
         assertFalse(pending.exists())
-        assertTrue(listOf(server, active, unrelated, unknown).all { it.exists() })
+        assertTrue((listOf(server, active, unrelated, unknown) + rootModels).all { it.exists() })
     }
 
     @Test fun retiredServerFormatButNotCurrentOrUnknownCanBeRemoved() = withDirectory { root ->
