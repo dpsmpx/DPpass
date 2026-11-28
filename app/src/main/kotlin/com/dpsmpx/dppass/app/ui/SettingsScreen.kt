@@ -384,17 +384,28 @@ class SettingsScreen(host: Host) : Screen(host) {
                         }, Ui.matchWidth(),
                     )
                     addView(Ui.divider(context))
-                    addView(
-                        Ui.ListRow(context, R.drawable.ic_speed,
-                            context.getString(R.string.zapret2_autotest_title))
-                            .subtitle(context.getString(R.string.zapret2_autotest_subtitle))
-                            .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
-                            .onClick { host.push(Zapret2AutoTestScreen(host)) },
-                        Ui.matchWidth(),
-                    )
-                    addView(Ui.divider(context))
                     addView(modelRow(Zapret2NeuralModel.Kind.STRATEGY), Ui.matchWidth())
                 }
+                // Local fixed suites are available while disconnected,
+                // irrespective of the selected backend.
+                addView(Ui.divider(context))
+                addView(
+                    Ui.ListRow(context, R.drawable.ic_speed,
+                        context.getString(R.string.zapret2_autotest_title))
+                        .subtitle(context.getString(R.string.zapret2_autotest_subtitle))
+                        .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                        .onClick { host.push(Zapret2AutoTestScreen(host)) },
+                    Ui.matchWidth(),
+                )
+                addView(Ui.divider(context))
+                addView(
+                    Ui.ListRow(context, R.drawable.ic_shield,
+                        context.getString(R.string.root_capability_title))
+                        .subtitle(context.getString(R.string.root_capability_summary))
+                        .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                        .onClick { host.push(RootCapabilityScreen(host)) },
+                    Ui.matchWidth(),
+                )
             },
             Ui.matchWidth(),
         )

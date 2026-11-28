@@ -1281,3 +1281,8 @@ Kotlin CI caught a redundant nullable access on a smart-cast receiver. Removed t
 ## A4 — native three-record TLS fixture
 
 The fixed three-record DPTS suite in tagged localdpi_native builds now executes the pinned ByeDPI part_tls twice through one bounded C ABI. The later split is performed first so the earlier split remains inside the first record. An independent portable reference checks every output byte; strict native fixture dispatch also requires parser agreement and never falls back to portable success. Default builds retain the selected Alpine/in-process planner; ordinary requests, model layout and AUTO are unchanged. The ABI has C sanitizer fixtures, Go parity and tagged planner tests. CI and physical Android execution pending.
+
+
+## A5 — ROOT capability survey and offline DPTS entry
+
+Settings exposes an explicit read-only ROOT survey independent of backend selection. It requires Idle and user confirmation before invoking su; the fixed command verifies effective UID, reads the effective capability mask of its own shell and queries IPv4/IPv6 NAT/mangle OUTPUT without changing rules. Only finite parsed outcomes reach the UI; no raw command output is copied. A changed tunnel status invalidates the result. This does not register an executor or claim NFQUEUE, SELinux or packet-method support. The DPTS entry is now visible for all backend selections so offline fixed local suites are reachable without changing settings. Tests and Android CI pending; physical ROOT verification remains open.
