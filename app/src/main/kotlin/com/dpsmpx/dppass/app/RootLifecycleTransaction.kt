@@ -405,7 +405,7 @@ internal class RootLifecycleTransaction(
             "fi",
             "test \"\$(cat $strict)\" = v1 || exit 1",
             if (optional) "if test ! -e $pid && test ! -e $identity; then exit 0; fi" else ":",
-            RootChildIdentity.matchesExecutable(pidPath, generation, executable, procRoot),
+            RootChildIdentity.confirmExecutable(pidPath, generation, executable, "$directory/root-pidfd"),
             ")",
         ).joinToString("\n")
     }

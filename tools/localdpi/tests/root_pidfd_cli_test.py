@@ -36,6 +36,12 @@ try:
     ticks = stat.rsplit(") ", 1)[1].split()[19]
     exe = os.readlink(f"/proc/{pid}/exe")
     args = ["stop-executable", pid, ticks, boot, exe, "2000"]
+    check = ["check-executable", pid, ticks, boot, exe]
+    expect(check, 0, "live")
+    expect(check + ["0"], 64, "invalid_arguments")
+    expect(["check-executable", pid, str(int(ticks) + 1), boot, exe], 2, "unproven")
+    expect(["check-executable", pid, ticks, boot, "/not-the-child"], 2, "unproven")
+    expect(["check-executable", pid, ticks, "00000000-0000-0000-0000-000000000000", exe], 2, "unproven")
     expect(["absent", pid, boot], 2, "unproven")
     expect(["gone", pid, ticks, boot], 2, "unproven")
     expect(["gone", pid, str(int(ticks) + 1), boot], 0, "exited")
@@ -60,6 +66,7 @@ try:
         expect(altered, 2, "unproven")
         assert child.poll() is None
     expect(args, 0, "exited")
+    expect(check, 2, "unproven")
     # Before wait(), the task is dead and may still be a zombie.
     expect(["absent", pid, boot], 0, "exited")
     assert child.wait(timeout=3) == -15

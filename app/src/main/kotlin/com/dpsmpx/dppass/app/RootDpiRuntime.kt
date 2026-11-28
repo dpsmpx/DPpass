@@ -1,5 +1,6 @@
 package com.dpsmpx.dppass.app
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -9,6 +10,18 @@ internal interface RootDpiRuntime {
     suspend fun start(): Result<Unit>
     suspend fun stop(): Result<Unit>
     suspend fun alive(): Boolean
+}
+
+/** Common entry point to the reference executors, invoked under the owner lock. */
+internal abstract class AdmittedRootDpiRuntime(
+    private val kind: RootDpiPreflight.Kind,
+    private val survey: () -> RootCapabilitySurvey.Report? = { RootCapabilitySurvey.run() },
+) : RootDpiRuntime {
+    final override suspend fun start(): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching { launch(RootDpiPreflight.requireReady(kind, survey)) }
+    }
+
+    protected abstract fun launch(admission: RootDpiPreflight.Admission)
 }
 
 /** A successful privileged start must be owned by the service or rolled

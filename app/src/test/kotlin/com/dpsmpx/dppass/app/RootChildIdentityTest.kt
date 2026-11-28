@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class RootChildIdentityTest {
-    @Test fun strictLifecycleHealthRejectsReusedPidAndIncompleteOptionalIdentity() {
+    @Test fun strictLifecycleHealthRequiresNativeLiveReceiptAndCompleteIdentity() {
         if (!File("/bin/sh").canExecute()) return
         val dir = Files.createTempDirectory("dppass-strict-health").toFile()
         val proc = File(dir, "proc")
@@ -21,6 +21,8 @@ class RootChildIdentityTest {
         val optional = File(dir, "pid6")
         val optionalIdentity = File(dir, "pid6.identity")
         val marker = File(dir, "pidfd.required")
+        val receipt = File(dir, "receipt")
+        val helper = File(dir, "root-pidfd")
         val tx = RootLifecycleTransaction(dir.path, "launch", procRoot = proc.path)
         val primary = tx.executableHealthy("pid", daemon.path)
         val secondary = tx.executableHealthy("pid6", daemon.path, optional = true)
@@ -29,6 +31,13 @@ class RootChildIdentityTest {
             stat.writeText("123 (daemon) $state " + List(18) { "0" }.joinToString(" ") + " $ticks 0")
         }
         try {
+            helper.writeText(
+                "#!/bin/sh\n" +
+                    "if test \"\$1\" = --version; then echo dppass-root-pidfd/1; exit 0; fi\n" +
+                    "test \"\$*\" = 'check-executable 123 456 $bootId ${daemon.path}' || exit 1\n" +
+                    "cat '${receipt.path}'\n",
+            )
+            assertTrue(helper.setExecutable(true, true))
             marker.writeText("v1\n")
             pid.writeText("123\n")
             taskStat("456")
@@ -36,16 +45,24 @@ class RootChildIdentityTest {
             assertFalse(run(primary) == 0)
             assertEquals(0, run(secondary))
             assertEquals(0, run(tx.captureExecutable("pid", daemon.path)))
+            receipt.writeText("live\n")
             assertEquals(0, run(primary))
-            taskStat("789")
+            val identity = File(dir, "pid.identity")
+            identity.writeText("v1 other 123 456 $bootId\n")
             assertFalse(run(primary) == 0)
-            taskStat("456", "Z")
+            identity.writeText("v1 launch 123 789 $bootId\n")
             assertFalse(run(primary) == 0)
-            taskStat("456")
+            identity.writeText("v1 launch 123 456 $bootId\n")
+            receipt.writeText("exited\n")
+            assertFalse(run(primary) == 0)
+            receipt.writeText("live\n")
             optionalIdentity.writeText("v1 launch 123 456 $bootId\n")
             assertFalse(run(secondary) == 0)
             optional.writeText("123\n")
             assertEquals(0, run(secondary))
+            assertTrue(helper.delete())
+            assertFalse(run(primary) == 0)
+            assertFalse(run(secondary) == 0)
             marker.writeText("invalid")
             assertFalse(run(primary) == 0)
             assertFalse(run(secondary) == 0)

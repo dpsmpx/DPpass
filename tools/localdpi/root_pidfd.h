@@ -8,7 +8,8 @@ enum dppass_pidfd_result {
     DPPASS_PIDFD_EXITED = 0,
     DPPASS_PIDFD_UNSUPPORTED,
     DPPASS_PIDFD_UNPROVEN,
-    DPPASS_PIDFD_TIMEOUT
+    DPPASS_PIDFD_TIMEOUT,
+    DPPASS_PIDFD_LIVE
 };
 
 /*
@@ -20,6 +21,10 @@ enum dppass_pidfd_result {
 enum dppass_pidfd_result dppass_pidfd_stop_executable(
     pid_t pid, uint64_t start_ticks, const char *boot_id,
     const char *executable, int timeout_ms);
+
+// Check the pinned executable without sending any signal.
+enum dppass_pidfd_result dppass_pidfd_check_executable(
+    pid_t pid, uint64_t start_ticks, const char *boot_id, const char *executable);
 
 /* Interpreter must be its canonical /proc/<pid>/exe path. Script mode
  * only accepts argv = {"sh" or interpreter, script}, with no extras. */
