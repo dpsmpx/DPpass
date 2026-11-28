@@ -1302,3 +1302,8 @@ The author rejects compatibility with obsolete strategy formats. Settings now pr
 ## A7 — explicit local DPTS report archive
 
 The Files and sharing menu can explicitly save the current published diagnostic report and matching CSV (if available) to an app-private no-backup archive. Up to 20 records, bounded at 128 KiB per UTF-8 field, no automatic eviction, no automatic collection. Open, view, copy, share, export TXT/CSV or individually delete with confirmation. Archived data is read-only and cannot become live evidence or a training input. One versioned record holds both exports; unknown or damaged records are not interpreted. Existing clipboard workflow, script storage, models and provider data remain unchanged. CI pending.
+
+
+## A7 — shared explicit executor selection
+
+The home provider/local switch remembers the last explicitly selected local executor instead of overwriting it with the default after every provider connection. The same executor picker is reachable from the home screen and settings, with the adaptive VpnService AUTO distinguished from the legacy reference executors. A switch to a different ROOT executor (including return from provider mode) requires explicit confirmation and refuses side-by-side builds; a stale confirmation cannot replace a changed selection. Unknown history falls back only to the unprivileged default. Existing service implementations and provider credentials are unchanged; no unified ROOT implementation or automatic executor promotion is claimed. CI pending.

@@ -12,4 +12,23 @@ class Zapret2BackendTest {
             assertEquals(Zapret2Backend.OFF, Zapret2Backend.of(it))
         }
     }
+    @Test fun providerRoundTripRemembersExplicitLocalExecutor() {
+        Zapret2Backend.entries.filter { it != Zapret2Backend.OFF }.forEach {
+            assertEquals(it, Zapret2Backend.preferredLocal(Zapret2Backend.OFF, it.wire))
+            assertEquals(it, Zapret2Backend.preferredLocal(it, null))
+        }
+    }
+
+    @Test fun unknownHistoryDefaultsToUnprivilegedAuto() {
+        listOf(null, "", "off", "future", "root;whoami").forEach {
+            assertEquals(Zapret2Backend.VPN_SERVICE, Zapret2Backend.preferredLocal(Zapret2Backend.OFF, it))
+        }
+    }
+
+    @Test fun everyNewRootChoiceRequiresExplicitConfirmation() {
+        for (current in Zapret2Backend.entries) for (requested in Zapret2Backend.entries) {
+            assertEquals(requested.rooted && current != requested,
+                Zapret2Backend.requiresRootConfirmation(current, requested))
+        }
+    }
 }

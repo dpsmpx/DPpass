@@ -1050,4 +1050,14 @@
     <string name="dpts_archive_delete">Delete archived report</string>
     <string name="dpts_archive_delete_confirm">Permanently delete this saved report and its CSV? Current results, scripts and models are not changed.</string>
     <string name="dpts_archive_deleted">Archived report deleted</string>
+    <string name="local_backend_choose">Choose local executor</string>
+    <string name="local_backend_auto">Local AUTO · VpnService</string>
+    <string name="local_backend_root">Zapret2 · ROOT reference</string>
+    <string name="local_backend_byedpi_vpn">ByeDPI · VpnService reference</string>
+    <string name="local_backend_byedpi_root">ByeDPI · ROOT reference</string>
+    <string name="local_backend_note">Local AUTO is the adaptive socket engine. Reference executors remain available for comparison until physical acceptance. ROOT requires explicit confirmation.</string>
+    <string name="local_backend_root_confirm">Switch to %1$s? A subsequent connection can request root access and affect device-wide network rules. No automatic fallback to ROOT is allowed.</string>
+    <string name="local_backend_root_unavailable">ROOT executors are unavailable in this side-by-side build.</string>
+    <string name="local_backend_changed">The connection selection changed. Choose the executor again.</string>
+    <string name="local_backend_confirm">Select ROOT</string>
 </resources>
