@@ -82,6 +82,9 @@ jobs:
       - name: Run protected TCP/QUIC AUTO, planner and Alpine tests
         working-directory: tools/xray
         run: go test -count=1 ./localdpi ./localdpi/native ./bridge ./zapret2 ./cmd/zapret2-alpine
+      - name: Race-check single socket evidence ownership
+        working-directory: tools/xray
+        run: CGO_ENABLED=1 go test -race -count=2 -run '^(TestSocketEvidenceGate|TestSocketLateReplyAfterTimeout)' ./bridge
       - name: Race-check Alpine connection admission and cleanup
         working-directory: tools/xray
         run: CGO_ENABLED=1 go test -race -count=3 ./cmd/zapret2-alpine
