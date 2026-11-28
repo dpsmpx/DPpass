@@ -1,0 +1,13 @@
+<resources>
+    <string name="dpts_builder_title">Конструктор скрипта</string>
+    <string name="dpts_builder_protocol">Выберите протокол</string>
+    <string name="dpts_builder_name">Название скрипта</string>
+    <string name="dpts_builder_host">Публичное DNS-имя</string>
+    <string name="dpts_builder_ips">Количество IPv4-адресов</string>
+    <string name="dpts_builder_attempts">Повторов на комбинацию</string>
+    <string name="dpts_builder_timeout">Тайм-аут попытки (мс)</string>
+    <string name="dpts_builder_methods">Методы</string>
+    <string name="dpts_builder_observe">Собрать наблюдения для последующего обучения</string>
+    <string name="dpts_builder_summary">%1$d проб · до %2$d секунд работы сокетов</string>
+    <string name="dpts_builder_insert">Вставить в редактор</string>
+</resources>

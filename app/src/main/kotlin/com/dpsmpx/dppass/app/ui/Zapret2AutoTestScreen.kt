@@ -488,6 +488,11 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     private fun showFileActions() {
         if (diagnostic.busy) return
         val actions = mutableListOf<Pair<Int, () -> Unit>>(
+            R.string.dpts_builder_title to {
+                DptsBuilderDialog.show(context) { source ->
+                    offerImportedScript(source, R.string.dpts_builder_title)
+                }
+            },
             R.string.dpts_import_file to { host.pickDptsFile() },
             R.string.dpts_export_file to {
                 host.saveDocument("DPpass-script.dpts.txt", dptsEditor.text.toString())
@@ -517,7 +522,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         }
     }
 
-    internal fun offerImportedScript(source: String) {
+    internal fun offerImportedScript(source: String, title: Int = R.string.dpts_import_file) {
         if (diagnostic.busy) return
         fun replaceDraft() {
             if (diagnostic.busy) return
@@ -528,7 +533,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         }
         if (dptsEditor.text.isBlank() || dptsEditor.text.toString() == source) replaceDraft()
         else AlertDialog.Builder(context)
-            .setTitle(R.string.dpts_import_file)
+            .setTitle(title)
             .setMessage(R.string.dpts_replace_editor)
             .setNegativeButton(android.R.string.cancel, null)
             .setPositiveButton(android.R.string.ok) { _, _ -> replaceDraft() }
