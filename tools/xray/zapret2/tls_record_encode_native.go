@@ -3,6 +3,7 @@
 package zapret2
 
 import (
+    "errors"
     "github.com/dpsmpx/dppass/tools/xray/localdpi"
     "github.com/dpsmpx/dppass/tools/xray/localdpi/native"
 )
@@ -26,6 +27,22 @@ func encodeTLSRecordSplit(first []byte, recordLen, split int, diagnostic bool) (
     }
     recordNativeTLSPlan(diagnostic,false)
     return encodeTLSRecordSplitGo(first,recordLen,split)
+}
+
+// No reference fallback on the fixed, independently validated loopback path.
+func strictNativeLocalTLSPlan(first []byte) (Plan,error) {
+    _,split,ok:=tlsRecordSplitPosition(first)
+    if !ok || !native.TLSNameAgrees(first) {
+        recordNativeTLSPlan(true,false)
+        return Plan{},errors.New("native local TLS name agreement failed")
+    }
+    b,ok:=native.SplitTLSRecord(first,split)
+    if !ok {
+        recordNativeTLSPlan(true,false)
+        return Plan{},errors.New("native local TLS record encoder failed")
+    }
+    recordNativeTLSPlan(true,true)
+    return Plan{Strategy:TagPrefix+"tlsrec-split",Network:"tcp",Applied:true,Cut:5+split,Rewrite:b},nil
 }
 
 // Only the explicitly tagged experiment dispatches the existing TLS method

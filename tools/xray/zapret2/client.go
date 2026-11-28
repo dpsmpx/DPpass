@@ -60,6 +60,24 @@ func PlanForDiagnostic(tag, network string, first []byte) (Plan,error) {
     return planFor(tag,network,first,true)
 }
 
+// PlanForLocalTLSFixture is reserved for the fixed loopback self-test.
+// A native build must prove that the C encoder succeeded, not that its
+// ordinary portable fallback happened to produce the same bytes.
+func PlanForLocalTLSFixture(first []byte) (Plan,error) {
+    tag:=TagPrefix+"tlsrec-split"
+    if _,err:=validateRequest(tag,"tcp",first);err!=nil {return Plan{},err}
+    // The fixture is a single complete ClientHello with the fixed SNI.
+    recordLen,_,ok:=tlsRecordSplitPosition(first)
+    if !ok || len(first)!=5+recordLen {return Plan{},errors.New("invalid local TLS fixture record")}
+    s,end,ok:=SNIRange(first)
+    if !ok || string(first[s:end])!="example.com" {return Plan{},errors.New("invalid local TLS fixture name")}
+    if !localNativePlan(tag,"tcp") {return PlanForDiagnostic(tag,"tcp",first)}
+    p,err:=strictNativeLocalTLSPlan(first)
+    if err!=nil {return Plan{},err}
+    if err:=validatePlan(tag,"tcp",first,p);err!=nil {return Plan{},err}
+    return p,nil
+}
+
 func planFor(tag,network string,first []byte,diagnostic bool) (Plan,error) {
     if _,err:=validateRequest(tag,network,first);err!=nil {return Plan{},err}
     // Explicitly tagged native experiments have predetermined dispatch.

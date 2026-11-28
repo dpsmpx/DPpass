@@ -55,3 +55,22 @@ func TestDiagnosticNativeTLSPlanDoesNotChangeLiveCounters(t *testing.T) {
         t.Fatal("diagnostic encoder accounting mixed with live counters")
     }
 }
+
+func TestStrictLocalTLSFixtureDoesNotUseReferenceFallback(t *testing.T) {
+    previous:=PlannerSocket()
+    t.Cleanup(func(){_ = SetPlannerSocket(previous)})
+    if err:=SetPlannerSocket(filepath.Join(t.TempDir(),"missing.sock"));err!=nil {t.Fatal(err)}
+    first:=tlsClientHelloFixture(t,"example.com")
+    before,fb:=diagnosticNativeTLSRecordStats()
+    live,liveFB:=NativeTLSRecordStats()
+    p,err:=PlanForLocalTLSFixture(first)
+    if err!=nil || !p.Applied || len(p.Rewrite)!=len(first)+5 {t.Fatal("strict native fixture",err)}
+    after,afterFB:=diagnosticNativeTLSRecordStats()
+    if after!=before+1 || afterFB!=fb {t.Fatal("strict fixture used reference")}
+    for _,bad:=range [][]byte{nil,first[:len(first)-1],append(append([]byte(nil),first...),0),tlsClientHelloFixture(t,"example.test")} {
+        if _,err:=PlanForLocalTLSFixture(bad);err==nil {t.Fatal("invalid fixture accepted")}
+    }
+    final,finalFB:=diagnosticNativeTLSRecordStats()
+    l,lf:=NativeTLSRecordStats()
+    if final!=after || finalFB!=afterFB || l!=live || lf!=liveFB {t.Fatal("invalid fixture or local diagnostics affected accounting")}
+}

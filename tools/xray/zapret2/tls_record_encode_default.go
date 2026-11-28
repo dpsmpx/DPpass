@@ -2,7 +2,12 @@
 
 package zapret2
 
-import "github.com/dpsmpx/dppass/tools/xray/localdpi"
+import (
+    "errors"
+    "github.com/dpsmpx/dppass/tools/xray/localdpi"
+)
+
+func strictNativeLocalTLSPlan(_ []byte) (Plan,error) {return Plan{},errors.New("native TLS fixture encoder not compiled")}
 
 func encodeTLSRecordSplit(first []byte, recordLen, split int, _ bool) ([]byte, int, bool) {
     return encodeTLSRecordSplitGo(first,recordLen,split)

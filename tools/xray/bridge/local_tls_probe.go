@@ -91,7 +91,7 @@ func probeLocalTLS(method,target string,timeout time.Duration) Zapret2HTTPSResul
     }
     var transport net.Conn=client
     if method!="plain" {
-        wrapped:=&desyncConn{TCPConn:client,mode:desyncMode{kind:mode},diagnostic:true,request:counters}
+        wrapped:=&desyncConn{TCPConn:client,mode:desyncMode{kind:mode},diagnostic:true,request:counters,localTLSFixture:true}
         defer wrapped.Close()
         transport=wrapped
     }

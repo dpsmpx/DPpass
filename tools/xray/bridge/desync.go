@@ -277,6 +277,7 @@ type desyncConn struct {
 	*net.TCPConn
 	mode  desyncMode
     diagnostic bool
+    localTLSFixture bool
     request *diagnosticRequestCounters
 	// Only the first complete ClientHello is eligible for a strategy. TLS
 	// writers may split that record across several Write calls; accumulate
@@ -569,7 +570,21 @@ func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
     }
     // Strategy decisions and offsets still come from the shared Go planner,
     // including Alpine over its app-private Unix socket.
-    plan, err := socketPlan(c.diagnostic,modeTag(c.mode), "tcp", b)
+    var plan zapret2.Plan
+    var err error
+    if c.localTLSFixture && c.mode.kind==desyncTLSRecordSplit {
+        // This flag is set only by probeLocalTLS. Require the actual socket
+        // endpoints to be loopback as a second, independent guard.
+        local,lok:=c.LocalAddr().(*net.TCPAddr)
+        remote,rok:=c.RemoteAddr().(*net.TCPAddr)
+        if !c.diagnostic || c.request==nil || !lok || !rok || !local.IP.IsLoopback() || !remote.IP.IsLoopback() {
+            c.plannerErr=errors.New("local TLS fixture outside diagnostic loopback")
+            return 0,c.plannerErr
+        }
+        plan,err=zapret2.PlanForLocalTLSFixture(b)
+    } else {
+        plan,err=socketPlan(c.diagnostic,modeTag(c.mode),"tcp",b)
+    }
     if err != nil {
         // Do not silently pass original TLS if the chosen Alpine daemon dies.
         c.plannerErr = err
@@ -577,6 +592,11 @@ func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
     }
     matched = tcpPlanMatchesSelection(selected, plan)
     if !plan.Applied {
+        if c.localTLSFixture && c.mode.kind==desyncTLSRecordSplit {
+            c.plannerErr=errors.New("local TLS fixture plan was not applied")
+            recordDesyncSkipped(c.diagnostic,c.request)
+            return 0,c.plannerErr
+        }
         // A TLS client may write an incomplete first record. Never modify
         // an incomplete TLS record or break a legitimate connection merely
         // because of its buffering. Reuse the existing first-byte TCP split

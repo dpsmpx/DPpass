@@ -25,3 +25,21 @@ func TestTaggedLocalHTTPFixtureUsesNativeWithSelectedPlanner(t *testing.T) {
     after,afterSkipped:=DesyncStats()
     if before!=after || skipped!=afterSkipped {t.Fatal("diagnostic modified live counters")}
 }
+
+func TestTaggedLocalTLSFixtureRequiresNativeWithoutPlanner(t *testing.T) {
+    prev:=zapret2.PlannerSocket()
+    if err:=zapret2.SetPlannerSocket(filepath.Join(t.TempDir(),"missing.sock"));err!=nil {t.Fatal(err)}
+    t.Cleanup(func(){_ = zapret2.SetPlannerSocket(prev)})
+    before,skipped:=DesyncStats()
+    for _,target:=range []string{"local_tls12","local_tls13"} {
+        r:=ProbeZapret2HTTPS("tlsrec-split",target,5*time.Second)
+        if r.Outcome!="local_tls_verified" || r.AppliedDelta!=1 || r.SkippedDelta!=0 {
+            t.Fatal("native TLS loopback fixture failed",target,r)
+        }
+        if r:=ProbeZapret2HTTPS("multisplit",target,5*time.Second);r.Outcome=="local_tls_verified" {
+            t.Fatal("unavailable selected planner silently replaced",target)
+        }
+    }
+    after,afterSkipped:=DesyncStats()
+    if before!=after || skipped!=afterSkipped {t.Fatal("diagnostic modified live counters")}
+}
