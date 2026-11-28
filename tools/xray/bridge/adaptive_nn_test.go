@@ -6,6 +6,7 @@ import (
     "bytes"
     "encoding/json"
     "math"
+    "strconv"
     "strings"
     "testing"
 )
@@ -420,4 +421,42 @@ func TestStrategyV5IndependentContextHeads(t *testing.T) {
     if len(parsed.Sparse)>13 {t.Fatal("sparse budget exceeded")}
     for i,count:=range parsed.ContextObservations {if count!=3 {t.Fatal("missing head observations",i,count)}}
     if _,err:=parseAdaptiveNN(bytes.Replace(learned,[]byte("strategy-mlp-v5"),[]byte("strategy-mlp-v4"),1));err==nil {t.Fatal("old format accepted")}
+}
+
+// Full contexts remain trainable; neither an active weight nor an unrelated
+// context may be evicted. Tie resolution is independent of map iteration.
+func TestStrategySparseRenewalAtCapacity(t *testing.T) {
+    w,err:=parseAdaptiveNN(generatedTestModel(t,32))
+    if err!=nil {t.Fatal(err)}
+    w.Parameters+=10000
+    quota:=nnContextSlots(0,adaptiveNNMaxSparse)
+    for i:=int64(0);i<quota;i++ {
+        w.Sparse[strconv.FormatInt(i*adaptiveNNContexts,10)]=0.5
+    }
+    w.Sparse["0"]=0.01
+    w.Sparse["9"]=-0.01
+    w.Sparse["18"]=0.001
+    w.Sparse["1"]=0.001
+    novel:=strconv.FormatInt(quota*adaptiveNNContexts,10)
+    nnLearnSparse(w,0,[]string{"18",novel,novel,"1"},0.1)
+    if len(w.Sparse)!=int(quota)+1 || hasSparseKey(w.Sparse,"0") ||
+        w.Sparse["9"]!=-0.01 || math.Abs(w.Sparse["18"]-0.101)>1e-12 || w.Sparse["1"]!=0.001 ||
+        w.Sparse[novel]!=0.1 {t.Fatal("wrong context renewal")}
+    raw,err:=json.Marshal(w)
+    if err!=nil {t.Fatal(err)}
+    if _,err:=parseAdaptiveNN(raw);err!=nil {t.Fatal("renewed snapshot invalid",err)}
+}
+
+func TestStrategySparseRenewalTinyQuota(t *testing.T) {
+    w,err:=parseAdaptiveNN(generatedTestModel(t,32))
+    if err!=nil {t.Fatal(err)}
+    w.Parameters+=10
+    w.Sparse["0"]=0.2
+    w.Sparse["1"]=0.3
+    nnLearnSparse(w,0,[]string{"0","9"},0.1)
+    if len(w.Sparse)!=3 || w.Sparse["9"]!=0.1 {t.Fatal("tiny quota lost new feature")}
+    nnLearnSparse(w,1,[]string{"1","10","-1"},0.1)
+    if len(w.Sparse)!=3 || math.Abs(w.Sparse["1"]-0.4)>1e-12 {t.Fatal("context outside capacity changed")}
+    nnLearnSparse(w,0,[]string{"0","9"},0.1)
+    if len(w.Sparse)!=3 {t.Fatal("duplicate weight count")}
 }

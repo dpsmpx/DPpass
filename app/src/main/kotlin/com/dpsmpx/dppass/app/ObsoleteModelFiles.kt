@@ -48,7 +48,8 @@ internal object ObsoleteModelFiles {
                 // This exact filename is retired; do not delete a current
                 // or unknown-format model that happens to use that name.
                 val format = ModelJsonPreflight.format(raw, MAX_BYTES) ?: return null
-                if (!Regex("dppass-strategy-mlp-v[1-4](:[A-Za-z0-9=,;_-]+)?").matches(format)) return null
+                if (!Regex("dppass-strategy-mlp-v[1-4](:[A-Za-z0-9=,;_-]+)?").matches(format) &&
+                    format !in setOf("dppass-zapret2-mlp-v2", "dppass-zapret2-mlp-v3")) return null
                 Reason.RETIRED_STRATEGY
             }
             name == "server-v1.json" -> {

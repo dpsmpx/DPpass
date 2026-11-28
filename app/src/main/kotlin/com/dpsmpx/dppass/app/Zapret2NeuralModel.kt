@@ -214,6 +214,38 @@ object Zapret2NeuralModel {
             ModelSnapshotFile.readBounded(file(context, kind), MAX_BYTES)?.takeIf { verify(it, kind) }
         }
 
+    internal data class StrategyStatus(
+        val parameters: Long, val dense: Long, val bytes: Int, val observations: Long,
+        val hidden: Int, val deep: Int, val contexts: List<ContextStatus>, val html: List<Long>,
+    )
+    internal data class ContextStatus(val observations: Long, val sparse: Int, val quota: Long)
+
+    /** One consistent durable snapshot, not live counters or a network quality claim. */
+    internal fun strategyStatus(context: Context): StrategyStatus? =
+        readVerified(context, Kind.STRATEGY)?.let(::strategyStatus)
+
+    internal fun strategyStatus(raw: ByteArray): StrategyStatus? {
+        if (!verify(raw, Kind.STRATEGY)) return null
+        return runCatching {
+            val model = JSONObject(raw.decodeToString())
+            val hidden = model.getJSONArray("hidden").length()
+            val deep = model.getJSONArray("deep_hidden").length()
+            val dense = denseCount(Kind.STRATEGY, hidden, deep)
+            val budget = model.getLong("parameters")
+            val cap = minOf(budget - dense, MAX_SPARSE_ENTRIES.toLong())
+            val count = Kind.STRATEGY.contexts
+            val occupied = IntArray(count)
+            for (key in model.getJSONObject("sparse").keys()) occupied[(key.toLong() % count).toInt()]++
+            val observed = model.getJSONArray("context_observations")
+            val html = model.optJSONArray("verified_html_observations")
+            StrategyStatus(budget, dense, raw.size, model.optLong("observations", 0), hidden, deep,
+                List(count) { i ->
+                    val quota = if (cap <= i) 0L else 1L + (cap - 1L - i) / count
+                    ContextStatus(observed.getLong(i), occupied[i], quota)
+                }, List(3) { i -> html?.getLong(i) ?: 0L })
+        }.getOrNull()
+    }
+
     fun size(context: Context, kind: Kind = Kind.STRATEGY): Int? =
         readVerified(context, kind)?.let { raw ->
             runCatching { JSONObject(raw.decodeToString()).getJSONArray("hidden").length() }.getOrNull()
