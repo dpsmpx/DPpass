@@ -34,10 +34,11 @@ object ServerAutoModel {
     // A connection attempt needs its *pre-outcome* features to avoid
     // leaking the answer into the training sample. Kept only in RAM.
     private data class Pending(val features: DoubleArray, val scenario: Int, val sparseFeatures: Map<Long, Double>)
-    private class Training(
-        val features: Map<String, Pending>, val hidden: Int, val digest: String, val observations: List<Long>,
+    private class Training(val features: Map<String, Pending>, val hidden: Int, val digest: String)
+    private class Batch(
+        val original: ConnectionPlan, val network: NetworkType,
+        val observations: List<Long>?, val training: Training?,
     )
-    private class Batch(val original: ConnectionPlan, val network: NetworkType, val training: Training?)
     private val learning = ServerLearningWindow<ConnectionPlan, Batch>()
 
     internal fun beginLearning(): Any = learning.begin()
@@ -136,14 +137,15 @@ object ServerAutoModel {
      * and adjacent swaps; backoff failures retain planner placement.
      */
     internal fun rerank(context: Context, plan: ConnectionPlan, core: DPpassCore,
-               network: NetworkType, now: Long, token: Any): ConnectionPlan {
-        val snapshot = Zapret2NeuralModel.readVerified(context, Zapret2NeuralModel.Kind.SERVER)
+               network: NetworkType, now: Long, token: Any, mode: ServerAutoMode): ConnectionPlan {
+        val plannerOnly = mode == ServerAutoMode.PLANNER
+        val snapshot = if (plannerOnly) null else Zapret2NeuralModel.readVerified(context, Zapret2NeuralModel.Kind.SERVER)
         if (snapshot == null || plan.attempts.isEmpty()) {
             // No server identities, IP addresses or subscription URLs in logs.
-            core.log.info("server_auto_model", "installed" to (snapshot != null),
+            core.log.info("server_auto_model", "mode" to mode, "installed" to if (plannerOnly) null else (snapshot != null),
                 "candidates" to plan.attempts.size, "reordered" to 0)
             if (plan.attempts.isEmpty()) finishLearning(token)
-            else learning.publish(token, plan, Batch(plan, network, null))
+            else learning.publish(token, plan, Batch(plan, network, null, null))
             return plan
         }
         return runCatching {
@@ -164,21 +166,23 @@ object ServerAutoModel {
                 Triple(attempt, Pending(feat, scenario, terms),
                     forward(model, feat, scenario, sparseLogit).first)
             }
-            // Capture features before any outcomes, even for a single server.
-            val training = Training(scored.associate { it.first.profile.id.value to it.second },
-                model.getJSONArray("hidden").length(), digest(snapshot), contextObservations)
+            // Обучение использует признаки до исхода попытки, включая план из одного сервера.
+            val training = if (mode == ServerAutoMode.ADAPTIVE) {
+                Training(scored.associate { it.first.profile.id.value to it.second },
+                    model.getJSONArray("hidden").length(), digest(snapshot))
+            } else null
             val ordered = ServerAutoOrdering.rank(plan, scored.map { entry ->
                 ServerAutoScore(entry.third, contextObservations[entry.second.scenario])
             }, core.health::of, core.health.lastGood())
             val reordered = ordered.attempts.indices.count { i ->
                 ordered.attempts[i].profile.id != plan.attempts[i].profile.id
             }
-            core.log.info("server_auto_model", "installed" to true,
+            core.log.info("server_auto_model", "mode" to mode, "installed" to true,
                 "hidden" to model.getJSONArray("hidden").length(),
                 "observations" to observations,
                 "candidates" to plan.attempts.size,
                 "reordered" to reordered)
-            if (learning.publish(token, ordered, Batch(plan, network, training))) ordered else plan
+            if (learning.publish(token, ordered, Batch(plan, network, contextObservations, training))) ordered else plan
         }.getOrElse {
             finishLearning(token)
             plan
@@ -195,7 +199,7 @@ object ServerAutoModel {
         val training = batch.training
         runCatching {
             for (outcome in serverAutoOutcomes(batch.original, report.plan, report.attempts, batch.network)) {
-                outcome.log(core.log, training?.observations?.get(outcome.context.ordinal))
+                outcome.log(core.log, batch.observations?.get(outcome.context.ordinal))
             }
         }.onFailure {
             core.log.warning("server_auto_outcome_failed")

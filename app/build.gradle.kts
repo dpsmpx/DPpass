@@ -393,6 +393,7 @@ dependencies {
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
     if (robolectric) {
+        testImplementation(testFixtures(project(":connection")))
         testImplementation(libs.robolectric)
         testImplementation(libs.junit4)
         testRuntimeOnly(libs.junit.vintage.engine)

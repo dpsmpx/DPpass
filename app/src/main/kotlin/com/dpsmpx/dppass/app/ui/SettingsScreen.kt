@@ -10,6 +10,7 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import com.dpsmpx.dppass.R
+import com.dpsmpx.dppass.app.ServerAutoMode
 import com.dpsmpx.dppass.app.TunnelStatus
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.Zapret2NeuralModel
@@ -387,6 +388,27 @@ class SettingsScreen(host: Host) : Screen(host) {
         body.addView(Ui.section(context, context.getString(R.string.model_server_section)))
         body.addView(Ui.listCard(context).apply {
             addView(modelRow(Zapret2NeuralModel.Kind.SERVER), Ui.matchWidth())
+            addView(Ui.divider(context))
+            val options = ServerAutoMode.entries.map {
+                when (it) {
+                    ServerAutoMode.ADAPTIVE -> R.string.model_server_mode_adaptive
+                    ServerAutoMode.PLANNER -> R.string.model_server_mode_planner
+                    ServerAutoMode.FROZEN -> R.string.model_server_mode_frozen
+                }
+            }
+            val mode = host.prefs.serverAutoMode
+            addView(
+                choiceRow(R.drawable.ic_route, R.string.model_server_mode_title, options, mode.ordinal,
+                    context.getString(R.string.model_server_mode_summary, context.getString(options[mode.ordinal])),
+                ) { index ->
+                    val selected = ServerAutoMode.entries[index]
+                    if (host.prefs.serverAutoMode != selected) {
+                        host.prefs.serverAutoMode = selected
+                        host.changed()
+                    }
+                },
+                Ui.matchWidth(),
+            )
         }, Ui.matchWidth())
         body.addView(Ui.text(context, R.style.Text_DPpass_Caption,
             context.getString(R.string.zapret2_experimental_note)))

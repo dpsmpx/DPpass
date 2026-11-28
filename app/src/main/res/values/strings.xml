@@ -875,6 +875,11 @@
     <string name="model_server_section">Local server selection model</string>
     <string name="model_strategy_title">Generate local strategy model</string>
     <string name="model_server_title">Generate automatic server model</string>
+    <string name="model_server_mode_title">Automatic server selection mode</string>
+    <string name="model_server_mode_adaptive">V4 with learning</string>
+    <string name="model_server_mode_planner">Built-in planner</string>
+    <string name="model_server_mode_frozen">V4 with fixed weights</string>
+    <string name="model_server_mode_summary">%1$s · applies on the next connection</string>
     <string name="model_not_generated">Not generated; built-in adaptive algorithm remains active.</string>
     <string name="model_installed_size">Local model created: %1$d hidden neurons. Tap to resize or remove.</string>
     <string name="model_size_choice">%1$d hidden neurons</string>

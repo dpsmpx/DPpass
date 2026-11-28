@@ -75,6 +75,11 @@ class AppPrefs(context: Context) {
             prefs.edit().apply { if (value == null) remove(SELECTED) else putString(SELECTED, value.value) }.apply()
         }
 
+    /** Применяется к очередному плану автоматического подключения. */
+    internal var serverAutoMode: ServerAutoMode
+        get() = ServerAutoMode.fromPreference(prefs.getString(SERVER_AUTO_MODE, null))
+        set(value) { prefs.edit().putString(SERVER_AUTO_MODE, value.preferenceValue).apply() }
+
     /**
      * Устройство раздачи, выбранное пользователем (D-55): id из списка
      * устройств; null — подключение к серверам подписки, как обычно.
@@ -199,6 +204,7 @@ class AppPrefs(context: Context) {
     private companion object {
         const val FILE = "ui"
         const val SELECTED = "selected_server"
+        const val SERVER_AUTO_MODE = "server_auto_mode"
         const val ZAPRET2_BACKEND = "zapret2_backend"
         const val ZAPRET2_HOSTLIST = "zapret2_hostlist"
         const val ZAPRET2_ROOT_QUIC = "zapret2_root_quic"

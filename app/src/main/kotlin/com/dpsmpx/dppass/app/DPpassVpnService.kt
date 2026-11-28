@@ -462,10 +462,8 @@ class DPpassVpnService : VpnService() {
         }
         // Автопереключение выключено (D-113): сервер, который сессия держит, не меняется сам — только он и пробуется.
         val strictId = if (relay == null) pinTarget(core) else null
-        val preferred = strictId ?: AppPrefs(this).selectedServer
-        // Only the actual "Automatically" server selection may use the
-        // optional model; explicit pins/relays are never overridden.
-        val autoProviderModel = relay == null && preferred == null
+        val preferred = strictId ?: prefs.selectedServer
+        val autoProviderSelection = relay == null && preferred == null
         val serverAutoNetwork = NetworkCheck.underlying(this)
         val serverAutoHandle = serverAutoNetwork.network?.networkHandle
         val networkForServerAuto = serverAutoNetwork.type
@@ -479,7 +477,8 @@ class DPpassVpnService : VpnService() {
         val shareSettings = core.share.current().also { r -> r.diagnostics.forEach(core.log::diagnostic) }.valueOrNull()
         val share = if (shareSettings?.enabled == true) shareSettings.spec(tetherForConnect()) else null
         val job = currentCoroutineContext().job
-        val serverLearningToken = if (autoProviderModel && serverAutoHandle != null)
+        val serverAutoMode = prefs.serverAutoMode
+        val serverLearningToken = if (autoProviderSelection && serverAutoHandle != null)
             ServerAutoModel.beginLearning() else null
         val report = try {
             val tun = handle?.toTunInput()?.let { base ->
@@ -506,7 +505,7 @@ class DPpassVpnService : VpnService() {
                             if (current.network?.networkHandle == serverAutoHandle &&
                                 current.type == networkForServerAuto) {
                                 ServerAutoModel.rerank(this, plan, core, networkForServerAuto,
-                                    core.clock.nowMillis(), token)
+                                    core.clock.nowMillis(), token, serverAutoMode)
                             } else plan
                         }
                     }

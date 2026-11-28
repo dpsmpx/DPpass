@@ -904,6 +904,11 @@
     <string name="model_server_section">Локальная модель выбора сервера</string>
     <string name="model_strategy_title">Создать модель стратегий</string>
     <string name="model_server_title">Создать модель автовыбора сервера</string>
+    <string name="model_server_mode_title">Режим автовыбора сервера</string>
+    <string name="model_server_mode_adaptive">V4 с обучением</string>
+    <string name="model_server_mode_planner">Штатный план</string>
+    <string name="model_server_mode_frozen">V4 с фиксированными весами</string>
+    <string name="model_server_mode_summary">%1$s · со следующего подключения</string>
     <string name="model_not_generated">Не создана. Работает встроенный автоматический подбор.</string>
     <string name="model_installed_size">Создана локально: %1$d скрытых нейронов. Нажмите для изменения размера или удаления.</string>
     <string name="model_size_choice">%1$d скрытых нейронов</string>
