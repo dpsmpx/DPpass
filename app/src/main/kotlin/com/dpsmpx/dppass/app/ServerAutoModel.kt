@@ -34,7 +34,10 @@ object ServerAutoModel {
     // A connection attempt needs its *pre-outcome* features to avoid
     // leaking the answer into the training sample. Kept only in RAM.
     private data class Pending(val features: DoubleArray, val scenario: Int, val sparseFeatures: Map<Long, Double>)
-    private class Batch(val features: Map<String, Pending>, val hidden: Int, val digest: String)
+    private class Training(
+        val features: Map<String, Pending>, val hidden: Int, val digest: String, val observations: List<Long>,
+    )
+    private class Batch(val original: ConnectionPlan, val network: NetworkType, val training: Training?)
     private val learning = ServerLearningWindow<ConnectionPlan, Batch>()
 
     internal fun beginLearning(): Any = learning.begin()
@@ -61,16 +64,6 @@ object ServerAutoModel {
             if (network == NetworkType.MOBILE) 1.0 else 0.0,
             1.0 / (rank + 1.0),
         )
-    }
-
-    private fun scenario(profile: com.dpsmpx.dppass.config.ServerProfile,
-                         network: NetworkType): Int {
-        val n = when (network) {
-            NetworkType.MOBILE -> 0
-            NetworkType.WIFI -> 1
-            else -> 2
-        }
-        return n * 2 + if (profile.transportClass == TransportClass.UDP_QUIC) 1 else 0
     }
 
     private fun firstHidden(model: JSONObject, x: DoubleArray): DoubleArray {
@@ -149,7 +142,8 @@ object ServerAutoModel {
             // No server identities, IP addresses or subscription URLs in logs.
             core.log.info("server_auto_model", "installed" to (snapshot != null),
                 "candidates" to plan.attempts.size, "reordered" to 0)
-            finishLearning(token)
+            if (plan.attempts.isEmpty()) finishLearning(token)
+            else learning.publish(token, plan, Batch(plan, network, null))
             return plan
         }
         return runCatching {
@@ -158,9 +152,11 @@ object ServerAutoModel {
             val sparse = model.getJSONObject("sparse")
             val capacity = sparseCapacity(model)
             val seed = model.getString("seed")
+            val counts = model.getJSONArray("context_observations")
+            val contextObservations = List(counts.length()) { counts.getLong(it) }
             val scored = plan.attempts.mapIndexed { i, attempt ->
                 val feat = features(core, attempt.profile, i, network, now)
-                val scenario = scenario(attempt.profile, network)
+                val scenario = ServerAutoContext.of(network, attempt.profile.transportClass).ordinal
                 val terms = sparseFeatures(seed, feat, scenario, attempt.profile.id.value, capacity)
                 val sparseLogit = terms.entries.sumOf { (index, feature) ->
                     sparse.optDouble(index.toString(), 0.0) * feature
@@ -169,11 +165,10 @@ object ServerAutoModel {
                     forward(model, feat, scenario, sparseLogit).first)
             }
             // Capture features before any outcomes, even for a single server.
-            val batch = Batch(scored.associate { it.first.profile.id.value to it.second },
-                model.getJSONArray("hidden").length(), digest(snapshot))
+            val training = Training(scored.associate { it.first.profile.id.value to it.second },
+                model.getJSONArray("hidden").length(), digest(snapshot), contextObservations)
             val ordered = ServerAutoOrdering.rank(plan, scored.map { entry ->
-                ServerAutoScore(entry.third,
-                    model.getJSONArray("context_observations").getLong(entry.second.scenario))
+                ServerAutoScore(entry.third, contextObservations[entry.second.scenario])
             }, core.health::of, core.health.lastGood())
             val reordered = ordered.attempts.indices.count { i ->
                 ordered.attempts[i].profile.id != plan.attempts[i].profile.id
@@ -183,7 +178,7 @@ object ServerAutoModel {
                 "observations" to observations,
                 "candidates" to plan.attempts.size,
                 "reordered" to reordered)
-            if (learning.publish(token, ordered, batch)) ordered else plan
+            if (learning.publish(token, ordered, Batch(plan, network, training))) ordered else plan
         }.getOrElse {
             finishLearning(token)
             plan
@@ -197,6 +192,18 @@ object ServerAutoModel {
             core.log.info("server_auto_learning", "trained" to 0, "persisted" to false)
             return
         }
+        val training = batch.training
+        runCatching {
+            for (outcome in serverAutoOutcomes(batch.original, report.plan, report.attempts, batch.network)) {
+                outcome.log(core.log, training?.observations?.get(outcome.context.ordinal))
+            }
+        }.onFailure {
+            core.log.warning("server_auto_outcome_failed")
+        }
+        if (training == null) {
+            core.log.info("server_auto_learning", "trained" to 0, "persisted" to false)
+            return
+        }
         val raw = Zapret2NeuralModel.readVerified(context, Zapret2NeuralModel.Kind.SERVER)
         if (raw == null) {
             core.log.warning("server_auto_learning_failed", "reason" to Safe("model_not_found"))
@@ -204,14 +211,14 @@ object ServerAutoModel {
         }
         // A user may regenerate another model of the same width while
         // connecting. Never train stale features into replacement weights.
-        if (digest(raw) != batch.digest) {
+        if (digest(raw) != training.digest) {
             core.log.info("server_auto_learning", "trained" to 0,
                 "persisted" to false, "replaced" to true)
             return
         }
         runCatching {
             val model = JSONObject(raw.decodeToString())
-            if (model.getJSONArray("hidden").length() != batch.hidden) {
+            if (model.getJSONArray("hidden").length() != training.hidden) {
                 core.log.warning("server_auto_learning_failed", "reason" to Safe("model_width_changed"))
                 return@runCatching
             }
@@ -232,15 +239,15 @@ object ServerAutoModel {
             val seen = mutableSetOf<String>()
             for (attempt in report.attempts) {
                 val profileId = attempt.profileId.value
-                val pendingAttempt = batch.features[profileId] ?: continue
+                val pendingAttempt = training.features[profileId] ?: continue
                 val x = pendingAttempt.features
                 val scenario = pendingAttempt.scenario
                 // Only explicitly measured health outcomes are admitted.
                 // Engine startup/configuration errors and unchecked success
                 // must never become server-model labels.
-                val label = when (attempt.serverLearningEvidence) {
-                    ServerLearningEvidence.VERIFIED_SUCCESS -> if (attempt.ok && attempt.failure == null) 1.0 else continue
-                    ServerLearningEvidence.MEASURED_FAILURE -> if (!attempt.ok && attempt.failure != null) 0.0 else continue
+                val label = when (attempt.measuredServerEvidence()) {
+                    ServerLearningEvidence.VERIFIED_SUCCESS -> 1.0
+                    ServerLearningEvidence.MEASURED_FAILURE -> 0.0
                     ServerLearningEvidence.NONE -> continue
                 }
                 if (!seen.add(profileId)) continue
