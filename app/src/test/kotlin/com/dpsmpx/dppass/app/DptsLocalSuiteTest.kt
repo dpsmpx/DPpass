@@ -75,6 +75,7 @@ class DptsLocalSuiteTest {
         assertEquals(9, suite.cases.size)
         for ((id, local) in listOf("local_http_hostcase" to DptsLocalSuite.HTTP,
             "local_http_combined" to DptsLocalSuite.HTTP_COMBINED,
+            "local_tls_chain" to DptsLocalSuite.TLS_CHAIN,
             "local_tls" to DptsLocalSuite.TLS, "local_acceptance" to suite)) {
             val plan = DptsScript.compile("dpts 1\nhost example.com\nlearn off\nsuite $id")
             assertEquals(local.budgetMs, plan.budgetMs)

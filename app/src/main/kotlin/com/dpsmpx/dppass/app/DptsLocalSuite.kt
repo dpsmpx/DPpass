@@ -34,6 +34,11 @@ internal enum class DptsLocalSuite(
             DptsLocalCase("TLS $version / $it", it, target, "local_tls_verified")
         }
     }),
+    TLS_CHAIN("DPpass local TLS chain", listOf("1.2" to "local_tls12", "1.3" to "local_tls13").flatMap { (version, target) ->
+        listOf("plain", "tlsrec-chain").map {
+            DptsLocalCase("TLS $version / $it", it, target, "local_tls_verified")
+        }
+    }),
     ACCEPTANCE("DPpass local HTTP/TLS", HTTP.cases + TLS.cases);
 
     companion object {
@@ -48,6 +53,7 @@ internal enum class DptsLocalSuite(
             "local_http_hostcase" -> HTTP
             "local_http_combined" -> HTTP_COMBINED
             "local_tls" -> TLS
+            "local_tls_chain" -> TLS_CHAIN
             "local_acceptance" -> ACCEPTANCE
             else -> null
         }
