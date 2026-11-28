@@ -22,7 +22,8 @@ class DptsLearningTest {
             httpStatus = if (good) candidateHTTP else 0,
             bodyBytes = if (good) 256 else 0,
             elapsedMillis = if (good) 260 else 5000,
-            appliedDelta = 0, skippedDelta = 0, dnsFingerprint = "abcdef12",
+            appliedDelta = if (good && spec.method != "plain") 1 else 0,
+            skippedDelta = 0, dnsFingerprint = "abcdef12",
             dnsAnswers = 8, ipIndex = spec.ipIndex, protocol = spec.wireProtocol,
             tlsStage = if (good) "tls_verified" else "clienthello_sent",
             alpn = if (!good) "-" else if (spec.protocol == "h2") "h2" else "http/1.1"
@@ -170,6 +171,70 @@ class DptsLearningTest {
             }
             assertEquals(listOf("tlsrec-split"), DptsLearning.confirmedWinners(plan, changed))
         }
+    }
+
+    @Test fun unequalControlAndCandidateTimeoutsNeverProvideTrainingProof() {
+        val plan = DptsScript.compile(
+            "dpts 1\nhost www.youtube.com\nlearn observe\n" +
+                "https methods=plain ips=2 attempts=3 timeout_ms=1000\n" +
+                "https methods=tlsrec-split ips=2 attempts=3 timeout_ms=12000")
+        val rows = observations(plan)
+        val evidence = DptsLearning.analyze(plan, rows)
+        assertEquals(6, evidence.htmlVerified)
+        assertEquals(2, evidence.timeoutMismatchPairs)
+        assertEquals("incomparable_timeout_budgets", evidence.reason)
+        assertTrue(evidence.addressProofs.isEmpty())
+        assertTrue(evidence.winners.isEmpty())
+        assertTrue(evidence.report().contains("timeout_mismatch_pairs=2"))
+
+        val ordinary = DptsScript.compile(source)
+        val probes = ordinary.probes.map {
+            if (it.ipIndex == 0 && it.attempt == 2 && it.method != "plain") it.copy(timeoutMs = 6000) else it
+        }
+        val mixed = ordinary.copy(probes = probes, budgetMs = probes.sumOf { it.timeoutMs.toLong() })
+        val partial = DptsLearning.analyze(mixed, observations(mixed))
+        assertEquals(1, partial.timeoutMismatchPairs)
+        assertEquals(listOf(DptsLearning.AddressProof(1, "h1", "tlsrec-split")), partial.addressProofs)
+        assertTrue(partial.winners.isEmpty())
+    }
+
+    @Test fun absentSkippedOrAmbiguousMethodApplicationRemainsReportOnly() {
+        val plan = DptsScript.compile(source)
+        val rows = observations(plan)
+        for ((applied, skipped) in listOf(0L to 0L, 0L to 1L, 1L to 1L, 2L to 0L)) {
+            val changed = rows.map { row ->
+                if (row.strategy == "plain") row
+                else row.copy(result = row.result.copy(appliedDelta = applied, skippedDelta = skipped))
+            }
+            val evidence = DptsLearning.analyze(plan, changed)
+            assertEquals(6, evidence.htmlVerified)
+            assertEquals(2, evidence.actionUnverifiedPairs)
+            assertEquals("method_application_unverified", evidence.reason)
+            assertTrue(evidence.winners.isEmpty())
+        }
+        val contaminatedControl = rows.map { row ->
+            if (row.strategy == "plain") row.copy(result = row.result.copy(appliedDelta = 1)) else row
+        }
+        assertEquals(2, DptsLearning.analyze(plan, contaminatedControl).actionUnverifiedPairs)
+        assertTrue(DptsLearning.confirmedWinners(plan, contaminatedControl).isEmpty())
+    }
+
+    @Test fun successfulReplyOutsideItsDeclaredBudgetCannotTrain() {
+        val plan = DptsScript.compile(source)
+        val rows = observations(plan)
+        for (elapsed in listOf(-1L, 5001L, Long.MAX_VALUE)) {
+            val changed = rows.map { row ->
+                if (row.strategy == "plain") row else row.copy(result = row.result.copy(elapsedMillis = elapsed))
+            }
+            val evidence = DptsLearning.analyze(plan, changed)
+            assertEquals(2, evidence.elapsedInvalidPairs)
+            assertEquals("invalid_elapsed_evidence", evidence.reason)
+            assertTrue(evidence.winners.isEmpty())
+        }
+        val boundary = rows.map { row ->
+            if (row.strategy == "plain") row else row.copy(result = row.result.copy(elapsedMillis = 5000))
+        }
+        assertEquals(listOf("tlsrec-split"), DptsLearning.confirmedWinners(plan, boundary))
     }
 
     @Test fun unrelatedHostEvidenceCannotBeRelabelledAsVerifiedYoutubeHtml() {

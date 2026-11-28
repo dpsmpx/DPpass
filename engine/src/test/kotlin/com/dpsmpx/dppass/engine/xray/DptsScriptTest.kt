@@ -79,6 +79,7 @@ class DptsScriptTest {
         }
         assertTrue(changedCount.contains("content_verified=0/1; matched=0/1"))
         assertTrue(home.contains("complete_evidence=true"))
+        assertTrue(home.contains("elapsed_ms=10 timeout_ms=5000 applied_delta=0 skipped_delta=0"))
     }
 
     @Test fun repeatedNativeAttemptIdentityIsRejectedAtSecondStatement() {
