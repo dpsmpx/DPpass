@@ -62,21 +62,23 @@ internal object ObsoleteModelFiles {
         return Entry(name, after.size(), reason, digest)
     }
 
-    fun scan(directory: File): List<Entry>? = try {
-        val root = directory.toPath()
-        if (Files.notExists(root, LinkOption.NOFOLLOW_LINKS)) emptyList()
-        else if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) null
-        else Files.newDirectoryStream(root).use { paths ->
-            val result = mutableListOf<Entry>()
-            var candidates = 0
-            for (path in paths) {
-                if (!candidate(path.fileName.toString())) continue
-                if (++candidates > MAX_FILES) return null
-                entry(path)?.let(result::add)
+    fun scan(directory: File): List<Entry>? {
+        return try {
+            val root = directory.toPath()
+            if (Files.notExists(root, LinkOption.NOFOLLOW_LINKS)) emptyList()
+            else if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) null
+            else Files.newDirectoryStream(root).use { paths ->
+                val result = mutableListOf<Entry>()
+                var candidates = 0
+                for (path in paths) {
+                    if (!candidate(path.fileName.toString())) continue
+                    if (++candidates > MAX_FILES) return null
+                    entry(path)?.let(result::add)
+                }
+                result.sortedBy { it.name }
             }
-            result.sortedBy { it.name }
-        }
-    } catch (_: Exception) { null }
+        } catch (_: Exception) { null }
+    }
 
     fun clean(directory: File, expected: List<Entry>): Result {
         val current = scan(directory)
