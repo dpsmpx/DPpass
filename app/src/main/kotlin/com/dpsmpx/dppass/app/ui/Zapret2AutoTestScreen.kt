@@ -321,6 +321,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             "sni_control" -> startSameIpSniControl()
             "tls_versions" -> startTLSVersionControl()
             "local_http_hostcase" -> startLocalHttpHostCase()
+            "local_http_combined" -> startLocalSuite(DptsLocalSuite.HTTP_COMBINED)
             "local_tls" -> startLocalTLS()
             "local_acceptance" -> startLocalSuite(DptsLocalSuite.ACCEPTANCE)
             else -> {

@@ -38,3 +38,11 @@ func HTTPHostOWSTab(first []byte) ([]byte,bool) {
     for i:=start;i<field.valueStart;i++ {out[i]='\t'}
     return out,true
 }
+
+// HTTPHostCombined composes the two same-length transformations atomically.
+// It refuses a request if either operation is inapplicable.
+func HTTPHostCombined(first []byte) ([]byte,bool) {
+    named,ok:=HTTPHostNameCase(first)
+    if !ok {return nil,false}
+    return HTTPHostOWSTab(named)
+}

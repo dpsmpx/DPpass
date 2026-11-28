@@ -91,6 +91,7 @@ object DptsScript {
         "sni_control" to Zapret2SiteSearch.YOUTUBE_API_HOST,
         "tls_versions" to Zapret2SiteSearch.YOUTUBE_API_HOST,
         "local_http_hostcase" to "example.com",
+        "local_http_combined" to "example.com",
         "local_tls" to "example.com",
         "local_acceptance" to "example.com",
     )
@@ -181,7 +182,7 @@ object DptsScript {
                     val fixedHost = suiteHosts[id]
                     if (fixedHost != null && currentHost != fixedHost)
                         throw DptsCompileException(lineNo, "this suite requires $fixedHost")
-                    if (id in setOf("local_http_hostcase", "local_tls", "local_acceptance") && observe)
+                    if (id in setOf("local_http_hostcase", "local_http_combined", "local_tls", "local_acceptance") && observe)
                         throw DptsCompileException(lineNo, "local self-test cannot provide learning evidence")
                     suite = id
                 }
@@ -297,6 +298,7 @@ object DptsScript {
             throw DptsCompileException(1, "no probes declared")
         return DptsPlan(name, host, probes, when (suite) {
             "local_http_hostcase" -> 15000L
+            "local_http_combined" -> 10000L
             "local_tls" -> 30000L
             "local_acceptance" -> 45000L
             else -> budget
@@ -540,6 +542,13 @@ object DptsPresets {
             host example.com
             learn off
             suite local_http_hostcase
+        """.trimIndent(),
+        "HTTP · составной метод Host" to """
+            dpts 1
+            name Combined local HTTP Host operation
+            host example.com
+            learn off
+            suite local_http_combined
         """.trimIndent(),
         "TLS · локальная проверка рукопожатия" to """
             dpts 1

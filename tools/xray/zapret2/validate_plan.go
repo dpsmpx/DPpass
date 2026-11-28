@@ -47,6 +47,13 @@ func validatePlan(tag,network string,first []byte,p Plan) error {
         }
         return nil
     }
+    if mode.Kind==HTTPHostCombined {
+        expected,ok:=localdpi.HTTPHostCombined(first)
+        if !ok || len(p.Fake)!=0 || !bytes.Equal(expected,p.Rewrite) {
+            return errors.New("invalid combined HTTP Host rewrite")
+        }
+        return nil
+    }
     if mode.Kind==HTTPHostOWS {
         expected,ok:=localdpi.HTTPHostOWSTab(first)
         if !ok || len(p.Fake)!=0 || !bytes.Equal(expected,p.Rewrite) {
@@ -94,6 +101,9 @@ func expectedPlanAction(mode Mode,network string,first []byte) (int,bool) {
     case MultiSplit:
         a,_,ok:=multiSplitPositions(first)
         return a,ok
+    case HTTPHostCombined:
+        _,ok:=localdpi.HTTPHostCombined(first)
+        return 0,ok
     case HTTPHostOWS:
         _,ok:=localdpi.HTTPHostOWSTab(first)
         return 0,ok

@@ -53,6 +53,7 @@ func TestLocalDiagnosticsThroughSelectedPlannerIPC(t *testing.T) {
         {"local_http_hostcase","plain","local_http_verified"},
         {"local_http_hostcase","http-hostcase","local_http_verified"},
         {"local_http_hostcase","http-hostows","local_http_verified"},
+        {"local_http_hostcase","http-host-combined","local_http_verified"},
         {"local_tls12","plain","local_tls_verified"},
         {"local_tls13","plain","local_tls_verified"},
         {"local_tls12","multisplit","local_tls_verified"},
@@ -70,6 +71,7 @@ func TestLocalDiagnosticsThroughSelectedPlannerIPC(t *testing.T) {
     mu.Lock()
     defer mu.Unlock()
     if calls[zapret2.TagPrefix+"http-hostows"]!=1 ||
+        calls[zapret2.TagPrefix+"http-host-combined"]!=1 ||
         calls[zapret2.TagPrefix+"multisplit"]!=2 ||
         calls[zapret2.TagPrefix+"plain"]!=0 {
         t.Fatal("unexpected IPC requests",calls)

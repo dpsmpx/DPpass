@@ -217,7 +217,7 @@ class DptsScriptTest {
     }
 
     @Test fun allBundledPresetsCompileToBoundedPublicTargets() {
-        assertEquals(21, DptsPresets.scripts.size)
+        assertEquals(22, DptsPresets.scripts.size)
         for ((name, script) in DptsPresets.scripts) {
             val plan = DptsScript.compile(script)
             assertEquals(name.isNotBlank(), plan.title.isNotBlank())
@@ -234,6 +234,19 @@ class DptsScriptTest {
                     probe.method in Zapret2SiteSearch.quicMethods ||
                     probe.method in com.dpsmpx.dppass.engine.Zapret2ProbeCatalog.scriptOnlyStrategies)
             }
+        }
+    }
+
+    @Test fun combinedHttpPresetIsLocalOnly() {
+        val source = DptsPresets.scripts.getValue("HTTP · составной метод Host")
+        val plan = DptsScript.compile(source)
+        assertEquals("local_http_combined", plan.suite)
+        assertEquals(10000L, plan.budgetMs)
+        assertFalse(plan.observeLearning)
+        assertTrue(plan.probes.isEmpty())
+        for (invalid in listOf(source.replace("example.com", "example.org"),
+            source.replace("learn off", "learn observe"), source + "\nhttps")) {
+            assertFailsWith<DptsCompileException> { DptsScript.compile(invalid) }
         }
     }
 
@@ -315,7 +328,7 @@ class DptsScriptTest {
         for (id in DptsScript.suites) {
             val host = when (id) {
                 "google_youtube" -> "www.google.com"
-                "local_http_hostcase", "local_tls", "local_acceptance" -> "example.com"
+                "local_http_hostcase", "local_http_combined", "local_tls", "local_acceptance" -> "example.com"
                 "site_https", "site_quic" -> "example.org"
                 else -> "youtubei.googleapis.com"
             }
