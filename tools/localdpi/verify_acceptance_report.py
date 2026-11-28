@@ -67,7 +67,7 @@ def manifest_fields(text):
     return m
 
 
-def verify(manifest, report):
+def verify(manifest, report, expected_version=None):
     """Return (matched, reason); malformed or ambiguous input raises ValueError."""
     m = manifest_fields(manifest)
     lines = report.splitlines()
@@ -81,6 +81,8 @@ def verify(manifest, report):
     b = fields(build_line[len("BUILD: "):].split(";"), BUILD_KEYS)
     if not re.fullmatch(r"[A-Za-z0-9._+\-]{1,80}", b["version"]):
         raise ValueError("invalid build version")
+    if expected_version is not None and b["version"] != expected_version:
+        return False, "candidate_version_mismatch"
     if (b["split_count"] != "0" or b["single_apk_identity"] != "true" or
             b["physical_network_acceptance"] != "not_measured"):
         return False, "single_apk_identity_required"

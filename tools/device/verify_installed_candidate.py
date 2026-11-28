@@ -10,7 +10,7 @@ import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "localdpi"))
-from verify_acceptance_report import manifest_fields, read_text
+from verify_acceptance_report import manifest_fields, read_text, verify as verify_report
 
 PACKAGE = "com.dpsmpx.dppass"
 PIN = "c18792812566ca4a18b518d51313515ff2d62bf8299446e99943eeb5d0630d11"
@@ -86,10 +86,18 @@ def check_badging(output, code, name):
     require(match is not None and match.groups() == (PACKAGE, str(code), name), "package_or_version_mismatch")
 
 
-def verify(manifest, version, adb="adb", apksigner="apksigner", aapt="aapt", serial=None, command=run):
+def verify(manifest, version, adb="adb", apksigner="apksigner", aapt="aapt", serial=None, command=run, report=None):
     m = manifest_fields(manifest)
     code, name = parse_version(version)
-    prefix = [adb] + (["-s", serial] if serial else [])
+    if report is not None:
+        matched, reason = verify_report(manifest, report, expected_version=name)
+        require(matched, reason)
+    # Resolve once: never let later adb calls silently select another device.
+    if serial is None:
+        serial = command([adb, "get-serialno"]).strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:\[\]%-]{0,255}", serial) or serial == "unknown":
+        raise ValueError("invalid adb device selection")
+    prefix = [adb, "-s", serial]
     if command(prefix + ["get-state"]).strip() != "device":
         raise ValueError("adb device unavailable")
 
@@ -123,6 +131,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path)
     parser.add_argument("version", type=Path)
+    parser.add_argument("--report", type=Path, help="also verify the combined local DPTS report")
     parser.add_argument("--serial")
     parser.add_argument("--adb", default="adb")
     parser.add_argument("--apksigner", default="apksigner")
@@ -130,7 +139,8 @@ def main():
     args = parser.parse_args()
     try:
         code, name = verify(read_text(args.manifest), read_text(args.version),
-                            args.adb, args.apksigner, args.aapt, args.serial)
+                            args.adb, args.apksigner, args.aapt, args.serial,
+                            report=read_text(args.report) if args.report else None)
     except Mismatch as exc:
         print("INSTALLED_CANDIDATE_MISMATCH: " + str(exc))
         return 1
@@ -138,6 +148,8 @@ def main():
         print("INSTALLED_CANDIDATE_ERROR: invalid input, unavailable device or tool failure")
         return 2
     print(f"INSTALLED_CANDIDATE_MATCH: version={name}; versionCode={code}")
+    if args.report:
+        print("LOCAL_REPORT_MATCH: reported_local_fixtures_match_candidate; text_authenticity=not_verified")
     print("physical_network_acceptance=not_measured; updater_origin=not_verified; subscription_preservation=not_verified")
     return 0
 
