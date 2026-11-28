@@ -26,7 +26,6 @@ import com.dpsmpx.dppass.connection.RoutingMode
 import com.dpsmpx.dppass.connection.ServerlessSettings
 import com.dpsmpx.dppass.connection.Zapret2Backend
 import com.dpsmpx.dppass.connection.Zapret2Hostlist
-import com.dpsmpx.dppass.connection.Zapret2VpnStrategy
 import com.dpsmpx.dppass.connection.UserPolicy
 import com.dpsmpx.dppass.diagnostics.Outcome
 import com.dpsmpx.dppass.diagnostics.Safe
@@ -306,22 +305,10 @@ class SettingsScreen(host: Host) : Screen(host) {
         body.addView(
             Ui.listCard(context).apply {
                 addView(
-                    choiceRow(
-                        R.drawable.ic_shield,
-                        R.string.zapret2_mode_title,
-                        listOf(R.string.zapret2_off, R.string.zapret2_root, R.string.zapret2_vpn,
-                            R.string.byedpi_root, R.string.byedpi_vpn),
-                        host.prefs.zapret2Backend.ordinal,
-                    ) { index ->
-                        host.prefs.zapret2Backend = Zapret2Backend.entries[index]
-                        if (host.prefs.zapret2Backend == Zapret2Backend.VPN_SERVICE) {
-                            // Old manually chosen strategies are migrated to the
-                            // single user-facing AUTO mode.
-                            host.prefs.zapret2VpnStrategy = Zapret2VpnStrategy.AUTO
-                        }
-                        host.reconnectIfBusy()
-                        host.changed()
-                    },
+                    Ui.ListRow(context, R.drawable.ic_shield, context.getString(R.string.local_backend_choose))
+                        .subtitle(context.getString(LocalBackendChoice.label(host.prefs.zapret2Backend)))
+                        .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                        .onClick { LocalBackendChoice.show(host, includeProvider = true) },
                     Ui.matchWidth(),
                 )
                 if (host.prefs.zapret2Backend != Zapret2Backend.OFF) {
@@ -410,6 +397,8 @@ class SettingsScreen(host: Host) : Screen(host) {
             },
             Ui.matchWidth(),
         )
+        body.addView(Ui.text(context, R.style.Text_DPpass_Caption,
+            context.getString(R.string.local_backend_note)))
         // The provider model can be generated even when currently using
         // local strategies; the two models do not share training examples.
         body.addView(Ui.section(context, context.getString(R.string.model_server_section)))

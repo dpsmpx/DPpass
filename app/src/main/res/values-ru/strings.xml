@@ -1079,4 +1079,14 @@
     <string name="dpts_archive_delete">Удалить сохранённый отчёт</string>
     <string name="dpts_archive_delete_confirm">Удалить этот сохранённый отчёт и его CSV без возможности восстановления? Текущие результаты, скрипты и модели не изменятся.</string>
     <string name="dpts_archive_deleted">Сохранённый отчёт удалён</string>
+    <string name="local_backend_choose">Выбрать локальный исполнитель</string>
+    <string name="local_backend_auto">Локальный AUTO · VpnService</string>
+    <string name="local_backend_root">Zapret2 · ROOT (эталон)</string>
+    <string name="local_backend_byedpi_vpn">ByeDPI · VpnService (эталон)</string>
+    <string name="local_backend_byedpi_root">ByeDPI · ROOT (эталон)</string>
+    <string name="local_backend_note">Локальный AUTO — адаптивный сокетный движок. Эталонные исполнители доступны для сравнения до физических испытаний. Для ROOT требуется явное подтверждение.</string>
+    <string name="local_backend_root_confirm">Переключиться на %1$s? При следующем подключении могут быть запрошены права root и изменены общесистемные сетевые правила. Автоматическое переключение на ROOT запрещено.</string>
+    <string name="local_backend_root_unavailable">ROOT-исполнители недоступны в этой параллельной сборке.</string>
+    <string name="local_backend_changed">Выбранный режим подключения изменился. Выберите исполнитель ещё раз.</string>
+    <string name="local_backend_confirm">Выбрать ROOT</string>
 </resources>

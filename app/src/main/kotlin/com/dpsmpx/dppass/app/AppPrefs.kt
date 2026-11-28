@@ -26,7 +26,16 @@ class AppPrefs(context: Context) {
     /** Отдельный локальный режим. При неизвестном значении root не включается. */
     var zapret2Backend: Zapret2Backend
         get() = Zapret2Backend.of(prefs.getString(ZAPRET2_BACKEND, null))
-        set(value) { prefs.edit().putString(ZAPRET2_BACKEND, value.wire).apply() }
+        set(value) {
+            prefs.edit().apply {
+                putString(ZAPRET2_BACKEND, value.wire)
+                if (value != Zapret2Backend.OFF) putString(LAST_LOCAL_BACKEND, value.wire)
+            }.apply()
+        }
+
+    /** Remember the explicit local choice separately from the active path. */
+    val lastLocalBackend: Zapret2Backend
+        get() = Zapret2Backend.preferredLocal(zapret2Backend, prefs.getString(LAST_LOCAL_BACKEND, null))
 
     /**
      * Root only. The UI validates and canonicalizes this text before persisting.
@@ -218,6 +227,7 @@ class AppPrefs(context: Context) {
         const val SHOW_FAVORITE_SERVERS = "show_favorite_servers"
         const val SERVER_AUTO_MODE = "server_auto_mode"
         const val ZAPRET2_BACKEND = "zapret2_backend"
+        const val LAST_LOCAL_BACKEND = "last_local_backend"
         const val ZAPRET2_HOSTLIST = "zapret2_hostlist"
         const val ZAPRET2_ROOT_QUIC = "zapret2_root_quic"
         const val ZAPRET2_VPN_STRATEGY = "zapret2_vpn_strategy"
