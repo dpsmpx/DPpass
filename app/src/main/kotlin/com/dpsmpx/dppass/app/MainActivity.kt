@@ -35,6 +35,7 @@ import com.dpsmpx.dppass.app.ui.SettingsScreen
 import com.dpsmpx.dppass.app.ui.StorageLost
 import com.dpsmpx.dppass.app.ui.SubscriptionsScreen
 import com.dpsmpx.dppass.app.ui.Ui
+import com.dpsmpx.dppass.app.ui.Zapret2AutoTestScreen
 import com.dpsmpx.dppass.connection.LocalProxyOffer
 import com.dpsmpx.dppass.connection.Zapret2Backend
 import com.dpsmpx.dppass.diagnostics.DiagCode
@@ -451,6 +452,37 @@ class MainActivity : Activity(), Host {
         }
     }
 
+    override fun pickDptsFile() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("*/*")
+        try {
+            @Suppress("DEPRECATION")
+            startActivityForResult(intent, REQUEST_DPTS_FILE)
+        } catch (_: android.content.ActivityNotFoundException) {
+            toast(getString(R.string.no_system_screen))
+        }
+    }
+
+    private fun readDptsFile(uri: Uri) {
+        val editor = stack.lastOrNull() as? Zapret2AutoTestScreen
+            ?: return toast(getString(R.string.dpts_file_failed))
+        scope.launch {
+            val text = withContext(Dispatchers.IO) {
+                try {
+                    contentResolver.openInputStream(uri)?.use { DptsWorkspace.read(it) }
+                } catch (_: IOException) {
+                    null
+                } catch (_: SecurityException) {
+                    null
+                }
+            }
+            if (text == null || stack.lastOrNull() !== editor)
+                toast(getString(R.string.dpts_file_failed))
+            else editor.offerImportedScript(text)
+        }
+    }
+
     override fun pickQrImage() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*")
         try {
@@ -474,7 +506,7 @@ class MainActivity : Activity(), Host {
     override fun saveDocument(name: String, text: String) {
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
             .addCategory(Intent.CATEGORY_OPENABLE)
-            .setType("application/json")
+            .setType(if (name.endsWith(".txt")) "text/plain" else "application/json")
             .putExtra(Intent.EXTRA_TITLE, name)
         try {
             pendingExport = text
@@ -578,6 +610,7 @@ class MainActivity : Activity(), Host {
                 vpnConsentRefused()
             }
             requestCode == REQUEST_FILE && resultCode == RESULT_OK -> data?.data?.let(::readFile)
+            requestCode == REQUEST_DPTS_FILE && resultCode == RESULT_OK -> data?.data?.let(::readDptsFile)
             requestCode == REQUEST_QR && resultCode == RESULT_OK -> data?.data?.let(::readQr)
             requestCode == REQUEST_EXPORT && resultCode == RESULT_OK -> data?.data?.let(::writeExport)
             requestCode == REQUEST_EXPORT -> pendingExport = null
@@ -637,6 +670,7 @@ class MainActivity : Activity(), Host {
         const val REQUEST_QR = 4
         const val REQUEST_EXPORT = 5
         const val REQUEST_CAMERA = 6
+        const val REQUEST_DPTS_FILE = 7
         const val TRANSITION_MILLIS = 180L
     }
 }
