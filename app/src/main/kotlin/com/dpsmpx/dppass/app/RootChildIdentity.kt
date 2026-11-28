@@ -114,6 +114,17 @@ internal object RootChildIdentity {
     fun matchesExecutable(pidFile: String, generation: String, path: String, procRoot: String = "/proc"): String =
         probe(pidFile, generation, executable(procRoot, path), procRoot)
 
+    /** Caller holds the lifecycle lock and selected a strict helper launch. */
+    fun confirmExecutable(pidFile: String, generation: String, path: String, helper: String): String {
+        val binary = quote(helper)
+        return (recordedIdentity(pidFile, generation) + listOf(
+            RootPidfdCleanup.helperAdmission(binary),
+            "status=\$( $binary check-executable \"\$pid\" \"\$saved_ticks\" \"\$saved_boot\" " + quote(path) + " ) || exit 1",
+            "test \"\$status\" = live",
+            ")",
+        )).joinToString("\n")
+    }
+
     fun matchesScript(pidFile: String, generation: String, path: String, procRoot: String = "/proc"): String =
         probe(pidFile, generation, script(procRoot, path), procRoot)
 
@@ -169,10 +180,10 @@ internal object RootChildIdentity {
         ).joinToString("\n")
     }
 
-    private fun probe(pidFile: String, generation: String, expected: String?, procRoot: String): String {
+    private fun recordedIdentity(pidFile: String, generation: String): List<String> {
         validateGeneration(generation)
         val record = "$pidFile.identity"
-        val checks = listOf(
+        return listOf(
             "(", "set -f",
             pidFrom(pidFile),
             regular(record) + " || exit 1",
@@ -181,6 +192,11 @@ internal object RootChildIdentity {
             "test \"\$2\" = " + quote(generation) + " && test \"\$3\" = \"\$pid\" || exit 1",
             "saved_ticks=\$4; saved_boot=\$5",
             "case \"\$saved_ticks\" in ''|*[!0-9]*) exit 1 ;; esac",
+        )
+    }
+
+    private fun probe(pidFile: String, generation: String, expected: String?, procRoot: String): String {
+        val checks = recordedIdentity(pidFile, generation) + listOf(
             readBoot(procRoot),
             "test \"\$saved_boot\" = \"\$boot\" || exit 1",
             readStat(procRoot),

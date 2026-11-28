@@ -35,6 +35,27 @@ class RootDpiRuntimeTest {
         override suspend fun alive() = true
     }
 
+    @Test fun selectedRuntimeReceivesOnlyItsOwnFreshAdmission() = runBlocking {
+        val kind = RootDpiPreflight.Kind.PACKET
+        var report = RootCapabilitySurvey.Report(true, false, true, true, true, false)
+        val launched = mutableListOf<RootDpiPreflight.Admission>()
+        val driver = object : AdmittedRootDpiRuntime(kind, { report }) {
+            override fun launch(admission: RootDpiPreflight.Admission) {
+                launched += admission
+            }
+
+            override suspend fun stop(): Result<Unit> = Result.success(Unit)
+            override suspend fun alive(): Boolean = true
+        }
+        val handle = RootRuntimeCoordinator().bind(driver)
+        assertTrue(handle.start().isFailure)
+        assertTrue(launched.isEmpty())
+        report = report.copy(netRaw = true)
+        assertTrue(handle.start().isSuccess)
+        assertEquals(listOf(RootDpiPreflight.Admission(kind, false)), launched)
+        assertTrue(handle.stop().isSuccess)
+    }
+
     @Test fun abandonedOwnerCanBeRecoveredAfterFailedStop() = runBlocking {
         val coordinator = RootRuntimeCoordinator()
         val first = Fake(stopResult = Result.failure(IllegalStateException("cleanup failed")))

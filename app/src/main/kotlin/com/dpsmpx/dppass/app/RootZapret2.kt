@@ -13,39 +13,39 @@ import java.io.File
  * a kernel that supports NFQUEUE, and execution allowed under /data/adb.
  * Does not establish Android VPN. No claim of physical-device acceptance.
  */
-internal class RootZapret2(private val context: Context) : RootDpiRuntime {
+internal class RootZapret2(private val context: Context) :
+    AdmittedRootDpiRuntime(RootDpiPreflight.Kind.PACKET) {
     // Snapshot options at connection startup; mid-session preference changes
     // require reconnect so watchdog and firewall agree on the active rules.
-    private val rootQuic = AppPrefs(context).zapret2RootQuic
+    private val prefs = AppPrefs(context)
+    private val rootQuic = prefs.zapret2RootQuic
+    private val hostlist = prefs.zapret2HostlistText
     private val lifecycle = RootLifecycleTransaction(
         ROOT, lockDirectory = RootLifecycleTransaction.SHARED_LOCK_DIRECTORY,
         peerDirectory = RootLifecycleTransaction.BYEDPI_DIRECTORY,
         peerCleanup = RootAdapterCleanup.byeDpi(),
     )
 
-    override suspend fun start(): Result<Unit> = withContext(Dispatchers.IO) {
-        runCatching {
-            // Read-only preflight, only after explicit selection of ROOT.
-            RootDpiPreflight.requireReady(RootDpiPreflight.Kind.PACKET)
-            val abi = Build.SUPPORTED_ABIS.firstOrNull { it in ARCH }
-                ?: error("nfqws2 не собран для архитектуры устройства")
-            val hosts = Zapret2Hostlist.parse(AppPrefs(context).zapret2HostlistText).getOrThrow()
-            val stage = File(context.noBackupFilesDir, "zapret2-stage").apply { mkdirs() }
-            val binary = stageAsset("zapret2/" + abi + "/nfqws2", File(stage, "nfqws2"))
-            val lua = LUA.map { stageAsset("zapret2/lua/" + it, File(stage, it)) }
-            val hostsFile = File(stage, "hosts.txt").apply { writeText(hosts.format() + "\n") }
-            val owner = RootOwnerIdentity(android.os.Process.myPid(), RootProcessIdentity.currentAppStartTime())
-            val helper = RootPidfdDeployment.stage(context)
-            try {
-                val startup = lifecycle.start(cleanup(), launch(binary, lua, hostsFile, hosts.isEmpty, owner, helper), owner,
-                    preservePreviousOwner = true, prepare = helper?.install(ROOT) ?: ":")
-                rootLaunchWithRollback(
-                    launch = { execute(startup) },
-                    rollback = { execute(lifecycle.stop(cleanup())) },
-                )
-            } finally {
-                helper?.discard()
-            }
+    override fun launch(admission: RootDpiPreflight.Admission) {
+        val abi = Build.SUPPORTED_ABIS.firstOrNull { it in ARCH }
+            ?: error("nfqws2 не собран для архитектуры устройства")
+        val hosts = Zapret2Hostlist.parse(hostlist).getOrThrow()
+        val stage = File(context.noBackupFilesDir, "zapret2-stage").apply { mkdirs() }
+        val binary = stageAsset("zapret2/" + abi + "/nfqws2", File(stage, "nfqws2"))
+        val lua = LUA.map { stageAsset("zapret2/lua/" + it, File(stage, it)) }
+        val hostsFile = File(stage, "hosts.txt").apply { writeText(hosts.format() + "\n") }
+        val owner = RootOwnerIdentity(android.os.Process.myPid(), RootProcessIdentity.currentAppStartTime())
+        val helper = RootPidfdDeployment.stage(context)
+        try {
+            val script = launchScript(binary, lua, hostsFile, hosts.isEmpty, owner, helper, admission.ipv6Output)
+            val startup = lifecycle.start(cleanup(), script, owner, preservePreviousOwner = true,
+                prepare = helper?.install(ROOT) ?: ":")
+            rootLaunchWithRollback(
+                launch = { execute(startup) },
+                rollback = { execute(lifecycle.stop(cleanup())) },
+            )
+        } finally {
+            helper?.discard()
         }
     }
 
@@ -74,8 +74,10 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
         return target
     }
 
-    private fun launch(bin: File, lua: List<File>, hostsFile: File, allHosts: Boolean, owner: RootOwnerIdentity,
-                       helper: RootPidfdDeployment.Staged?): String {
+    private fun launchScript(
+        bin: File, lua: List<File>, hostsFile: File, allHosts: Boolean, owner: RootOwnerIdentity,
+        helper: RootPidfdDeployment.Staged?, enableIPv6: Boolean,
+    ): String {
         val command = quote(ROOT + "/nfqws2") + Zapret2RootProfiles.arguments(allHosts, rootQuic)
         val parts = mutableListOf(
             "set -eu",
@@ -96,7 +98,7 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
             "sleep 1",
             RootProcessIdentity.executableAlive("$ROOT/pid", "$ROOT/nfqws2"),
             lifecycle.captureExecutable("pid", "$ROOT/nfqws2"),
-
+            lifecycle.executableHealthy("pid", "$ROOT/nfqws2"),
         )
         // A root-owned watchdog removes our NFQUEUE hooks after force-stop or
         // process crash. An Android app cannot rely on onDestroy in that case.
@@ -117,12 +119,12 @@ internal class RootZapret2(private val context: Context) : RootDpiRuntime {
             "iptables -t mangle -I OUTPUT " + TCP,
             "iptables -t mangle -C OUTPUT " + TCP,
             *(if (rootQuic) arrayOf("iptables -t mangle -I OUTPUT " + UDP, "iptables -t mangle -C OUTPUT " + UDP) else emptyArray()),
-            RootFirewallCleanup.optionalIPv6(RootFirewallCleanup.Kind.PACKET, "$ROOT/ipv6.intent", listOf(
+            if (enableIPv6) RootFirewallCleanup.optionalIPv6(RootFirewallCleanup.Kind.PACKET, "$ROOT/ipv6.intent", listOf(
                 RootFirewallCleanup.markIntent("$ROOT/ipv6.intent"),
                 "ip6tables -t mangle -I OUTPUT " + TCP,
                 "ip6tables -t mangle -C OUTPUT " + TCP,
                 *(if (rootQuic) arrayOf("ip6tables -t mangle -I OUTPUT " + UDP, "ip6tables -t mangle -C OUTPUT " + UDP) else emptyArray()),
-            )),
+            )) else ":",
         )
         return parts.joinToString("\n")
     }

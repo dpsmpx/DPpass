@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -188,9 +189,9 @@ static int exited(int fd, int timeout_ms) {
 }
 #endif
 
-static enum dppass_pidfd_result stop_child(
+static enum dppass_pidfd_result inspect_child(
     pid_t pid, uint64_t start_ticks, const char *boot_id,
-    const char *executable, const char *script, int timeout_ms) {
+    const char *executable, const char *script, int timeout_ms, bool stop) {
     if (pid <= 1 || pid == getpid() || !dppass_pidfd_valid_boot_id(boot_id) ||
         !dppass_pidfd_valid_path(executable) ||
         (script && !dppass_pidfd_valid_path(script)) || timeout_ms < 0 || timeout_ms > 5000)
@@ -212,6 +213,10 @@ static enum dppass_pidfd_result stop_child(
     // If the original task exited while proc was read, those reads may
     // refer to a reused PID. Never signal or report validated ownership.
     if (exited(fd, 0) != 0) goto done;
+    if (!stop) {
+        result = DPPASS_PIDFD_LIVE;
+        goto done;
+    }
     if (syscall(SYS_pidfd_send_signal, fd, SIGTERM, NULL, 0) < 0) {
         int error = errno;
         if (error == ENOSYS) result = DPPASS_PIDFD_UNSUPPORTED;
@@ -226,21 +231,27 @@ done:
     return result;
 #else
     (void)start_ticks;
+    (void)stop;
     return DPPASS_PIDFD_UNSUPPORTED;
 #endif
+}
+
+enum dppass_pidfd_result dppass_pidfd_check_executable(
+    pid_t pid, uint64_t start_ticks, const char *boot_id, const char *executable) {
+    return inspect_child(pid, start_ticks, boot_id, executable, NULL, 0, false);
 }
 
 enum dppass_pidfd_result dppass_pidfd_stop_executable(
     pid_t pid, uint64_t start_ticks, const char *boot_id,
     const char *executable, int timeout_ms) {
-    return stop_child(pid, start_ticks, boot_id, executable, NULL, timeout_ms);
+    return inspect_child(pid, start_ticks, boot_id, executable, NULL, timeout_ms, true);
 }
 
 enum dppass_pidfd_result dppass_pidfd_stop_script(
     pid_t pid, uint64_t start_ticks, const char *boot_id,
     const char *interpreter, const char *script, int timeout_ms) {
     if (!script) return DPPASS_PIDFD_UNPROVEN;
-    return stop_child(pid, start_ticks, boot_id, interpreter, script, timeout_ms);
+    return inspect_child(pid, start_ticks, boot_id, interpreter, script, timeout_ms, true);
 }
 
 enum dppass_pidfd_result dppass_pidfd_probe(void) {

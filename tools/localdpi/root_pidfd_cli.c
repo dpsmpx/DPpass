@@ -33,6 +33,7 @@ static int report(enum dppass_pidfd_result result) {
         case DPPASS_PIDFD_UNSUPPORTED: puts("unsupported"); return 1;
         case DPPASS_PIDFD_UNPROVEN: puts("unproven"); return 2;
         case DPPASS_PIDFD_TIMEOUT: puts("timeout"); return 3;
+        case DPPASS_PIDFD_LIVE: puts("live"); return 0;
         default: puts("unproven"); return 2;
     }
 }
@@ -74,19 +75,20 @@ int main(int argc, char **argv) {
         puts("dppass-root-pidfd/1");
         return 0;
     }
-    int script;
-    if (argc == 7 && strcmp(argv[1], "stop-executable") == 0) script = 0;
-    else if (argc == 8 && strcmp(argv[1], "stop-script") == 0) script = 1;
-    else return invalid();
-
-    uint64_t pid, ticks, timeout;
+    int check = argc == 6 && strcmp(argv[1], "check-executable") == 0;
+    int stop_executable = argc == 7 && strcmp(argv[1], "stop-executable") == 0;
+    int script = argc == 8 && strcmp(argv[1], "stop-script") == 0;
+    if (!check && !stop_executable && !script) return invalid();
+    uint64_t pid, ticks;
     if (!decimal(argv[2], INT32_MAX, &pid) || pid <= 1 ||
         pid == (uint64_t)getpid() ||
         !decimal(argv[3], UINT64_MAX, &ticks) ||
-        !dppass_pidfd_valid_boot_id(argv[4]) || !dppass_pidfd_valid_path(argv[5]) ||
-        (script && !dppass_pidfd_valid_path(argv[6])) ||
-        !decimal(argv[6 + script], 5000, &timeout))
+        !dppass_pidfd_valid_boot_id(argv[4]) || !dppass_pidfd_valid_path(argv[5]))
         return invalid();
+    if (check) return report(dppass_pidfd_check_executable((pid_t)pid, ticks, argv[4], argv[5]));
+    uint64_t timeout;
+    if ((script && !dppass_pidfd_valid_path(argv[6])) ||
+        !decimal(argv[6 + script], 5000, &timeout)) return invalid();
 
     enum dppass_pidfd_result result = script
         ? dppass_pidfd_stop_script((pid_t)pid, ticks, argv[4], argv[5], argv[6], (int)timeout)

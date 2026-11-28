@@ -58,4 +58,13 @@ class RootDpiPreflightTest {
         assertEquals(3, reads)
         assertEquals(1, launches)
     }
+
+    @Test fun ipv6AdmissionRequiresTheSelectedExecutorsOwnTable() {
+        val natOnly = all.copy(ipv6Mangle = false)
+        val mangleOnly = all.copy(ipv6Nat = false)
+        assertEquals(RootDpiPreflight.Admission(socket, true), RootDpiPreflight.requireReady(socket) { natOnly })
+        assertEquals(RootDpiPreflight.Admission(packet, false), RootDpiPreflight.requireReady(packet) { natOnly })
+        assertEquals(RootDpiPreflight.Admission(socket, false), RootDpiPreflight.requireReady(socket) { mangleOnly })
+        assertEquals(RootDpiPreflight.Admission(packet, true), RootDpiPreflight.requireReady(packet) { mangleOnly })
+    }
 }

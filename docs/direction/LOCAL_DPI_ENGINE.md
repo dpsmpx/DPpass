@@ -1317,3 +1317,27 @@ V5 strategy contexts now continue admitting new sparse features when their own q
 ## A3/A5 — effective ROOT startup admission
 
 Both legacy ROOT adapters now perform a fresh read-only capability survey before staging binaries or installing rules. Effective CAP_NET_ADMIN is mandatory for both; the packet adapter also requires CAP_NET_RAW and IPv4 mangle OUTPUT, while the socket adapter requires IPv4 NAT OUTPUT. Missing IPv6 prerequisites remain independently optional; no claim of NFQUEUE or target availability is made. A failed survey refuses startup without switching the executor. The service snapshots its backend selection once at entry to the local dispatch, instead of re-reading preferences to choose the adapter. This is an operational admission gate for the existing reference executors, not the unified ROOT helper. Provider mode, model schemas, version and publication policy are unchanged. CI and physical acceptance pending.
+
+## A3/A5 — общий запуск ROOT и проверка процесса через pidfd
+
+Запуск обоих эталонных ROOT-адаптеров проходит через один контракт
+допуска под блокировкой владельца. Адаптер получает свежий результат
+для собственного типа. Сокетный режим использует IPv6 NAT OUTPUT,
+пакетный использует IPv6 mangle OUTPUT. При отсутствии нужной таблицы
+IPv6 остаётся выключенным для этой сессии. Положительный результат
+допуска требует повторной проверки таблицы в транзакции запуска. Список
+узлов и режим работы с QUIC считываются при создании адаптера для
+текущего подключения.
+
+В сборке со встроенным помощником запуск проверяет дочерний процесс
+до установки его правил. Новый вызов `check-executable` открывает
+pidfd, сверяет boot ID, время старта и путь к исполняемому файлу и
+подтверждает, что закреплённый процесс ещё жив. Вызов не отправляет
+сигналы. Android и сторожевой процесс используют ту же проверку под
+блокировкой поколения. Для строгого запуска отсутствие помощника или
+подтверждения считается отказом. Сборка без встроенного помощника
+сохраняет прежнюю проверку запущенного процесса.
+
+Общий ROOT-исполнитель для обработки трафика и изолированный ROOT AUTO
+остаются открытыми задачами. Физическая проверка ядра и SELinux входит
+в A8.

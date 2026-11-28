@@ -10,6 +10,8 @@ import com.dpsmpx.dppass.connection.Zapret2Backend
 internal object RootDpiPreflight {
     enum class Kind { SOCKET, PACKET }
 
+    data class Admission(val kind: Kind, val ipv6Output: Boolean)
+
     // The side-by-side experimental debug app shares the old adapters'
     // fixed root paths and firewall identifiers. It must not use them.
     fun permitsLegacyRoot(packageId: String): Boolean =
@@ -41,7 +43,14 @@ internal object RootDpiPreflight {
     fun requireReady(
         kind: Kind,
         survey: () -> RootCapabilitySurvey.Report? = { RootCapabilitySurvey.run() },
-    ) {
-        refusal(kind, survey())?.let { error(it) }
+    ): Admission {
+        val report = survey()
+        refusal(kind, report)?.let { error(it) }
+        checkNotNull(report)
+        val ipv6Output = when (kind) {
+            Kind.SOCKET -> report.ipv6Nat
+            Kind.PACKET -> report.ipv6Mangle
+        }
+        return Admission(kind, ipv6Output)
     }
 }

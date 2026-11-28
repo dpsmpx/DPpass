@@ -11,64 +11,82 @@ import java.io.File
  * No NFQUEUE, no UDP interception and no unprivileged raw sockets.
  * Dedicated rule and root-owned directory; never flush a system chain.
  */
-internal class RootByeDpi(private val context: Context) : RootDpiRuntime {
+internal class RootByeDpi(private val context: Context) :
+    AdmittedRootDpiRuntime(RootDpiPreflight.Kind.SOCKET) {
+    private val hostlist = AppPrefs(context).zapret2HostlistText
     private val lifecycle = RootLifecycleTransaction(
         ROOT, lockDirectory = RootLifecycleTransaction.SHARED_LOCK_DIRECTORY,
         peerDirectory = RootLifecycleTransaction.ZAPRET_DIRECTORY,
         peerCleanup = RootAdapterCleanup.zapret2(),
     )
 
-    override suspend fun start(): Result<Unit> = withContext(Dispatchers.IO) {
-        runCatching {
-            // Read-only preflight, only after explicit selection of ROOT.
-            RootDpiPreflight.requireReady(RootDpiPreflight.Kind.SOCKET)
-            val binary = ByeDpiRuntime.executable(context)
-            val hosts = Zapret2Hostlist.parse(AppPrefs(context).zapret2HostlistText).getOrThrow()
-            val localHosts = File(context.noBackupFilesDir, "bd-root-hosts").apply {
-                writeText(hosts.format() + "\n")
-            }
-            val helper = RootPidfdDeployment.stage(context)
-            try {
-                rootLaunchWithRollback(launch = {
-                val args = if (hosts.isEmpty) ByeDpiRuntime.strategy
-                    else ByeDpiRuntime.strategy + listOf("--hosts", "$ROOT/hosts", "--auto=none")
-                fun command(address: String) = (listOf("$ROOT/ciadpi", "--ip", address, "--port", PORT.toString(),
-                    "--transparent", "--no-domain") + args).joinToString(" ") { quote(it) }
-                val cmd = command("127.0.0.1")
-                val cmd6 = command("::1")
-                val owner = RootOwnerIdentity(android.os.Process.myPid(), RootProcessIdentity.currentAppStartTime())
-                val watch = lifecycle.watchdog(
-                    RootProcessIdentity.appAlive(owner.pid, owner.startTime) + " && " + healthy(),
-                    cleanup(false),
-                )
-                execute(lifecycle.start(cleanup(), listOf("set -eu", "umask 077", "mkdir -p " + quote(ROOT),
-                    "chmod 700 " + quote(ROOT), if (helper != null) RootPidfdCleanup.requireForLaunch(ROOT) else ":",
-                    "cp " + quote(binary.absolutePath) + " " + quote("$ROOT/ciadpi"),
-                    "chmod 700 " + quote("$ROOT/ciadpi"),
-                    "cp " + quote(localHosts.absolutePath) + " " + quote("$ROOT/hosts"),
-                    RootProcessIdentity.detachedCommand(cmd, "$ROOT/log"),
-                    "pid=$!", "echo \"\$pid\" > " + quote("$ROOT/pid"), "sleep 1", RootProcessIdentity.executableAlive("$ROOT/pid", "$ROOT/ciadpi"),
-                    lifecycle.captureExecutable("pid", "$ROOT/ciadpi"),
-                    "cat > " + quote("$ROOT/watch.sh") + " <<'DPPASS_BD_WATCH'\n" + watch + "\nDPPASS_BD_WATCH",
-                    RootProcessIdentity.detachedWatchdog("$ROOT/watch.sh", "$ROOT/watch.log"),
-                    "echo \"\$!\" > " + quote("$ROOT/watch.pid"),
-                    lifecycle.captureWatchdog("$ROOT/watch.sh"),
-                    "iptables -t nat -I OUTPUT " + RULE,
-                    "iptables -t nat -C OUTPUT " + RULE,
-                    // Do not claim IPv6 interception on kernels without IPv6 NAT.
-                    RootFirewallCleanup.optionalIPv6(RootFirewallCleanup.Kind.SOCKET, "$ROOT/ipv6.intent", listOf(
-                        RootProcessIdentity.detachedCommand(cmd6, "$ROOT/log6"),
-                        "pid=$!", "echo \"\$pid\" > " + quote("$ROOT/pid6"), "sleep 1", RootProcessIdentity.executableAlive("$ROOT/pid6", "$ROOT/ciadpi"),
-                        lifecycle.captureExecutable("pid6", "$ROOT/ciadpi"),
-                        RootFirewallCleanup.markIntent("$ROOT/ipv6.intent"),
-                        "ip6tables -t nat -I OUTPUT " + RULE, "ip6tables -t nat -C OUTPUT " + RULE,
-                    ))).joinToString("\n"), owner, preservePreviousOwner = true, prepare = helper?.install(ROOT) ?: ":"))
-                }, rollback = { execute(lifecycle.stop(cleanup())) })
-            } finally {
-                helper?.discard()
-            }
+    override fun launch(admission: RootDpiPreflight.Admission) {
+        val binary = ByeDpiRuntime.executable(context)
+        val hosts = Zapret2Hostlist.parse(hostlist).getOrThrow()
+        val localHosts = File(context.noBackupFilesDir, "bd-root-hosts").apply {
+            writeText(hosts.format() + "\n")
+        }
+        val helper = RootPidfdDeployment.stage(context)
+        try {
+            val owner = RootOwnerIdentity(android.os.Process.myPid(), RootProcessIdentity.currentAppStartTime())
+            val script = launchScript(binary, localHosts, hosts.isEmpty, owner, helper, admission.ipv6Output)
+            val startup = lifecycle.start(cleanup(), script, owner, preservePreviousOwner = true,
+                prepare = helper?.install(ROOT) ?: ":")
+            rootLaunchWithRollback(
+                launch = { execute(startup) },
+                rollback = { execute(lifecycle.stop(cleanup())) },
+            )
+        } finally {
+            helper?.discard()
         }
     }
+
+    private fun launchScript(
+        binary: File, hosts: File, allHosts: Boolean, owner: RootOwnerIdentity,
+        helper: RootPidfdDeployment.Staged?, enableIPv6: Boolean,
+    ): String {
+        val args = if (allHosts) ByeDpiRuntime.strategy
+            else ByeDpiRuntime.strategy + listOf("--hosts", "$ROOT/hosts", "--auto=none")
+        fun command(address: String) = (listOf("$ROOT/ciadpi", "--ip", address, "--port", PORT.toString(),
+            "--transparent", "--no-domain") + args).joinToString(" ") { quote(it) }
+        val watchdog = lifecycle.watchdog(
+            RootProcessIdentity.appAlive(owner.pid, owner.startTime) + " && " + healthy(),
+            cleanup(false),
+        )
+        val lines = mutableListOf(
+            "set -eu", "umask 077", "mkdir -p " + quote(ROOT), "chmod 700 " + quote(ROOT),
+            if (helper != null) RootPidfdCleanup.requireForLaunch(ROOT) else ":",
+            "cp " + quote(binary.absolutePath) + " " + quote("$ROOT/ciadpi"),
+            "chmod 700 " + quote("$ROOT/ciadpi"),
+            "cp " + quote(hosts.absolutePath) + " " + quote("$ROOT/hosts"),
+            startListener(command("127.0.0.1"), "pid", "log"),
+            "cat > " + quote("$ROOT/watch.sh") + " <<'DPPASS_BD_WATCH'\n" + watchdog + "\nDPPASS_BD_WATCH",
+            RootProcessIdentity.detachedWatchdog("$ROOT/watch.sh", "$ROOT/watch.log"),
+            "echo \"\$!\" > " + quote("$ROOT/watch.pid"),
+            lifecycle.captureWatchdog("$ROOT/watch.sh"),
+            "iptables -t nat -I OUTPUT " + RULE,
+            "iptables -t nat -C OUTPUT " + RULE,
+        )
+        if (enableIPv6) {
+            lines += RootFirewallCleanup.optionalIPv6(RootFirewallCleanup.Kind.SOCKET, "$ROOT/ipv6.intent", listOf(
+                startListener(command("::1"), "pid6", "log6"),
+                RootFirewallCleanup.markIntent("$ROOT/ipv6.intent"),
+                "ip6tables -t nat -I OUTPUT " + RULE,
+                "ip6tables -t nat -C OUTPUT " + RULE,
+            ))
+        }
+        return lines.joinToString("\n")
+    }
+
+    private fun startListener(command: String, pidFile: String, log: String): String = listOf(
+        RootProcessIdentity.detachedCommand(command, "$ROOT/$log"),
+        "pid=\$!",
+        "echo \"\$pid\" > " + quote("$ROOT/$pidFile"),
+        "sleep 1",
+        RootProcessIdentity.executableAlive("$ROOT/$pidFile", "$ROOT/ciadpi"),
+        lifecycle.captureExecutable(pidFile, "$ROOT/ciadpi"),
+        lifecycle.executableHealthy(pidFile, "$ROOT/ciadpi"),
+    ).joinToString("\n")
 
     override suspend fun stop(): Result<Unit> = withContext(Dispatchers.IO) { runCatching { execute(lifecycle.stop(cleanup())) } }
     override suspend fun alive(): Boolean = withContext(Dispatchers.IO) {
