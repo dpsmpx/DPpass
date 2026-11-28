@@ -289,6 +289,16 @@ object Zapret2NeuralModel {
     fun generateParameters(context: Context, kind: Kind, parameters: Long): Result<ByteArray> =
         runCatching { buildParameters(kind, parameters).also { check(store(context, kind, it)) } }
 
+    internal fun previewObsolete(context: Context): List<ObsoleteModelFiles.Entry>? =
+        synchronized(storageGuard) {
+            ObsoleteModelFiles.scan(File(context.filesDir, DIRECTORY))
+        }
+
+    internal fun cleanObsolete(context: Context, expected: List<ObsoleteModelFiles.Entry>): ObsoleteModelFiles.Result =
+        synchronized(storageGuard) {
+            ObsoleteModelFiles.clean(File(context.filesDir, DIRECTORY), expected)
+        }
+
     fun delete(context: Context, kind: Kind = Kind.STRATEGY): Boolean =
         synchronized(storageGuard) {
             val model = file(context, kind)
