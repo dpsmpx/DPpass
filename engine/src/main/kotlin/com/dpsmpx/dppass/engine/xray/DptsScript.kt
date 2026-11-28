@@ -457,7 +457,8 @@ object DptsScript {
                 " attempt=${spec.attempt} binding=$binding outcome=${r.outcome}" +
                 " tls_stage=${r.tlsStage} alpn=${r.alpn}" +
                 " http=${r.httpStatus} body_bytes_bounded=${r.bodyBytes}" +
-                " elapsed_ms=${r.elapsedMillis}")
+                " elapsed_ms=${r.elapsedMillis} timeout_ms=${spec.timeoutMs}" +
+                " applied_delta=${r.appliedDelta} skipped_delta=${r.skippedDelta}")
         }
         appendLine(if (interruption != null)
             "LEARNING: disabled_for_interrupted_run; model_weights_unchanged." else if (plan.observeLearning)

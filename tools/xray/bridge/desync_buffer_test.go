@@ -183,8 +183,75 @@ func TestLargeFirstTCPWritePlannerFailureDoesNotSendTail(t *testing.T) {
     first:=append([]byte("POST / HTTP/1.1\r\nHost: example.test\r\n\r\n"),bytes.Repeat([]byte("x"),65536)...)
     if n,err:=conn.Write(first);err==nil || n!=0 {t.Fatal("planner failure did not stop first write",n,err)}
     if n,err:=conn.Write([]byte("retry"));err==nil || n!=0 {t.Fatal("planner failure was not sticky",n,err)}
+    if conn.initialReady.Load() {t.Fatal("failed first write published readiness")}
     _=conn.Close()
     _=incoming.SetReadDeadline(time.Now().Add(3*time.Second))
     var b [1]byte
     if n,err:=incoming.Read(b[:]);n!=0 || err!=io.EOF {t.Fatal("bytes escaped failed planner",n,err)}
+}
+
+
+// An established TCP flow must be able to receive and close independently
+// of the writer. Hold the write mutex explicitly to make the regression
+// deterministic instead of relying on OS send-buffer sizing or scheduling.
+func TestEstablishedTCPDuplexDoesNotWaitForWriter(t *testing.T) {
+    outgoing,incoming:=tcpCopyPair(t)
+    conn:=&desyncConn{TCPConn:outgoing,mode:desyncMode{kind:desyncPass}}
+    defer conn.Close()
+    _=outgoing.SetReadDeadline(time.Now().Add(3*time.Second))
+    _=incoming.SetReadDeadline(time.Now().Add(3*time.Second))
+    first:=[]byte("first payload")
+    if n,err:=conn.Write(first);err!=nil || n!=len(first) {t.Fatal(n,err)}
+    got:=make([]byte,len(first))
+    if _,err:=io.ReadFull(incoming,got);err!=nil || !bytes.Equal(got,first) {t.Fatal("initial bytes",err)}
+    if !conn.initialReady.Load() {t.Fatal("initial write did not publish completion")}
+    conn.writeMu.Lock()
+    locked:=true
+    defer func(){if locked {conn.writeMu.Unlock()}}()
+    if _,err:=incoming.Write([]byte("reply"));err!=nil {t.Fatal(err)}
+    read:=make(chan error,1)
+    go func(){
+        b:=make([]byte,5)
+        _,err:=io.ReadFull(conn,b)
+        if err==nil && !bytes.Equal(b,[]byte("reply")) {err=io.ErrUnexpectedEOF}
+        read<-err
+    }()
+    select {
+    case err:=<-read:
+        if err!=nil {t.Fatal(err)}
+    case <-time.After(2*time.Second):
+        t.Fatal("established read waited on writer")
+    }
+    closed:=make(chan error,1)
+    go func(){closed<-conn.Close()}()
+    select {
+    case err:=<-closed:
+        if err!=nil {t.Fatal(err)}
+    case <-time.After(2*time.Second):
+        t.Fatal("established close waited on writer")
+    }
+    conn.writeMu.Unlock()
+    locked=false
+    if n,err:=incoming.Read(make([]byte,1));n!=0 || err!=io.EOF {t.Fatal("peer not closed",n,err)}
+}
+
+func TestInitialTCPReadinessAfterTimerAndHalfClose(t *testing.T) {
+    for _,halfClose:=range []bool{false,true} {
+        outgoing,incoming:=tcpCopyPair(t)
+        conn:=&desyncConn{TCPConn:outgoing,mode:desyncMode{kind:desyncPass}}
+        fragment:=[]byte{22,3,3,0,64,1}
+        if n,err:=conn.Write(fragment);err!=nil || n!=len(fragment) {t.Fatal(n,err)}
+        if halfClose {
+            if err:=conn.CloseWrite();err!=nil {t.Fatal(err)}
+        }
+        _=incoming.SetReadDeadline(time.Now().Add(3*time.Second))
+        got:=make([]byte,len(fragment))
+        if _,err:=io.ReadFull(incoming,got);err!=nil || !bytes.Equal(got,fragment) {t.Fatal("fragment",err)}
+        // Synchronize with timer completion, which can follow the socket write.
+        conn.writeMu.Lock()
+        ready:=conn.initialReady.Load()
+        conn.writeMu.Unlock()
+        if !ready {t.Fatal("flush did not publish readiness",halfClose)}
+        if err:=conn.Close();err!=nil {t.Fatal(err)}
+    }
 }

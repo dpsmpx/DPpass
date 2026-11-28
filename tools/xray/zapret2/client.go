@@ -3,6 +3,7 @@
 package zapret2
 
 import (
+    "context"
     "encoding/json"
     "errors"
     "fmt"
@@ -51,19 +52,24 @@ func PlannerSocket() string { return socketPath.Load().(string) }
 // PlanFor never falls back to a different algorithm when the Alpine
 // process has been selected but is down: a silent bypass would be unsafe.
 func PlanFor(tag, network string, first []byte) (Plan, error) {
-    return planFor(tag,network,first,false)
+    return PlanForContext(context.Background(),tag,network,first,false)
 }
 
 // PlanForDiagnostic uses the same strategy and validation. Only local
 // native encoder accounting differs; the external planner wire is unchanged.
 func PlanForDiagnostic(tag, network string, first []byte) (Plan,error) {
-    return planFor(tag,network,first,true)
+    return PlanForContext(context.Background(),tag,network,first,true)
 }
 
 // PlanForLocalTLSFixture is reserved for the fixed loopback self-test.
 // A native build must prove that the C encoder succeeded, not that its
 // ordinary portable fallback happened to produce the same bytes.
 func PlanForLocalTLSFixture(first []byte) (Plan,error) {
+    return PlanForLocalTLSFixtureContext(context.Background(),first)
+}
+
+func PlanForLocalTLSFixtureContext(ctx context.Context,first []byte) (Plan,error) {
+    if err:=ctx.Err();err!=nil {return Plan{},err}
     tag:=TagPrefix+"tlsrec-split"
     if _,err:=validateRequest(tag,"tcp",first);err!=nil {return Plan{},err}
     // The fixture is a single complete ClientHello with the fixed SNI.
@@ -71,14 +77,16 @@ func PlanForLocalTLSFixture(first []byte) (Plan,error) {
     if !ok || len(first)!=5+recordLen {return Plan{},errors.New("invalid local TLS fixture record")}
     s,end,ok:=SNIRange(first)
     if !ok || string(first[s:end])!="example.com" {return Plan{},errors.New("invalid local TLS fixture name")}
-    if !localNativePlan(tag,"tcp") {return PlanForDiagnostic(tag,"tcp",first)}
+    if !localNativePlan(tag,"tcp") {return PlanForContext(ctx,tag,"tcp",first,true)}
     p,err:=strictNativeLocalTLSPlan(first)
     if err!=nil {return Plan{},err}
     if err:=validatePlan(tag,"tcp",first,p);err!=nil {return Plan{},err}
     return p,nil
 }
 
-func planFor(tag,network string,first []byte,diagnostic bool) (Plan,error) {
+// PlanForContext cancels only the caller's planner request, not the daemon.
+func PlanForContext(ctx context.Context,tag,network string,first []byte,diagnostic bool) (Plan,error) {
+    if err:=ctx.Err();err!=nil {return Plan{},err}
     if _,err:=validateRequest(tag,network,first);err!=nil {return Plan{},err}
     // Explicitly tagged native experiments have predetermined dispatch.
     // The HTTP exception is restricted to the fixed local diagnostic;
@@ -90,9 +98,12 @@ func planFor(tag,network string,first []byte,diagnostic bool) (Plan,error) {
         if err:=validatePlan(tag,network,first,p);err!=nil {return Plan{},err}
         return p,nil
     }
-    conn, err := net.DialTimeout("unix", path, 300*time.Millisecond)
+    dialer:=net.Dialer{Timeout:300*time.Millisecond}
+    conn, err := dialer.DialContext(ctx,"unix",path)
     if err != nil { return Plan{}, fmt.Errorf("Alpine strategy daemon unavailable: %w", err) }
     defer conn.Close()
+    stopCancel:=context.AfterFunc(ctx,func(){_ = conn.Close()})
+    defer stopCancel()
     if err = conn.SetDeadline(time.Now().Add(2*time.Second)); err != nil { return Plan{}, err }
     if err = json.NewEncoder(conn).Encode(Request{Tag:tag, Network:network, First:first}); err != nil {
         return Plan{}, fmt.Errorf("send Alpine strategy: %w", err)
@@ -104,5 +115,6 @@ func planFor(tag,network string,first []byte,diagnostic bool) (Plan,error) {
     if reply.Error != "" { return Plan{}, errors.New(reply.Error) }
     p := reply.Plan
     if err := validatePlan(tag,network,first,p); err != nil { return Plan{},err }
+    if err:=ctx.Err();err!=nil {return Plan{},err}
     return p, nil
 }

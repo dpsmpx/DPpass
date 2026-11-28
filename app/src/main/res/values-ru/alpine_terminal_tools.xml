@@ -1,0 +1,21 @@
+<resources>
+    <string name="alpine_tools">Инструменты терминала</string>
+    <string name="alpine_stop">Остановить оболочку</string>
+    <string name="alpine_history_previous">Предыдущая команда</string>
+    <string name="alpine_history_next">Следующая команда</string>
+    <string name="alpine_clear_output">Очистить вывод</string>
+    <string name="alpine_copy_output">Копировать вывод (может содержать личные данные)</string>
+    <string name="alpine_output_copied">Вывод терминала скопирован</string>
+    <string name="alpine_pause_follow">Остановить автопрокрутку</string>
+    <string name="alpine_resume_follow">Возобновить автопрокрутку</string>
+    <string name="alpine_package_commands">Команды пакетов Alpine</string>
+    <string name="alpine_command_history">История команд (текущий сеанс)</string>
+    <string name="alpine_clear_history">Очистить историю команд</string>
+    <string name="alpine_history_empty">История команд пуста</string>
+    <string name="alpine_pkg_list">Список установленных пакетов</string>
+    <string name="alpine_pkg_search">Поиск пакета</string>
+    <string name="alpine_pkg_update">Обновить индекс пакетов</string>
+    <string name="alpine_pkg_install">Установить пакет</string>
+    <string name="alpine_pkg_remove">Удалить пакет</string>
+    <string name="alpine_pkg_upgrade">Обновить установленные пакеты</string>
+</resources>

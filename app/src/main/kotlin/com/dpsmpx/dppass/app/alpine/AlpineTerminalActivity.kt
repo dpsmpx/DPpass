@@ -1,6 +1,12 @@
 package com.dpsmpx.dppass.app.alpine
 
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.view.KeyEvent
+import android.view.inputmethod.EditorInfo
+import android.widget.Toast
 import android.os.Bundle
 import android.view.Gravity
 import android.view.WindowManager
@@ -26,6 +32,11 @@ class AlpineTerminalActivity : Activity() {
     private lateinit var scroll: ScrollView
     private lateinit var input: EditText
     private lateinit var start: Button
+    private lateinit var send: Button
+    private lateinit var previousCommand: Button
+    private lateinit var nextCommand: Button
+    private val history = AlpineCommandHistory()
+    private var followOutput = true
     @Volatile private var childPid: Int = -1
     @Volatile private var writer: Int = -1
     @Volatile private var reader: Int = -1
@@ -42,9 +53,15 @@ class AlpineTerminalActivity : Activity() {
         }
         start = Button(this).apply {
             text = getString(if (AlpineFiles.installed(this@AlpineTerminalActivity)) R.string.alpine_start else R.string.alpine_install)
-            setOnClickListener { prepareOrStart() }
+            setOnClickListener { if (childPid > 0) stopShell() else prepareOrStart() }
         }
-        root.addView(start)
+        val toolbar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        toolbar.addView(start, LinearLayout.LayoutParams(0, -2, 1f))
+        toolbar.addView(Button(this).apply {
+            text = getString(R.string.alpine_tools)
+            setOnClickListener { showTools() }
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        root.addView(toolbar)
         scroll = ScrollView(this)
         output = TextView(this).apply {
             typeface = android.graphics.Typeface.MONOSPACE
@@ -61,16 +78,39 @@ class AlpineTerminalActivity : Activity() {
             hint = getString(R.string.alpine_command)
             isSingleLine = true
             isEnabled = false
+            imeOptions = EditorInfo.IME_ACTION_SEND
+            setOnEditorActionListener { _, action, event ->
+                if (action == EditorInfo.IME_ACTION_SEND ||
+                    (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)) {
+                    sendInput("\n")
+                    true
+                } else false
+            }
         }
         bottom.addView(input, LinearLayout.LayoutParams(0, -2, 1f))
-        val send = Button(this).apply {
+        send = Button(this).apply {
+            isEnabled = false
             text = getString(R.string.alpine_send)
             setOnClickListener { sendInput("\n") }
         }
         bottom.addView(send)
         root.addView(bottom)
+        val navigation = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        previousCommand = Button(this).apply {
+            text = getString(R.string.alpine_history_previous)
+            isEnabled = false
+            setOnClickListener { history.previous(input.text.toString())?.let(::showCommand) }
+        }
+        nextCommand = Button(this).apply {
+            text = getString(R.string.alpine_history_next)
+            isEnabled = false
+            setOnClickListener { history.next()?.let(::showCommand) }
+        }
+        navigation.addView(previousCommand, LinearLayout.LayoutParams(0, -2, 1f))
+        navigation.addView(nextCommand, LinearLayout.LayoutParams(0, -2, 1f))
+        root.addView(navigation)
         val keys = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        for ((label, data) in listOf("Tab" to "\t", "Esc" to "\u001b", "Ctrl-C" to "\u0003")) {
+        for ((label, data) in listOf("Tab" to "\t", "Esc" to "\u001b", "Ctrl-C" to "\u0003", "Ctrl-D" to "\u0004")) {
             keys.addView(Button(this).apply {
                 text = label
                 setOnClickListener { writePty(data) }
@@ -139,8 +179,11 @@ class AlpineTerminalActivity : Activity() {
                     childPid = session.first
                     writer = session.second
                     reader = session.third
-                    input.isEnabled = true
-                    start.text = getString(R.string.alpine_running)
+                    history.clear()
+                    input.text.clear()
+                    setShellControls(true)
+                    start.isEnabled = true
+                    start.text = getString(R.string.alpine_stop)
                     append(getString(R.string.alpine_started) + "\n")
                     watchSession(session.first, session.third)
                 }
@@ -169,7 +212,9 @@ class AlpineTerminalActivity : Activity() {
                     childPid = -1
                     writer = -1
                     reader = -1
-                    input.isEnabled = false
+                    setShellControls(false)
+                    history.clear()
+                    input.text.clear()
                     start.isEnabled = true
                     start.text = getString(R.string.alpine_start)
                     append(getString(R.string.alpine_exited, result) + "\n")
@@ -178,10 +223,85 @@ class AlpineTerminalActivity : Activity() {
         }
     }
 
+    private fun setShellControls(running: Boolean) {
+        input.isEnabled = running
+        send.isEnabled = running
+        previousCommand.isEnabled = running
+        nextCommand.isEnabled = running
+    }
+
+    private fun stopShell() {
+        val pid = childPid
+        if (pid <= 0) return
+        start.isEnabled = false
+        setShellControls(false)
+        NativeCalls.kill(-pid, 15)
+        // The existing wait thread owns transition back to the start state.
+    }
+
+    private fun showCommand(command: String) {
+        input.setText(command)
+        input.setSelection(input.text.length)
+        input.requestFocus()
+    }
+
+    private fun showTools() {
+        val actions = mutableListOf<Pair<String, () -> Unit>>(
+            getString(R.string.alpine_clear_output) to { output.text = "" },
+            getString(R.string.alpine_copy_output) to {
+                val clipboard = getSystemService(ClipboardManager::class.java)
+                clipboard?.setPrimaryClip(ClipData.newPlainText("DPpass Alpine", output.text.toString()))
+                Toast.makeText(this, getString(R.string.alpine_output_copied), Toast.LENGTH_SHORT).show()
+            },
+            getString(if (followOutput) R.string.alpine_pause_follow else R.string.alpine_resume_follow) to {
+                followOutput = !followOutput
+                if (followOutput) scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
+            },
+        )
+        if (childPid > 0 && input.isEnabled) {
+            actions += getString(R.string.alpine_package_commands) to { showPackageCommands() }
+            actions += getString(R.string.alpine_command_history) to { showHistory() }
+            actions += getString(R.string.alpine_clear_history) to { history.clear() }
+        }
+        AlertDialog.Builder(this).setTitle(R.string.alpine_tools)
+            .setItems(actions.map { it.first }.toTypedArray()) { _, index -> actions[index].second() }
+            .show()
+    }
+
+    private fun showPackageCommands() {
+        val entries = listOf(
+            R.string.alpine_pkg_list to "apk info",
+            R.string.alpine_pkg_search to "apk search ",
+            R.string.alpine_pkg_update to "apk update",
+            R.string.alpine_pkg_install to "apk add ",
+            R.string.alpine_pkg_remove to "apk del ",
+            R.string.alpine_pkg_upgrade to "apk upgrade",
+        )
+        AlertDialog.Builder(this).setTitle(R.string.alpine_package_commands)
+            .setItems(entries.map { getString(it.first) }.toTypedArray()) { _, index ->
+                // Fill the editor, never execute a package operation on selection.
+                if (input.isEnabled) showCommand(entries[index].second)
+            }.show()
+    }
+
+    private fun showHistory() {
+        val commands = history.recent()
+        if (commands.isEmpty()) {
+            Toast.makeText(this, R.string.alpine_history_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        AlertDialog.Builder(this).setTitle(R.string.alpine_command_history)
+            .setItems(commands.toTypedArray()) { _, index ->
+                if (input.isEnabled) showCommand(commands[index])
+            }.show()
+    }
+
     private fun sendInput(suffix: String) {
-        val text = input.text.toString() + suffix
+        if (!input.isEnabled || writer < 0) return
+        val command = input.text.toString()
+        history.record(command)
         input.text.clear()
-        writePty(text)
+        writePty(command + suffix)
     }
 
     private fun writePty(value: String) {
@@ -197,11 +317,12 @@ class AlpineTerminalActivity : Activity() {
         val previous = output.text.toString()
         // Bound the UI log, never persist shell output or secrets on disk.
         output.text = (previous + text).takeLast(64 * 1024)
-        scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
+        if (followOutput) scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
     }
 
     override fun onDestroy() {
         disposed = true
+        history.clear()
         val pid = childPid
         childPid = -1
         if (pid > 0) NativeCalls.kill(-pid, 15) // own session/process group

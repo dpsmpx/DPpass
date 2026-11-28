@@ -1026,4 +1026,10 @@
     <string name="dpts_share_report">Поделиться отчётом</string>
     <string name="dpts_replace_editor">Заменить текущий черновик? Сохранённые скрипты не изменятся.</string>
     <string name="dpts_file_failed">Не удалось открыть текстовый файл UTF-8 или редактор уже закрыт.</string>
+    <string name="servers_filter_all">Все серверы</string>
+    <string name="servers_filter_favorites">Избранные</string>
+    <string name="servers_measure_scope">Замер задержки: %1$d видимых серверов · %2$d избранных в этой подписке. AUTO не меняется.</string>
+    <string name="servers_no_favorites">Нет избранных серверов. Нажмите звёздочку рядом с сервером.</string>
+    <string name="servers_add_favorite">Добавить сервер в избранное</string>
+    <string name="servers_remove_favorite">Убрать сервер из избранного</string>
 </resources>

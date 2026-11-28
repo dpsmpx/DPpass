@@ -997,4 +997,10 @@
     <string name="dpts_share_report">Share report</string>
     <string name="dpts_replace_editor">Replace the current editor draft? Saved scripts are not changed.</string>
     <string name="dpts_file_failed">Could not open this UTF-8 script file, or the editor is no longer open.</string>
+    <string name="servers_filter_all">All servers</string>
+    <string name="servers_filter_favorites">Favorites</string>
+    <string name="servers_measure_scope">Latency check: %1$d visible servers · %2$d favorites in this subscription. AUTO is unaffected.</string>
+    <string name="servers_no_favorites">No favorites yet. Tap a star beside a server.</string>
+    <string name="servers_add_favorite">Add server to favorites</string>
+    <string name="servers_remove_favorite">Remove server from favorites</string>
 </resources>
