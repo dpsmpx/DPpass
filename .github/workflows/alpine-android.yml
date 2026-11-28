@@ -38,6 +38,7 @@ on:
       - feat/dpts-matrix-composer
       - feat/dpts-offline-local
       - fix/zapret2-tls-record-chain
+      - feat/dpts-csv-export
       - feat/server-favorites-and-scoped-latency
       - fix/dpts-matched-training-evidence
       - release/dppass-v0.8.3-rc1
@@ -73,7 +74,7 @@ jobs:
       - name: Preflight Android upgrade version before expensive builds
         env:
           GH_TOKEN: ${{ github.token }}
-          DPPASS_ALLOW_EQUAL_UPGRADE: ${{ (github.ref == 'refs/heads/feature/dppass-0.8.3' || github.ref == 'refs/heads/feat/dpts-file-workspace' || github.ref == 'refs/heads/feat/server-favorites-and-scoped-latency' || github.ref == 'refs/heads/fix/dpts-matched-training-evidence' || github.ref == 'refs/heads/feat/dpts-visual-builder' || github.ref == 'refs/heads/fix/zapret2-http-composition' || github.ref == 'refs/heads/feat/dpts-matrix-composer' || github.ref == 'refs/heads/feat/dpts-offline-local' || github.ref == 'refs/heads/fix/zapret2-tls-record-chain') && github.event_name != 'workflow_dispatch' && !contains(github.event.head_commit.message, '[publish prerelease]') }}
+          DPPASS_ALLOW_EQUAL_UPGRADE: ${{ (github.ref == 'refs/heads/feature/dppass-0.8.3' || github.ref == 'refs/heads/feat/dpts-file-workspace' || github.ref == 'refs/heads/feat/server-favorites-and-scoped-latency' || github.ref == 'refs/heads/fix/dpts-matched-training-evidence' || github.ref == 'refs/heads/feat/dpts-visual-builder' || github.ref == 'refs/heads/fix/zapret2-http-composition' || github.ref == 'refs/heads/feat/dpts-matrix-composer' || github.ref == 'refs/heads/feat/dpts-offline-local' || github.ref == 'refs/heads/fix/zapret2-tls-record-chain' || github.ref == 'refs/heads/feat/dpts-csv-export') && github.event_name != 'workflow_dispatch' && !contains(github.event.head_commit.message, '[publish prerelease]') }}
         run: python3 tools/release/check_upgrade_code.py
       - name: Check JNI local package allowlist and Gradle inputs
         run: python3 tools/xray/check_cgo_exports.py && python3 tools/xray/check_native_inputs.py && python3 tools/xray/native.py check-packages
@@ -171,7 +172,7 @@ jobs:
       - name: Refuse Android downgrade against last published signed alpha
         env:
           GH_TOKEN: ${{ github.token }}
-          DPPASS_ALLOW_EQUAL_UPGRADE: ${{ (github.ref == 'refs/heads/feature/dppass-0.8.3' || github.ref == 'refs/heads/feat/dpts-file-workspace' || github.ref == 'refs/heads/feat/server-favorites-and-scoped-latency' || github.ref == 'refs/heads/fix/dpts-matched-training-evidence' || github.ref == 'refs/heads/feat/dpts-visual-builder' || github.ref == 'refs/heads/fix/zapret2-http-composition' || github.ref == 'refs/heads/feat/dpts-matrix-composer' || github.ref == 'refs/heads/feat/dpts-offline-local' || github.ref == 'refs/heads/fix/zapret2-tls-record-chain') && github.event_name != 'workflow_dispatch' && !contains(github.event.head_commit.message, '[publish prerelease]') }}
+          DPPASS_ALLOW_EQUAL_UPGRADE: ${{ (github.ref == 'refs/heads/feature/dppass-0.8.3' || github.ref == 'refs/heads/feat/dpts-file-workspace' || github.ref == 'refs/heads/feat/server-favorites-and-scoped-latency' || github.ref == 'refs/heads/fix/dpts-matched-training-evidence' || github.ref == 'refs/heads/feat/dpts-visual-builder' || github.ref == 'refs/heads/fix/zapret2-http-composition' || github.ref == 'refs/heads/feat/dpts-matrix-composer' || github.ref == 'refs/heads/feat/dpts-offline-local' || github.ref == 'refs/heads/fix/zapret2-tls-record-chain' || github.ref == 'refs/heads/feat/dpts-csv-export') && github.event_name != 'workflow_dispatch' && !contains(github.event.head_commit.message, '[publish prerelease]') }}
         run: python3 tools/release/check_upgrade_code.py
       - name: Build optimized ARM64 release variant with Alpine and Xray
         shell: bash

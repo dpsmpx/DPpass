@@ -24,6 +24,7 @@ import com.dpsmpx.dppass.app.DptsCompletedRun
 import com.dpsmpx.dppass.app.DptsDiagnosticJob
 import com.dpsmpx.dppass.app.DptsSavedScripts
 import com.dpsmpx.dppass.app.DptsWorkspace
+import com.dpsmpx.dppass.app.DptsCsv
 import com.dpsmpx.dppass.app.DptsReportCopy
 import com.dpsmpx.dppass.app.DptsRunWindow
 import com.dpsmpx.dppass.app.DptsSession
@@ -112,6 +113,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         Ui.Style.OUTLINE, R.drawable.ic_speed)
     private val dptsStopButton = Ui.button(context, R.string.dpts_stop_script,
         Ui.Style.OUTLINE, R.drawable.ic_speed)
+    private var matrixCsv: String? = null
     private var lastDptsRun: DptsCompletedRun? = null
     private var lastTrainingSubmitted = false
     private val progress = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -126,6 +128,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
     private val diagnostic = DptsDiagnosticJob(host.scope, failed = {
         invalidateDptsRun()
         // Do not publish exception messages, which may contain private data.
+        matrixCsv = null
         resultText.text = ""
         resultText.visibility = View.GONE
         statusText.text = context.getString(R.string.dpts_diagnostic_failed)
@@ -205,6 +208,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 invalidateDptsRun()
+                matrixCsv = null
                 resultText.text = ""
                 resultText.visibility = View.GONE
                 statusText.text = context.getString(R.string.dpts_choose_script)
@@ -533,6 +537,11 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 host.saveDocument("DPpass-DPTS-report.txt", resultText.text.toString())
             }
             actions += R.string.dpts_share_report to { shareText(resultText.text.toString()) }
+            matrixCsv?.let { csv ->
+                actions += R.string.dpts_export_csv to {
+                    host.saveDocument("DPpass-DPTS-matrix.csv", csv)
+                }
+            }
         }
         AlertDialog.Builder(context)
             .setTitle(R.string.dpts_file_actions)
@@ -1476,6 +1485,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
         if (diagnostic.busy) return
         // Even a failed compile or unavailable connection replaces the previous run.
         invalidateDptsRun()
+        matrixCsv = null
         resultText.text = ""
         resultText.visibility = View.GONE
         val source = dptsEditor.text.toString()
@@ -1522,6 +1532,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 // Only previously accepted rows are retained. Never append a
                 // result returned after the session or deadline changed.
                 val report = DptsScript.report(plan, network, prepared, rows, reason)
+                matrixCsv = DptsCsv.render(plan, network, prepared, rows, reason)
                 resultText.text = report
                 resultText.visibility = View.VISIBLE
                 statusText.text = context.getString(R.string.dpts_stopped)
@@ -1590,6 +1601,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
                 // but never expose training for an unbound experiment.
                 lastDptsRun = DptsCompletedRun.capture(source, plan, prepared, rows, session)
                 publishCompletedReport("DPpass DPTS", report, R.string.dpts_copied)
+                matrixCsv = DptsCsv.render(plan, network, prepared, rows)
             } catch (_: DiagnosticIncomplete) {
                 ensureActive()
                 interrupted(if (session != currentSession()) DptsInterruption.SESSION_CHANGED

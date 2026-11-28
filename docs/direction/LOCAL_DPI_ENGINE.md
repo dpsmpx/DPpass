@@ -1269,3 +1269,10 @@ The same four fixed HTTP/TLS DPTS suites may now be launched with the tunnel in 
 ## A5/A7 — portable three-record TLS chain
 
 The common portable library can encode a complete first TLS record as three records while preserving all handshake and trailing bytes. `tlsrec-chain` is restricted in the socket executor to the fixed, certificate-verified loopback TLS 1.2/1.3 fixture. The shared planner and Alpine IPC use the same deterministic encoding. A separate DPTS preset runs disconnected or in the existing active diagnostic mode. The nine-case candidate acceptance suite, reference native encoder, ordinary AUTO, and model layout are unchanged. This is not an upstream-equivalence or remote-network claim. CI and physical acceptance pending.
+
+
+## A7 — structured matrix export
+
+The DPTS workspace can export a completed or interrupted ordinary matrix to a CSV file through Android's document picker. Each planned probe occupies one row, including missing or unbound rows; result fields are exported only for matched observations. The run state, network class, validated DNS fingerprint, protocol, method, attempt, timeout and outcome dimensions support comparison in desktop tools. No raw IP, response payload, user title, source, or untrusted free text is exported. This is read-only report data, never a model import or AUTO input. Fixed legacy suites keep their existing text report. CI pending.
+
+Kotlin CI caught a redundant nullable access on a smart-cast receiver. Removed the redundant access without suppressing warnings or changing evidence rules.
