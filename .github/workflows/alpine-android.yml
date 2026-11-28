@@ -441,7 +441,7 @@ jobs:
             flags=(--prerelease --latest=false --draft)
             title="DPpass ${version[1]} — signed ARM64 prerelease"
             notes="$RUNNER_TEMP/dppass-update-notes.md"
-            printf '%s\n' "Signed ARM64 prerelease (versionCode ${version[0]}). GitHub release updates with explicit Android installation confirmation; DPTS file import/export, report sharing and offline plan preview; server favorites and scoped latency measurement; Alpine terminal session history, package command templates and output controls; TCP full-close cancellation of initial planner requests and ordered half-close. Same application ID and pinned signer. Provider model V4; regenerate older provider models. Physical network acceptance pending." > "$notes"
+            printf '%s\n' "Signed ARM64 prerelease (versionCode ${version[0]}). Visual DPTS script builder (Testing scripts > Files and sharing > Visual script builder), editable generated source with protocol/method/address/repetition/timeout options and preview; new fixed loopback combined HTTP Host preset. RC11 installation over previous APK was confirmed by the author; in-app updater installation remains to be tested. Same application ID and pinned signer. Provider model V4; regenerate older provider models. Physical network acceptance pending." > "$notes"
           fi
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             target="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq '.targetCommitish')"
