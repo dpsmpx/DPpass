@@ -46,6 +46,8 @@ class FakeDevice:
             return self.signer
         if args[0] == "aapt":
             return self.badging
+        if cmd == ["get-serialno"]:
+            return "test-device\n"
         if cmd == ["get-state"]:
             return "device\n"
         if cmd == ["shell", "pm", "path", v.PACKAGE]:
@@ -69,6 +71,58 @@ class VerifyInstalledTest(unittest.TestCase):
         self.assertEqual(sum("pull" in call for call in device.calls), 1)
         self.assertFalse(any(token in call for token in ["install", "uninstall", "root", "clear", "run-as"]
                              for call in device.calls))
+
+    def test_implicit_device_is_resolved_once_and_pinned(self):
+        raw, manifest = fixture()
+        device = FakeDevice(raw)
+        v.verify(manifest, "165\n0.8.3-rc.9\n", command=device)
+        adb_calls = [call for call in device.calls if call[0] == "adb"]
+        self.assertEqual(adb_calls[0], ["adb", "get-serialno"])
+        self.assertTrue(all(call[1:3] == ["-s", "test-device"] for call in adb_calls[1:]))
+
+    def test_invalid_device_selection(self):
+        raw, manifest = fixture()
+        for value in ("", "unknown", "-invalid", "two devices", "a\nb"):
+            calls = []
+            def command(args, timeout=30):
+                calls.append(args)
+                return value
+            with self.assertRaisesRegex(ValueError, "invalid adb device selection"):
+                v.verify(manifest, "165\n0.8.3-rc.9\n", command=command)
+            self.assertEqual(calls, [["adb", "get-serialno"]])
+
+    def test_combined_report_and_installed_identity(self):
+        from verify_acceptance_report import CASES, manifest_fields
+        raw, manifest = fixture()
+        m = manifest_fields(manifest)
+        report = "\n".join([
+            "=== DPpass local HTTP/TLS self-test ===",
+            "BUILD: version=0.8.3-rc.9; split_count=0; base_apk_sha256=" + m["apk_sha256"] +
+            "; apk_arm64_jni_sha256=" + m["jni_sha256"] +
+            "; single_apk_identity=true; physical_network_acceptance=not_measured",
+            "budget_ms=45000", "RUN: completed; training_eligible=false",
+            "Executed: 9/9; missing=0; extra=0",
+            *[f"{label}: verified; applied={applied}; skipped=0; elapsed_ms=10"
+              for label, applied in CASES],
+            "Verified: 9/9", "HTTP: 3/3", "TLS 1.2: 3/3", "TLS 1.3: 3/3",
+            "ACCEPTANCE: PASS",
+        ])
+        version = "165\n0.8.3-rc.9\n"
+        self.assertEqual(v.verify(manifest, version, command=FakeDevice(raw), report=report),
+                         (165, "0.8.3-rc.9"))
+        for bad, reason in [
+            (report.replace("version=0.8.3-rc.9", "version=0.8.3-rc.8"), "candidate_version_mismatch"),
+            (report.replace("ACCEPTANCE: PASS", "ACCEPTANCE: NOT_VERIFIED"), "aggregate_not_verified"),
+            (report.replace(m["apk_sha256"], "b" * 64), "candidate_digest_mismatch"),
+        ]:
+            device = FakeDevice(raw)
+            with self.assertRaisesRegex(v.Mismatch, reason):
+                v.verify(manifest, version, command=device, report=bad)
+            self.assertEqual(device.calls, [])
+        device = FakeDevice(raw)
+        device.signer = "invalid"
+        with self.assertRaisesRegex(v.Mismatch, "signer_mismatch"):
+            v.verify(manifest, version, command=device, report=report)
 
     def test_mismatch_paths_size_hash_signer_and_version(self):
         raw, manifest = fixture()
