@@ -1312,3 +1312,8 @@ The home provider/local switch remembers the last explicitly selected local exec
 ## A6/A7 — renewable sparse capacity and model status
 
 V5 strategy contexts now continue admitting new sparse features when their own quota is full. Existing active features are updated first; the weakest inactive weight of the same context is replaced, with numeric-index tie breaking. No change to file schema, other contexts, routing or provider model. The model status dialog presents the saved snapshot's logical and dense budgets, actual file bytes, layers, per-context observations and sparse occupancy/quota, and HTML calibration counts; it does not claim live or content performance. Cleanup also recognizes the actual retired dppass-zapret2-mlp-v2/v3 format markers without loading them. CI and physical effectiveness pending.
+
+
+## A3/A5 — effective ROOT startup admission
+
+Both legacy ROOT adapters now perform a fresh read-only capability survey before staging binaries or installing rules. Effective CAP_NET_ADMIN is mandatory for both; the packet adapter also requires CAP_NET_RAW and IPv4 mangle OUTPUT, while the socket adapter requires IPv4 NAT OUTPUT. Missing IPv6 prerequisites remain independently optional; no claim of NFQUEUE or target availability is made. A failed survey refuses startup without switching the executor. The service snapshots its backend selection once at entry to the local dispatch, instead of re-reading preferences to choose the adapter. This is an operational admission gate for the existing reference executors, not the unified ROOT helper. Provider mode, model schemas, version and publication policy are unchanged. CI and physical acceptance pending.

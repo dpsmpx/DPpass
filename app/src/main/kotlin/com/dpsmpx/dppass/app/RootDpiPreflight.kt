@@ -1,9 +1,11 @@
 package com.dpsmpx.dppass.app
 
+import com.dpsmpx.dppass.connection.Zapret2Backend
+
 /**
- * Preliminary checks of legacy ROOT adapters. These do not install rules,
- * start daemons or prove availability of individual kernel targets.
- * Only call the script after the user has explicitly chosen ROOT.
+ * Admission to the existing ROOT adapters, not proof of individual kernel
+ * targets or of successful packet execution. Never acquires ROOT unless the
+ * service has already been started with an explicitly selected ROOT backend.
  */
 internal object RootDpiPreflight {
     enum class Kind { SOCKET, PACKET }
@@ -13,16 +15,33 @@ internal object RootDpiPreflight {
     fun permitsLegacyRoot(packageId: String): Boolean =
         packageId != "com.dpsmpx.dppass.alpine.localdpi"
 
-    fun script(kind: Kind): String {
-        val table = when (kind) {
-            Kind.SOCKET -> "nat"
-            Kind.PACKET -> "mangle"
-        }
-        return listOf(
-            "set -eu",
-            "test \"\$(id -u)\" = 0 || { echo 'su: effective uid is not root'; exit 1; }",
-            "command -v iptables >/dev/null || { echo 'iptables unavailable'; exit 1; }",
-            "iptables -t $table -S OUTPUT >/dev/null || { echo 'iptables $table OUTPUT unavailable'; exit 1; }",
-        ).joinToString("\n")
+    fun kind(backend: Zapret2Backend): Kind? = when (backend) {
+        Zapret2Backend.BYEDPI_ROOT -> Kind.SOCKET
+        Zapret2Backend.ROOT -> Kind.PACKET
+        else -> null
+    }
+
+    /** Required IPv4 prerequisites. IPv6 remains independently optional in
+     * the legacy adapters; missing IPv6 tables do not authorize IPv6 rules.
+     * Raw access is required for the packet adapter, not for TCP sockets.
+     */
+    fun refusal(kind: Kind, report: RootCapabilitySurvey.Report?): String? = when {
+        report == null -> "ROOT: не удалось подтвердить эффективные привилегии"
+        !report.netAdmin -> "ROOT: требуется CAP_NET_ADMIN"
+        kind == Kind.PACKET && !report.netRaw -> "ROOT: требуется CAP_NET_RAW"
+        kind == Kind.SOCKET && !report.ipv4Nat -> "ROOT: недоступна IPv4 NAT OUTPUT"
+        kind == Kind.PACKET && !report.ipv4Mangle -> "ROOT: недоступна IPv4 mangle OUTPUT"
+        else -> null
+    }
+
+    /** Fresh read-only survey before staging or privileged rule changes.
+     * A failed probe cannot be replaced by a cached UI result or another
+     * executor. The launch still checks its actual rules and processes.
+     */
+    fun requireReady(
+        kind: Kind,
+        survey: () -> RootCapabilitySurvey.Report? = { RootCapabilitySurvey.run() },
+    ) {
+        refusal(kind, survey())?.let { error(it) }
     }
 }

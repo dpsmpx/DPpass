@@ -345,10 +345,10 @@ class DPpassVpnService : VpnService() {
         if (core.activation.state.activeConfig == null) core.restoreAwaitingActivation()
         // Zapret2 не использует профили Xray или внешние серверы; никогда не
         // подменяем обычную подписку без явного выбора в настройках.
-        when (AppPrefs(this).zapret2Backend) {
+        when (val backend = AppPrefs(this).zapret2Backend) {
             Zapret2Backend.OFF -> Unit
             Zapret2Backend.ROOT, Zapret2Backend.BYEDPI_ROOT -> {
-                connectRootZapret2(core, AppPrefs(this).zapret2Backend.byedpi)
+                connectRootZapret2(core, backend)
                 return
             }
             Zapret2Backend.VPN_SERVICE, Zapret2Backend.BYEDPI_VPN -> {
@@ -379,7 +379,7 @@ class DPpassVpnService : VpnService() {
                 // ignored to avoid silently retaining an outdated fixed
                 // strategy after updating from an earlier debug build.
                 // Other candidates remain available to private diagnostics.
-                val useByeDpi = p.zapret2Backend == Zapret2Backend.BYEDPI_VPN
+                val useByeDpi = backend == Zapret2Backend.BYEDPI_VPN
                 val trick = if (useByeDpi) null else DesyncTrick.Auto
                 connectServerless(graph, sites, settings, trick,
                     if (useByeDpi) "ByeDPI VPN local" else "Zapret2 VPN local",
@@ -609,7 +609,15 @@ class DPpassVpnService : VpnService() {
      * запускаются: сервера нет.
      */
     /** Root NFQUEUE, только отдельный экспериментальный режим. */
-    private suspend fun connectRootZapret2(core: DPpassCore, useByeDpi: Boolean) {
+    private suspend fun connectRootZapret2(core: DPpassCore, backend: Zapret2Backend) {
+        // Use the same immutable selection that entered the ROOT branch.
+        // A concurrent preference change cannot select a different adapter.
+        val kind = RootDpiPreflight.kind(backend)
+        if (kind == null) {
+            fail(Diagnostic.error(DiagCode.BACKEND_NOT_AVAILABLE, "ROOT: не выбран ROOT-исполнитель"))
+            return
+        }
+        val useByeDpi = kind == RootDpiPreflight.Kind.SOCKET
         val name = if (useByeDpi) "ByeDPI root" else "Zapret2 root"
         progress(TunnelStatus.Connecting(name))
         // Side-by-side native debug APK must not touch root rules or state
