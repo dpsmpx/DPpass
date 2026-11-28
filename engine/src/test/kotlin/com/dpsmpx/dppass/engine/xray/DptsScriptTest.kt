@@ -187,7 +187,7 @@ class DptsScriptTest {
         assertEquals(catalog.siteTcpMethods.drop(1), catalog.modelTcpMethods)
         assertEquals(catalog.siteQuicMethods.drop(1) + "pass", catalog.modelQuicMethods)
         assertEquals(catalog.modelTcpMethods.size + catalog.modelQuicMethods.size, catalog.modelOutputs)
-        assertEquals("dppass-strategy-mlp-v4:tcp=" + catalog.modelTcpMethods.joinToString(",") +
+        assertEquals("dppass-strategy-mlp-v5:tcp=" + catalog.modelTcpMethods.joinToString(",") +
             ";quic=" + catalog.modelQuicMethods.joinToString(","), catalog.modelFormat)
         assertEquals(setOf("split-2", "fake-2", "fake-4", "fake-8", "multisplit"), catalog.scriptOnlyStrategies.toSet())
         assertEquals(setOf("fake-2", "fake-4", "fake-8"), catalog.scriptOnlyQuicStrategies.toSet())

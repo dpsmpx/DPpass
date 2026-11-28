@@ -1286,3 +1286,14 @@ The fixed three-record DPTS suite in tagged localdpi_native builds now executes 
 ## A5 — ROOT capability survey and offline DPTS entry
 
 Settings exposes an explicit read-only ROOT survey independent of backend selection. It requires Idle and user confirmation before invoking su; the fixed command verifies effective UID, reads the effective capability mask of its own shell and queries IPv4/IPv6 NAT/mangle OUTPUT without changing rules. Only finite parsed outcomes reach the UI; no raw command output is copied. A changed tunnel status invalidates the result. This does not register an executor or claim NFQUEUE, SELinux or packet-method support. The DPTS entry is now visible for all backend selections so offline fixed local suites are reachable without changing settings. Tests and Android CI pending; physical ROOT verification remains open.
+
+
+## A6 — strategy model V5: independent contextual affine heads
+
+Nine strategy contexts (three network categories × TLS/HTTP/QUIC) now train independent method-specific affine heads over eight existing features; the shared randomized MLP prior is frozen. The nine stable method output IDs remain unchanged. Context-specific sparse indices are disjoint by modulo nine, even for small parameter budgets; a bounded per-context storage quota prevents one context from exhausting all available sparse entries. Full quotas retain existing entries rather than evicting them. Android generation and both validators count the new head parameters. V4 strategy weights are rejected, requiring regeneration; the independent provider-server model is unchanged. The model continues to rank only admitted methods and existing evidence rules remain in force. Regression tests exercise all nine heads and tiny sparse budgets. CI and physical quality measurements pending.
+
+Android CI caught a stale V4 assertion in DptsScriptTest; updated the expected V5 schema without weakening catalog checks. Both prior Go CI runs passed.
+
+## Model storage — explicit obsolete-file cleanup
+
+The author rejects compatibility with obsolete strategy formats. Settings now previews known retired strategy V1–V4 at strategy-v2.json, retired provider V1–V3 at server-v1.json, and orphaned .model-*.pending writes (numeric temp names only). The current strategy V5 and provider V4 are protected; unknown, malformed, oversized and symlink entries are not swept. The preview lists exact names, reasons and byte lengths and requires explicit confirmation. The same model storage lock protects scanning/deletion; a new scan compares the complete preview including SHA-256 and each file is checked again before deletion. No migration, recursive cleanup, subscription or settings deletion. Individual failures and logical bytes removed are shown. CI pending.

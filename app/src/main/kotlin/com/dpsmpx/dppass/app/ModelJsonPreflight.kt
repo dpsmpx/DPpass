@@ -18,7 +18,18 @@ internal object ModelJsonPreflight {
         }.getOrDefault(false)
     }
 
+    /** Inspect only the top-level format marker; never load old weights. */
+    fun format(raw: ByteArray, maxBytes: Int): String? {
+        if (raw.isEmpty() || raw.size > maxBytes) return null
+        return runCatching {
+            val parser = Parser(raw.decodeToString(throwOnInvalidSequence = true))
+            if (parser.check()) parser.format else null
+        }.getOrNull()
+    }
+
     private class Parser(private val source: String) {
+        var format: String? = null
+            private set
         private var p = 0
         private fun peek(): Char = source.getOrElse(p) { '\u0000' }
         private fun take(c: Char): Boolean {
@@ -66,7 +77,9 @@ internal object ModelJsonPreflight {
                 require(depth != 0 || key in fields)
                 space()
                 expect(':')
-                value(depth + 1)
+                space()
+                if (depth == 0 && key == "format" && peek() == '"') format = string()
+                else value(depth + 1)
                 space()
                 if (take('}')) return
                 expect(',')

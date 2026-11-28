@@ -1053,4 +1053,18 @@
     <string name="root_capability_v6nat">IPv6 NAT OUTPUT</string>
     <string name="root_capability_v6mangle">IPv6 mangle OUTPUT</string>
     <string name="root_capability_limit">Наличие таблицы и действующей возможности не доказывает работу NFQUEUE, разрешение SELinux или исправность ROOT-движка. Проверка не включает методы.</string>
+    <string name="model_cleanup_title">Очистка устаревших данных моделей</string>
+    <string name="model_cleanup_summary">Просмотр старых форматов и незавершённых записей перед удалением</string>
+    <string name="model_cleanup_old_strategy">Устаревшая модель стратегий</string>
+    <string name="model_cleanup_old_server">Устаревший формат модели серверов</string>
+    <string name="model_cleanup_pending">Незавершённая запись модели</string>
+    <string name="model_cleanup_item">%1$s — %2$d байт (%3$s)</string>
+    <string name="model_cleanup_total">Файлов: %1$d. Всего: %2$d байт.</string>
+    <string name="model_cleanup_warning">Будут удалены только перечисленные файлы в закрытом каталоге local-models. Актуальные модели, подписки, скрипты и остальные настройки сохранятся. Отменить удаление нельзя.</string>
+    <string name="model_cleanup_action">Удалить перечисленные файлы</string>
+    <string name="model_cleanup_empty">Известных устаревших файлов моделей не найдено.</string>
+    <string name="model_cleanup_unavailable">Не удалось безопасно проверить файлы моделей. Ничего не удалено.</string>
+    <string name="model_cleanup_changed">Список или содержимое файлов изменились. Ничего не удалено. Повторите просмотр.</string>
+    <string name="model_cleanup_done">Удалено: %1$d файлов; %2$d байт. Не удалось удалить: %3$d.</string>
+    <string name="model_cleanup_failed_files">Не удалены:</string>
 </resources>

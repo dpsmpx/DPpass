@@ -34,6 +34,7 @@ const (
 )
 
 var adaptiveNNOutput = localdpi.ModelOutputCount()
+var adaptiveNNHeadWidth = adaptiveNNOutput*(adaptiveNNInput+1)
 
 type adaptiveNNWeights struct {
     Format string `json:"format"`
@@ -95,7 +96,7 @@ func nnDenseCount(w *adaptiveNNWeights) int64 {
     last := first
     if deep > 0 { last = deep }
     return int64(first)*(adaptiveNNInput+1) + int64(deep)*(int64(first)+1) +
-        int64(adaptiveNNOutput)*(int64(last)+1) + int64(adaptiveNNContexts*adaptiveNNOutput)
+        int64(adaptiveNNOutput)*(int64(last)+1) + int64(adaptiveNNContexts*adaptiveNNHeadWidth)
 }
 
 var adaptiveNNFormat = localdpi.ModelFormat()
@@ -138,7 +139,7 @@ func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
         return nil, errors.New("invalid contextual heads")
     }
     for i, row := range w.ContextBias {
-        if len(row) != adaptiveNNOutput || w.ContextObservations[i] < 0 ||
+        if len(row) != adaptiveNNHeadWidth || w.ContextObservations[i] < 0 ||
             w.ContextObservations[i] > 1_000_000_000 {
             return nil, errors.New("invalid contextual head dimensions")
         }
@@ -166,10 +167,16 @@ func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
     // written by the existing model update path.
     if w.Sparse==nil {w.Sparse=make(map[string]float64)}
     capacity := w.Parameters - nnDenseCount(&w)
+    var sparseCounts [adaptiveNNContexts]int64
     for key, n := range w.Sparse {
         i, err := strconv.ParseInt(key, 10, 64)
         if err != nil || i < 0 || i >= capacity || strconv.FormatInt(i, 10) != key ||
             !validNNNumber(n) { return nil, errors.New("invalid sparse slot") }
+        context:=int(i%adaptiveNNContexts)
+        sparseCounts[context]++
+        if sparseCounts[context]>nnContextSlots(context,min(capacity,int64(adaptiveNNMaxSparse))) {
+            return nil,errors.New("sparse context quota exceeded")
+        }
     }
     for i, row := range w.Hidden {
         if len(row) != adaptiveNNInput { return nil, errors.New("bad hidden matrix") }
@@ -302,8 +309,13 @@ func nnSparseKeys(w *adaptiveNNWeights, host string, idx int, quic bool) []strin
     capacity := w.Parameters - nnDenseCount(w)
     if capacity <= 0 { return nil }
     context := nnContext(host, quic)
+    // Disjoint logical sparse slots: no cross-context hash collision,
+    // even for budgets smaller than nine.
+    slots:=nnContextSlots(context,capacity)
+    if slots<=0 {return nil}
     features := nnFeatures(host, quic)
     keys := make([]string, 0, adaptiveNNInput)
+    seen:=make(map[string]bool,adaptiveNNInput)
     for i, x := range features {
         if x <= 0 { continue }
         bucket := int(math.Min(15, math.Max(0, math.Floor(x*15))))
@@ -313,9 +325,15 @@ func nnSparseKeys(w *adaptiveNNWeights, host string, idx int, quic bool) []strin
         sum := sha256.Sum256([]byte(message))
         var v uint64
         for k:=0;k<7;k++ { v = v<<8 | uint64(sum[k]) }
-        keys = append(keys, strconv.FormatUint(v%uint64(capacity), 10))
+        key:=strconv.FormatUint(v%uint64(slots)*adaptiveNNContexts+uint64(context),10)
+        if !seen[key] {keys=append(keys,key);seen[key]=true}
     }
     return keys
+}
+
+func nnContextSlots(context int, capacity int64) int64 {
+    if context<0 || context>=adaptiveNNContexts || capacity<=int64(context) {return 0}
+    return 1+(capacity-1-int64(context))/adaptiveNNContexts
 }
 
 func nnForward(w *adaptiveNNWeights, host string, idx int, quic bool) (float64, []float64) {
@@ -338,7 +356,10 @@ func nnForward(w *adaptiveNNWeights, host string, idx int, quic bool) (float64, 
     value := w.OutputBias[idx]
     for j, v := range h { value += w.Output[idx][j] * v }
     context := nnContext(host, quic)
-    value += w.ContextBias[context][idx]
+    start:=idx*(adaptiveNNInput+1)
+    head:=w.ContextBias[context]
+    value += head[start]
+    for i,v:=range f {value += head[start+1+i]*v}
     for _, key := range nnSparseKeys(w, host, idx, quic) {
         value += w.Sparse[key] * 0.5
     }
@@ -384,28 +405,36 @@ func (n *adaptiveNeural) learn(host, candidate string, downstream int64) {
     defer n.mu.Unlock()
     if n.weights == nil { return }
     w := n.weights
-    logit, hidden := nnForward(w, host, idx, quic)
+    logit, _ := nnForward(w, host, idx, quic)
     prob := 1 / (1 + math.Exp(-math.Max(-12, math.Min(12, logit))))
     delta := (reward - prob) * 0.03
-    for i, v := range hidden {
-        w.Output[idx][i] = nnClamp(w.Output[idx][i] + delta*v)
-    }
-    w.OutputBias[idx] = nnClamp(w.OutputBias[idx] + delta)
-    // Scenario-specific heads are adapted faster than shared features,
-    // so MOBILE failures don't erase learned WIFI priorities.
+    // Keep the shared random feature extractor and prior frozen. Each
+    // context trains its own method-specific affine head.
     context := nnContext(host, quic)
-    w.ContextBias[context][idx] = nnClamp(w.ContextBias[context][idx] + delta)
+    start:=idx*(adaptiveNNInput+1)
+    head:=w.ContextBias[context]
+    head[start]=nnClamp(head[start]+delta)
+    for i,v:=range nnFeatures(host,quic) {
+        head[start+1+i]=nnClamp(head[start+1+i]+delta*v)
+    }
     if w.ContextObservations[context] < 1_000_000_000 {
         w.ContextObservations[context]++
     }
     if w.Observations < 1_000_000_000 { w.Observations++ }
+    // Reserve a bounded share of actual storage for each context.
+    quota:=nnContextSlots(context,min(w.Parameters-nnDenseCount(w),int64(adaptiveNNMaxSparse)))
+    count:=int64(0)
+    for key:=range w.Sparse {
+        slot,_:=strconv.ParseInt(key,10,64)
+        if slot%adaptiveNNContexts==int64(context) {count++}
+    }
     for _, key := range nnSparseKeys(w, host, idx, quic) {
-        if len(w.Sparse) < adaptiveNNMaxSparse || hasSparseKey(w.Sparse, key) {
+        known:=hasSparseKey(w.Sparse,key)
+        if known || count<quota {
             w.Sparse[key] = nnClamp(w.Sparse[key] + delta * 0.2)
+            if !known {count++}
         }
     }
-    // Only train the final layer and the contextual heads for deep
-    // models: this protects shared feature extraction from forgetting.
     n.dirty = true
 }
 

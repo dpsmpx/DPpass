@@ -1024,4 +1024,18 @@
     <string name="root_capability_v6nat">IPv6 NAT OUTPUT</string>
     <string name="root_capability_v6mangle">IPv6 mangle OUTPUT</string>
     <string name="root_capability_limit">A listed table and effective capability do not prove NFQUEUE, SELinux permission or a working ROOT engine. No method is enabled by this survey.</string>
+    <string name="model_cleanup_title">Clean obsolete model data</string>
+    <string name="model_cleanup_summary">Review old formats and unfinished writes before deleting</string>
+    <string name="model_cleanup_old_strategy">Retired strategy model</string>
+    <string name="model_cleanup_old_server">Retired server model format</string>
+    <string name="model_cleanup_pending">Unfinished model write</string>
+    <string name="model_cleanup_item">%1$s — %2$d bytes (%3$s)</string>
+    <string name="model_cleanup_total">Files: %1$d. Total: %2$d bytes.</string>
+    <string name="model_cleanup_warning">Only the listed files in the private local-models folder will be deleted. Current models, subscriptions, scripts and other settings are kept. This cannot be undone.</string>
+    <string name="model_cleanup_action">Delete listed files</string>
+    <string name="model_cleanup_empty">No known obsolete model files found.</string>
+    <string name="model_cleanup_unavailable">Unable to safely inspect model files. Nothing deleted.</string>
+    <string name="model_cleanup_changed">The file list or contents changed. Nothing deleted. Review again.</string>
+    <string name="model_cleanup_done">Deleted: %1$d files; %2$d bytes. Failed: %3$d.</string>
+    <string name="model_cleanup_failed_files">Files not deleted:</string>
 </resources>

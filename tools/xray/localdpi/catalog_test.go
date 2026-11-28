@@ -115,7 +115,7 @@ func TestCatalogAdmissionAndUnchangedModelPositions(t *testing.T) {
     if SupportsMethod(HTTP,"split-1") || SupportsMethod(HTTP,"tlsrec-split") ||
         !SupportsMethod(TLS,"split-1") || NeuralIndex("split-1",TLS)!=0 ||
         NeuralIndex("tlsrec-split",TLS)!=5 || NeuralIndex("pass",QUIC)!=8 ||
-        ModelFormat()!="dppass-strategy-mlp-v4:tcp=split-1,split,fake-3,fake-5,disorder,tlsrec-split;quic=fake-3,fake-5,pass" {
+        ModelFormat()!="dppass-strategy-mlp-v5:tcp=split-1,split,fake-3,fake-5,disorder,tlsrec-split;quic=fake-3,fake-5,pass" {
         t.Fatal("protocol admission or ordered model layout changed")
     }
 }

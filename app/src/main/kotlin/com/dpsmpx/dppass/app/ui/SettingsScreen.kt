@@ -15,6 +15,7 @@ import com.dpsmpx.dppass.app.MainActivity
 import com.dpsmpx.dppass.app.TunnelStatus
 import com.dpsmpx.dppass.app.TunnelState
 import com.dpsmpx.dppass.app.Zapret2NeuralModel
+import com.dpsmpx.dppass.app.ObsoleteModelFiles
 import com.dpsmpx.dppass.engine.xray.JniXrayRuntime
 import com.dpsmpx.dppass.engine.xray.XrayResult
 import com.dpsmpx.dppass.connection.ActivationResult
@@ -415,6 +416,14 @@ class SettingsScreen(host: Host) : Screen(host) {
         body.addView(Ui.listCard(context).apply {
             addView(modelRow(Zapret2NeuralModel.Kind.SERVER), Ui.matchWidth())
             addView(Ui.divider(context))
+            addView(
+                Ui.ListRow(context, R.drawable.ic_speed, context.getString(R.string.model_cleanup_title))
+                    .subtitle(context.getString(R.string.model_cleanup_summary))
+                    .trailing(Ui.icon(context, R.drawable.ic_chevron, R.color.text_secondary))
+                    .onClick { previewObsoleteModels() },
+                Ui.matchWidth(),
+            )
+            addView(Ui.divider(context))
             val options = ServerAutoMode.entries.map {
                 when (it) {
                     ServerAutoMode.ADAPTIVE -> R.string.model_server_mode_adaptive
@@ -777,6 +786,69 @@ class SettingsScreen(host: Host) : Screen(host) {
             dialog.dismiss()
             host.reconnectIfBusy()
             host.changed()
+        }
+    }
+
+    private var cleanupBusy = false
+
+    private fun cleanupLines(items: List<ObsoleteModelFiles.Entry>): String =
+        items.joinToString("\n") { item ->
+            val reason = when (item.reason) {
+                ObsoleteModelFiles.Reason.RETIRED_STRATEGY -> R.string.model_cleanup_old_strategy
+                ObsoleteModelFiles.Reason.RETIRED_SERVER -> R.string.model_cleanup_old_server
+                ObsoleteModelFiles.Reason.PENDING -> R.string.model_cleanup_pending
+            }
+            context.getString(R.string.model_cleanup_item, item.name, item.bytes, context.getString(reason))
+        }
+
+    private fun previewObsoleteModels() {
+        if (cleanupBusy) return
+        cleanupBusy = true
+        host.scope.launch {
+            try {
+                val entries = withContext(Dispatchers.IO) { Zapret2NeuralModel.previewObsolete(context.applicationContext) }
+                if (entries == null || entries.isEmpty()) {
+                    host.toast(context.getString(if (entries == null) R.string.model_cleanup_unavailable else R.string.model_cleanup_empty))
+                    return@launch
+                }
+                val details = cleanupLines(entries) + "\n\n" +
+                    context.getString(R.string.model_cleanup_total, entries.size, entries.sumOf { it.bytes }) +
+                    "\n\n" + context.getString(R.string.model_cleanup_warning)
+                Ui.secure(AlertDialog.Builder(context)
+                    .setTitle(R.string.model_cleanup_title).setMessage(details)
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .setPositiveButton(R.string.model_cleanup_action) { _, _ -> cleanObsoleteModels(entries) }
+                    .show())
+            } finally {
+                cleanupBusy = false
+            }
+        }
+    }
+
+    private fun cleanObsoleteModels(entries: List<ObsoleteModelFiles.Entry>) {
+        if (cleanupBusy) return
+        cleanupBusy = true
+        host.scope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    Zapret2NeuralModel.cleanObsolete(context.applicationContext, entries)
+                }
+                val message = if (result.changed) context.getString(R.string.model_cleanup_changed)
+                else buildString {
+                    append(context.getString(R.string.model_cleanup_done, result.removed.size,
+                        result.removed.sumOf { it.bytes }, result.failed.size))
+                    if (result.removed.isNotEmpty()) append("\n\n").append(cleanupLines(result.removed))
+                    if (result.failed.isNotEmpty()) {
+                        append("\n\n").append(context.getString(R.string.model_cleanup_failed_files))
+                        append("\n").append(cleanupLines(result.failed))
+                    }
+                }
+                Ui.secure(AlertDialog.Builder(context).setTitle(R.string.model_cleanup_title)
+                    .setMessage(message).setPositiveButton(android.R.string.ok, null).show())
+                host.changed()
+            } finally {
+                cleanupBusy = false
+            }
         }
     }
 

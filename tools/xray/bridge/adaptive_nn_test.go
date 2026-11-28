@@ -27,7 +27,7 @@ func generatedTestModel(t *testing.T, hidden int) []byte {
         Output: make([][]float64, adaptiveNNOutput),
         OutputBias: make([]float64, adaptiveNNOutput),
     }
-    for i := range w.ContextBias { w.ContextBias[i] = make([]float64, adaptiveNNOutput) }
+    for i := range w.ContextBias { w.ContextBias[i] = make([]float64, adaptiveNNHeadWidth) }
     w.Parameters = nnDenseCount(&w)
     for i := range w.Hidden {
         w.Hidden[i] = make([]float64, adaptiveNNInput)
@@ -160,7 +160,7 @@ func generatedSparseTestModel(t *testing.T, budget int64, deep int) []byte {
     final := first
     if deep>0 { final = deep }
     for i:=0;i<adaptiveNNOutput;i++ { w.Output[i]=make([]float64,final) }
-    for i:=0;i<adaptiveNNContexts;i++ { w.ContextBias[i]=make([]float64, adaptiveNNOutput) }
+    for i:=0;i<adaptiveNNContexts;i++ { w.ContextBias[i]=make([]float64, adaptiveNNHeadWidth) }
     if budget < nnDenseCount(&w) { t.Fatalf("budget too small %d", budget) }
     raw, err := json.Marshal(w)
     if err!=nil { t.Fatal(err) }
@@ -371,4 +371,53 @@ func TestModelRejectsInvalidObservationMetadata(t *testing.T) {
         if err!=nil {t.Fatal(err)}
         if _,err:=parseAdaptiveNN(bad);err==nil {t.Fatal("invalid observation metadata accepted")}
     }
+}
+
+// Exercise all nine contexts. Updating one must not modify any other
+// context's prediction even with a tiny, collision-prone sparse budget.
+func TestStrategyV5IndependentContextHeads(t *testing.T) {
+    defer ConfigureZapret2NeuralModel(nil)
+    defer ConfigureZapret2NeuralNetwork("UNKNOWN")
+    w,err:=parseAdaptiveNN(generatedTestModel(t,32))
+    if err!=nil {t.Fatal(err)}
+    w.Parameters+=13
+    raw,err:=json.Marshal(w)
+    if err!=nil {t.Fatal(err)}
+    if err:=ConfigureZapret2NeuralModel(raw);err!=nil {t.Fatal(err)}
+    hosts:=[]string{"example.test","http:example.test","udp:example.test"}
+    networks:=[]string{"MOBILE","WIFI","UNKNOWN"}
+    scores:=func() []float64 {
+        var out []float64
+        for _,network:=range networks {
+            if err:=ConfigureZapret2NeuralNetwork(network);err!=nil {t.Fatal(err)}
+            for _,host:=range hosts {
+                q:=strings.HasPrefix(host,"udp:")
+                zapret2Neural.mu.Lock()
+                score,_:=nnForward(zapret2Neural.weights,host,2,q)
+                if q {score,_=nnForward(zapret2Neural.weights,host,6,q)}
+                zapret2Neural.mu.Unlock()
+                out=append(out,score)
+            }
+        }
+        return out
+    }
+    before:=scores()
+    for i,network:=range networks {
+        for j,host:=range hosts {
+            if err:=ConfigureZapret2NeuralNetwork(network);err!=nil {t.Fatal(err)}
+            for k:=0;k<3;k++ {zapret2Neural.learn(host,"fake-3",adaptivePayloadThreshold)}
+            after:=scores()
+            index:=i*3+j
+            for k:=range after {
+                if k==index {if after[k]<=before[k] {t.Fatal("head did not learn",index)}} else if after[k]!=before[k] {t.Fatal("cross-context change",index,k)}
+            }
+            before=after
+        }
+    }
+    learned:=ExportZapret2NeuralModel()
+    parsed,err:=parseAdaptiveNN(learned)
+    if err!=nil {t.Fatal(err)}
+    if len(parsed.Sparse)>13 {t.Fatal("sparse budget exceeded")}
+    for i,count:=range parsed.ContextObservations {if count!=3 {t.Fatal("missing head observations",i,count)}}
+    if _,err:=parseAdaptiveNN(bytes.Replace(learned,[]byte("strategy-mlp-v5"),[]byte("strategy-mlp-v4"),1));err==nil {t.Fatal("old format accepted")}
 }
