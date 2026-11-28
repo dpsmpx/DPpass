@@ -5,6 +5,7 @@ on:
     branches:
       - 'fix/zapret2-*'
       - 'feature/dppass-0.8.3'
+      - 'feat/server-favorites-and-scoped-latency'
   pull_request:
     paths:
       - 'tools/xray/bridge/**'
@@ -82,9 +83,9 @@ jobs:
       - name: Run protected TCP/QUIC AUTO, planner and Alpine tests
         working-directory: tools/xray
         run: go test -count=1 ./localdpi ./localdpi/native ./bridge ./zapret2 ./cmd/zapret2-alpine
-      - name: Race-check single socket evidence ownership
+      - name: Race-check socket evidence ownership and TCP duplex lifecycle
         working-directory: tools/xray
-        run: CGO_ENABLED=1 go test -race -count=2 -run '^(TestSocketEvidenceGate|TestSocketLateReplyAfterTimeout)' ./bridge
+        run: CGO_ENABLED=1 go test -race -count=2 -run '^(TestSocketEvidenceGate|TestSocketLateReplyAfterTimeout|TestEstablishedTCPDuplex|TestInitialTCPReadiness|TestInitialTCPClose|TestTCPHalfClose)' ./bridge
       - name: Race-check Alpine connection admission and cleanup
         working-directory: tools/xray
         run: CGO_ENABLED=1 go test -race -count=3 ./cmd/zapret2-alpine

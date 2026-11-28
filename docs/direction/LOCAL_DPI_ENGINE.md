@@ -1236,3 +1236,12 @@ The installed candidate verifier accepts an optional `--report dpts-report.txt`.
 ## Provider-server AUTO — measurement coverage by context
 
 Offline `tools/device/summarize_server_auto.py` now also renders candidate coverage for each context and scored/unscored cohort: plans with candidates, attempted/eligible slots, measured/attempted slots, successes/measured slots, unmeasured count, measured/recorded first attempts and success among unchanged first attempts. Zero denominators remain explicitly unknown; no network contexts are pooled. Candidate counts are per-plan slots, not unique servers. The existing first-attempt comparison and moved-first totals remain separate. Two-file comparisons explicitly note absent baseline or scored evidence. Scoring does not necessarily change the order, and observational differences are not causal evidence of improved selection. Regression fixtures cover multiple candidate attempts, measured and neutral outcomes, zero denominators and missing cohorts. No runtime, model format, signing or subscription changes; physical evaluation remains open.
+
+## A3 — independent established TCP reads and closes
+
+The initial-record adapter publishes successful completion through an atomic readiness flag after the complete initial write, timer flush, read-triggered flush or successful half-close flush. Established reads and closes no longer take the write mutex, so a blocked subsequent writer cannot prevent downstream delivery or socket shutdown. Failed first writes retain their sticky error and never publish readiness. Initial buffering, strategy selection and learning admission remain unchanged. Deterministic loopback regression holds the write mutex across real read and close operations; additional cases cover timer and half-close readiness. The race detector exercises the new tests. Concurrent shutdown during the unfinished first write is not covered by this change. CI and physical acceptance remain pending.
+
+
+## A3 — cancel unfinished initial TCP writes
+
+Full Close cancels the connection-owned planner request and closes the real TCP socket without acquiring the write mutex. Pending unsent bytes are discarded on full close; CloseWrite retains its ordered flush-before-FIN behavior. No cancellation reaches other planner clients. A cancelled first write is not eligible for downstream learning. Real Unix IPC and loopback regressions cover cancellation and peer EOF; physical Android acceptance remains pending.

@@ -285,6 +285,12 @@ type desyncConn struct {
 	// fragment. writeMu also serializes the pending timer and actual writes.
 	writeMu sync.Mutex
 	firstDone bool
+    // Published only after successful completion of the initial write path.
+    // Established reads and closes must not wait for an unrelated writer.
+    initialReady atomic.Bool
+    lifetimeOnce sync.Once
+    lifetime context.Context
+    cancelLifetime context.CancelFunc
 	pending []byte
 	pendingTimer *time.Timer
 	plannerErr error
@@ -378,26 +384,44 @@ func (c *desyncConn) CloseWrite() error {
     pendingErr:=c.flushFirstLocked()
     // No subsequent Write may start a new buffer after an empty half-close.
     c.firstDone=true
+    if pendingErr==nil {c.initialReady.Store(true)}
     closeErr:=c.TCPConn.CloseWrite()
     if pendingErr!=nil {return pendingErr}
     return closeErr
 }
 
+// A connection-owned context is initialized once, including when Close
+// wins before the first Write. It does not affect other planner clients.
+func (c *desyncConn) lifetimeContext() context.Context {
+    c.lifetimeOnce.Do(func(){c.lifetime,c.cancelLifetime=context.WithCancel(context.Background())})
+    return c.lifetime
+}
+
+func (c *desyncConn) discardPendingLocked() {
+    if c.pendingTimer!=nil {c.pendingTimer.Stop();c.pendingTimer=nil}
+    c.pending=nil
+    c.firstDone=true
+}
+
 func (c *desyncConn) Close() error {
-    // The final buffered bytes were already accepted by Write. Attempt to
-    // transmit them before closing; a failure remains sticky.
-    pendingErr := c.flushFirstBeforeRead()
+    // Full close is cancellation, not a flush. Release the real socket
+    // before waiting for any evidence lock; cancel an outstanding IPC too.
+    _=c.lifetimeContext()
+    c.cancelLifetime()
+    closeErr:=c.TCPConn.Close()
+    if c.writeMu.TryLock() {
+        c.discardPendingLocked()
+        c.writeMu.Unlock()
+    }
     if c.stageHelloSent.Load() && !c.stageFirstReply.Load() && c.stageCloseRecorded.CompareAndSwap(false, true) {
         stagesFor(c.diagnostic).tcpClosedNoReply.Add(1)
     }
     // Seal even an ambiguous close, but publish only coherent evidence.
-    if c.diagnostic || !c.firstReply.admitsDownstream() {
+    if c.diagnostic || !c.initialReady.Load() || !c.firstReply.admitsDownstream() {
         c.evidence.seal()
     } else {
         c.evidence.submit(c.adaptiveSelection.Load(),localdpi.SocketClose(c.received.Load()),true,recordLocalSocketEvidence)
     }
-    closeErr := c.TCPConn.Close()
-    if pendingErr != nil { return pendingErr }
     return closeErr
 }
 
@@ -440,7 +464,9 @@ func needsMoreFirstHTTP(b []byte) bool {
 // flushFirstLocked sends the entire buffered record at most once and never
 // retries a failed DPI write as plain TCP. The caller holds writeMu.
 func (c *desyncConn) flushFirstLocked() error {
-    if c.firstDone || len(c.pending) == 0 { return c.plannerErr }
+    if c.plannerErr != nil { return c.plannerErr }
+    if c.lifetimeContext().Err()!=nil {c.discardPendingLocked();return net.ErrClosed}
+    if c.firstDone || len(c.pending) == 0 { return nil }
     c.firstDone = true
     if c.pendingTimer != nil { c.pendingTimer.Stop(); c.pendingTimer = nil }
     payload := c.pending
@@ -479,15 +505,20 @@ func (c *desyncConn) flushFirstLocked() error {
 }
 
 func (c *desyncConn) flushFirstBeforeRead() error {
+    if c.lifetimeContext().Err()!=nil {return net.ErrClosed}
+    if c.initialReady.Load() {return nil}
     c.writeMu.Lock()
     defer c.writeMu.Unlock()
-    return c.flushFirstLocked()
+    err:=c.flushFirstLocked()
+    if err==nil && c.firstDone {c.initialReady.Store(true)}
+    return err
 }
 
 func (c *desyncConn) Write(b []byte) (int, error) {
     c.writeMu.Lock()
     defer c.writeMu.Unlock()
     if c.plannerErr != nil { return 0, c.plannerErr }
+    if c.lifetimeContext().Err()!=nil {return 0,net.ErrClosed}
     if len(b) == 0 { return 0, nil }
     if c.firstDone { return c.TCPConn.Write(b) }
     // Never copy an arbitrarily large caller Write into the first-packet
@@ -502,13 +533,16 @@ func (c *desyncConn) Write(b []byte) (int, error) {
             c.pendingTimer = time.AfterFunc(firstTLSBufferTimeout, func() {
                 c.writeMu.Lock()
                 defer c.writeMu.Unlock()
-                _ = c.flushFirstLocked()
+                if err:=c.flushFirstLocked();err==nil && c.firstDone {c.initialReady.Store(true)}
             })
         }
         return len(b), nil
     }
     if err := c.flushFirstLocked(); err != nil { return 0, err }
-    if take==len(b) {return take,nil}
+    if take==len(b) {
+        c.initialReady.Store(true)
+        return take,nil
+    }
     n,err:=c.TCPConn.Write(b[take:])
     if err==nil && n!=len(b)-take {err=io.ErrShortWrite}
     if err!=nil {
@@ -516,6 +550,7 @@ func (c *desyncConn) Write(b []byte) (int, error) {
         c.plannerErr=fmt.Errorf("Zapret2 initial TCP tail failed: %w",err)
         return take+n,c.plannerErr
     }
+    c.initialReady.Store(true)
     return take+n,nil
 }
 
@@ -524,10 +559,10 @@ func (c *desyncConn) Write(b []byte) (int, error) {
 func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
     var selected *adaptivePick
     var matched bool
-    // Read/Close flush the first write under writeMu before consuming
-    // evidence. Publish only after the selected action actually completed.
+    // Read flushes under writeMu; full Close cancels independently.
+    // Publish only after the selected action actually completed.
     defer func() {
-        if !c.diagnostic && selected!=nil && matched && writeErr==nil && written==len(b) {
+        if !c.diagnostic && selected!=nil && matched && writeErr==nil && written==len(b) && c.lifetimeContext().Err()==nil {
             c.adaptiveSelection.Store(selected)
         }
     }()
@@ -575,15 +610,16 @@ func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
             c.plannerErr=errors.New("local TLS fixture outside diagnostic loopback")
             return 0,c.plannerErr
         }
-        plan,err=zapret2.PlanForLocalTLSFixture(b)
+        plan,err=zapret2.PlanForLocalTLSFixtureContext(c.lifetimeContext(),b)
     } else {
-        plan,err=socketPlan(c.diagnostic,modeTag(c.mode),"tcp",b)
+        plan,err=zapret2.PlanForContext(c.lifetimeContext(),modeTag(c.mode),"tcp",b,c.diagnostic)
     }
     if err != nil {
         // Do not silently pass original TLS if the chosen Alpine daemon dies.
         c.plannerErr = err
         return 0, err
     }
+    if c.lifetimeContext().Err()!=nil {return 0,net.ErrClosed}
     matched = tcpPlanMatchesSelection(selected, plan)
     if !plan.Applied {
         if c.localTLSFixture && c.mode.kind==desyncTLSRecordSplit {

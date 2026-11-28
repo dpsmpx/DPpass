@@ -18,10 +18,15 @@ object DptsLearning {
         val addressProofs: List<AddressProof> = emptyList(),
         val winners: List<String> = emptyList(),
         val reason: String,
+        val timeoutMismatchPairs: Int = 0,
+        val actionUnverifiedPairs: Int = 0,
+        val elapsedInvalidPairs: Int = 0,
     ) {
         fun report(): String =
             "transport_verified=$transportVerified html_verified=$htmlVerified tls_verified=$tlsVerified address_proofs=" +
-                addressProofs.joinToString(",") { "${it.ipIndex}:${it.protocol}:${it.method}" }.ifEmpty { "-" }
+                addressProofs.joinToString(",") { "${it.ipIndex}:${it.protocol}:${it.method}" }.ifEmpty { "-" } +
+                "; timeout_mismatch_pairs=$timeoutMismatchPairs; action_unverified_pairs=$actionUnverifiedPairs;" +
+                " elapsed_invalid_pairs=$elapsedInvalidPairs"
     }
 
     fun confirmedWinners(plan: DptsPlan, rows: List<Zapret2GoogleAttempt>): List<String> =
@@ -72,6 +77,9 @@ object DptsLearning {
             }
         }
         val proofs = mutableListOf<AddressProof>()
+        var timeoutMismatchPairs = 0
+        var actionUnverifiedPairs = 0
+        var elapsedInvalidPairs = 0
         for (ip in plan.probes.map { it.ipIndex }.distinct()) {
             for (protocol in listOf("h1", "h2")) {
                 val baseline = on(ip, protocol, "plain") ?: continue
@@ -82,8 +90,27 @@ object DptsLearning {
                         r.alpn != "-" || r.httpStatus != 0 || r.bodyBytes != 0L
                 }) continue
                 for (method in trainable) {
-                    if (on(ip, protocol, method)?.all { (spec, r) -> spec.boundedHttpsSuccess(r) } == true)
-                        proofs += AddressProof(ip, protocol, method)
+                    val candidate = on(ip, protocol, method) ?: continue
+                    if (!candidate.all { (spec, r) -> spec.boundedHttpsSuccess(r) }) continue
+                    // A longer deadline can make an unchanged connection appear better.
+                    // Every repeat must have the same budget as its matching control.
+                    if (baseline.map { it.first.timeoutMs } != candidate.map { it.first.timeoutMs }) {
+                        timeoutMismatchPairs++
+                        continue
+                    }
+                    // Request-owned counts prove that the intended operation ran.
+                    // Lost context or skipped/ambiguous actions cannot train the model.
+                    if (baseline.any { (_, r) -> r.appliedDelta != 0L || r.skippedDelta != 0L } ||
+                        candidate.any { (_, r) -> r.appliedDelta != 1L || r.skippedDelta != 0L }) {
+                        actionUnverifiedPairs++
+                        continue
+                    }
+                    if (baseline.any { (_, r) -> r.elapsedMillis < 0L } ||
+                        candidate.any { (spec, r) -> r.elapsedMillis !in 0L..spec.timeoutMs.toLong() }) {
+                        elapsedInvalidPairs++
+                        continue
+                    }
+                    proofs += AddressProof(ip, protocol, method)
                 }
             }
         }
@@ -94,9 +121,13 @@ object DptsLearning {
             }
         }
         return base.copy(addressProofs = proofs, winners = winners,
-            reason = when {
+            timeoutMismatchPairs = timeoutMismatchPairs, actionUnverifiedPairs = actionUnverifiedPairs,
+            elapsedInvalidPairs = elapsedInvalidPairs, reason = when {
                 winners.isNotEmpty() -> "verified_two_ips"
                 proofs.isNotEmpty() -> "verified_single_ip_only"
+                timeoutMismatchPairs > 0 -> "incomparable_timeout_budgets"
+                actionUnverifiedPairs > 0 -> "method_application_unverified"
+                elapsedInvalidPairs > 0 -> "invalid_elapsed_evidence"
                 htmlCount > 0 -> "no_matched_failed_plain_and_three_repeats"
                 tlsCount > 0 -> "transport_only_not_content"
                 else -> "no_verified_transport"
