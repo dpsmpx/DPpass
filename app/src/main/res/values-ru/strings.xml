@@ -1033,4 +1033,5 @@
     <string name="servers_add_favorite">Добавить сервер в избранное</string>
     <string name="servers_remove_favorite">Убрать сервер из избранного</string>
     <string name="dpts_connection_or_local">Для удалённых проб подключите Zapret2 VpnService, либо выберите локальный HTTP/TLS-пресет при отключённом VPN.</string>
+    <string name="dpts_export_csv">Экспорт матрицы в CSV</string>
 </resources>

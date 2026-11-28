@@ -1004,4 +1004,5 @@
     <string name="servers_add_favorite">Add server to favorites</string>
     <string name="servers_remove_favorite">Remove server from favorites</string>
     <string name="dpts_connection_or_local">Connect experimental Zapret2 VpnService for remote probes, or select a fixed local HTTP/TLS preset while disconnected.</string>
+    <string name="dpts_export_csv">Export matrix as CSV</string>
 </resources>

@@ -1264,3 +1264,8 @@ Add an explicit Append stage action in the existing DPTS workspace. A valid matr
 ## A7/A8 — offline local fixtures
 
 The same four fixed HTTP/TLS DPTS suites may now be launched with the tunnel in Idle, without an underlying network handle. Offline ownership uses the Idle status revision and native generation, never a provider network identity. Only allowlisted method/target pairs of fixed local suites enter JNI in this mode. Start/stop or generation changes invalidate the run; remote matrices and training retain the active protected-session requirement. Reports remain compatible with the existing local acceptance verifier. No routing, model, signature or subscription changes. Android CI and disconnected-device execution are pending.
+
+
+## A7 — structured matrix export
+
+The DPTS workspace can export a completed or interrupted ordinary matrix to a CSV file through Android's document picker. Each planned probe occupies one row, including missing or unbound rows; result fields are exported only for matched observations. The run state, network class, validated DNS fingerprint, protocol, method, attempt, timeout and outcome dimensions support comparison in desktop tools. No raw IP, response payload, user title, source, or untrusted free text is exported. This is read-only report data, never a model import or AUTO input. Fixed legacy suites keep their existing text report. CI pending.

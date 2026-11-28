@@ -506,7 +506,11 @@ class MainActivity : Activity(), Host {
     override fun saveDocument(name: String, text: String) {
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
             .addCategory(Intent.CATEGORY_OPENABLE)
-            .setType(if (name.endsWith(".txt")) "text/plain" else "application/json")
+            .setType(when {
+                name.endsWith(".txt") -> "text/plain"
+                name.endsWith(".csv") -> "text/csv"
+                else -> "application/json"
+            })
             .putExtra(Intent.EXTRA_TITLE, name)
         try {
             pendingExport = text
