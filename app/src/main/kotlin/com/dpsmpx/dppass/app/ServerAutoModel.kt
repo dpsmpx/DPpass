@@ -8,6 +8,8 @@ import com.dpsmpx.dppass.connection.ConnectionReport
 import com.dpsmpx.dppass.connection.DPpassCore
 import com.dpsmpx.dppass.connection.HealthState
 import com.dpsmpx.dppass.connection.ServerLearningEvidence
+import com.dpsmpx.dppass.connection.ServerAutoOrdering
+import com.dpsmpx.dppass.connection.ServerAutoScore
 import com.dpsmpx.dppass.network.NetworkType
 import com.dpsmpx.dppass.diagnostics.Safe
 import org.json.JSONArray
@@ -160,39 +162,22 @@ object ServerAutoModel {
                 val scenario = scenario(attempt.profile, network)
                 Triple(attempt, Pending(feat, scenario),
                     forward(model, feat, scenario, attempt.profile.id.value).first)
-            }.toMutableList()
+            }
             // Capture features before any outcomes, even for a single server.
             val batch = Batch(scored.associate { it.first.profile.id.value to it.second },
                 model.getJSONArray("hidden").length(), digest(snapshot))
-            // Existing planner rank is the safety prior. Neural evidence
-            // must overcome an explicit margin, not random initialization.
-            for (i in 0 until scored.lastIndex) {
-                val left = scored[i]
-                val right = scored[i + 1]
-                val leftHealth = core.health.of(left.first.profile.id).state
-                val rightHealth = core.health.of(right.first.profile.id).state
-                val leftCount = model.getJSONArray("context_observations").getInt(left.second.scenario)
-                val rightCount = model.getJSONArray("context_observations").getInt(right.second.scenario)
-                if (leftHealth != rightHealth || leftHealth == HealthState.FAILED ||
-                    leftCount < 4 || rightCount < 4) continue
-                val advantage = right.third - left.third
-                // Four real connection outcomes unlock a cautious, adjacent
-                // same-health-class swap. Use a small but nonzero margin:
-                // the generated MLP starts near 0.5 for all candidates.
-                if (advantage > 0.003) {
-                    scored[i] = right
-                    scored[i + 1] = left
-                }
-            }
-            val reordered = scored.indices.count { i ->
-                scored[i].first.profile.id != plan.attempts[i].profile.id
+            val ordered = ServerAutoOrdering.rank(plan, scored.map { entry ->
+                ServerAutoScore(entry.third,
+                    model.getJSONArray("context_observations").getLong(entry.second.scenario))
+            }, core.health::of, core.health.lastGood())
+            val reordered = ordered.attempts.indices.count { i ->
+                ordered.attempts[i].profile.id != plan.attempts[i].profile.id
             }
             core.log.info("server_auto_model", "installed" to true,
                 "hidden" to model.getJSONArray("hidden").length(),
                 "observations" to observations,
                 "candidates" to plan.attempts.size,
                 "reordered" to reordered)
-            val ordered = if (reordered == 0) plan else plan.copy(attempts = scored.map { it.first })
             if (learning.publish(token, ordered, batch)) ordered else plan
         }.getOrElse {
             finishLearning(token)

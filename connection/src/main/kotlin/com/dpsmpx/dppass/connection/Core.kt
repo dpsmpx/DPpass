@@ -287,14 +287,14 @@ class DPpassCore(
         val ir = activation.state.activeConfig ?: return null
         val full = plan(assessment, preferred, regime) ?: return null
         val plan = if (pinned && preferred != null) pinTo(full, preferred) else {
-            val candidate = rerank?.invoke(full) ?: full
-            // Untrusted ordering must preserve the exact eligible sequence
-            // membership, exclusions, verdict and size.
-            if (candidate.attempts.map { it.profile.id }.toSet() ==
-                full.attempts.map { it.profile.id }.toSet() &&
-                candidate.attempts.size == full.attempts.size &&
-                candidate.excluded == full.excluded &&
-                candidate.verdict == full.verdict) candidate else full
+            // Explicit user choice and allowlist-specific evidence retain
+            // the original planner order. The optional model can only
+            // permute equivalent adjacent slots, not replace profiles.
+            val candidate = if (preferred == null &&
+                (assessment ?: regime)?.restriction != com.dpsmpx.dppass.network.RestrictionClass.ALLOWLIST_LIKE)
+                rerank?.invoke(full) ?: full else full
+            if (ServerAutoOrdering.accepts(full, candidate, health::of, health.lastGood()))
+                candidate else full
         }
         val orchestrator = ConnectionOrchestrator(compiler, engine, checker, health, clock, log, policy, stability, assessment ?: regime, splitMemory, pause)
         return orchestrator.connect(ir, plan, tun, share, splitClientHello, splitSites, local, systemTun)
