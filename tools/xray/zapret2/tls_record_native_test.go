@@ -4,6 +4,7 @@ package zapret2
 
 import (
     "bytes"
+    "context"
     "path/filepath"
     "testing"
     "github.com/dpsmpx/dppass/tools/xray/localdpi/native"
@@ -73,4 +74,30 @@ func TestStrictLocalTLSFixtureDoesNotUseReferenceFallback(t *testing.T) {
     final,finalFB:=diagnosticNativeTLSRecordStats()
     l,lf:=NativeTLSRecordStats()
     if final!=after || finalFB!=afterFB || l!=live || lf!=liveFB {t.Fatal("invalid fixture or local diagnostics affected accounting")}
+}
+
+// A tagged local chain must invoke the real native encoder even with an
+// unavailable selected Alpine planner. Ordinary planning stays unchanged.
+func TestStrictNativeLocalTLSChain(t *testing.T) {
+    previous:=PlannerSocket()
+    t.Cleanup(func(){_ = SetPlannerSocket(previous)})
+    if err:=SetPlannerSocket(filepath.Join(t.TempDir(),"missing.sock"));err!=nil {t.Fatal(err)}
+    first:=tlsClientHelloFixture(t,"example.com")
+    before,fb:=diagnosticNativeTLSRecordStats()
+    live,liveFB:=NativeTLSRecordStats()
+    p,err:=PlanForLocalTLSChainContext(context.Background(),first)
+    if err!=nil || !p.Applied || len(p.Rewrite)!=len(first)+10 {t.Fatal("strict chain",err)}
+    after,afterFB:=diagnosticNativeTLSRecordStats()
+    if after!=before+1 || afterFB!=fb {t.Fatal("native chain not used")}
+    if _,err:=PlanForContext(context.Background(),TagPrefix+"tlsrec-chain","tcp",first,true);err==nil {
+        t.Fatal("ordinary planner unexpectedly bypassed IPC")
+    }
+    for _,bad:=range [][]byte{nil,first[:len(first)-1],tlsClientHelloFixture(t,"example.test")} {
+        if _,err:=PlanForLocalTLSChainContext(context.Background(),bad);err==nil {t.Fatal("invalid chain fixture admitted")}
+    }
+    ctx,cancel:=context.WithCancel(context.Background());cancel()
+    if _,err:=PlanForLocalTLSChainContext(ctx,first);err==nil {t.Fatal("cancelled chain admitted")}
+    n,f:=diagnosticNativeTLSRecordStats()
+    l,lf:=NativeTLSRecordStats()
+    if n!=after || f!=afterFB || l!=live || lf!=liveFB {t.Fatal("unexpected encoder accounting")}
 }

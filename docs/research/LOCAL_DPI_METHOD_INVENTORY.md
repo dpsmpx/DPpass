@@ -132,3 +132,8 @@ The exact built-in HTTP case fixture, when explicitly diagnostic and compiled wi
 ## A5/A7 — first composed HTTP Host operation
 
 `http-host-combined` composes the existing same-length Host name and OWS operations atomically through the shared planner, including selected Alpine IPC. A separate fixed loopback DPTS preset compares the original request and the composed operation; the existing acceptance matrix remains unchanged. Neither AUTO nor the model layout admits the composed operation. This is a portable DPpass composition, not a claim of upstream algorithm equivalence or network effectiveness. Physical acceptance is pending.
+
+
+## A4 — native TLS chain composition
+
+The original pinned ByeDPI part_tls function is reused twice by a DPpass-owned bounded wrapper for the fixed three-record local fixture. No upstream file changed or added. The independent portable three-record implementation remains the byte-exact reference. The tagged fixture requires the original C operation and name-parser agreement; the portable selected Alpine route remains unchanged. No general method admission or network effectiveness is claimed.

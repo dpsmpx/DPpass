@@ -43,6 +43,21 @@ int dp_tls_record_split(const uint8_t *data, size_t size, size_t offset,
     return part_tls((char *)output, size + 5, (ssize_t)size, (long)offset) == 5 ? 0 : -1;
 }
 
+// Split at the later position first; the remaining first record then
+// has exactly second bytes of payload. The earlier split cannot reach
+// the following record. Both offsets are checked before any output write.
+int dp_tls_record_chain(const uint8_t *data, size_t size, size_t first,
+                        size_t second, uint8_t *output, size_t capacity)
+{
+    if (!data || !output || size < 9 || size > DP_TLS_REWRITE_MAX ||
+        capacity < size + 10 || first <= 4 || first >= second)
+        return -1;
+    if (dp_tls_record_split(data, size, second, output, capacity) != 0)
+        return -1;
+    return part_tls((char *)output, capacity, (ssize_t)(size + 5),
+                    (long)first) == 5 ? 0 : -1;
+}
+
 // The upstream parser is read-only. Limit it to the first complete
 // ClientHello message, not trailing records or later handshake messages.
 // The range supplied by the caller is a separate validation boundary.

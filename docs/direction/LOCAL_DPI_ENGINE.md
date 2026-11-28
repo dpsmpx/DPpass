@@ -1276,3 +1276,8 @@ The common portable library can encode a complete first TLS record as three reco
 The DPTS workspace can export a completed or interrupted ordinary matrix to a CSV file through Android's document picker. Each planned probe occupies one row, including missing or unbound rows; result fields are exported only for matched observations. The run state, network class, validated DNS fingerprint, protocol, method, attempt, timeout and outcome dimensions support comparison in desktop tools. No raw IP, response payload, user title, source, or untrusted free text is exported. This is read-only report data, never a model import or AUTO input. Fixed legacy suites keep their existing text report. CI pending.
 
 Kotlin CI caught a redundant nullable access on a smart-cast receiver. Removed the redundant access without suppressing warnings or changing evidence rules.
+
+
+## A4 — native three-record TLS fixture
+
+The fixed three-record DPTS suite in tagged localdpi_native builds now executes the pinned ByeDPI part_tls twice through one bounded C ABI. The later split is performed first so the earlier split remains inside the first record. An independent portable reference checks every output byte; strict native fixture dispatch also requires parser agreement and never falls back to portable success. Default builds retain the selected Alpine/in-process planner; ordinary requests, model layout and AUTO are unchanged. The ABI has C sanitizer fixtures, Go parity and tagged planner tests. CI and physical Android execution pending.

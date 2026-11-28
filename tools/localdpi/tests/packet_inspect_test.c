@@ -78,6 +78,31 @@ int main(void)
         assert((((size_t)out[8+cut]<<8)|out[9+cut])==512-cut);
         assert(!memcmp(out+10+cut,input+5+cut,sizeof(input)-5-cut));
     }
+    uint8_t chain[533];
+    for (size_t a=5;a<511;++a) {
+        const size_t b=a+1;
+        memset(chain,0xA5,sizeof(chain));
+        assert(dp_tls_record_chain(input,sizeof(input),a,b,chain,sizeof(chain))==0);
+        assert(!memcmp(chain,input,3));
+        assert((((size_t)chain[3]<<8)|chain[4])==a);
+        assert(!memcmp(chain+5,input+5,a));
+        assert(!memcmp(chain+5+a,input,3));
+        assert((((size_t)chain[8+a]<<8)|chain[9+a])==b-a);
+        assert(!memcmp(chain+10+a,input+5+a,b-a));
+        assert(!memcmp(chain+10+b,input,3));
+        assert((((size_t)chain[13+b]<<8)|chain[14+b])==512-b);
+        assert(!memcmp(chain+15+b,input+5+b,sizeof(input)-5-b));
+        assert(chain[sizeof(chain)-1]==0xA5);
+        assert(!memcmp(input,saved,sizeof(input)));
+    }
+    memset(chain,0xA5,sizeof(chain));
+    assert(dp_tls_record_chain(input,sizeof(input),4,100,chain,sizeof(chain))==-1);
+    assert(dp_tls_record_chain(input,sizeof(input),100,100,chain,sizeof(chain))==-1);
+    assert(dp_tls_record_chain(input,sizeof(input),101,100,chain,sizeof(chain))==-1);
+    assert(dp_tls_record_chain(input,sizeof(input),100,512,chain,sizeof(chain))==-1);
+    assert(dp_tls_record_chain(input,8,5,6,chain,sizeof(chain))==-1);
+    assert(dp_tls_record_chain(input,sizeof(input),5,6,chain,sizeof(input)+9)==-1);
+    for (size_t i=0;i<sizeof(chain);++i) assert(chain[i]==0xA5);
     const char *fixture_name = "www.wikipedia.org";
     const size_t name_len = strlen(fixture_name);
     size_t name_start = 0;

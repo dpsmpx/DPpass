@@ -39,6 +39,12 @@ int dp_packet_inspect(const uint8_t *data, size_t size,
 int dp_tls_record_split(const uint8_t *data, size_t size, size_t offset,
                         uint8_t *output, size_t capacity);
 
+/* Encode three TLS records by invoking the pinned part_tls twice.
+ * The same complete-record restrictions apply; 4 < first < second < record.
+ * Capacity >= size+10, separate input/output objects. */
+int dp_tls_record_chain(const uint8_t *data, size_t size, size_t first,
+                        size_t second, uint8_t *output, size_t capacity);
+
 // Read-only comparison with the upstream TLS name parser. Return 1 only
 // when its bounded range agrees with the caller's independently checked
 // offsets, 0 for disagreement or invalid input. No pointers cross ABI.
