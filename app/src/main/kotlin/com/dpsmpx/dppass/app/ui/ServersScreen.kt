@@ -35,6 +35,8 @@ class ServersScreen(host: Host) : Screen(host) {
 
     private val measureButton = Ui.iconButton(context, R.drawable.ic_speed, context.getString(R.string.latency_check), R.color.primary) { measure() }
     private val sortRow = LinearLayout(context)
+    private val favoriteFilter = LinearLayout(context)
+    private val scopeNote = Ui.text(context, R.style.Text_DPpass_Caption)
     private var measured = 0
     private var total = 0
     private val search = Ui.searchField(context, R.string.servers_search) { q ->
@@ -59,7 +61,9 @@ class ServersScreen(host: Host) : Screen(host) {
                 addView(count)
                 addView(relayNote, Ui.matchWidth())
                 addView(search, Ui.matchWidth())
+                addView(favoriteFilter, Ui.matchWidth())
                 addView(sortRow, Ui.matchWidth())
+                addView(scopeNote, Ui.matchWidth())
                 addView(list, Ui.matchWidth())
                 addView(empty, Ui.matchWidth())
                 addView(
@@ -76,6 +80,13 @@ class ServersScreen(host: Host) : Screen(host) {
 
     override fun render(status: TunnelStatus) {
         lastStatus = status
+        favoriteFilter.removeAllViews()
+        favoriteFilter.addView(Ui.segmented(context,
+            listOf(context.getString(R.string.servers_filter_all), context.getString(R.string.servers_filter_favorites)),
+            if (host.prefs.showFavoriteServers) 1 else 0) {
+                host.prefs.showFavoriteServers = it == 1
+                render(lastStatus)
+            }, Ui.matchWidth())
         sortRow.removeAllViews()
         sortRow.addView(
             Ui.segmented(context, listOf(context.getString(R.string.sort_provider), context.getString(R.string.sort_latency)), if (byLatency) 1 else 0) {
@@ -93,7 +104,8 @@ class ServersScreen(host: Host) : Screen(host) {
         list.removeAllViews()
         empty.visibility = if (core != null && profiles.isEmpty()) View.VISIBLE else View.GONE
         list.visibility = if (profiles.isEmpty()) View.GONE else View.VISIBLE
-        search.visibility = if (profiles.size > SEARCH_FROM) View.VISIBLE else View.GONE
+        search.visibility = if (profiles.size > SEARCH_FROM || query.isNotBlank()) View.VISIBLE else View.GONE
+        favoriteFilter.visibility = if (profiles.isEmpty()) View.GONE else View.VISIBLE
         val busy = measuring?.isActive == true
         measureButton.isEnabled = profiles.isNotEmpty() && !busy
         measureButton.alpha = if (measureButton.isEnabled) 1f else 0.5f
@@ -103,29 +115,35 @@ class ServersScreen(host: Host) : Screen(host) {
         val relay = host.prefs.selectedRelay?.let { id -> core?.relays?.find(id) }
         relayNote.text = relay?.let { context.getString(R.string.servers_via_relay, it.name) }.orEmpty()
         relayNote.visibility = if (relay != null) View.VISIBLE else View.GONE
+        scopeNote.visibility = if (profiles.isEmpty()) View.GONE else View.VISIBLE
         if (core == null || profiles.isEmpty()) return
         val connected = (status as? TunnelStatus.Connected)?.profileId
         val all = ServerList.rows(profiles, core.health::of, host.prefs.selectedServer, connected, Clock.SYSTEM.nowMillis(), core.latency::of)
-        val filtered = ServerList.filter(all, query)
+        val favorites = host.prefs.favoriteServers
+        val filtered = ServerList.visible(all, query, favorites, host.prefs.showFavoriteServers)
         val rows = if (byLatency) ServerList.byLatency(filtered) else filtered
+        measureButton.isEnabled = rows.isNotEmpty() && !busy
+        measureButton.alpha = if (measureButton.isEnabled) 1f else 0.5f
+        scopeNote.text = context.getString(R.string.servers_measure_scope, rows.size,
+            all.count { it.id in favorites })
         if (query.isBlank()) {
             list.addView(
                 row(
                     null, "A", context.getString(R.string.server_auto), context.getString(R.string.server_auto_hint), null, LatencyLabel.UNKNOWN,
-                    rows.none {
-                        it.selected
-                    },
+                    all.none { it.selected },
                     false,
                 ),
             )
         }
         for (r in rows) {
             list.addView(Ui.divider(context, 72))
-            list.addView(row(r.id, r.avatar, Avatar.stripFlag(r.name), r.summary, state(r), r.latency, r.selected, r.connected))
+            list.addView(row(r.id, r.avatar, Avatar.stripFlag(r.name), r.summary, state(r), r.latency, r.selected, r.connected,
+                favorite = r.id in favorites))
         }
         if (rows.isEmpty()) {
             list.addView(
-                Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(R.string.servers_not_found)).apply {
+                Ui.text(context, R.style.Text_DPpass_Secondary, context.getString(if (host.prefs.showFavoriteServers && query.isBlank())
+                    R.string.servers_no_favorites else R.string.servers_not_found)).apply {
                     setPadding(Ui.dp(context, 16), Ui.dp(context, 16), Ui.dp(context, 16), Ui.dp(context, 16))
                 },
             )
@@ -156,6 +174,7 @@ class ServersScreen(host: Host) : Screen(host) {
         latency: LatencyLabel,
         selected: Boolean,
         connected: Boolean,
+        favorite: Boolean = false,
     ): View = Ui.row(context).apply {
         setBackgroundResource(R.drawable.bg_row)
         setPadding(Ui.dp(context, 16), Ui.dp(context, 10), Ui.dp(context, 12), Ui.dp(context, 10))
@@ -178,6 +197,14 @@ class ServersScreen(host: Host) : Screen(host) {
         if (chips.childCount > 0) texts.addView(chips, Ui.wrap().apply { topMargin = Ui.dp(context, 4) })
         addView(texts, Ui.weight().apply { marginStart = Ui.dp(context, 12) })
         Ui.latencyChip(context, latency)?.let { addView(it, Ui.wrap().apply { marginStart = Ui.dp(context, 8) }) }
+        if (id != null) addView(Ui.iconButton(context,
+            if (favorite) R.drawable.ic_star_filled else R.drawable.ic_star_outline,
+            context.getString(if (favorite) R.string.servers_remove_favorite else R.string.servers_add_favorite),
+            if (favorite) R.color.primary else R.color.text_secondary) {
+                val current = host.prefs.favoriteServers
+                host.prefs.favoriteServers = if (id in current) current - id else current + id
+                renderList(lastStatus)
+            })
         addView(
             Ui.icon(context, if (selected) R.drawable.ic_radio_on else R.drawable.ic_radio_off, if (selected) R.color.primary else R.color.text_secondary),
             LinearLayout.LayoutParams(Ui.dp(context, 24), Ui.dp(context, 24)).apply { marginStart = Ui.dp(context, 8) },
@@ -205,7 +232,12 @@ class ServersScreen(host: Host) : Screen(host) {
      */
     private fun measure(): Boolean {
         val core = host.graph?.core ?: return false
-        val profiles = core.activation.state.activeConfig?.profiles.orEmpty()
+        val all = core.activation.state.activeConfig?.profiles.orEmpty()
+        val rows = ServerList.rows(all, core.health::of, host.prefs.selectedServer,
+            null, Clock.SYSTEM.nowMillis(), core.latency::of)
+        val ids = ServerList.visible(rows, query, host.prefs.favoriteServers,
+            host.prefs.showFavoriteServers).map { it.id }.toSet()
+        val profiles = all.filter { it.id in ids }
         if (profiles.isEmpty() || measuring?.isActive == true) return false
         measured = 0
         total = minOf(profiles.size, com.dpsmpx.dppass.connection.LatencyBook.MAX_PER_RUN)

@@ -988,4 +988,10 @@
     <string name="app_update_permission">Allow installation from this app in Android settings, then return.</string>
     <string name="app_update_installer">Confirm the update in Android’s package installer.</string>
     <string name="app_update_unsupported">Updates are available for the official ARM64 package only.</string>
+    <string name="servers_filter_all">All servers</string>
+    <string name="servers_filter_favorites">Favorites</string>
+    <string name="servers_measure_scope">Latency check: %1$d visible servers · %2$d favorites in this subscription. AUTO is unaffected.</string>
+    <string name="servers_no_favorites">No favorites yet. Tap a star beside a server.</string>
+    <string name="servers_add_favorite">Add server to favorites</string>
+    <string name="servers_remove_favorite">Remove server from favorites</string>
 </resources>

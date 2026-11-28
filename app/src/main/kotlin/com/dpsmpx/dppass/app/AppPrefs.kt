@@ -75,6 +75,16 @@ class AppPrefs(context: Context) {
             prefs.edit().apply { if (value == null) remove(SELECTED) else putString(SELECTED, value.value) }.apply()
         }
 
+    /** Local presentation preference; never restricts connection planning. */
+    var favoriteServers: Set<ProfileId>
+        get() = prefs.getStringSet(FAVORITE_SERVERS, null).orEmpty()
+            .filter(Ids::isValid).map(::ProfileId).toSet()
+        set(value) { prefs.edit().putStringSet(FAVORITE_SERVERS, value.map { it.value }.toSet()).apply() }
+
+    var showFavoriteServers: Boolean
+        get() = prefs.getBoolean(SHOW_FAVORITE_SERVERS, false)
+        set(value) { prefs.edit().putBoolean(SHOW_FAVORITE_SERVERS, value).apply() }
+
     /** Применяется к очередному плану автоматического подключения. */
     internal var serverAutoMode: ServerAutoMode
         get() = ServerAutoMode.fromPreference(prefs.getString(SERVER_AUTO_MODE, null))
@@ -204,6 +214,8 @@ class AppPrefs(context: Context) {
     private companion object {
         const val FILE = "ui"
         const val SELECTED = "selected_server"
+        const val FAVORITE_SERVERS = "favorite_servers"
+        const val SHOW_FAVORITE_SERVERS = "show_favorite_servers"
         const val SERVER_AUTO_MODE = "server_auto_mode"
         const val ZAPRET2_BACKEND = "zapret2_backend"
         const val ZAPRET2_HOSTLIST = "zapret2_hostlist"

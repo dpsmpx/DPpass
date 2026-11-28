@@ -201,6 +201,11 @@ class PresentationTest {
         assertEquals(listOf("s1.0123abcdef45"), ServerList.filter(withCode, "0123AB").map { it.id.value }, "поиск по коду из журнала")
         assertEquals(listOf("s1.0123abcdef45"), ServerList.filter(withCode, "s1.0123abcdef45").map { it.id.value })
         assertTrue(ServerList.filter(withCode, "s1.").isEmpty(), "короткий запрос по коду не ищет")
+        val favorites = setOf(reality.id, trojanWs.id, ProfileId("gone"))
+        assertEquals(listOf(reality.id, trojanWs.id), ServerList.visible(withCode, "", favorites, true).map { it.id })
+        assertEquals(listOf(trojanWs.id), ServerList.visible(withCode, "trojan", favorites, true).map { it.id })
+        assertEquals(withCode, ServerList.visible(withCode, "", favorites, false))
+        assertTrue(ServerList.visible(withCode, "", emptySet(), true).isEmpty())
     }
 
     @Test

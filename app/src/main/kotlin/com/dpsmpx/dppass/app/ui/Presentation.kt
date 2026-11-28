@@ -141,6 +141,11 @@ object ServerList {
         return rows.filter { q in it.name.lowercase() || q in it.summary.lowercase() || (q.length >= ID_SEARCH_FROM && q in it.id.value.lowercase()) }
     }
 
+    /** Same scope for visible rows and explicit latency measurement. */
+    fun visible(rows: List<ServerRow>, query: String, favorites: Set<ProfileId>,
+        favoritesOnly: Boolean): List<ServerRow> =
+        filter(if (favoritesOnly) rows.filter { it.id in favorites } else rows, query)
+
     const val ID_SEARCH_FROM: Int = 4
 
     /** По задержке: измеренные — по возрастанию, остальные — после, в прежнем порядке. */

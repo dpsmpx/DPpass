@@ -1017,4 +1017,10 @@
     <string name="app_update_permission">Разрешите установку из этого приложения в настройках Android и вернитесь.</string>
     <string name="app_update_installer">Подтвердите обновление в системном установщике Android.</string>
     <string name="app_update_unsupported">Обновления доступны только для официального пакета ARM64.</string>
+    <string name="servers_filter_all">Все серверы</string>
+    <string name="servers_filter_favorites">Избранные</string>
+    <string name="servers_measure_scope">Замер задержки: %1$d видимых серверов · %2$d избранных в этой подписке. AUTO не меняется.</string>
+    <string name="servers_no_favorites">Нет избранных серверов. Нажмите звёздочку рядом с сервером.</string>
+    <string name="servers_add_favorite">Добавить сервер в избранное</string>
+    <string name="servers_remove_favorite">Убрать сервер из избранного</string>
 </resources>
