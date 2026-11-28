@@ -11,8 +11,12 @@ import (
     "time"
 )
 
+var adaptiveCandidates = socketCapabilities.Candidates(localdpi.TLS)
+var adaptiveHTTPCandidates = socketCapabilities.Candidates(localdpi.HTTP)
+var adaptiveQuicCandidates = socketCapabilities.Candidates(localdpi.QUIC)
+
 func TestAdaptiveRotatesPerHostUntilEnoughPayload(t *testing.T) {
-    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    a := newProbeAdaptiveSelector()
     if got := a.choose("r1.googlevideo.com"); got != "split-1" { t.Fatalf("first: %q", got) }
     if got := a.choose("r1.googlevideo.com"); got != "split" { t.Fatalf("second: %q", got) }
     if got := a.choose("i.ytimg.com"); got != "split-1" { t.Fatalf("different host: %q", got) }
@@ -29,7 +33,7 @@ func TestAdaptiveRotatesPerHostUntilEnoughPayload(t *testing.T) {
 }
 
 func TestAdaptiveHostSelectionsRespectDNSLabelBoundary(t *testing.T) {
-    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    a := newProbeAdaptiveSelector()
     if err := a.configureHosts("YouTube.com\nytimg.com\n"); err != nil { t.Fatal(err) }
     for _, h := range []string{"youtube.com", "www.youtube.com", "I.YTIMG.com"} {
         if !a.wants(h) { t.Errorf("missing suffix match for %s", h) }
@@ -42,7 +46,7 @@ func TestAdaptiveHostSelectionsRespectDNSLabelBoundary(t *testing.T) {
 }
 
 func TestAdaptiveDoesNotStoreUnboundedHostHistory(t *testing.T) {
-    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    a := newProbeAdaptiveSelector()
     for i:=0; i<adaptiveMaxHosts*2; i++ {
         _ = a.choose("prefix"+strconv.Itoa(i)+".example.com")
     }
@@ -55,7 +59,7 @@ func TestAdaptiveParseTag(t *testing.T) {
 }
 
 func TestAdaptiveQuicSelectionIsIndependentOfTCP(t *testing.T) {
-    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    a := newProbeAdaptiveSelector()
     if got := a.choose("203.0.113.9"); got != "split-1" { t.Fatal(got) }
     if got := a.chooseQUIC("203.0.113.9"); got != "fake-3" { t.Fatal(got) }
     if got := a.chooseQUIC("203.0.113.9"); got != "fake-5" { t.Fatal(got) }
@@ -65,7 +69,7 @@ func TestAdaptiveQuicSelectionIsIndependentOfTCP(t *testing.T) {
 }
 
 func TestAdaptiveLearnsSmallFeedResponsesOnlyAfterMultipleFlows(t *testing.T) {
-    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    a := newProbeAdaptiveSelector()
     host := "www.youtube.com"
     for i := 0; i < len(adaptiveCandidates)*3; i++ {
         choice := a.choose(host)
@@ -83,7 +87,7 @@ func TestAdaptiveLearnsSmallFeedResponsesOnlyAfterMultipleFlows(t *testing.T) {
 }
 
 func TestAdaptiveIgnoresLateOldNetworkObservations(t *testing.T) {
-    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    a := newProbeAdaptiveSelector()
     host := "r1.googlevideo.com"
     choice, oldGeneration := a.chooseTracked(host)
     if err := a.configureHosts("youtube.com"); err != nil { t.Fatal(err) }
@@ -95,7 +99,7 @@ func TestAdaptiveIgnoresLateOldNetworkObservations(t *testing.T) {
 }
 
 func TestAdaptiveManualIPv4TargetCoversQUIC(t *testing.T) {
-    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    a := newProbeAdaptiveSelector()
     if err := a.configureHosts("203.0.113.9"); err != nil { t.Fatal(err) }
     if !a.wants("203.0.113.9") { t.Fatal("selected IP must apply to protected QUIC destination") }
     if a.wants("203.0.113.10") { t.Fatal("selection must not cover unrelated IP") }
@@ -105,7 +109,7 @@ func TestAdaptiveManualIPv4TargetCoversQUIC(t *testing.T) {
 // The new lossless TLS-record/TCP method is tried only after the existing
 // five candidates; users' explicit manual choices are not rewritten.
 func TestAdaptiveIncludesCombinedTLSRecordSplitWithoutReorderingLegacyCandidates(t *testing.T) {
-    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    a := newProbeAdaptiveSelector()
     want := []string{"split-1", "split", "fake-3", "fake-5", "disorder", "tlsrec-split"}
     for i, expected := range want {
         if got := a.choose("video.example.org"); got != expected {
@@ -120,7 +124,7 @@ func TestAdaptiveIncludesCombinedTLSRecordSplitWithoutReorderingLegacyCandidates
 
 
 func TestAdaptiveHTTPNeverUsesTLSRecordOnlyCandidate(t *testing.T) {
-    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    a := newProbeAdaptiveSelector()
     host := "video.example.org"
     // Even when a TLS connection taught this host a successful TLS-record
     // preference, an HTTP/1 Host request must use a legacy HTTP strategy.
@@ -135,7 +139,7 @@ func TestAdaptiveHTTPNeverUsesTLSRecordOnlyCandidate(t *testing.T) {
 // An adaptive QUIC flow must be able to recover by using unmodified QUIC.
 // This does not alter manually configured fake-3/fake-5 or QUIC-to-TCP.
 func TestAdaptiveQUICIncludesUnmodifiedBaselineAfterExistingCandidates(t *testing.T) {
-    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    a := newProbeAdaptiveSelector()
     host := "198.51.100.23"
     for _, want := range []string{"fake-3", "fake-5", "pass"} {
         if got := a.chooseQUIC(host); got != want { t.Fatalf("want %s, got %s", want, got) }
@@ -148,7 +152,7 @@ func TestAdaptiveQUICIncludesUnmodifiedBaselineAfterExistingCandidates(t *testin
 }
 
 func TestAdaptiveTCPPlainBaselineFollowsLegacyStrategies(t *testing.T) {
-    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    a := newProbeAdaptiveSelector()
     host := "video.example.org"
     for _, want := range []string{"split-1", "split", "fake-3", "fake-5", "disorder", "tlsrec-split", "pass"} {
         if got := a.choose(host); got != want { t.Fatalf("got %q, expected %q", got, want) }
@@ -201,9 +205,8 @@ func TestAdaptiveTCPFirstReplyTimeoutNotDoubleCountedOnClose(t *testing.T) {
 }
 
 func TestAdaptivePlainTCPTriedWithLocalNeuralModel(t *testing.T) {
-    if err := ConfigureZapret2NeuralModel(generatedTestModel(t, 32)); err != nil { t.Fatal(err) }
-    defer func() { _ = ConfigureZapret2NeuralModel(nil) }()
-    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry), selected: make(map[string]struct{})}
+    a := newProbeAdaptiveSelector()
+    if err := a.configureModel(generatedTestModel(t, 32)); err != nil { t.Fatal(err) }
     host := "new.example.org"
     for i := 0; i < len(adaptiveCandidates); i++ {
         got := a.choose(host)
@@ -220,7 +223,7 @@ func TestAdaptivePlainTCPTriedWithLocalNeuralModel(t *testing.T) {
 }
 
 func TestUniversalAUTOStallsOnlySuspendAffectedHostTechnique(t *testing.T) {
-    a:=&adaptiveSelector{entries:make(map[string]*adaptiveEntry),selected:make(map[string]struct{})}
+    a:=newProbeAdaptiveSelector()
     host:="media.example.net"
     selected,generation:=a.chooseTracked(host)
     if selected!="split-1" {t.Fatalf("unexpected initial choice %s",selected)}
@@ -251,7 +254,7 @@ func TestUniversalAUTOStallsOnlySuspendAffectedHostTechnique(t *testing.T) {
 }
 
 func TestUniversalAUTONetworkTransportAndCloseAreIsolated(t *testing.T) {
-    a:=&adaptiveSelector{entries:make(map[string]*adaptiveEntry),selected:make(map[string]struct{})}
+    a:=newProbeAdaptiveSelector()
     host:="203.0.113.10"
     picked,generation:=a.chooseQUICTracked(host)
     if picked!="fake-3" {t.Fatal(picked)}
@@ -282,7 +285,7 @@ func TestUniversalAUTONetworkTransportAndCloseAreIsolated(t *testing.T) {
 }
 
 func TestUniversalAUTORealPayloadClearsOnlyMatchingCircuitBreaker(t *testing.T) {
-    a:=&adaptiveSelector{entries:make(map[string]*adaptiveEntry),selected:make(map[string]struct{})}
+    a:=newProbeAdaptiveSelector()
     host:="example.org"
     first,g:=a.chooseTracked(host)
     a.observeStallTracked(host,first,g)
@@ -336,7 +339,7 @@ func TestUniversalAUTOQUICRealReadTimeoutIsCountedOnceOnClose(t *testing.T) {
 }
 
 func TestLiveStartsPlainAndKeepsTransportReachabilityWithoutGlobalProof(t *testing.T) {
-    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry)}
+    a := newProbeAdaptiveSelector()
     host := "healthy.example.org"
     choice, generation := a.chooseLive(host, adaptiveCandidates[:])
     if choice != "pass" { t.Fatal(choice) }
@@ -350,7 +353,7 @@ func TestLiveStartsPlainAndKeepsTransportReachabilityWithoutGlobalProof(t *testi
 }
 
 func TestLiveAddressEvidenceIsIsolated(t *testing.T) {
-    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry)}
+    a := newProbeAdaptiveSelector()
     one := "www.example.org|192.0.2.1"
     two := "www.example.org|192.0.2.2"
     _, generation := a.chooseLive(one, adaptiveCandidates[:])
@@ -361,7 +364,7 @@ func TestLiveAddressEvidenceIsIsolated(t *testing.T) {
 }
 
 func TestLiveMediaPlainWeakRepliesDoNotPinForever(t *testing.T) {
-    a := &adaptiveSelector{entries: make(map[string]*adaptiveEntry)}
+    a := newProbeAdaptiveSelector()
     host := "youtubei.googleapis.com|192.0.2.1"
     for i:=0; i<2; i++ {
         got, generation := a.chooseLive(host, adaptiveCandidates[:])
@@ -416,7 +419,7 @@ func TestCancelledZeroByteTCPAndUDPCloseDoNotDemotePreferred(t *testing.T) {
 }
 
 func TestCapabilityFilteredSelectorDoesNotInventBaseline(t *testing.T) {
-    a := &adaptiveSelector{entries:make(map[string]*adaptiveEntry)}
+    a := newProbeAdaptiveSelector()
     if got,_:=a.chooseLive("example.test",nil); got!="" { t.Fatal("empty executor invented method",got) }
     for i:=0;i<8;i++ {
         if got,_:=a.chooseLive("example.test",[]string{"split"});got!="split" {
@@ -460,7 +463,7 @@ func TestSocketObservationCapabilityGate(t *testing.T) {
         transport:=localdpi.TLS
         if strings.HasPrefix(tc.host,"http:") {transport=localdpi.HTTP}
         if strings.HasPrefix(tc.host,"udp:") {transport=localdpi.QUIC}
-        pick:=newSocketPick(tc.host,tc.method,0,transport)
+        pick:=zapret2Auto.newSocketPick(tc.host,tc.method,0,transport)
         if got:=socketEvidenceAdmissible(pick,tc.evidence);got!=tc.want {t.Fatalf("%+v got %v",tc,got)}
     }
     if socketEvidenceAdmissible(nil,down) {t.Fatal("nil pick admitted")}
@@ -468,12 +471,12 @@ func TestSocketObservationCapabilityGate(t *testing.T) {
 
 func TestSocketPickIdentityCannotCrossExecutorOrProtocol(t *testing.T) {
     evidence:=localdpi.SocketDownstream(1024)
-    wrong:=newSocketPick("http:example.test","pass",1,localdpi.TLS)
+    wrong:=zapret2Auto.newSocketPick("http:example.test","pass",1,localdpi.TLS)
     if socketEvidenceAdmissible(wrong,evidence) {t.Fatal("wrong protocol admitted")}
-    wrong=newSocketPick("example.test","pass",1,localdpi.TLS)
+    wrong=zapret2Auto.newSocketPick("example.test","pass",1,localdpi.TLS)
     wrong.flow.Executor=localdpi.RootSocket
     if socketEvidenceAdmissible(wrong,evidence) || socketPickAdmissible(wrong) {t.Fatal("root observation admitted by VPN")}
-    if !socketPickAdmissible(newSocketPick("example.test","pass",1,localdpi.TLS)) {t.Fatal("valid identity rejected")}
+    if !socketPickAdmissible(zapret2Auto.newSocketPick("example.test","pass",1,localdpi.TLS)) {t.Fatal("valid identity rejected")}
 }
 
 func TestSelectorRejectsUnsupportedTransportEvidenceAtMutationBoundary(t *testing.T) {
@@ -487,7 +490,7 @@ func TestSelectorRejectsUnsupportedTransportEvidenceAtMutationBoundary(t *testin
         {"http:example.test",adaptiveHTTPCandidates,[]string{"split-1","tlsrec-split","unknown"},"split"},
         {"udp:203.0.113.9",adaptiveQuicCandidates,[]string{"split","tlsrec-split","unknown"},"fake-3"},
     } {
-        a:=&adaptiveSelector{entries:make(map[string]*adaptiveEntry)}
+        a:=newProbeAdaptiveSelector()
         _,g:=a.chooseWithGeneration(tc.host,tc.candidates)
         for _,method:=range tc.unsupported {
             a.observeTracked(tc.host,method,adaptivePayloadThreshold,g)
@@ -508,7 +511,7 @@ func TestSelectorRejectsUnsupportedTransportEvidenceAtMutationBoundary(t *testin
 }
 
 func TestAdaptiveCapacityRetainsExistingPreferencesAndEvictsOnlyOldest(t *testing.T) {
-    a:=&adaptiveSelector{entries:make(map[string]*adaptiveEntry)}
+    a:=newProbeAdaptiveSelector()
     first:="prefix0.example.com"
     second:="prefix1.example.com"
     for i:=0;i<adaptiveMaxHosts;i++ {
@@ -537,7 +540,7 @@ func TestAdaptiveCapacityRetainsExistingPreferencesAndEvictsOnlyOldest(t *testin
 func boundTestSocketPick(host, method string, generation uint64, transport localdpi.Transport) *adaptivePick {
     zapret2Auto.mu.Lock()
     defer zapret2Auto.mu.Unlock()
-    pick := newSocketPick(host,method,generation,transport)
+    pick := zapret2Auto.newSocketPick(host,method,generation,transport)
     if e := zapret2Auto.entries[canonicalAdaptiveKey(host)]; e != nil {
         pick.entryID = e.entryID
     }
@@ -554,7 +557,7 @@ func TestEvictedSocketEvidenceCannotMutateRecreatedEntry(t *testing.T) {
         {"http:example.test",adaptiveHTTPCandidates,localdpi.HTTP},
         {"udp:203.0.113.9",adaptiveQuicCandidates,localdpi.QUIC},
     } {
-        a := &adaptiveSelector{entries:make(map[string]*adaptiveEntry)}
+        a := newProbeAdaptiveSelector()
         old := a.chooseSocketLive(tc.host,tc.transport)
         for i:=0; i<adaptiveMaxHosts; i++ {
             a.choose("other"+strconv.Itoa(i)+".example.test")
@@ -606,14 +609,13 @@ func TestCanonicalAdaptiveKeyPreservesTransportAndNormalizesDestination(t *testi
 }
 
 func TestAdaptiveNeuralRanksOnlyAvailableCandidates(t *testing.T) {
-    defer ConfigureZapret2NeuralModel(nil)
-    if err:=ConfigureZapret2NeuralModel(generatedTestModel(t,32));err!=nil {t.Fatal(err)}
-    // Give the two best candidates deliberately distinct scores.
-    zapret2Neural.mu.Lock()
-    zapret2Neural.weights.OutputBias[localdpi.NeuralIndex("tlsrec-split",localdpi.TLS)]=3
-    zapret2Neural.weights.OutputBias[localdpi.NeuralIndex("fake-5",localdpi.TLS)]=2
-    zapret2Neural.mu.Unlock()
     a:=newProbeAdaptiveSelector()
+    if err:=a.configureModel(generatedTestModel(t,32));err!=nil {t.Fatal(err)}
+    // Give the two best candidates deliberately distinct scores.
+    a.neural.mu.Lock()
+    a.neural.weights.OutputBias[localdpi.NeuralIndex("tlsrec-split",localdpi.TLS)]=3
+    a.neural.weights.OutputBias[localdpi.NeuralIndex("fake-5",localdpi.TLS)]=2
+    a.neural.mu.Unlock()
     const host="rank-cooled.example.test"
     a.mu.Lock()
     e:=a.entryLocked(host)
@@ -765,7 +767,7 @@ func TestRetireVerifiedFallbackRequiresExactEligibleContext(t *testing.T) {
             stalls:map[string]int{"split":1},usage:map[string]int{"split":3}}
         now:=time.Now()
         if tc.cooled {e.cooldown=map[string]time.Time{tc.backup:now.Add(time.Hour)}}
-        got:=e.retireWithFallback(tc.host,now)
+        got:=e.retireWithFallback(tc.host,now,socketCapabilities)
         if (got==tc.backup)!=tc.want {t.Fatalf("%+v fallback=%q",tc,got)}
         if e.preferred!="" || e.verifiedFallback!="" || e.probeSeeded || e.plainReachable ||
             e.weakFailures!=0 || e.smallResponses!=nil || e.stalls["split"]!=1 || e.usage["split"]!=3 {

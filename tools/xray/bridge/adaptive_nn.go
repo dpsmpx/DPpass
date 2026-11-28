@@ -19,7 +19,6 @@ import (
     "strconv"
     "strings"
     "sync"
-    "sync/atomic"
 )
 
 const (
@@ -60,13 +59,14 @@ type adaptiveNeural struct {
     mu sync.Mutex
     weights *adaptiveNNWeights
     dirty bool
+    network int32 // coarse category, guarded by mu
 }
-var zapret2Neural adaptiveNeural
-
-// Only network category, no carrier, SSID, geographic position or IP.
-var zapret2NeuralNetwork atomic.Int32
 
 func ConfigureZapret2NeuralNetwork(kind string) error {
+    return zapret2Auto.configureNetwork(kind)
+}
+
+func (a *adaptiveSelector) configureNetwork(kind string) error {
     var category int32
     switch kind {
     case "MOBILE": category=1
@@ -78,12 +78,12 @@ func ConfigureZapret2NeuralNetwork(kind string) error {
     // category is unchanged. Use the selector -> model lock order so a
     // new selection cannot inherit the previous network's generation or
     // contextual head. Keep configured targets and persistent weights.
-    zapret2Auto.mu.Lock()
-    defer zapret2Auto.mu.Unlock()
-    zapret2Neural.mu.Lock()
-    defer zapret2Neural.mu.Unlock()
-    zapret2Auto.resetLocked()
-    zapret2NeuralNetwork.Store(category)
+    a.mu.Lock()
+    defer a.mu.Unlock()
+    a.neural.mu.Lock()
+    defer a.neural.mu.Unlock()
+    a.resetLocked()
+    a.neural.network = category
     return nil
 }
 
@@ -207,19 +207,26 @@ func parseAdaptiveNN(raw []byte) (*adaptiveNNWeights, error) {
 
 // Configure only the current model schema.
 func ConfigureZapret2NeuralModel(raw []byte) error {
-    if len(raw) == 0 {
-        zapret2Neural.mu.Lock()
-        zapret2Neural.weights = nil
-        zapret2Neural.dirty = false
-        zapret2Neural.mu.Unlock()
-        return nil
+    return zapret2Auto.configureModel(raw)
+}
+
+func (a *adaptiveSelector) configureModel(raw []byte) error {
+    var weights *adaptiveNNWeights
+    if len(raw) != 0 {
+        var err error
+        weights, err = parseAdaptiveNN(raw)
+        if err != nil {
+            return err
+        }
     }
-    w, err := parseAdaptiveNN(raw)
-    if err != nil { return err }
-    zapret2Neural.mu.Lock()
-    zapret2Neural.weights = w
-    zapret2Neural.dirty = false
-    zapret2Neural.mu.Unlock()
+    a.mu.Lock()
+    defer a.mu.Unlock()
+    a.neural.mu.Lock()
+    defer a.neural.mu.Unlock()
+    // A late result from a replaced model may not train the new model.
+    a.resetLocked()
+    a.neural.weights = weights
+    a.neural.dirty = false
     return nil
 }
 
@@ -227,10 +234,14 @@ func ConfigureZapret2NeuralModel(raw []byte) error {
 // Never export hostnames or subscription IDs. A network change changes the
 // active context; it must NOT reload the original random seed over training.
 func ExportZapret2NeuralModel() []byte {
-    zapret2Neural.mu.Lock()
-    defer zapret2Neural.mu.Unlock()
-    if zapret2Neural.weights == nil || !zapret2Neural.dirty { return nil }
-    raw, err := json.Marshal(zapret2Neural.weights)
+    return zapret2Auto.neural.export()
+}
+
+func (n *adaptiveNeural) export() []byte {
+    n.mu.Lock()
+    defer n.mu.Unlock()
+    if n.weights == nil || !n.dirty { return nil }
+    raw, err := json.Marshal(n.weights)
     if err != nil || len(raw) > adaptiveNNMaxBytes { return nil }
     // Export is non-destructive: only acknowledge after Android has
     // durably written the snapshot. Otherwise failed disk I/O or a
@@ -242,19 +253,23 @@ func ExportZapret2NeuralModel() []byte {
 // learned more between export and acknowledgement, preserve its dirty bit
 // for the next flush. Compare the exact serialized bytes rather than revision counters.
 func AcknowledgeZapret2NeuralModel(saved []byte) error {
+    return zapret2Auto.neural.acknowledge(saved)
+}
+
+func (n *adaptiveNeural) acknowledge(saved []byte) error {
     if len(saved) == 0 || len(saved) > adaptiveNNMaxBytes {
         return errors.New("invalid neural acknowledgement")
     }
-    zapret2Neural.mu.Lock()
-    defer zapret2Neural.mu.Unlock()
-    if zapret2Neural.weights == nil { return errors.New("neural model not installed") }
+    n.mu.Lock()
+    defer n.mu.Unlock()
+    if n.weights == nil { return errors.New("neural model not installed") }
     // Even a clean model can have been replaced since the export.
     // An acknowledgement must match the current bytes in either state.
-    current, err := json.Marshal(zapret2Neural.weights)
+    current, err := json.Marshal(n.weights)
     if err != nil || !bytes.Equal(current, saved) {
         return errors.New("neural model updated after snapshot")
     }
-    zapret2Neural.dirty = false
+    n.dirty = false
     return nil
 }
 
@@ -271,7 +286,7 @@ func nnHostTransport(host string) localdpi.Transport {
     return localdpi.TLS
 }
 
-func nnFeatures(host string, quic bool) [adaptiveNNInput]float64 {
+func nnFeatures(host string, quic bool, network int32) [adaptiveNNInput]float64 {
     var f [adaptiveNNInput]float64
     raw := host
     if quic {
@@ -287,33 +302,33 @@ func nnFeatures(host string, quic bool) [adaptiveNNInput]float64 {
     if parsed != nil && parsed.To4() == nil { f[3] = 1 }
     if parsed == nil && strings.Contains(raw, ".") { f[4] = 1 }
     if strings.HasSuffix(raw, ".googlevideo.com") { f[5] = 1 }
-    switch zapret2NeuralNetwork.Load() {
+    switch network {
     case 1: f[6] = 1
     case 2: f[7] = 1
     }
     return f
 }
 
-func nnContext(host string, quic bool) int {
+func nnContext(host string, quic bool, category int32) int {
     protocol := 0
     if quic { protocol = 2 } else if strings.HasPrefix(host, "http:") { protocol = 1 }
     network := 2
-    switch zapret2NeuralNetwork.Load() {
+    switch category {
     case 1: network = 0
     case 2: network = 1
     }
     return network*3 + protocol
 }
 
-func nnSparseKeys(w *adaptiveNNWeights, host string, idx int, quic bool) []string {
+func nnSparseKeys(w *adaptiveNNWeights, host string, idx int, quic bool, network int32) []string {
     capacity := w.Parameters - nnDenseCount(w)
     if capacity <= 0 { return nil }
-    context := nnContext(host, quic)
+    context := nnContext(host, quic, network)
     // Disjoint logical sparse slots: no cross-context hash collision,
     // even for budgets smaller than nine.
     slots:=nnContextSlots(context,capacity)
     if slots<=0 {return nil}
-    features := nnFeatures(host, quic)
+    features := nnFeatures(host, quic, network)
     keys := make([]string, 0, adaptiveNNInput)
     seen:=make(map[string]bool,adaptiveNNInput)
     for i, x := range features {
@@ -336,8 +351,8 @@ func nnContextSlots(context int, capacity int64) int64 {
     return 1+(capacity-1-int64(context))/adaptiveNNContexts
 }
 
-func nnForward(w *adaptiveNNWeights, host string, idx int, quic bool) (float64, []float64) {
-    f := nnFeatures(host, quic)
+func nnForward(w *adaptiveNNWeights, host string, idx int, quic bool, network int32) (float64, []float64) {
+    f := nnFeatures(host, quic, network)
     h := make([]float64, len(w.Bias))
     for i := range h {
         sum := w.Bias[i]
@@ -355,12 +370,12 @@ func nnForward(w *adaptiveNNWeights, host string, idx int, quic bool) (float64, 
     }
     value := w.OutputBias[idx]
     for j, v := range h { value += w.Output[idx][j] * v }
-    context := nnContext(host, quic)
+    context := nnContext(host, quic, network)
     start:=idx*(adaptiveNNInput+1)
     head:=w.ContextBias[context]
     value += head[start]
     for i,v:=range f {value += head[start+1+i]*v}
-    for _, key := range nnSparseKeys(w, host, idx, quic) {
+    for _, key := range nnSparseKeys(w, host, idx, quic, network) {
         value += w.Sparse[key] * 0.5
     }
     return value, h
@@ -376,11 +391,11 @@ func (n *adaptiveNeural) rank(host string, candidates []string, usage map[string
     for _, tag := range candidates {
         idx := localdpi.NeuralIndex(tag,nnHostTransport(host))
         if idx < 0 { continue }
-        score, _ := nnForward(n.weights, host, idx, quic)
+        score, _ := nnForward(n.weights, host, idx, quic, n.network)
         // This signal proves only a bounded HTML GET for this exact service.
         // It cannot bias unrelated sites, QUIC, plain HTTP or API responses.
         if host == "www.youtube.com" && !quic && idx < localdpi.TCPOutputCount() && len(n.weights.VerifiedHTMLBias) == 3 {
-            score += n.weights.VerifiedHTMLBias[nnContext(host,false)/3][idx]
+            score += n.weights.VerifiedHTMLBias[nnContext(host,false,n.network)/3][idx]
         }
         // Explore uncertain candidates, not just a random neural prior.
         score -= math.Min(float64(usage[tag]), 20) * 0.14
@@ -405,23 +420,23 @@ func (n *adaptiveNeural) learn(host, candidate string, downstream int64) {
     defer n.mu.Unlock()
     if n.weights == nil { return }
     w := n.weights
-    logit, _ := nnForward(w, host, idx, quic)
+    logit, _ := nnForward(w, host, idx, quic, n.network)
     prob := 1 / (1 + math.Exp(-math.Max(-12, math.Min(12, logit))))
     delta := (reward - prob) * 0.03
     // Keep the shared random feature extractor and prior frozen. Each
     // context trains its own method-specific affine head.
-    context := nnContext(host, quic)
+    context := nnContext(host, quic, n.network)
     start:=idx*(adaptiveNNInput+1)
     head:=w.ContextBias[context]
     head[start]=nnClamp(head[start]+delta)
-    for i,v:=range nnFeatures(host,quic) {
+    for i,v:=range nnFeatures(host,quic,n.network) {
         head[start+1+i]=nnClamp(head[start+1+i]+delta*v)
     }
     if w.ContextObservations[context] < 1_000_000_000 {
         w.ContextObservations[context]++
     }
     if w.Observations < 1_000_000_000 { w.Observations++ }
-    nnLearnSparse(w,context,nnSparseKeys(w,host,idx,quic),delta*0.2)
+    nnLearnSparse(w,context,nnSparseKeys(w,host,idx,quic,n.network),delta*0.2)
     n.dirty = true
 }
 

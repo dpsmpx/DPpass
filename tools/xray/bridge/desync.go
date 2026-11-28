@@ -205,24 +205,25 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
     tag:=""
     obs:=session.OutboundsFromContext(ctx)
     if len(obs)>0 && obs[len(obs)-1]!=nil {tag=obs[len(obs)-1].Tag}
-    ip := net.ParseIP(dest.Address.String())
-    var routeGeneration uint64
-    localExperimental := false
-    if dest.Network == xnet.Network_TCP && isIPv6Peer(ip) && !diagnostic {
-        _, localExperimental, _ = parseDesyncTag(tag)
-        if localExperimental {
-            routeGeneration = zapret2Auto.generationSnapshot()
-            if liveIPv6.skip(ip, routeGeneration, time.Now()) { return nil, syscall.ENETUNREACH }
-        }
+    mode, tagged, perr := parseDesyncTag(tag)
+    var adaptiveGeneration uint64
+    if tagged && !diagnostic && (dest.Network == xnet.Network_TCP || dest.Network == xnet.Network_UDP) {
+        // Snapshot before dialing, which may span a network handover.
+        adaptiveGeneration = zapret2Auto.generationSnapshot()
     }
-	conn, err := d.base.Dial(ctx, src, dest, sockopt)
-    if localExperimental { liveIPv6.result(ip, routeGeneration, time.Now(), err) }
+    ip := net.ParseIP(dest.Address.String())
+    checkIPv6 := adaptiveGeneration != 0 && dest.Network == xnet.Network_TCP && isIPv6Peer(ip)
+    if checkIPv6 && liveIPv6.skip(ip, adaptiveGeneration, time.Now()) {
+        return nil, syscall.ENETUNREACH
+    }
+    conn, err := d.base.Dial(ctx, src, dest, sockopt)
+    if checkIPv6 {
+        liveIPv6.result(ip, adaptiveGeneration, time.Now(), err)
+    }
 	if err != nil {
         // Count failed experimental dials, never ordinary Xray or DoH sockets.
-        if dest.Network == xnet.Network_TCP {
-            if _, ok, _ := parseDesyncTag(tag); ok {
-                stagesFor(diagnostic).recordDialFailure(err, ip)
-            }
+        if tagged && dest.Network == xnet.Network_TCP {
+            stagesFor(diagnostic).recordDialFailure(err, ip)
         }
 		return conn, err
 	}
@@ -236,8 +237,7 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
 	if dest.Network != xnet.Network_TCP && dest.Network != xnet.Network_UDP {
 		return conn, nil
 	}
-	mode, ok, perr := parseDesyncTag(tag)
-	if !ok {
+	if !tagged {
 		return conn, nil
 	}
 	if perr != nil {
@@ -268,14 +268,14 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
 		// TLS ECH or a fragmented ClientHello hides the SNI. No names logged.
         stagesFor(diagnostic).tcpDialOK.Add(1)
         stagesFor(diagnostic).recordDialSuccessFamily(tcp.RemoteAddr().(*net.TCPAddr).IP)
-		return &desyncConn{TCPConn: tcp, mode: mode, diagnostic:diagnostic, request:request, host: tcp.RemoteAddr().(*net.TCPAddr).IP.String()}, nil
+		return &desyncConn{TCPConn: tcp, mode: mode, diagnostic:diagnostic, request:request, adaptiveGeneration: adaptiveGeneration, host: tcp.RemoteAddr().(*net.TCPAddr).IP.String()}, nil
 	}
 	udp, isUDP := conn.(*net.UDPConn)
 	if !isUDP {
 		recordDesyncSkipped(diagnostic,request)
 		return conn, nil
 	}
-	return &desyncUDPConn{UDPConn: udp, mode: mode, diagnostic:diagnostic, request:request, host: udp.RemoteAddr().(*net.UDPAddr).IP.String()}, nil
+	return &desyncUDPConn{UDPConn: udp, mode: mode, diagnostic:diagnostic, request:request, adaptiveGeneration: adaptiveGeneration, host: udp.RemoteAddr().(*net.UDPAddr).IP.String()}, nil
 }
 
 func (d *desyncDialer) DestIpAddress() net.IP { return d.base.DestIpAddress() }
@@ -284,6 +284,7 @@ func (d *desyncDialer) DestIpAddress() net.IP { return d.base.DestIpAddress() }
 type desyncConn struct {
 	*net.TCPConn
 	mode  desyncMode
+    adaptiveGeneration uint64 // set before dialing production experimental sockets
     diagnostic bool
     localTLSFixture bool
     request *diagnosticRequestCounters
@@ -596,7 +597,7 @@ func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
         if c.diagnostic {
             selected=zapret2Auto.chooseDiagnosticSocket(key,transport)
         } else {
-            selected=zapret2Auto.chooseSocketLive(key,transport)
+            selected=zapret2Auto.chooseSocketAtGeneration(key, transport, c.adaptiveGeneration)
         }
         resolved, ok, err := parseDesyncTag(zapret2.TagPrefix + selected.flow.MethodID)
         if !ok || err != nil || resolved.kind == desyncAuto {
@@ -989,6 +990,7 @@ func waitSent(rc syscall.RawConn) {
 type desyncUDPConn struct {
 	*net.UDPConn
 	mode desyncMode
+    adaptiveGeneration uint64 // set before dialing production experimental sockets
     diagnostic bool
     request *diagnosticRequestCounters
 	mu sync.Mutex
@@ -1081,7 +1083,7 @@ func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
         if writeErr != nil || written != len(b) {
             stagesFor(c.diagnostic).udpInitialFailed.Add(1)
         } else {
-            if !c.diagnostic && c.chosen!=nil {
+            if !c.diagnostic && c.chosen!=nil && c.chosen.entryID!=0 {
                 if !matched {
                     // A successfully sent but unapplied Initial makes
                     // subsequent attribution ambiguous for this flow.
@@ -1104,7 +1106,7 @@ func (c *desyncUDPConn) Write(b []byte) (written int, writeErr error) {
             if c.diagnostic {
                 pick=zapret2Auto.chooseDiagnosticSocket("udp:"+c.host,localdpi.QUIC)
             } else {
-                pick=zapret2Auto.chooseSocketLive("udp:"+c.host,localdpi.QUIC)
+                pick=zapret2Auto.chooseSocketAtGeneration("udp:"+c.host, localdpi.QUIC, c.adaptiveGeneration)
             }
             resolved, ok, err := parseDesyncTag(zapret2.TagPrefix + pick.flow.MethodID)
             if !ok || err != nil || resolved.kind != desyncFake && resolved.kind != desyncPass {

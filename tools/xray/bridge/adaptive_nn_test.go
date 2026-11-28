@@ -11,6 +11,8 @@ import (
     "testing"
 )
 
+var zapret2Neural = zapret2Auto.neural
+
 // Construct the same schema Android generates, without any downloadable
 // seed or pretrained assets. A large local model must remain bounded.
 func generatedTestModel(t *testing.T, hidden int) []byte {
@@ -57,9 +59,11 @@ func TestOptionalNeuralSizedLocalGenerationAndBaseline(t *testing.T) {
         }
         if len(zapret2Neural.weights.Hidden) != width { t.Fatal("wrong model dimension") }
     }
-    a = newProbeAdaptiveSelector()
-    if got := a.choose("www.youtube.com"); got != "tlsrec-split" {
+    if got := zapret2Auto.choose("www.youtube.com"); got != "tlsrec-split" {
         t.Fatalf("local model not active: %s", got)
+    }
+    if got := a.choose("separate.example.test"); got != "split-1" {
+        t.Fatalf("unconfigured selector ranked with the VPN model: %s", got)
     }
     // The repeated-host observation count must allow exploration, not pin an
     // untrained prior forever. A verified exact-host preference outranks MLP.
@@ -103,35 +107,35 @@ func TestNeuralLearnsFromLocalTrafficOnly(t *testing.T) {
     defer func(){ _=ConfigureZapret2NeuralModel(nil) }()
     host := "www.example.org"
     zapret2Neural.mu.Lock()
-    start,_ := nnForward(zapret2Neural.weights, host, 5, false)
+    start,_ := nnForward(zapret2Neural.weights, host, 5, false, zapret2Neural.network)
     zapret2Neural.mu.Unlock()
     zapret2Neural.learn(host, "tlsrec-split", 1024)
     zapret2Neural.mu.Lock()
-    afterWeak,_ := nnForward(zapret2Neural.weights, host, 5, false)
+    afterWeak,_ := nnForward(zapret2Neural.weights, host, 5, false, zapret2Neural.network)
     zapret2Neural.mu.Unlock()
     if start != afterWeak { t.Fatal("inconclusive bytes trained model") }
     for i:=0;i<5;i++ { zapret2Neural.learn(host, "tlsrec-split", adaptivePayloadThreshold) }
     zapret2Neural.mu.Lock()
-    afterSuccess,_ := nnForward(zapret2Neural.weights, host, 5, false)
+    afterSuccess,_ := nnForward(zapret2Neural.weights, host, 5, false, zapret2Neural.network)
     zapret2Neural.mu.Unlock()
     if afterSuccess <= start { t.Fatal("traffic success failed to raise estimate") }
     for i:=0;i<8;i++ { zapret2Neural.learn(host, "tlsrec-split", 0) }
     zapret2Neural.mu.Lock()
-    afterFail,_ := nnForward(zapret2Neural.weights, host, 5, false)
+    afterFail,_ := nnForward(zapret2Neural.weights, host, 5, false, zapret2Neural.network)
     zapret2Neural.mu.Unlock()
     if afterFail >= afterSuccess { t.Fatal("empty downstream did not lower estimate") }
 }
 
 func TestNeuralNetworkClassFeaturesCannotLeakCarrierIdentity(t *testing.T) {
     if err:=ConfigureZapret2NeuralNetwork("MOBILE");err!=nil {t.Fatal(err)}
-    f:=nnFeatures("www.youtube.com",false)
+    f:=nnFeatures("www.youtube.com",false,zapret2Neural.network)
     if f[6]!=1 || f[7]!=0 {t.Fatal(f)}
     if err:=ConfigureZapret2NeuralNetwork("WIFI");err!=nil {t.Fatal(err)}
-    f=nnFeatures("www.youtube.com",false)
+    f=nnFeatures("www.youtube.com",false,zapret2Neural.network)
     if f[6]!=0 || f[7]!=1 {t.Fatal(f)}
     if err:=ConfigureZapret2NeuralNetwork("carrier-name");err==nil {t.Fatal("carrier identity accepted")}
     if err:=ConfigureZapret2NeuralNetwork("UNKNOWN");err!=nil {t.Fatal(err)}
-    f=nnFeatures("www.youtube.com",false)
+    f=nnFeatures("www.youtube.com",false,zapret2Neural.network)
     if math.Abs(f[6])+math.Abs(f[7])!=0 {t.Fatal(f)}
 }
 
@@ -394,8 +398,8 @@ func TestStrategyV5IndependentContextHeads(t *testing.T) {
             for _,host:=range hosts {
                 q:=strings.HasPrefix(host,"udp:")
                 zapret2Neural.mu.Lock()
-                score,_:=nnForward(zapret2Neural.weights,host,2,q)
-                if q {score,_=nnForward(zapret2Neural.weights,host,6,q)}
+                score,_:=nnForward(zapret2Neural.weights,host,2,q,zapret2Neural.network)
+                if q {score,_=nnForward(zapret2Neural.weights,host,6,q,zapret2Neural.network)}
                 zapret2Neural.mu.Unlock()
                 out=append(out,score)
             }
