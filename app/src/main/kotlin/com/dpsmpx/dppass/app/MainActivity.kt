@@ -130,11 +130,6 @@ class MainActivity : Activity(), Host {
         scope.launch { TunnelState.ipv6.collect { changed() } }
     }
 
-    override fun onResume() {
-        super.onResume()
-        updates.resumeAfterPermission()
-    }
-
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -608,6 +603,7 @@ class MainActivity : Activity(), Host {
         super.onResume()
         (stack.lastOrNull() ?: tabs[tab]).onShown()
         changed()
+        updates.resumeAfterPermission()
     }
 
     override fun onPause() {
