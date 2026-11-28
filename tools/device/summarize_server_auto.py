@@ -33,6 +33,11 @@ class Observation:
     attempted_moved: int
     first: str
     first_moved: bool
+    candidates: int
+    attempted: int
+    successes: int
+    failures: int
+    unmeasured: int
 
 
 @dataclass
@@ -68,11 +73,26 @@ class Cohort:
     moved_first: FirstAttempts = field(default_factory=FirstAttempts)
     planned_moved: int = 0
     attempted_moved: int = 0
+    plans: int = 0
+    candidates: int = 0
+    attempted: int = 0
+    successes: int = 0
+    failures: int = 0
+    unmeasured: int = 0
+    unchanged_first: FirstAttempts = field(default_factory=FirstAttempts)
 
     def add(self, observation):
         self.first.add(observation.first)
+        self.plans += 1
+        self.candidates += observation.candidates
+        self.attempted += observation.attempted
+        self.successes += observation.successes
+        self.failures += observation.failures
+        self.unmeasured += observation.unmeasured
         if observation.first_moved:
             self.moved_first.add(observation.first)
+        else:
+            self.unchanged_first.add(observation.first)
         self.planned_moved += observation.planned_moved
         self.attempted_moved += observation.attempted_moved
 
@@ -137,7 +157,8 @@ def parse_observation(parts):
           or (first == "MEASURED_FAILURE" and not failures)):
         raise ValueError("несогласованный исход первой попытки")
 
-    return Observation(context, scored, planned_moved, attempted_moved, first, first_moved)
+    return Observation(context, scored, planned_moved, attempted_moved, first, first_moved,
+                       candidates, attempted, successes, failures, unmeasured)
 
 
 def select_lines(text):
@@ -235,6 +256,44 @@ def render(totals):
     return "\n".join(rows)
 
 
+def fraction(numerator, denominator):
+    return f"{numerator}/{denominator} ({100 * numerator / denominator:.1f}%)" if denominator else "0/0 (—)"
+
+
+def render_coverage(totals):
+    rows = [
+        "### Полнота измерений по контекстам",
+        "",
+        "| Контекст | Группа | Планов с кандидатами | Испробовано/допущено | "
+        "Измерено/испробовано | Успехи/измерено | Без измерения | "
+        "Первых измерено/зафиксировано | Первые без перестановки, успехи/измерено |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for context in CONTEXTS:
+        for scored in (False, True):
+            cohort = totals.get((context, scored))
+            if cohort is None:
+                continue
+            measured = cohort.successes + cohort.failures
+            first_total = cohort.first.measured + cohort.first.unmeasured
+            group = "V4" if scored else "Штатный"
+            rows.append(
+                f"| {context} | {group} | {cohort.plans} | "
+                f"{fraction(cohort.attempted, cohort.candidates)} | "
+                f"{fraction(measured, cohort.attempted)} | "
+                f"{fraction(cohort.successes, measured)} | {cohort.unmeasured} | "
+                f"{fraction(cohort.first.measured, first_total)} | {cohort.unchanged_first.render()} |"
+            )
+    rows.extend((
+        "",
+        "V4 означает наличие оценки модели, а не обязательную перестановку. "
+        "Доли описывают наблюдения, не доказывают преимущество модели. "
+        "Кандидаты повторно учитываются в разных планах; сравнивать следует "
+        "сопоставимые серии в одной сети и с тем же набором кандидатов.",
+    ))
+    return "\n".join(rows)
+
+
 def read_log(path):
     with path.open("rb") as stream:
         raw = stream.read(MAX_INPUT + 1)
@@ -254,6 +313,10 @@ def main(argv=None):
             scored, scored_notes = read_log(args.scored_log)
             observations = [row for row in observations if not row.scored] + [row for row in scored if row.scored]
             notes = [f"Штатный план · {note}" for note in notes] + [f"V4 · {note}" for note in scored_notes]
+            if not any(not row.scored for row in observations):
+                notes.append("в первом экспорте нет событий штатного плана")
+            if not any(row.scored for row in observations):
+                notes.append("во втором экспорте нет событий с оценкой V4")
     except (OSError, UnicodeError):
         print("Не удалось прочитать журнал в UTF-8.", file=sys.stderr)
         return 2
@@ -266,7 +329,10 @@ def main(argv=None):
             print(note, file=sys.stderr)
         print("В выбранном фрагменте нет событий server_auto_outcome.", file=sys.stderr)
         return 1
-    print(render(summarize(observations)))
+    totals = summarize(observations)
+    print(render(totals))
+    print()
+    print(render_coverage(totals))
     if notes:
         print()
         for note in notes:
