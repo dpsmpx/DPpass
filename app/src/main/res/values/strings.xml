@@ -1038,4 +1038,16 @@
     <string name="model_cleanup_changed">The file list or contents changed. Nothing deleted. Review again.</string>
     <string name="model_cleanup_done">Deleted: %1$d files; %2$d bytes. Failed: %3$d.</string>
     <string name="model_cleanup_failed_files">Files not deleted:</string>
+    <string name="dpts_archive_title">Saved diagnostic reports</string>
+    <string name="dpts_archive_save">Save current report to archive</string>
+    <string name="dpts_archive_saved">Report saved locally</string>
+    <string name="dpts_archive_failed">Report not saved. Archive limit: 20 reports; maximum 128 KiB per text or CSV file.</string>
+    <string name="dpts_archive_unavailable">Archive unavailable or report changed</string>
+    <string name="dpts_archive_empty">No saved reports</string>
+    <string name="dpts_archive_view">View archived report</string>
+    <string name="dpts_archive_copy">Copy archived report</string>
+    <string name="dpts_archive_copied">Archived report copied</string>
+    <string name="dpts_archive_delete">Delete archived report</string>
+    <string name="dpts_archive_delete_confirm">Permanently delete this saved report and its CSV? Current results, scripts and models are not changed.</string>
+    <string name="dpts_archive_deleted">Archived report deleted</string>
 </resources>

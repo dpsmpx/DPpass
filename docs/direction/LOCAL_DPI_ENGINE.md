@@ -1297,3 +1297,8 @@ Android CI caught a stale V4 assertion in DptsScriptTest; updated the expected V
 ## Model storage — explicit obsolete-file cleanup
 
 The author rejects compatibility with obsolete strategy formats. Settings now previews known retired strategy V1–V4 at strategy-v2.json, retired provider V1–V3 at server-v1.json, and orphaned .model-*.pending writes (numeric temp names only). The current strategy V5 and provider V4 are protected; unknown, malformed, oversized and symlink entries are not swept. The preview lists exact names, reasons and byte lengths and requires explicit confirmation. The same model storage lock protects scanning/deletion; a new scan compares the complete preview including SHA-256 and each file is checked again before deletion. No migration, recursive cleanup, subscription or settings deletion. Individual failures and logical bytes removed are shown. CI pending.
+
+
+## A7 — explicit local DPTS report archive
+
+The Files and sharing menu can explicitly save the current published diagnostic report and matching CSV (if available) to an app-private no-backup archive. Up to 20 records, bounded at 128 KiB per UTF-8 field, no automatic eviction, no automatic collection. Open, view, copy, share, export TXT/CSV or individually delete with confirmation. Archived data is read-only and cannot become live evidence or a training input. One versioned record holds both exports; unknown or damaged records are not interpreted. Existing clipboard workflow, script storage, models and provider data remain unchanged. CI pending.
