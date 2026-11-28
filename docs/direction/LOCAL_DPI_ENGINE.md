@@ -1264,3 +1264,8 @@ Add an explicit Append stage action in the existing DPTS workspace. A valid matr
 ## A7/A8 — offline local fixtures
 
 The same four fixed HTTP/TLS DPTS suites may now be launched with the tunnel in Idle, without an underlying network handle. Offline ownership uses the Idle status revision and native generation, never a provider network identity. Only allowlisted method/target pairs of fixed local suites enter JNI in this mode. Start/stop or generation changes invalidate the run; remote matrices and training retain the active protected-session requirement. Reports remain compatible with the existing local acceptance verifier. No routing, model, signature or subscription changes. Android CI and disconnected-device execution are pending.
+
+
+## A5/A7 — portable three-record TLS chain
+
+The common portable library can encode a complete first TLS record as three records while preserving all handshake and trailing bytes. `tlsrec-chain` is restricted in the socket executor to the fixed, certificate-verified loopback TLS 1.2/1.3 fixture. The shared planner and Alpine IPC use the same deterministic encoding. A separate DPTS preset runs disconnected or in the existing active diagnostic mode. The nine-case candidate acceptance suite, reference native encoder, ordinary AUTO, and model layout are unchanged. This is not an upstream-equivalence or remote-network claim. CI and physical acceptance pending.

@@ -93,6 +93,7 @@ object DptsScript {
         "local_http_hostcase" to "example.com",
         "local_http_combined" to "example.com",
         "local_tls" to "example.com",
+        "local_tls_chain" to "example.com",
         "local_acceptance" to "example.com",
     )
     val suites: Set<String> = suiteHosts.keys
@@ -182,7 +183,7 @@ object DptsScript {
                     val fixedHost = suiteHosts[id]
                     if (fixedHost != null && currentHost != fixedHost)
                         throw DptsCompileException(lineNo, "this suite requires $fixedHost")
-                    if (id in setOf("local_http_hostcase", "local_http_combined", "local_tls", "local_acceptance") && observe)
+                    if (id in setOf("local_http_hostcase", "local_http_combined", "local_tls", "local_tls_chain", "local_acceptance") && observe)
                         throw DptsCompileException(lineNo, "local self-test cannot provide learning evidence")
                     suite = id
                 }
@@ -300,6 +301,7 @@ object DptsScript {
             "local_http_hostcase" -> 15000L
             "local_http_combined" -> 10000L
             "local_tls" -> 30000L
+            "local_tls_chain" -> 20000L
             "local_acceptance" -> 45000L
             else -> budget
         }, observe, suite)
@@ -556,6 +558,13 @@ object DptsPresets {
             host example.com
             learn off
             suite local_tls
+        """.trimIndent(),
+        "TLS · цепочка из трёх записей" to """
+            dpts 1
+            name Local TLS three-record chain
+            host example.com
+            learn off
+            suite local_tls_chain
         """.trimIndent(),
         "YouTube API · 8 IPv4 H1/H2" to """
             dpts 1

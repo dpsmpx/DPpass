@@ -60,6 +60,8 @@ func TestLocalDiagnosticsThroughSelectedPlannerIPC(t *testing.T) {
         {"local_tls13","multisplit","local_tls_verified"},
         {"local_tls12","tlsrec-split","local_tls_verified"},
         {"local_tls13","tlsrec-split","local_tls_verified"},
+        {"local_tls12","tlsrec-chain","local_tls_verified"},
+        {"local_tls13","tlsrec-chain","local_tls_verified"},
     } {
         r:=ProbeZapret2HTTPS(tc.method,tc.target,5*time.Second)
         expected:=int64(1)
@@ -73,6 +75,7 @@ func TestLocalDiagnosticsThroughSelectedPlannerIPC(t *testing.T) {
     if calls[zapret2.TagPrefix+"http-hostows"]!=1 ||
         calls[zapret2.TagPrefix+"http-host-combined"]!=1 ||
         calls[zapret2.TagPrefix+"multisplit"]!=2 ||
+        calls[zapret2.TagPrefix+"tlsrec-chain"]!=2 ||
         calls[zapret2.TagPrefix+"plain"]!=0 {
         t.Fatal("unexpected IPC requests",calls)
     }

@@ -16,7 +16,7 @@ func TestLocalTLSNativeEntryMatrix(t *testing.T) {
     t.Cleanup(func(){_ = zapret2.SetPlannerSocket(prev)})
     before,skips:=DesyncStats()
     for _,target:=range []string{"local_tls12","local_tls13"} {
-        for _,method:=range []string{"plain","multisplit","tlsrec-split"} {
+        for _,method:=range []string{"plain","multisplit","tlsrec-split","tlsrec-chain"} {
             t.Run(target+"/"+method,func(t *testing.T){
                 result:=ProbeZapret2HTTPS(method,target,5*time.Second)
                 expected:=int64(1)
@@ -48,6 +48,9 @@ func TestLocalTLSDoesNotFallbackWhenSelectedPlannerUnavailable(t *testing.T) {
     if err:=zapret2.SetPlannerSocket(filepath.Join(t.TempDir(),"missing.sock"));err!=nil {t.Fatal(err)}
     t.Cleanup(func(){_ = zapret2.SetPlannerSocket(prev)})
     if r:=ProbeZapret2HTTPS("plain","local_tls13",5*time.Second);r.Outcome!="local_tls_verified" {t.Fatal(r)}
+    if r:=ProbeZapret2HTTPS("tlsrec-chain","local_tls13",5*time.Second);r.Outcome=="local_tls_verified" {
+        t.Fatal("chain bypassed unavailable selected planner")
+    }
     // multisplit always uses the selected external planner, including native-tag builds.
     if r:=ProbeZapret2HTTPS("multisplit","local_tls13",5*time.Second);r.Outcome=="local_tls_verified" {
         t.Fatal("unavailable selected planner reported success")

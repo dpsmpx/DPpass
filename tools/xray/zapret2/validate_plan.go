@@ -22,6 +22,10 @@ func validatePlan(tag,network string,first []byte,p Plan) error {
     if mode.Kind==MultiSplit && network=="tcp" {
         _,expectedCut2,_=multiSplitPositions(first)
     }
+    if mode.Kind==TLSRecordChain && network=="tcp" {
+        _,b,ok:=localTLSRecordChainPositions(first)
+        if ok {expectedCut2=10+b}
+    }
     if p.Applied!=expectedApplied || p.Cut!=expectedCut || p.Cut2!=expectedCut2 {
         return errors.New("planner action does not match requested method")
     }
@@ -69,6 +73,15 @@ func validatePlan(tag,network string,first []byte,p Plan) error {
         }
         return nil
     }
+    if mode.Kind==TLSRecordChain {
+        a,b,ok:=localTLSRecordChainPositions(first)
+        if !ok {return errors.New("ineligible TLS chain")}
+        expected,_,_,ok:=localdpi.EncodeTLSRecordChain(first,a,b)
+        if !ok || len(p.Fake)!=0 || !bytes.Equal(expected,p.Rewrite) {
+            return errors.New("invalid TLS record chain")
+        }
+        return nil
+    }
     if mode.Kind==TLSRecordSplit {
         if len(p.Fake)!=0 || !localdpi.PreservesTLSRecords(first,p.Rewrite,p.Cut) {
             return errors.New("invalid TLS record rewrite")
@@ -110,6 +123,10 @@ func expectedPlanAction(mode Mode,network string,first []byte) (int,bool) {
     case HTTPHostCase:
         _,_,ok:=localdpi.HTTPHostRange(first)
         return 0,ok
+    case TLSRecordChain:
+        a,_,ok:=localTLSRecordChainPositions(first)
+        if !ok {return 0,false}
+        return 5+a,true
     case TLSRecordSplit:
         _,split,ok:=tlsRecordSplitPosition(first)
         if !ok {return 0,false}
