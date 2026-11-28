@@ -93,6 +93,7 @@ const (
     desyncMultiSplit desyncKind = 10
     desyncHTTPHostOWS desyncKind = 11
     desyncHTTPHostCombined desyncKind = 12
+    desyncTLSRecordChain desyncKind = 13
 )
 
 type desyncMode struct {
@@ -173,6 +174,7 @@ func parseDesyncTag(tag string) (desyncMode, bool, error) {
     case zapret2.SplitSecond: return desyncMode{kind: desyncSplitSecond}, true, nil
     case zapret2.MultiSplit: return desyncMode{kind: desyncMultiSplit}, true, nil
     case zapret2.TLSRecordSplit: return desyncMode{kind: desyncTLSRecordSplit}, true, nil
+    case zapret2.TLSRecordChain: return desyncMode{kind: desyncTLSRecordChain}, true, nil
     case zapret2.HTTPHostCase: return desyncMode{kind: desyncHTTPHostCase}, true, nil
     case zapret2.HTTPHostOWS: return desyncMode{kind: desyncHTTPHostOWS}, true, nil
     case zapret2.HTTPHostCombined: return desyncMode{kind: desyncHTTPHostCombined}, true, nil
@@ -247,6 +249,10 @@ func (d *desyncDialer) Dial(ctx context.Context, src xnet.Address, dest xnet.Des
 	}
     // The new HTTP method is available only to an explicitly owned
     // diagnostic request, never a live subscription or AUTO candidate.
+    if mode.kind==desyncTLSRecordChain {
+        _=conn.Close()
+        return nil,errors.New("TLS record chain requires fixed local fixture")
+    }
     if (mode.kind == desyncHTTPHostCase || mode.kind == desyncHTTPHostOWS || mode.kind == desyncHTTPHostCombined || mode.kind == desyncMultiSplit) && (!diagnostic || request == nil || dest.Network != xnet.Network_TCP) {
         recordDesyncSkipped(diagnostic,request)
         _ = conn.Close()
@@ -609,6 +615,15 @@ func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
             return 0,errors.New("combined HTTP operation requires fixed loopback fixture")
         }
     }
+    if c.mode.kind==desyncTLSRecordChain {
+        local,lok:=c.LocalAddr().(*net.TCPAddr)
+        remote,rok:=c.RemoteAddr().(*net.TCPAddr)
+        if !c.localTLSFixture || !c.diagnostic || c.request==nil || !lok || !rok ||
+            !local.IP.IsLoopback() || !remote.IP.IsLoopback() {
+            c.plannerErr=errors.New("TLS record chain outside fixed local fixture")
+            return 0,c.plannerErr
+        }
+    }
     var plan zapret2.Plan
     var err error
     if c.localTLSFixture && c.mode.kind==desyncTLSRecordSplit {
@@ -632,7 +647,7 @@ func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
     if c.lifetimeContext().Err()!=nil {return 0,net.ErrClosed}
     matched = tcpPlanMatchesSelection(selected, plan)
     if !plan.Applied {
-        if c.localTLSFixture && c.mode.kind==desyncTLSRecordSplit {
+        if c.localTLSFixture && (c.mode.kind==desyncTLSRecordSplit || c.mode.kind==desyncTLSRecordChain) {
             c.plannerErr=errors.New("local TLS fixture plan was not applied")
             recordDesyncSkipped(c.diagnostic,c.request)
             return 0,c.plannerErr
@@ -668,6 +683,24 @@ func (c *desyncConn) desyncFirst(b []byte) (written int, writeErr error) {
         }
         recordDesyncApplied(c.diagnostic,c.request)
         return n,nil
+    }
+    if c.mode.kind==desyncTLSRecordChain {
+        if len(plan.Rewrite)!=len(b)+10 || plan.Cut<=9 ||
+            plan.Cut2<=plan.Cut+5 || plan.Cut2>=len(plan.Rewrite)-5 {
+            c.plannerErr=errors.New("invalid TLS chain bounds")
+            return 0,c.plannerErr
+        }
+        for _,part:=range [][]byte{plan.Rewrite[:plan.Cut],plan.Rewrite[plan.Cut:plan.Cut2],plan.Rewrite[plan.Cut2:]} {
+            n,err:=c.TCPConn.Write(part)
+            if err!=nil || n!=len(part) {
+                if err==nil {err=io.ErrShortWrite}
+                c.plannerErr=err
+                recordDesyncSkipped(c.diagnostic,c.request)
+                return 0,err
+            }
+        }
+        recordDesyncApplied(c.diagnostic,c.request)
+        return len(b),nil
     }
     if c.mode.kind == desyncTLSRecordSplit {
         if len(plan.Rewrite) != len(b)+5 || plan.Cut < 9 || plan.Cut >= len(plan.Rewrite)-5 {
@@ -731,6 +764,7 @@ func modeTag(m desyncMode) string {
     case desyncSplitSecond: return zapret2.TagPrefix + "split-2"
     case desyncMultiSplit: return zapret2.TagPrefix + "multisplit"
     case desyncTLSRecordSplit: return zapret2.TagPrefix + "tlsrec-split"
+    case desyncTLSRecordChain: return zapret2.TagPrefix + "tlsrec-chain"
     case desyncPass: return zapret2.TagPrefix + "pass"
     case desyncHTTPHostCase: return zapret2.TagPrefix + "http-hostcase"
     case desyncHTTPHostOWS: return zapret2.TagPrefix + "http-hostows"

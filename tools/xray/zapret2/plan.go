@@ -64,6 +64,13 @@ func buildPlan(tag, network string, first []byte, diagnostic bool) (Plan,error) 
             }
             return p, nil
         }
+        if mode.Kind == TLSRecordChain {
+            a,b,ok:=localTLSRecordChainPositions(first)
+            if ok {
+                p.Rewrite,p.Cut,p.Cut2,p.Applied=localdpi.EncodeTLSRecordChain(first,a,b)
+            } else {p.Reason="complete fixed local TLS ClientHello required"}
+            return p,nil
+        }
         if mode.Kind == TLSRecordSplit {
             if payload, cut, ok := splitTLSRecordClientHello(first,diagnostic); ok {
                 p.Applied = true

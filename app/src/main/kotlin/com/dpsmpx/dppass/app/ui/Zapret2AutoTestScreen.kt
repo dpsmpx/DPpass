@@ -342,6 +342,7 @@ class Zapret2AutoTestScreen(host: Host) : SubScreen(host, R.string.zapret2_autot
             "local_http_hostcase" -> startLocalHttpHostCase()
             "local_http_combined" -> startLocalSuite(DptsLocalSuite.HTTP_COMBINED)
             "local_tls" -> startLocalTLS()
+            "local_tls_chain" -> startLocalSuite(DptsLocalSuite.TLS_CHAIN)
             "local_acceptance" -> startLocalSuite(DptsLocalSuite.ACCEPTANCE)
             else -> {
                 statusText.text = context.getString(R.string.dpts_suite_unsupported)

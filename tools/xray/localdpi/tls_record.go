@@ -32,3 +32,22 @@ func EncodeTLSRecordSplit(first []byte, recordLen, split int) ([]byte,int,bool) 
     rewritten=append(rewritten,first[5+recordLen:]...)
     return rewritten,firstRecordEnd,true
 }
+
+// EncodeTLSRecordChain creates three records from a complete first record.
+// Positions are payload offsets, not packet offsets. Trailing bytes are
+// preserved; no input aliases the result.
+func EncodeTLSRecordChain(first []byte, a,b int) ([]byte,int,int,bool) {
+    n,ok:=CompleteTLSClientHelloRecordLen(first)
+    if !ok || a<=4 || b<=a || b>=n {return nil,0,0,false}
+    out:=make([]byte,0,len(first)+10)
+    prev:=0
+    for _,end:=range []int{a,b,n} {
+        size:=end-prev
+        out=append(out,first[:3]...)
+        out=append(out,byte(size>>8),byte(size))
+        out=append(out,first[5+prev:5+end]...)
+        prev=end
+    }
+    out=append(out,first[5+n:]...)
+    return out,5+a,10+b,true
+}

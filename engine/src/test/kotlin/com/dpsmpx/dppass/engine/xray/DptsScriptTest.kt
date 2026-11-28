@@ -217,7 +217,7 @@ class DptsScriptTest {
     }
 
     @Test fun allBundledPresetsCompileToBoundedPublicTargets() {
-        assertEquals(22, DptsPresets.scripts.size)
+        assertEquals(23, DptsPresets.scripts.size)
         for ((name, script) in DptsPresets.scripts) {
             val plan = DptsScript.compile(script)
             assertEquals(name.isNotBlank(), plan.title.isNotBlank())
@@ -328,7 +328,7 @@ class DptsScriptTest {
         for (id in DptsScript.suites) {
             val host = when (id) {
                 "google_youtube" -> "www.google.com"
-                "local_http_hostcase", "local_http_combined", "local_tls", "local_acceptance" -> "example.com"
+                "local_http_hostcase", "local_http_combined", "local_tls", "local_tls_chain", "local_acceptance" -> "example.com"
                 "site_https", "site_quic" -> "example.org"
                 else -> "youtubei.googleapis.com"
             }

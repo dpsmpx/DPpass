@@ -49,6 +49,7 @@ func probeLocalTLS(method,target string,timeout time.Duration) Zapret2HTTPSResul
     case "plain":
     case "multisplit":mode=desyncMultiSplit
     case "tlsrec-split":mode=desyncTLSRecordSplit
+    case "tlsrec-chain":mode=desyncTLSRecordChain
     default:return out
     }
     var version uint16

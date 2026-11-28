@@ -32,7 +32,7 @@ internal object DptsCsv {
         for ((index, spec) in plan.probes.withIndex()) {
             val row = rows.getOrNull(index)
             val matched = row != null && validDns && DptsScript.rowMatchesPreparation(spec, row, prepared)
-            val result = if (matched) row?.result else null
+            val result = if (matched) row.result else null
             val binding = if (row == null) "missing" else if (matched) "matched" else "unbound"
             val bounded = result?.let { spec.boundedHttpsSuccess(it) && plan.host != Zapret2SiteSearch.YOUTUBE_API_HOST }
             val fields = listOf("dpts1", state, interruption?.wire.orEmpty(), token(network), token(plan.host),
