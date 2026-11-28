@@ -955,7 +955,7 @@
     <string name="dpts_incomplete_report">DPTS остановлен: сеть изменилась, нативная проверка не выполнена или истёк срок теста. Неполные результаты не выдаются за завершённый отчёт.</string>
     <string name="dpts_stopped">DPTS остановлен: сеть изменилась или срок теста истёк</string>
     <string name="dpts_copied">DPTS завершён. Журнал автоматически скопирован.</string>
-    <string name="dpts_unified_note">Единый редактор защищённых диагностик. Выбери пресет или вставь/измени скрипт DPTS/1, сохрани, запусти, останови или обучи локальную нейросеть только после повторных подтверждённых HTTPS-ответов. Журнал копируется автоматически.</string>
+    <string name="dpts_unified_note">Единый редактор защищённых диагностик. Выбери пресет или вставь/измени скрипт DPTS/1, сохрани, запусти, останови или обучи локальную нейросеть только после повторных подтверждённых HTTPS-ответов. Журнал копируется автоматически. Локальные HTTP/TLS-пресеты работают и без VPN или Интернета.</string>
     <string name="dpts_personal_label">Мой: %1$s</string>
     <string name="dpts_delete_script">Удалить сохранённый скрипт</string>
     <string name="dpts_delete_confirm">Удалить сохранённый скрипт %1$s? Текст в редакторе останется.</string>
@@ -1032,4 +1032,5 @@
     <string name="servers_no_favorites">Нет избранных серверов. Нажмите звёздочку рядом с сервером.</string>
     <string name="servers_add_favorite">Добавить сервер в избранное</string>
     <string name="servers_remove_favorite">Убрать сервер из избранного</string>
+    <string name="dpts_connection_or_local">Для удалённых проб подключите Zapret2 VpnService, либо выберите локальный HTTP/TLS-пресет при отключённом VPN.</string>
 </resources>

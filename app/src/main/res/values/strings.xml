@@ -926,7 +926,7 @@
     <string name="dpts_incomplete_report">DPTS stopped: network changed, native execution failed, or time limit expired. Partial diagnostics are not submitted as complete.</string>
     <string name="dpts_stopped">DPTS stopped: network changed or diagnostic expired</string>
     <string name="dpts_copied">DPTS complete. Redacted log automatically copied.</string>
-    <string name="dpts_unified_note">One script editor for all protected diagnostics. Choose a preset or paste/edit your own DPTS/1 text; save drafts, run, stop, and train the installed local strategy neural model only after strong, repeated verified HTML evidence. The report auto-copies.</string>
+    <string name="dpts_unified_note">One script editor for all protected diagnostics. Choose a preset or paste/edit your own DPTS/1 text; save drafts, run, stop, and train the installed local strategy neural model only after strong, repeated verified HTML evidence. The report auto-copies. Fixed local HTTP/TLS presets also run without a VPN or Internet connection.</string>
     <string name="dpts_personal_label">My: %1$s</string>
     <string name="dpts_delete_script">Delete saved script</string>
     <string name="dpts_delete_confirm">Delete saved script %1$s? The editor text is retained.</string>
@@ -1003,4 +1003,5 @@
     <string name="servers_no_favorites">No favorites yet. Tap a star beside a server.</string>
     <string name="servers_add_favorite">Add server to favorites</string>
     <string name="servers_remove_favorite">Remove server from favorites</string>
+    <string name="dpts_connection_or_local">Connect experimental Zapret2 VpnService for remote probes, or select a fixed local HTTP/TLS preset while disconnected.</string>
 </resources>
