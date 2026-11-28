@@ -1,0 +1,13 @@
+<resources>
+    <string name="dpts_builder_title">Visual script builder</string>
+    <string name="dpts_builder_protocol">Choose protocol</string>
+    <string name="dpts_builder_name">Script title</string>
+    <string name="dpts_builder_host">Public DNS hostname</string>
+    <string name="dpts_builder_ips">Number of IPv4 addresses</string>
+    <string name="dpts_builder_attempts">Attempts per combination</string>
+    <string name="dpts_builder_timeout">Timeout per attempt (ms)</string>
+    <string name="dpts_builder_methods">Methods</string>
+    <string name="dpts_builder_observe">Collect observations for optional later learning</string>
+    <string name="dpts_builder_summary">%1$d probes · up to %2$d seconds of socket time</string>
+    <string name="dpts_builder_insert">Insert into editor</string>
+</resources>
